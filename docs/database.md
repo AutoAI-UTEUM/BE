@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 논리 설계 초안 |
-| 마지막 갱신 | 2026-07-20 |
+| 마지막 갱신 | 2026-07-21 |
 | DB | MySQL |
-| Migration | Flyway 또는 Liquibase — TBD |
+| Migration | Flyway (DEC-003 Accepted) |
 
 실제 컬럼 타입, 길이, 외래키 삭제 정책은 첫 migration 작성 전에 확정합니다. 아래 이름은 snake_case 기준 초안입니다.
 

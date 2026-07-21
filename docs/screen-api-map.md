@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-07-20 |
+| 마지막 갱신 | 2026-07-21 |
 | 대상 | Frontend · Spring Backend |
 
 ## 1. 화면별 매핑
@@ -76,7 +76,7 @@ FE가 낙관적으로 페이지를 먼저 움직이더라도 실패 시 Spring �
 - 로그인 토큰 저장/갱신 UX
 - PDF 파일 전달·뷰어 연동 방식
 - 메시지와 퀴즈 목록 페이지네이션
-- SSE 이벤트 schema와 heartbeat·취소·`Last-Event-ID` 재연결
+- SSE 이벤트 schema와 heartbeat·취소·`Last-Event-ID` 재연결 (인증은 fetch 스트림 + Authorization 헤더로 확정 — DEC-021)
 - 처리 중 PDF와 AI 장시간 작업 표시
 - 퀴즈 재제출 및 결과 공개 정책
 - 오류별 사용자 문구와 재시도 버튼 정책

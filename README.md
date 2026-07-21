@@ -5,7 +5,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 문서 상태 | 설계 초안 — 구현 시작 전 |
-| 마지막 갱신 | 2026-07-20 |
+| 마지막 갱신 | 2026-07-21 |
 | 기준 아키텍처 | Frontend → Spring Backend → FastAPI AI Server → Gemini API |
 | 현재 저장소 상태 | 문서화 단계이며 애플리케이션 코드는 아직 생성하지 않음 |
 
@@ -79,7 +79,7 @@ flowchart LR
 | 영역 | 기술 |
 | --- | --- |
 | Frontend | React, TypeScript, Vite |
-| Backend | Java 21, Spring Boot, Spring Security, Spring Data JPA, JWT |
+| Backend | Java 21, Spring Boot 4.1.x, Spring Security, Spring Data JPA, JWT, Flyway |
 | AI Server | Python, FastAPI, Gemini API |
 | Database | MySQL |
 | Infra | Docker, Docker Compose, GitHub Actions, AWS |
@@ -88,12 +88,9 @@ flowchart LR
 
 ### 구현 전 확정 필요
 
-- Spring Boot 세부 버전
-- Python 버전과 Gemini 모델
+- Python 버전과 Gemini 모델 (DEC-002)
 - Frontend 상태 관리/UI 라이브러리
-- JWT refresh token 정책과 저장·폐기 방식
 - PDF 파일 저장소와 페이지 텍스트 추출 책임
-- Flyway 또는 Liquibase
 - AWS 세부 서비스, 배포 토폴로지, 도메인/HTTPS 구성
 - 테스트 보조 도구와 Testcontainers 도입 여부
 - 라이선스
@@ -136,6 +133,8 @@ EDUPILOT_DB_USERNAME
 EDUPILOT_DB_PASSWORD
 EDUPILOT_AI_BASE_URL
 EDUPILOT_JWT_SECRET
+EDUPILOT_INTERNAL_TOKEN
+EDUPILOT_CORS_ALLOWED_ORIGINS
 
 # FastAPI AI Server
 GEMINI_API_KEY
