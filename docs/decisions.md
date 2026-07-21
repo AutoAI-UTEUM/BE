@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | Open |
-| 마지막 갱신 | 2026-07-20 |
+| 마지막 갱신 | 2026-07-21 |
 
 확정된 선택은 날짜, 결정자, 이유를 기록하고 관련 문서를 함께 갱신합니다. 마감일은 팀 일정 확정 후 입력합니다.
 
@@ -11,10 +11,7 @@
 
 | ID | 결정 항목 | 현재 후보/질문 | 영향 | 소유자 | 목표 시점 |
 | --- | --- | --- | --- | --- | --- |
-| DEC-001 | Spring Boot 버전 | Java 21 호환 안정 버전 | 전체 Backend | Backend | 프로젝트 생성 전 |
 | DEC-002 | Python/Gemini 버전 | Python 버전, 모델명, 지원 기능 | AI 계약/비용 | AI | AI 프로젝트 생성 전 |
-| DEC-003 | Migration 도구 | Flyway vs Liquibase | DB/배포 | Backend | 첫 schema 전 |
-| DEC-004 | JWT 정책 | access 만료, refresh 저장·회전·폐기 | 보안/FE | Backend+FE | Auth 구현 전 |
 | DEC-005 | PDF 저장소 | 로컬/오브젝트 스토리지, 인증 다운로드 | Material/Infra | Backend+Infra | 업로드 구현 전 |
 | DEC-006 | PDF 텍스트 추출 | Spring, Python worker, FastAPI 중 책임 | Material/AI | Backend+AI | 자료 처리 구현 전 |
 | DEC-007 | PK/외부 ID | BIGINT vs UUID/별도 public ID | API/DB | Backend | 첫 migration 전 |
@@ -24,12 +21,9 @@
 | DEC-011 | 평가 큐 | 최대 개수, 보관/정리 방식 | AI 문맥/DB | Backend+AI | Assessment 구현 전 |
 | DEC-012 | 메모리 승격 | 반복 횟수/근거/감사 이력 | 개인화 | Product+AI+BE | Memory 구현 전 |
 | DEC-013 | 스트리밍 (Accepted) | 전송 방식은 SSE로 **확정** — 아래 확정 기록 참조. 이 표에는 세부 계약(이벤트·취소/재연결·저장 시점)의 잔여 합의만 남음 | FE/BE/AI | 전 팀 | AI 턴 계약 구현 전 |
-| DEC-021 | SSE 인증 방식 | EventSource는 Authorization 헤더 불가 — 쿠키 vs 단기 서명 쿼리 토큰 vs fetch 기반 스트림 | 보안/FE/BE | Backend+FE | 스트리밍 구현 전 |
 | DEC-024 | 활성 세션 재사용 | 같은 자료로 세션 생성 시 기존 ACTIVE 세션 재사용 vs 항상 신규 생성 | Session/UX | Backend+FE | Session 구현 전 |
 | DEC-025 | 페이지 텍스트 API 노출 | `GET .../pages/{pageNumber}` 운영 노출 여부 — 보안·저작권 검토 | 보안/저작권 | Product+Backend | 자료 API 구현 전 |
-| DEC-027 | CORS 정책 | FE(`localhost:5173`)↔Spring(`8080`) 교차 출처 — 허용 오리진, 자격 증명, SSE 인증(DEC-021)과 연계 | 보안/FE/BE | Backend+FE | FE-BE 연동 전 |
 | DEC-028 | 회원 탈퇴·자료 삭제 경로 | User/Material의 DELETED(논리 삭제) 상태에 도달하는 기능·API 범위 — 현재는 상태만 정의되고 경로 없음 | 범위/DB | Product+Backend | MVP 범위 확정 시 |
-| DEC-014 | 내부 API 보안 | 사설망, service token, mTLS 등 | 보안/Infra | Backend+AI+Infra | 연동 전 |
 | DEC-015 | API versioning | `/api` vs `/api/v1`, 변경 정책 | 전 클라이언트 | 전 팀 | 첫 외부 API 전 |
 | DEC-016 | 업로드 제한 | 크기, 페이지 수, MIME 검증 | 보안/비용 | Product+Backend | 업로드 구현 전 |
 | DEC-017 | 관리자 범위 | 자료/사용자 관리 상세 | MVP 범위 | Product | 관리자 구현 전 |
@@ -38,6 +32,66 @@
 | DEC-020 | 라이선스 | 오픈소스/비공개 | 배포/공개 | 팀 | 저장소 공개 전 |
 
 ## 확정된 기본안
+
+### DEC-001 — Spring Boot 버전
+
+- 상태: Accepted (조건부)
+- 결정일: 2026-07-21
+- 결정자: 한승준 (Backend)
+- 선택: Spring Boot 4.1.x 최신 패치 + Java 21.
+- 이유: 2026-07 기준 최신 안정 버전이며 OSS 지원 기간(2027-07-31)이 가장 길다. 4.0은 2026-12 OSS 지원 종료, 3.5는 이미 종료.
+- 대안과 trade-off: 4.0.x는 검증 기간이 길지만 지원 종료가 임박. 초기 세팅에서 핵심 의존성(springdoc-openapi, JJWT 등) 호환 문제가 발생하면 4.0.x 최신 패치로 하향한다.
+- 후속 변경 문서: README §4 기술 스택, backend-plan §1
+
+### DEC-003 — Migration 도구
+
+- 상태: Accepted
+- 결정일: 2026-07-21
+- 결정자: 한승준 (Backend)
+- 선택: Flyway (Community).
+- 이유: SQL 파일 기반이라 database.md의 DDL 초안 이전이 쉽고 Spring Boot 통합·학습 곡선이 최소. rollback은 forward-fix 원칙이라 Liquibase의 선언적 rollback 이점이 작다.
+- 대안과 trade-off: Liquibase는 DB 독립성이 강점이나 MySQL 고정 프로젝트에서 관리 비용만 추가. Flyway Community의 지원 MySQL 버전 범위는 채택 시 확인한다.
+- 후속 변경 문서: README §4, database.md 헤더, backend-plan §4
+
+### DEC-004 — JWT 정책
+
+- 상태: Accepted
+- 결정일: 2026-07-21
+- 결정자: 한승준 (Backend) — FE 연동 세부는 구현 전 FE와 재확인
+- 선택: access token 만료 1시간(FE 메모리 보관, localStorage 금지) + refresh token 만료 14일(HttpOnly·Secure·SameSite=Lax 쿠키, 회전 + 재사용 감지 시 전체 폐기). 서버는 refresh 해시를 DB에 저장해 로그아웃·강제 폐기를 지원한다.
+- 이유: XSS로부터 refresh를 보호하고 탈취 피해를 access 수명(1시간)으로 제한. 쿠키 채택은 DEC-027 CORS credentials 정책과 한 묶음으로 정합.
+- 대안과 trade-off: refresh 미도입은 만료 UX가 나쁘고, body 반환·FE 저장은 XSS 노출면이 커진다.
+- 후속 변경 문서: api-spec §3 로그인 응답, requirements AUTH-005, error-code 갱신 흐름
+
+### DEC-014 — 내부 API 인증
+
+- 상태: Accepted
+- 결정일: 2026-07-21
+- 결정자: 한승준 (Backend)
+- 선택: 네트워크 격리 + 정적 service token 2중 방어. FastAPI는 Docker 내부 네트워크에만 바인딩하고, Spring은 모든 내부 호출에 `X-Internal-Token`(환경 변수 `EDUPILOT_INTERNAL_TOKEN` 주입) 헤더를 첨부하며 FastAPI가 검증한다.
+- 이유: 단일 호스트 Docker Compose 규모에서 충분한 방어이며 구현 부담이 작다.
+- 대안과 trade-off: mTLS는 인증서 운영 부담이 MVP에 과함 — 다중 호스트 전개 시 재검토. 무인증은 설정 실수 한 번에 내부 API 위조가 가능해 배제.
+- 후속 변경 문서: api-spec §8 내부 API 필수 정책, README §6 환경 변수
+
+### DEC-021 — SSE 인증 방식
+
+- 상태: Accepted
+- 결정일: 2026-07-21
+- 결정자: 한승준 (Backend) — FE 구현 방식은 구현 전 FE와 재확인
+- 선택: fetch 기반 스트림. FE는 EventSource 대신 `Accept: text/event-stream`으로 fetch를 호출해 ReadableStream을 파싱하고, 기존 `Authorization: Bearer` 헤더를 그대로 사용한다. 재연결·`Last-Event-ID`는 FE가 처리한다(fetch-event-source 패턴).
+- 이유: 기존 Bearer 인증 체계를 재사용해 추가 서버 작업(쿼리 토큰 발급 등)이 불필요하고, access 토큰 메모리 보관 정책(DEC-004)과 정합.
+- 대안과 trade-off: 단기 서명 쿼리 토큰은 EventSource 자동 재연결을 살리지만 발급 API·URL 노출 마스킹이 추가된다. 쿠키 인증은 권한 모델이 꼬인다.
+- 후속 변경 문서: api-spec §9 SSE 계약, screen-api-map §5
+
+### DEC-027 — CORS 정책
+
+- 상태: Accepted
+- 결정일: 2026-07-21
+- 결정자: 한승준 (Backend) — 운영 오리진은 배포 도메인 확정 시 추가
+- 선택: Spring 전역 `CorsConfigurationSource` 단일 설정. 허용 오리진은 환경 변수 주입(local `http://localhost:5173`, 와일드카드 금지), 메서드 GET/POST/PATCH/DELETE/OPTIONS, 헤더 `Authorization`·`Content-Type`, `allowCredentials=true`(DEC-004 refresh 쿠키 채택), preflight 캐시 3600초.
+- 이유: 컨트롤러별 `@CrossOrigin` 산재를 막고 환경별 오리진을 설정으로 관리. credentials 사용 시 명시 오리진이 필수라 와일드카드를 금지한다.
+- 대안과 trade-off: 오리진 와일드카드는 설정이 쉽지만 credentials와 병용 불가·보안상 부적합.
+- 후속 변경 문서: backend-plan §2, README §6 환경 변수
 
 ### DEC-013 — AI 응답 스트리밍 전송 방식
 

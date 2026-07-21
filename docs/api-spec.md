@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 계약 초안 |
-| 마지막 갱신 | 2026-07-20 |
+| 마지막 갱신 | 2026-07-21 |
 | 외부 호출자 | Frontend |
 | 내부 호출자 | Spring → FastAPI |
 
@@ -119,7 +119,7 @@
 }
 ```
 
-refresh token 필드는 정책 확정 후 추가합니다. 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
+refresh token은 응답 body에 포함하지 않고 `HttpOnly·Secure·SameSite=Lax` 쿠키로 발급합니다(만료 14일, 회전·재사용 감지 — DEC-004 Accepted). access token 만료는 1시간이며 FE는 메모리에 보관합니다. 토큰 갱신 endpoint(`POST /api/auth/refresh` 초안)는 구현 시 OpenAPI에 추가합니다. 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
 
 ## 4. 자료 API
 
@@ -538,8 +538,8 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 내부 API 필수 정책:
 
-- 외부에 공개하지 않습니다.
-- 서비스 간 인증 방식은 TBD입니다.
+- 외부에 공개하지 않습니다. FastAPI는 Docker 내부 네트워크에만 바인딩합니다.
+- 서비스 간 인증: Spring이 모든 내부 호출에 `X-Internal-Token`(환경 변수 주입 시크릿) 헤더를 첨부하고 FastAPI가 검증합니다(DEC-014 Accepted).
 - `schemaVersion`, `turnId`, timeout, 최대 payload 크기를 합의합니다.
 - 알 수 없는 상태 패치나 UI 액션은 Spring이 거부합니다.
 - FastAPI 오류 코드는 Spring 외부 오류로 안전하게 매핑합니다.
@@ -549,5 +549,5 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 AI 응답 스트리밍은 SSE를 기본 전송 방식으로 사용합니다. 이벤트 후보는 `status`, `thought_summary`, `content_delta`, `ui_action`, `completed`, `error`입니다.
 
 - 스트림 URL 초안: `GET /api/sessions/{sessionId}/stream` (세션 단위 단일 스트림, 진행 중 턴의 이벤트를 전달)
-- 인증: 브라우저 `EventSource`는 `Authorization` 헤더를 지원하지 않으므로 인증 방식(쿠키, 단기 서명 쿼리 토큰, fetch 기반 스트림 중 택일)을 결정해야 합니다. [결정 대기 목록](decisions.md)의 SSE 인증 항목에서 관리합니다.
+- 인증(DEC-021 Accepted): fetch 기반 스트림을 사용합니다. FE는 `Accept: text/event-stream`으로 fetch를 호출해 기존 `Authorization: Bearer` 헤더를 그대로 사용하고, ReadableStream을 파싱합니다. 재연결과 `Last-Event-ID`는 FE가 처리합니다.
 - heartbeat, `Last-Event-ID` 재연결, 최종 저장 시점, 취소 API는 FE/BE/AI 공동 설계 후 OpenAPI에 반영합니다.
