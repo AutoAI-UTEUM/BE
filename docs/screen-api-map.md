@@ -16,7 +16,7 @@
 | 자료 목록 | 화면 진입/페이지 이동 | `GET /api/materials` | 자료 카드 목록 | 권한, 네트워크 |
 | 자료 업로드 | 파일 제출 | `POST /api/materials` | 처리 상태 표시 후 목록 반영 | 파일 형식/크기/처리 실패 |
 | 자료 상세 | 화면 진입 | `GET /api/materials/{materialId}` | 제목, 페이지 수, 학습 시작 가능 여부 | 자료 없음/권한 |
-| 학습 화면/PDF 디버깅 | 페이지 추출 텍스트가 필요한 경우 | `GET /api/materials/{materialId}/pages/{pageNumber}` | 페이지 보조 정보 반영 | 페이지 범위/자료 권한; FE 사용 여부 TBD |
+| (dev 전용) PDF 디버깅 | 페이지 추출 텍스트 확인 | `GET /api/materials/{materialId}/pages/{pageNumber}` | 페이지 보조 정보 반영 | 운영 비노출(DEC-025) — dev/디버깅 프로파일 한정 |
 | 학습 시작 | 시작 버튼 | `POST /api/sessions` | 세션 화면 이동, 초기 선택 UI 표시 | 자료 준비 안 됨 |
 | 학습 재개 | 내 세션 목록 진입 | `GET /api/sessions` | 최근 세션 목록에서 재진입 | 권한, 네트워크 |
 | 학습 세션 | 최초 진입/새로고침 | `GET /api/sessions/{sessionId}` | 페이지·상태·진행 중 `uiActions`·`activeQuizId` 복원 | 세션 없음/소유권 |
@@ -67,7 +67,7 @@ FE가 낙관적으로 페이지를 먼저 움직이더라도 실패 시 Spring �
 
 - FastAPI 내부 엔드포인트
 - Orchestrator의 세부 Plan 또는 비공개 reason
-- Gemini 프롬프트와 내부 추론
+- Grok 프롬프트와 내부 추론
 - 퀴즈 제출 전 정답·루브릭
 - 장기 메모리 승격 내부 점수/근거 원문
 

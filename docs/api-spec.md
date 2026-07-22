@@ -56,7 +56,7 @@
 | POST | `/api/materials` | PDF 업로드 | Y | USER, ADMIN 초안 |
 | GET | `/api/materials` | 자료 목록 | Y | 본인 소유 자료 (DEC-026) |
 | GET | `/api/materials/{materialId}` | 자료 상세 | Y | 본인 소유 자료 |
-| GET | `/api/materials/{materialId}/pages/{pageNumber}` | 페이지 텍스트 | Y | 본인 소유 자료, 운영 노출 TBD(DEC-025) |
+| GET | `/api/materials/{materialId}/pages/{pageNumber}` | 페이지 텍스트 | Y | 본인 소유 자료 — 운영 비노출, dev/디버깅 한정(DEC-025) |
 | POST | `/api/sessions` | 학습 세션 생성 | Y | USER |
 | GET | `/api/sessions` | 내 세션 목록 조회 | Y | 본인 |
 | GET | `/api/sessions/{sessionId}` | 세션 상태 조회 | Y | 세션 소유자 |
@@ -129,7 +129,7 @@ refresh token은 응답 body에 포함하지 않고 `HttpOnly·Secure·SameSite=
 
 | part | 타입 | 필수 | 설명 |
 | --- | --- | :---: | --- |
-| `file` | PDF binary | Y | 제한값 TBD |
+| `file` | PDF binary | Y | 최대 45MB·300페이지, `%PDF-` 매직 바이트 검증(DEC-016) |
 | `title` | string | Y | 자료 제목 |
 
 `data` 초안:
@@ -144,7 +144,7 @@ refresh token은 응답 body에 포함하지 않고 `HttpOnly·Secure·SameSite=
 }
 ```
 
-비동기 추출을 사용하면 최초 응답의 `pageCount`가 null이고 `processingStatus=PROCESSING`일 수 있습니다. `processingStatus`는 `PROCESSING`, `READY`, `FAILED` 최소 3값을 사용합니다. 이 동작은 구현 전 확정합니다.
+업로드 직후 응답은 `processingStatus=PROCESSING`, `pageCount=null`입니다. Spring이 백그라운드에서 내부 API `POST /internal/ai/extract`로 추출을 요청하고, 결과 저장 후 `READY`(실패 시 `FAILED`)로 전이합니다(DEC-006). `processingStatus`는 `PROCESSING`, `READY`, `FAILED` 3값을 사용합니다. FE는 자료 상세 재조회로 상태를 확인합니다.
 
 ### GET `/api/materials`
 
@@ -172,11 +172,11 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 ### GET `/api/materials/{materialId}`
 
-자료 제목, 페이지 수, 처리 상태, 학습 가능 여부를 반환합니다. 원본 파일 접근 URL은 인증된 다운로드 방식 결정 후 스키마에 추가합니다.
+자료 제목, 페이지 수, 처리 상태, 학습 가능 여부를 반환합니다. 원본 파일 접근은 Spring의 인증된 다운로드 스트리밍(`GET /api/materials/{materialId}/file` 초안)으로 제공하며, S3 전환 시 presigned URL 방식으로 변경합니다(DEC-005).
 
 ### GET `/api/materials/{materialId}/pages/{pageNumber}`
 
-페이지 번호와 추출 텍스트를 반환하는 디버깅/동기화 초안입니다. FE가 PDF 자체를 렌더링하는 데 이 API가 꼭 필요한지는 재검토합니다.
+페이지 번호와 추출 텍스트를 반환합니다. 운영 FE에는 노출하지 않고 dev/디버깅 프로파일에서만 활성화합니다(DEC-025). 추출 텍스트는 AI 문맥 전용이며 FE는 PDF 원본 뷰어를 사용합니다.
 
 ## 5. 세션 API
 
@@ -197,6 +197,7 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
   "currentPage": 1,
   "pageStatus": "NOT_EXPLAINED",
   "status": "ACTIVE",
+  "reused": false,
   "uiActions": [
     {
       "type": "BINARY_DECISION",
@@ -207,6 +208,8 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
   ]
 }
 ```
+
+같은 자료에 기존 `ACTIVE` 세션이 있으면 새로 만들지 않고 그 세션을 반환하며 `reused: true`로 표시합니다(DEC-024). 처음부터 다시 시작하려면 기존 세션을 삭제한 뒤 생성합니다.
 
 ### GET `/api/sessions`
 
@@ -349,7 +352,7 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 ### GET `/api/sessions/{sessionId}/messages`
 
-커서 또는 페이지 기반 페이지네이션 중 하나를 구현 전에 선택합니다. 채팅에는 커서 방식이 권장되지만 현재 계약은 TBD입니다.
+커서 기반 페이지네이션을 사용합니다(DEC-024 부가 확정 — 채팅 무한 스크롤 패턴에 적합). 커서 파라미터·응답 형식은 계약 승인 시 확정합니다.
 
 ### GET `/api/sessions/{sessionId}/quizzes`
 
@@ -357,7 +360,7 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 ### POST `/api/sessions/{sessionId}/complete`
 
-활성 세션을 완료 처리하고 최종 상태를 반환합니다. 재개 정책은 TBD입니다.
+활성 세션을 완료 처리하고 최종 상태를 반환합니다. `COMPLETED → ACTIVE` 재개는 MVP에서 지원하지 않으며, 재학습은 새 세션 생성으로 처리합니다(DEC-024 부가 확정).
 
 ## 6. 퀴즈 API
 
@@ -453,12 +456,13 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 | Method | URL | 목적 | 호출 시점 |
 | --- | --- | --- | --- |
+| POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (LLM 판단 없는 결정적 전처리 — DEC-006) | 자료 업로드 후 비동기 처리 |
 | POST | `/internal/ai/turn` | 자유 학습 턴 계획·실행 (설명, QA, 퀴즈 생성, 교정, 메모리 후보·승격 포함) | turns 이벤트 수신 시 |
 | POST | `/internal/ai/grade` | SHORT/ESSAY 채점 | 퀴즈 제출 파이프라인 1단계 (SHORT/ESSAY만) |
 | POST | `/internal/ai/quiz-assessment` | 퀴즈 내부 평가 생성 | 퀴즈 제출 파이프라인 2단계 (채점 완료 후 항상) |
 | POST | `/internal/ai/diagnosis` | 진단 질문 생성 | 퀴즈 제출 파이프라인 3단계 (기준 점수 미달 시) |
 
-`diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
+`extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)을 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
 
 일반 턴 요청 최소 구조:
 

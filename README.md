@@ -6,7 +6,7 @@
 | --- | --- |
 | 문서 상태 | 설계 초안 — 구현 시작 전 |
 | 마지막 갱신 | 2026-07-21 |
-| 기준 아키텍처 | Frontend → Spring Backend → FastAPI AI Server → Gemini API |
+| 기준 아키텍처 | Frontend → Spring Backend → FastAPI AI Server → Grok API |
 | 현재 저장소 상태 | 문서화 단계이며 애플리케이션 코드는 아직 생성하지 않음 |
 
 ## 1. 프로젝트 소개
@@ -44,7 +44,7 @@ flowchart LR
   FE["Frontend<br/>React + TypeScript"]
   BE["Spring Backend<br/>인증·상태·저장·채점"]
   AI["FastAPI AI Server<br/>오케스트레이션·에이전트"]
-  LLM["Gemini API"]
+  LLM["Grok API (xAI)"]
   DB[("MySQL")]
 
   FE -->|외부 API| BE
@@ -59,7 +59,7 @@ flowchart LR
 | --- | --- |
 | Frontend | 로그인, PDF 뷰어, 채팅/퀴즈/진단 UI, 스트리밍 표시 |
 | Spring Backend | 인증·인가, 사용자/자료/세션 관리, 상태와 기록의 기준 저장소, MCQ/OX 채점, FastAPI 호출, 외부 API 제공 |
-| FastAPI AI Server | ContextBuilder, Orchestrator, Policy/Verifier, ToolDispatcher, 전문 에이전트 실행, Gemini 연동 |
+| FastAPI AI Server | ContextBuilder, Orchestrator, Policy/Verifier, ToolDispatcher, 전문 에이전트 실행, Grok 연동 |
 | MySQL | 사용자, 자료, 세션, 메시지, 퀴즈, 진단, 교정, 학습자 메모리 영속화 |
 
 핵심 원칙은 다음과 같습니다.
@@ -80,7 +80,7 @@ flowchart LR
 | --- | --- |
 | Frontend | React, TypeScript, Vite |
 | Backend | Java 21, Spring Boot 4.1.x, Spring Security, Spring Data JPA, JWT, Flyway |
-| AI Server | Python, FastAPI, Gemini API |
+| AI Server | Python, FastAPI, Grok API |
 | Database | MySQL |
 | Infra | Docker, Docker Compose, GitHub Actions, AWS |
 | Backend Test | JUnit 5, MockMvc, `@SpringBootTest` |
@@ -88,7 +88,7 @@ flowchart LR
 
 ### 구현 전 확정 필요
 
-- Python 버전과 Gemini 모델 (DEC-002)
+- Python 버전과 Grok 모델 (DEC-002)
 - Frontend 상태 관리/UI 라이브러리
 - PDF 파일 저장소와 페이지 텍스트 추출 책임
 - AWS 세부 서비스, 배포 토폴로지, 도메인/HTTPS 구성
@@ -135,9 +135,10 @@ EDUPILOT_AI_BASE_URL
 EDUPILOT_JWT_SECRET
 EDUPILOT_INTERNAL_TOKEN
 EDUPILOT_CORS_ALLOWED_ORIGINS
+EDUPILOT_UPLOAD_MAX_MB
 
 # FastAPI AI Server
-GEMINI_API_KEY
+XAI_API_KEY
 ```
 
 예제 파일에는 가짜 값만 두며 `.env`, 실제 자격 증명, 운영 접속 정보는 커밋하지 않습니다.

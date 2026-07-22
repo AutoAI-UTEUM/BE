@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-07-20 |
+| 마지막 갱신 | 2026-07-21 |
 | 범위 | Spring 소유 영속 도메인 |
 
 ## 1. 도메인 경계
@@ -121,7 +121,7 @@ erDiagram
 | 상태 | 의미 | 허용 전이 |
 | --- | --- | --- |
 | ACTIVE | 학습 중 | COMPLETED, DELETED |
-| COMPLETED | 학습 완료 | TBD: ACTIVE 재개 또는 불가 |
+| COMPLETED | 학습 완료 | 없음 — MVP에서 재개 불가, 재학습은 새 세션 생성(DEC-024) |
 | DELETED | 논리 삭제 | 없음 |
 
 ### pageStatus
@@ -135,7 +135,7 @@ erDiagram
 | DIAGNOSIS_PENDING | 진단 답변 대기 |
 | REPAIR_COMPLETED | 오개념 교정 완료 |
 
-현재 `pageStatus`가 여러 관심사를 함께 표현합니다. 구현 전 상태 폭증을 피하기 위해 설명 상태, 퀴즈 상태, 진단 상태를 분리할지 결정해야 합니다.
+MVP는 세션 단일 `pageStatus`를 유지하고 페이지 이동 시 초기화합니다(DEC-008 Accepted). 페이지별 이력 모델(`SessionPageProgress`) 분리는 MVP 이후 확장으로 미룹니다.
 
 ### QuizType
 

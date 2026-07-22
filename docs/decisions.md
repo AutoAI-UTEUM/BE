@@ -11,27 +11,83 @@
 
 | ID | 결정 항목 | 현재 후보/질문 | 영향 | 소유자 | 목표 시점 |
 | --- | --- | --- | --- | --- | --- |
-| DEC-002 | Python/Gemini 버전 | Python 버전, 모델명, 지원 기능 | AI 계약/비용 | AI | AI 프로젝트 생성 전 |
-| DEC-005 | PDF 저장소 | 로컬/오브젝트 스토리지, 인증 다운로드 | Material/Infra | Backend+Infra | 업로드 구현 전 |
-| DEC-006 | PDF 텍스트 추출 | Spring, Python worker, FastAPI 중 책임 | Material/AI | Backend+AI | 자료 처리 구현 전 |
+| DEC-002 | Python 버전·Grok 모델 | LLM provider는 **Grok API(xAI)로 확정**(DEC-006 연계). Python 버전(권장 3.14.x)과 Grok 모델(grok-4.x 계열)·에이전트별 매핑 선택 남음 | AI 계약/비용 | AI | AI 프로젝트 생성 전 |
 | DEC-007 | PK/외부 ID | BIGINT vs UUID/별도 public ID | API/DB | Backend | 첫 migration 전 |
-| DEC-008 | 페이지 진행 모델 | 세션 단일 pageStatus vs 페이지별 progress | Session/DB | Backend | Session schema 전 |
 | DEC-009 | 퀴즈 재제출 | 1회 제한 vs attempt 관리. 재제출 허용으로 확정할 경우 정답 보호 규칙(제출 후 verdict/정답 공개 시점, 재제출 점수 처리)을 반드시 함께 정의 | Quiz/UX/DB | 전 팀 | Quiz 계약 전 |
 | DEC-010 | 통과 기준 | 고정 점수 vs 유형/난이도별 기준 | 진단 흐름 | Product+AI | 채점 구현 전 |
 | DEC-011 | 평가 큐 | 최대 개수, 보관/정리 방식 | AI 문맥/DB | Backend+AI | Assessment 구현 전 |
 | DEC-012 | 메모리 승격 | 반복 횟수/근거/감사 이력 | 개인화 | Product+AI+BE | Memory 구현 전 |
 | DEC-013 | 스트리밍 (Accepted) | 전송 방식은 SSE로 **확정** — 아래 확정 기록 참조. 이 표에는 세부 계약(이벤트·취소/재연결·저장 시점)의 잔여 합의만 남음 | FE/BE/AI | 전 팀 | AI 턴 계약 구현 전 |
-| DEC-024 | 활성 세션 재사용 | 같은 자료로 세션 생성 시 기존 ACTIVE 세션 재사용 vs 항상 신규 생성 | Session/UX | Backend+FE | Session 구현 전 |
-| DEC-025 | 페이지 텍스트 API 노출 | `GET .../pages/{pageNumber}` 운영 노출 여부 — 보안·저작권 검토 | 보안/저작권 | Product+Backend | 자료 API 구현 전 |
 | DEC-028 | 회원 탈퇴·자료 삭제 경로 | User/Material의 DELETED(논리 삭제) 상태에 도달하는 기능·API 범위 — 현재는 상태만 정의되고 경로 없음 | 범위/DB | Product+Backend | MVP 범위 확정 시 |
 | DEC-015 | API versioning | `/api` vs `/api/v1`, 변경 정책 | 전 클라이언트 | 전 팀 | 첫 외부 API 전 |
-| DEC-016 | 업로드 제한 | 크기, 페이지 수, MIME 검증 | 보안/비용 | Product+Backend | 업로드 구현 전 |
 | DEC-017 | 관리자 범위 | 자료/사용자 관리 상세 | MVP 범위 | Product | 관리자 구현 전 |
 | DEC-018 | TEACHER 및 LMS 도메인 | Course/Lecture/Assignment 포함 여부 | 범위/DB | Product | MVP 이후 검토 |
 | DEC-019 | AWS 구성 | EC2/RDS/S3/Nginx/도메인 구성 | 배포/비용 | Infra | dev 배포 전 |
 | DEC-020 | 라이선스 | 오픈소스/비공개 | 배포/공개 | 팀 | 저장소 공개 전 |
 
 ## 확정된 기본안
+
+### DEC-008 — 페이지 진행 모델
+
+- 상태: Accepted
+- 결정일: 2026-07-21
+- 결정자: 한승준 (Backend)
+- 선택: MVP는 세션 단일 `pageStatus`를 유지한다. 페이지 이동 시 새 페이지 상태는 `NOT_EXPLAINED`로 초기화하며, 과거 페이지의 설명 원문은 채팅 이력으로 복원한다. 페이지별 이력 모델(`SessionPageProgress`) 분리는 MVP 이후 확장으로 미룬다.
+- 이유: 상태 전이·복원 로직이 단순해지고, 재방문 시 "설명할까요?" UI가 다시 떠도 사용자가 거절하면 그만이라 UX 손실이 작다.
+- 대안과 trade-off: 페이지별 분리는 방문 이력 보존이 강점이나 테이블·전이 복잡도가 증가한다. 재방문 페이지의 중복 설명은 LLM 비용이 들 수 있어, 재방문 시 기본 선택지를 "아니오"로 두는 UX 보완을 FE와 합의한다.
+- 후속 변경 문서: domain-model §4 pageStatus, feature-spec §4, api-spec §5
+
+### DEC-024 — 활성 세션 재사용
+
+- 상태: Accepted
+- 결정일: 2026-07-21
+- 결정자: 한승준 (Backend) — FE UX는 계약 리뷰에서 재확인
+- 선택: 같은 자료로 `POST /api/sessions` 호출 시 기존 `ACTIVE` 세션이 있으면 새로 만들지 않고 그 세션을 반환한다(재사용). 응답에 `reused` 필드로 구분을 제공한다. "처음부터 다시"는 기존 세션 삭제(`DELETE`) 후 생성으로 해결한다.
+- 이유: 자료당 학습 맥락(대화·평가 큐·pageStatus)이 하나로 유지되고 목록에 중복 ACTIVE가 쌓이지 않는다. 목록(SESSION-008)·삭제(SESSION-009) API가 있어 이어하기/새로 시작 UX가 모두 성립한다.
+- 대안과 trade-off: 항상 신규 생성은 구현이 단순하나 맥락 분산·목록 혼란을 만든다. 409 거부는 FE 왕복이 늘어난다.
+- 부가 확정: 세션 `COMPLETED → ACTIVE` 재개는 MVP에서 불가(완료 세션은 열람만, 재학습은 새 세션). 메시지 조회 페이지네이션은 커서 방식으로 확정.
+- 후속 변경 문서: api-spec §5 세션 생성·complete·messages, feature-spec §4, domain-model §4
+
+### DEC-005 — PDF 저장소
+
+- 상태: Accepted
+- 결정일: 2026-07-21
+- 결정자: 한승준 (Backend)
+- 선택: MVP는 로컬 볼륨(Docker volume) 저장으로 시작하되, 코드가 물리 경로를 알지 못하도록 저장소 어댑터 인터페이스 뒤에 격리하고 DB에는 `storage_key`만 저장한다. FE의 PDF 접근은 Spring의 인증된 다운로드 스트리밍으로 제공한다.
+- 이유: 단일 호스트 MVP에서 구현·비용 최소. 어댑터 격리로 이후 전환 비용을 낮춘다.
+- 대안과 trade-off: S3는 내구성·presigned URL이 강점이나 AWS 구성(DEC-019) 선행이 필요해 초기 채택을 보류.
+- **S3 전환 계획**: AWS 전개(DEC-019 확정) 시 어댑터 구현체를 S3로 교체한다. 이때 FE 다운로드는 Spring이 권한 확인 후 발급하는 **presigned URL**(유효기간 있는 서명 링크, 예: 10분)로 변경해 파일 바이트가 Spring을 거치지 않게 한다. `storage_key` 체계는 전환 시에도 유지한다.
+- 후속 변경 문서: api-spec §4 자료 상세, database.md §2, backend-plan §11
+
+### DEC-006 — PDF 텍스트 추출 책임
+
+- 상태: Accepted
+- 결정일: 2026-07-21
+- 결정자: 한승준 (Backend) + AI 담당 합의
+- 선택: **FastAPI가 추출을 실행하고 Spring이 저장·상태 전이를 소유**한다. 흐름: Spring이 업로드 저장(PROCESSING) → 백그라운드에서 내부 API `POST /internal/ai/extract`로 PDF를 멀티파트 전송 → FastAPI가 페이지별 텍스트를 추출해 배열로 반환 → Spring이 `material_pages` 저장 후 READY/FAILED 전이. LLM provider는 **Grok API(xAI)** 를 사용하며, 에이전트 문맥의 기본 근거는 이 추출 텍스트다(Grok 파일 첨부는 보조 수단으로 AI 담당이 실험 후 결정).
+- 이유: Python 추출 생태계를 활용하면서 "FastAPI는 영속 데이터를 직접 만들지 않는다"는 아키텍처 원칙을 유지한다. 추출은 LLM 판단이 없는 결정적 전처리라 하이브리드 원칙(DEC-022)과 충돌하지 않는다. Grok 파일 첨부(attachment_search)는 페이지 단위 문맥 제어가 약해 자체 추출이 설계와 정합.
+- 대안과 trade-off: Spring 내 추출(PDFBox)은 경계가 단순하나 팀 결정(Python 측 추출)과 상이. FastAPI 직접 DB 저장은 원칙 위반으로 배제.
+- 후속 변경 문서: api-spec §8 내부 API 표, feature-spec §3, Epic3 이슈 구조([AI] 추출 이슈 필수)
+
+### DEC-016 — 업로드 제한
+
+- 상태: Accepted
+- 결정일: 2026-07-21
+- 결정자: 한승준 (Backend)
+- 선택: 최대 파일 크기 **45MB**, 최대 **300페이지**, Content-Type 확인 + 매직 바이트(`%PDF-`) 검사 + 손상 파일 거부(`INVALID_PDF_FILE`). 크기 초과는 `FILE_TOO_LARGE`(413)이며 Spring multipart 설정과 일치시킨다. 제한값은 환경 변수(`EDUPILOT_UPLOAD_MAX_MB` 등)로 관리한다.
+- 이유: 45MB는 Grok 파일 첨부 상한(48MB)보다 작아 원본 첨부 경로를 열어도 안전하고, 서버 메모리·추출 시간을 보호한다.
+- 대안과 trade-off: 더 큰 상한은 대용량 강의 자료를 수용하지만 추출·전송 비용이 커진다. 값은 운영 데이터를 보고 조정한다.
+- 후속 변경 문서: api-spec §4 업로드, README §6 환경 변수
+
+### DEC-025 — 페이지 텍스트 API 노출
+
+- 상태: Accepted
+- 결정일: 2026-07-21
+- 결정자: 한승준 (Backend)
+- 선택: `GET /api/materials/{materialId}/pages/{pageNumber}`는 **운영 FE에 노출하지 않는다**. 개발/디버깅 프로파일에서만 활성화하고, 추출 텍스트는 AI 문맥 전용으로 사용한다.
+- 이유: 추출 텍스트 무단 유출은 저작권 리스크가 크고, FE가 이 API를 사용하는 화면이 없다(FE는 PDF 원본 뷰어 사용).
+- 대안과 trade-off: 운영 노출은 디버깅 편의가 있으나 유출 표면만 넓힌다. 필요 시 관리자 전용으로 재검토.
+- 후속 변경 문서: api-spec §2 표·§4, screen-api-map §1, feature-spec §3
 
 ### DEC-001 — Spring Boot 버전
 

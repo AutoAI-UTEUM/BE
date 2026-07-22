@@ -49,7 +49,7 @@ Main Service와 AI Service가 같은 Backend 저장소에서 독립적으로 빌
 
 - 실제 사용자 기능 구현
 - 운영 AWS 배포
-- 실제 Gemini 기반 학습 응답 구현
+- 실제 Grok 기반 학습 응답 구현
 - Frontend 상세 화면 구현
 
 ## 작업 후보 — 필요할 때만 Sub-issue 생성
@@ -75,7 +75,7 @@ Main Service와 AI Service가 같은 Backend 저장소에서 독립적으로 빌
 ## 선행 결정
 
 - `DEC-001` Spring Boot 버전
-- `DEC-002` Python/Gemini 버전
+- `DEC-002` Python/Grok 버전
 - `DEC-003` Flyway/Liquibase
 - `DEC-007` 식별자 전략
 - `DEC-014` 내부 API 보안

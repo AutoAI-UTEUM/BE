@@ -15,7 +15,7 @@ Spring Main Service와 FastAPI AI Service가 같은 저장소에서 독립적으
 
 - 실제 학습 기능
 - 운영 인프라 배포
-- 실제 Gemini 응답 구현
+- 실제 Grok 응답 구현
 
 ## 하위 작업
 

@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-07-20 |
+| 마지막 갱신 | 2026-07-21 |
 | 기준 | Spring 백엔드 중심 설계 |
 
 ## 1. 전체 구조
@@ -20,14 +20,14 @@ flowchart TB
   DISPATCH["ToolDispatcher"]
   AGENTS["Explainer · QA · Quiz · Grader · Repair"]
   SERVICES["Assessment · Diagnosis · Memory"]
-  GEMINI["Gemini API"]
+  GROK["Grok API (xAI)"]
 
   UI -->|Spring 외부 API| SPRING
   SPRING <--> DB
   SPRING -->|세션 스냅샷 + 이벤트| FASTAPI
   FASTAPI --> CONTEXT --> ORCH --> POLICY --> DISPATCH
-  DISPATCH --> AGENTS --> GEMINI
-  DISPATCH --> SERVICES --> GEMINI
+  DISPATCH --> AGENTS --> GROK
+  DISPATCH --> SERVICES --> GROK
   FASTAPI -->|메시지 + statePatch + uiActions| SPRING
   SPRING -->|저장 후 응답| UI
 ```
@@ -72,7 +72,7 @@ flowchart TB
 | PolicyVerifier | FastAPI | Plan 스키마·정책 검증/보정 |
 | ToolDispatcher | FastAPI | 검증된 액션 실행 |
 | 전문 에이전트 | FastAPI | 설명, QA, 퀴즈, 채점, 교정 |
-| GeminiBridge | FastAPI | Gemini API 호출 격리 |
+| LlmBridge | FastAPI | Grok API 호출 격리 |
 
 ## 4. 일반 턴 처리
 
@@ -82,7 +82,7 @@ sequenceDiagram
   participant BE as Spring
   participant DB as MySQL
   participant AI as FastAPI
-  participant GM as Gemini
+  participant GM as Grok
 
   FE->>BE: POST /api/sessions/{id}/turns
   BE->>DB: 세션·문맥·권한 조회
@@ -112,7 +112,7 @@ sequenceDiagram
 
 ## 7. 실패 원칙
 
-- FastAPI 또는 Gemini 실패 시 Spring의 기존 세션 상태를 손상시키지 않습니다.
+- FastAPI 또는 Grok 실패 시 Spring의 기존 세션 상태를 손상시키지 않습니다.
 - 부분 실행된 액션은 액션 ID/턴 ID를 사용해 중복 저장을 방지해야 합니다.
 - AI 출력의 스키마 오류는 `PolicyVerifier`와 Spring 양쪽 경계에서 방어합니다.
 - 외부 응답 원문, 토큰, PDF 민감 내용은 필요 이상 로그에 남기지 않습니다.

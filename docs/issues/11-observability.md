@@ -36,7 +36,7 @@ type: chore
 - traceId/requestId/turnId 전달
 - Main Service 구조화 요청·오류 로그
 - AI Service 구조화 호출·오류 로그
-- Gemini 호출 시간·성공/실패 분류
+- Grok 호출 시간·성공/실패 분류
 - 환경별 로그 레벨
 - 민감정보 마스킹
 - health/readiness 기본 상태
@@ -53,7 +53,7 @@ type: chore
 
 - `[Contract]` 공통 추적 ID와 로그 필드 기준
 - `[Main]` 요청·오류·외부 AI 호출 구조화 로그
-- `[AI]` agent/tool/Gemini 호출 구조화 로그
+- `[AI]` agent/tool/Grok 호출 구조화 로그
 - `[Security]` 민감정보 마스킹·로그 접근 정책
 - `[Infra]` 로그 수집·보관·메트릭·알림 도구 결정
 - `[Integration]` 단일 요청의 end-to-end trace 검증
