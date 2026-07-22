@@ -21,7 +21,7 @@
 | `qa_threads` | id, session_id, page_number, status, timestamps | `FK(session_id)`, `IDX(session_id,status)` |
 | `qa_messages` | id, qa_thread_id, chat_message_id, sender_type, content, created_at | `FK(qa_thread_id)`, `FK(chat_message_id)`, `IDX(qa_thread_id,created_at,id)` |
 | `quizzes` | id, session_id, page_number, title, coverage_start_page, coverage_end_page, quiz_type, public_question_json, private_answer_json, schema_version, created_at | `FK(session_id)`, `IDX(session_id,created_at)` |
-| `quiz_submissions` | id, quiz_id, user_id, attempt_no, request_id, submitted_answer_json, score, max_score, passed, grading_result_json, created_at | `FK(quiz_id)`, `FK(user_id)`, `UK(quiz_id,user_id,attempt_no)`, `UK(quiz_id,user_id,request_id)` |
+| `quiz_submissions` | id, quiz_id, user_id, attempt_no(MVP는 1 고정 — DEC-009), request_id, submitted_answer_json, score, max_score, passed, grading_result_json, created_at | `FK(quiz_id)`, `FK(user_id)`, `UK(quiz_id,user_id,attempt_no)`, `UK(quiz_id,user_id,request_id)` |
 | `quiz_assessments` | id, session_id, quiz_submission_id, assessment_json, created_at | `FK(session_id)`, `FK(quiz_submission_id)`, `UK(quiz_submission_id)`, `IDX(session_id,created_at)` |
 | `diagnoses` | id, session_id, quiz_submission_id, diagnostic_prompt, user_answer, diagnosis_result_json, status, timestamps | `FK(session_id)`, `FK(quiz_submission_id)`, `UK(quiz_submission_id)`, `IDX(session_id,status)` |
 | `repair_results` | id, diagnosis_id, session_id, repair_content, repair_result_json, created_at | `FK(diagnosis_id)`, `FK(session_id)`, `UK(diagnosis_id)` |
@@ -33,7 +33,7 @@
 
 ## 2. 컬럼 원칙
 
-- 기본 키 타입(BIGINT auto increment 또는 UUID)은 API 식별자 전략과 함께 TBD입니다.
+- 기본 키는 **BIGINT AUTO_INCREMENT**를 사용하고 외부 식별자도 동일 값을 노출합니다(DEC-007 Accepted — 외부 공개 확장 시 public ID 컬럼 추가로 개선).
 - `created_at`, `updated_at`은 UTC 기준으로 저장합니다.
 - 논리 삭제가 필요한 테이블은 `status` 또는 `deleted_at` 중 하나의 일관된 방식을 선택합니다.
 - 비밀번호 컬럼명은 원문 `password` 대신 `password_hash`를 사용합니다.
@@ -89,12 +89,11 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 
 ## 8. 구현 전 결정 항목
 
-- migration 도구
-- PK/외부 식별자 전략
-- PDF 저장소와 처리 상태 enum
-- 페이지별 진행을 `SessionPageProgress`로 분리할지 여부
-- 퀴즈 재제출/attempt 정책
-- 평가 큐 최대 크기와 정리 방식
-- LearnerMemory 변경 근거 이력 테이블 필요 여부
-- 데이터 보관·삭제·익명화 정책
+확정됨: migration 도구(Flyway — DEC-003), PK 전략(BIGINT — DEC-007), PDF 저장소·처리 상태 enum(DEC-005·016), 페이지 진행 모델(단일 pageStatus — DEC-008), 퀴즈 재제출(1회 — DEC-009).
+
+남은 항목:
+
+- 평가 큐 최대 크기와 정리 방식 (DEC-011)
+- LearnerMemory 변경 근거 이력 테이블 필요 여부 (DEC-012 연계)
+- 데이터 보관·삭제·익명화 정책 (DEC-028 연계)
 

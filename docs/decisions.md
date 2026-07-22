@@ -12,9 +12,6 @@
 | ID | 결정 항목 | 현재 후보/질문 | 영향 | 소유자 | 목표 시점 |
 | --- | --- | --- | --- | --- | --- |
 | DEC-002 | Python 버전·Grok 모델 | LLM provider는 **Grok API(xAI)로 확정**(DEC-006 연계). Python 버전(권장 3.14.x)과 Grok 모델(grok-4.x 계열)·에이전트별 매핑 선택 남음 | AI 계약/비용 | AI | AI 프로젝트 생성 전 |
-| DEC-007 | PK/외부 ID | BIGINT vs UUID/별도 public ID | API/DB | Backend | 첫 migration 전 |
-| DEC-009 | 퀴즈 재제출 | 1회 제한 vs attempt 관리. 재제출 허용으로 확정할 경우 정답 보호 규칙(제출 후 verdict/정답 공개 시점, 재제출 점수 처리)을 반드시 함께 정의 | Quiz/UX/DB | 전 팀 | Quiz 계약 전 |
-| DEC-010 | 통과 기준 | 고정 점수 vs 유형/난이도별 기준 | 진단 흐름 | Product+AI | 채점 구현 전 |
 | DEC-011 | 평가 큐 | 최대 개수, 보관/정리 방식 | AI 문맥/DB | Backend+AI | Assessment 구현 전 |
 | DEC-012 | 메모리 승격 | 반복 횟수/근거/감사 이력 | 개인화 | Product+AI+BE | Memory 구현 전 |
 | DEC-013 | 스트리밍 (Accepted) | 전송 방식은 SSE로 **확정** — 아래 확정 기록 참조. 이 표에는 세부 계약(이벤트·취소/재연결·저장 시점)의 잔여 합의만 남음 | FE/BE/AI | 전 팀 | AI 턴 계약 구현 전 |
@@ -26,6 +23,39 @@
 | DEC-020 | 라이선스 | 오픈소스/비공개 | 배포/공개 | 팀 | 저장소 공개 전 |
 
 ## 확정된 기본안
+
+### DEC-007 — PK/외부 ID 전략
+
+- 상태: Accepted
+- 결정일: 2026-07-21
+- 결정자: 한승준 (Backend)
+- 선택: 전 테이블 기본 키는 **BIGINT AUTO_INCREMENT**를 사용하고, 외부 API 식별자도 동일 값을 노출한다.
+- 이유: 단순하고 JPA·인덱스 효율이 좋다. ID 추측(enumeration) 리스크는 소유권 검증 + 404 은닉 정책이 방어한다.
+- 대안과 trade-off: UUID(v7)는 노출 안전성이 장점이나 인덱스 비대·가독성 저하. MVP 규모에서 이점이 작다.
+- **이후 개선안**: 외부 공개 API·공유 링크가 생기면 노출용 public ID(UUID/난수 slug) 컬럼을 추가하고 내부 BIGINT와 매핑하는 방식으로 확장한다. 기존 스키마 변경 없이 컬럼 추가만으로 가능하다.
+- 후속 변경 문서: database.md §2 컬럼 원칙, requirements §4 비기능
+
+### DEC-009 — 퀴즈 재제출 정책
+
+- 상태: Accepted
+- 결정일: 2026-07-21
+- 결정자: 한승준 (Backend) — FE UX는 계약 리뷰에서 공유
+- 선택: **MVP는 한 퀴즈당 1회 제출 제한**. 재제출 요청은 `QUIZ_ALREADY_SUBMITTED`(409)로 거부한다. 스키마의 `attempt_no`는 유지하되 1로 고정해 이후 확장 시 migration 없이 전환 가능하게 한다.
+- 이유: 정답 유출 경로(1차 제출의 verdict/feedback으로 정답 역산 후 재제출 만점)를 원천 차단하고 채점·평가 데이터의 단순성을 유지한다.
+- 대안과 trade-off: attempt 허용은 학습 반복에 유리하나 정답 보호 규칙 설계가 선행돼야 한다. 실수 제출은 FE 제출 전 확인 모달로 완화한다.
+- **이후 개선안**: 재제출을 허용하는 확장 시 반드시 함께 정의할 것 — ① 재제출 시 verdict/feedback 공개 시점(예: 최종 제출 후에만 정답 공개) ② 점수 처리(최고점 vs 최신) ③ attempt 상한. 이 규칙 없이 attempt만 여는 것을 금지한다.
+- 후속 변경 문서: feature-spec §8, requirements QUIZ-007, database.md quiz_submissions 주석
+
+### DEC-010 — 퀴즈 통과 기준
+
+- 상태: Accepted
+- 결정일: 2026-07-21
+- 결정자: 한승준 (Backend) — 값은 Product·AI와 운영 중 조정
+- 선택: **고정 비율 60%** — `passed = (score / maxScore) >= 0.6`. 값은 설정(`EDUPILOT_QUIZ_PASS_RATIO`, 기본 0.6)으로 관리한다. 이 기준 미달이 저득점 진단 파이프라인(`/internal/ai/diagnosis`)의 트리거다.
+- 이유: MVP에서 유형·난이도별 차등은 근거 데이터가 없어 과설계다. 설정으로 빼두면 코드 변경 없이 조정 가능하다.
+- 대안과 trade-off: 유형별 차등(예: OX는 높게)은 정밀하나 초기 근거 부족.
+- **이후 개선안**: 운영 데이터(유형별 평균 점수·진단 진입률)가 쌓이면 유형/난이도별 차등 기준으로 확장한다. 확장 시 quiz_type별 설정 맵으로 전환한다.
+- 후속 변경 문서: api-spec §6 제출 응답, feature-spec §9 통과 기준, README §6 환경 변수
 
 ### DEC-008 — 페이지 진행 모델
 
