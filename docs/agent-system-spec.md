@@ -285,6 +285,7 @@ Grok SDK/API 세부사항을 격리합니다. 모델 선택, 파일 참조, 구�
 
 학습 정책:
 
+- 퀴즈 범위는 MVP에서 현재 페이지 단위(coverageStart=End=currentPage)가 기본이며, Orchestrator가 범위를 임의 확장하는 Plan은 Policy가 거부합니다(누적 범위는 확장 항목).
 - 문항 수 기본값은 5개이며 5~10개 범위에서 조절합니다.
 - 낮은 confidence는 기초·개념 점검 비중과 필요한 문항 수를 늘립니다.
 - 높은 confidence는 불필요한 반복을 줄이고 응용·심화 문항을 포함할 수 있습니다.
@@ -348,6 +349,7 @@ Grok SDK/API 세부사항을 격리합니다. 모델 선택, 파일 참조, 구�
 - `0 <= score <= maxScore`를 지킵니다.
 - 판정은 `CORRECT`, `PARTIAL`, `WRONG`만 사용합니다.
 - 학습자 메모리로 점수를 가감하지 않습니다.
+- 채점 재현성을 위해 LlmBridge는 결정성 설정(temperature 최저 등)을 사용합니다. 같은 답안 재채점의 점수 편차를 최소화합니다.
 
 피드백 규칙:
 

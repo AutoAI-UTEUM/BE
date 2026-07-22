@@ -94,7 +94,7 @@ erDiagram
 
 - 한 번의 사용자 답안과 채점 결과를 나타냅니다.
 - 총점은 문항별 점수 합과 일치해야 하며 `0 <= score <= maxScore`입니다.
-- 퀴즈 재제출 정책에 따라 `(quizId, userId)` 유일성 또는 attempt 번호를 결정합니다.
+- MVP는 1회 제출 제한(DEC-009)이며 `attempt_no`는 1로 고정합니다. 재제출 확장 시 attempt 관리와 정답 보호 규칙을 함께 도입합니다.
 
 ### QuizAssessment
 

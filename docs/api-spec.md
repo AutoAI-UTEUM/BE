@@ -434,7 +434,7 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 }
 ```
 
-저득점이면 `uiActions`에 `DIAGNOSIS_QUESTION`과 `diagnosisId`가 포함될 수 있습니다. 채점/Assessment/Diagnosis를 한 동기 요청에서 모두 완료할지 비동기 상태로 분리할지는 성능 검증 후 확정합니다.
+`passed`는 `score/maxScore >= 0.6`(설정 `EDUPILOT_QUIZ_PASS_RATIO` — DEC-010)로 계산합니다. 재제출은 1회 제한이며 재요청은 `QUIZ_ALREADY_SUBMITTED`로 거부합니다(DEC-009). 저득점(기준 미달)이면 `uiActions`에 `DIAGNOSIS_QUESTION`과 `diagnosisId`가 포함될 수 있습니다. 채점/Assessment/Diagnosis를 한 동기 요청에서 모두 완료할지 비동기 상태로 분리할지는 성능 검증 후 확정합니다.
 
 `uiActions`의 `MOVE_NEXT_PAGE`는 turns 이벤트가 아닙니다. FE는 이 액션 선택 시 `PATCH /api/sessions/{sessionId}/page`를 호출합니다(화면-API 매핑 §3 확정 규칙).
 
@@ -458,7 +458,7 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 | --- | --- | --- | --- |
 | POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (LLM 판단 없는 결정적 전처리 — DEC-006) | 자료 업로드 후 비동기 처리 |
 | POST | `/internal/ai/turn` | 자유 학습 턴 계획·실행 (설명, QA, 퀴즈 생성, 교정, 메모리 후보·승격 포함) | turns 이벤트 수신 시 |
-| POST | `/internal/ai/grade` | SHORT/ESSAY 채점 | 퀴즈 제출 파이프라인 1단계 (SHORT/ESSAY만) |
+| POST | `/internal/ai/grade` | SHORT/ESSAY 채점 — 결정성 설정(temperature 최저 등)으로 동일 답안 재채점 편차를 최소화 | 퀴즈 제출 파이프라인 1단계 (SHORT/ESSAY만) |
 | POST | `/internal/ai/quiz-assessment` | 퀴즈 내부 평가 생성 | 퀴즈 제출 파이프라인 2단계 (채점 완료 후 항상) |
 | POST | `/internal/ai/diagnosis` | 진단 질문 생성 | 퀴즈 제출 파이프라인 3단계 (기준 점수 미달 시) |
 

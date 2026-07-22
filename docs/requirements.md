@@ -75,7 +75,7 @@
 | QUIZ-004 | MCQ/OX는 Spring이 저장된 정답으로 채점한다. | Must |
 | QUIZ-005 | SHORT/ESSAY는 FastAPI GraderAgent가 루브릭으로 채점한다. | Must |
 | QUIZ-006 | 제출은 해당 세션 소유자와 퀴즈 상태를 검증한다. | Must |
-| QUIZ-007 | 재제출 허용 여부와 횟수 정책을 정의한다. | TBD |
+| QUIZ-007 | 재제출은 MVP에서 1회 제출 제한이다(DEC-009 — 확장 시 정답 보호 규칙 필수). | Must |
 | QUIZ-008 | 채점 후 QuizAssessment를 생성·저장한다. | Must |
 | QUIZ-009 | 세션 소유자는 세션의 퀴즈 기록 요약과 개별 퀴즈의 공개 문항을 조회할 수 있다(정답·루브릭 제외). | Must |
 
@@ -121,7 +121,7 @@
 ## 4. 비기능 요구사항 초안
 
 - 모든 시간은 서버 저장 시 UTC를 사용하고 API는 ISO-8601로 표현합니다.
-- 외부 식별자 노출 방식(BIGINT/UUID)은 구현 전 결정합니다.
+- 식별자는 BIGINT AUTO_INCREMENT를 내부·외부 겸용으로 사용합니다(DEC-007 — 외부 공개 확장 시 public ID 추가로 개선).
 - 비밀번호는 검증된 단방향 해시로 저장합니다.
 - FastAPI 내부 API는 외부 인터넷에 직접 노출하지 않으며, 서비스 간 인증은 네트워크 격리 + `X-Internal-Token` 검증을 사용합니다(DEC-014).
 - AI 호출에는 timeout, 제한된 재시도, 추적 ID를 적용합니다.
