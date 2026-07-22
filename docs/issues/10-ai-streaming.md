@@ -63,7 +63,7 @@ type: feature
 - `[Contract]` 스트림 이벤트와 종료/오류 계약
 - `[Main]` 인증 스트림 endpoint와 FastAPI 중계
 - `[Main]` 최종 결과 검증·멱등 저장·취소 처리
-- `[AI]` Gemini 스트리밍과 ToolDispatcher 이벤트 변환
+- `[AI]` Grok 스트리밍과 ToolDispatcher 이벤트 변환
 - `[AI]` thought_summary의 공개 가능한 범위 구현
 - `[FE]` content delta 렌더링·취소·재연결 UI
 - `[Integration]` 정상 완료·중단·재전송·timeout 테스트
@@ -88,7 +88,7 @@ error
 ## 주요 예외
 
 - 스트림 중 클라이언트 연결 종료
-- Gemini timeout/rate limit
+- Grok timeout/rate limit
 - completed 이벤트 전 DB 저장
 - 재연결로 동일 메시지 중복 저장
 - 일부 청크만 받은 메시지를 완료 처리

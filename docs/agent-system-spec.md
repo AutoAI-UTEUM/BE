@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 다른 팀원 구현을 위한 참고·계약 초안 |
-| 마지막 갱신 | 2026-07-20 |
+| 마지막 갱신 | 2026-07-21 |
 | 구현 소유 | FastAPI AI Server |
 | 연동 소유 | Spring Backend ↔ FastAPI AI Server |
 
@@ -42,8 +42,8 @@ flowchart TB
   ASSESSMENT["QuizAssessmentService"]
   MEMORY["LearnerMemoryService"]
   QATHREAD["QaThreadService"]
-  BRIDGE["GeminiBridge"]
-  GEMINI["Gemini API"]
+  BRIDGE["LlmBridge"]
+  GROK["Grok API (xAI)"]
 
   UI --> SPRING
   SPRING --> REDUCER
@@ -72,7 +72,7 @@ flowchart TB
   DIAGNOSIS --> BRIDGE
   ASSESSMENT --> BRIDGE
   MEMORY --> BRIDGE
-  BRIDGE --> GEMINI
+  BRIDGE --> GROK
 
   DISPATCHER --> SPRING
   SPRING --> STORE
@@ -128,9 +128,9 @@ Orchestrator Plan의 JSON 스키마와 교수 정책을 검증하고 허용되�
 
 검증된 액션을 순서대로 실행하고 결과를 표준 형태로 모읍니다. FastAPI 내부에서는 전문 에이전트/서비스 호출을 담당하고, Spring이 반영할 메시지·상태 패치·UI 액션을 반환합니다.
 
-### GeminiBridge
+### LlmBridge
 
-Gemini SDK/API 세부사항을 격리합니다. 모델 선택, 파일 참조, 구조화 출력, 스트리밍, timeout, provider 오류 변환을 담당하되 도메인 정책을 결정하지 않습니다.
+Grok SDK/API 세부사항을 격리합니다. 모델 선택, 파일 참조, 구조화 출력, 스트리밍, timeout, provider 오류 변환을 담당하되 도메인 정책을 결정하지 않습니다.
 
 ## 3. 멀티 에이전트 턴 처리 단계
 
@@ -636,7 +636,7 @@ Spring 결정적 파이프라인 전용 기능(자유 턴 Plan에서 사용 금�
 
 - 스키마 오류: 한 번의 구조화 재생성/수정 시도 후 실패 응답을 반환하는 방안을 검토합니다.
 - 알 수 없는 tool/args: 실행하지 않고 Policy 오류로 중단합니다.
-- Gemini timeout/rate limit: 제한된 정책에 따라 재시도하고 Spring에 분류된 오류를 반환합니다.
+- Grok timeout/rate limit: 제한된 정책에 따라 재시도하고 Spring에 분류된 오류를 반환합니다.
 - 일부 액션 성공 후 후속 액션 실패: 성공 artifact와 실패 지점을 명시하고 Spring이 원자 반영 여부를 결정합니다.
 - 근거 부족: 답을 꾸며내지 않고 한계 안내 메시지를 생성합니다.
 - 필수 문맥 누락: 안전한 stop과 필요한 입력을 반환합니다.
@@ -668,7 +668,7 @@ Spring 결정적 파이프라인 전용 기능(자유 턴 Plan에서 사용 금�
 
 - 답변 content chunk와 사용자 표시용 `thoughtSummary`/진행 상태를 점진적으로 전달합니다.
 - ToolDispatcher에서 Spring과 Frontend까지 전달하는 기본 외부 스트림은 SSE를 사용합니다.
-- Gemini의 스트리밍·구조화 출력 지원 방식은 실제 사용 모델의 공식 가이드를 기준으로 구현 시 확인합니다.
+- Grok의 스트리밍·구조화 출력 지원 방식은 실제 사용 모델의 공식 가이드를 기준으로 구현 시 확인합니다.
 - `thoughtSummary`는 내부 chain-of-thought가 아니라 짧은 처리 단계/근거 요약입니다.
 - ToolDispatcher는 청크를 표준 스트림 이벤트로 변환하고 Spring이 FE에 중계합니다.
 - 완료 전에 받은 청크는 임시 UI 상태이며, 최종 결과 검증 후 확정 저장합니다.

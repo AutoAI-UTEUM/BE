@@ -97,7 +97,7 @@ POST /api/sessions/{sessionId}/turns
 - 현재 페이지 문맥 없음
 - 완료·타인 세션
 - 이미 실행 중인 동일 설명 요청
-- FastAPI/Gemini timeout
+- FastAPI/Grok timeout
 - 에이전트 JSON 스키마 오류
 - 허용되지 않은 statePatch/action
 - AI 성공 후 DB 저장 실패
@@ -111,4 +111,4 @@ POST /api/sessions/{sessionId}/turns
 - [ ] 최종 설명 메시지와 상태가 한 번만 저장된다.
 - [ ] FE가 Markdown 설명과 다음 행동 UI를 표시한다.
 - [ ] timeout·잘못된 JSON·중복 요청 테스트가 통과한다.
-- [ ] 실제 Gemini 없이 CI 계약 테스트가 통과한다.
+- [ ] 실제 Grok 없이 CI 계약 테스트가 통과한다.
