@@ -13,9 +13,11 @@
 | 회원가입 | 제출 | `POST /api/auth/signup` | 로그인 화면 또는 자동 로그인 정책에 따른 이동 | 유효성, 이메일 중복 |
 | 로그인 | 제출 | `POST /api/auth/login` | 토큰 저장 후 자료 목록 이동 | 자격 증명 실패, 비활성 계정 |
 | 앱 초기 진입 | 인증 상태 확인 | `GET /api/users/me` | 사용자 정보/권한 반영 | 토큰 만료 |
+| 계정 설정 | 탈퇴 버튼 → 비밀번호 확인 모달 | `DELETE /api/users/me` | 토큰 정리 후 로그인 화면 이동 | 비밀번호 불일치 (DEC-028) |
 | 자료 목록 | 화면 진입/페이지 이동 | `GET /api/materials` | 자료 카드 목록 | 권한, 네트워크 |
 | 자료 업로드 | 파일 제출 | `POST /api/materials` | 처리 상태 표시 후 목록 반영 | 파일 형식/크기/처리 실패 |
 | 자료 상세 | 화면 진입 | `GET /api/materials/{materialId}` | 제목, 페이지 수, 학습 시작 가능 여부 | 자료 없음/권한 |
+| 자료 목록/상세 | 삭제 버튼 → 확인 모달 | `DELETE /api/materials/{materialId}` | 목록에서 제외 | 활성 세션 존재(409 — 세션 정리 안내) |
 | (dev 전용) PDF 디버깅 | 페이지 추출 텍스트 확인 | `GET /api/materials/{materialId}/pages/{pageNumber}` | 페이지 보조 정보 반영 | 운영 비노출(DEC-025) — dev/디버깅 프로파일 한정 |
 | 학습 시작 | 시작 버튼 | `POST /api/sessions` | 세션 화면 이동, 초기 선택 UI 표시 | 자료 준비 안 됨 |
 | 학습 재개 | 내 세션 목록 진입 | `GET /api/sessions` | 최근 세션 목록에서 재진입 | 권한, 네트워크 |

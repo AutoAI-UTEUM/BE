@@ -164,12 +164,12 @@ refresh token 정책은 구현 전에 별도로 확정합니다.
 
 ## 10. 평가 메모리와 장기 학습자 메모리
 
-- 모든 채점 후 QuizAssessment를 생성하여 최근 평가 큐에 저장합니다.
-- 큐 최대 개수와 정리 정책은 TBD입니다.
+- 모든 채점 후 QuizAssessment를 생성하여 저장합니다. 레코드는 삭제 없이 전량 보존합니다(DEC-011 Accepted).
+- "평가 큐"는 조회 윈도우입니다 — turn 스냅샷 전달은 세션 스코프 최근 5개, 메모리 승격 판단은 user×material 교차 세션 최근 20개를 사용합니다(DEC-011).
 - 단일 결과는 장기 메모리의 확정 근거가 아닙니다.
 - 여러 퀴즈, QA, 진단, 교정에서 같은 패턴이 반복되면 LearnerMemoryService가 임시 후보를 정리합니다.
-- Orchestrator가 충분한 근거와 함께 `MemoryWrite`를 계획하고 정책 검증을 통과한 경우에만 장기 메모리로 승격합니다.
-- 승격 이력에는 근거와 갱신 시각을 추적할 수 있어야 합니다.
+- 승격 기준은 서로 다른 출처 또는 서로 다른 세션·시점의 **독립 근거 2회 이상 + 후보 confidence 0.7 이상**이며(DEC-012 Accepted), Orchestrator가 `MemoryWrite`를 계획하고 Policy가 이 규칙을 검증 통과시킨 경우에만 승격합니다.
+- 승격 이력은 `learner_memory_candidates`의 `status=PROMOTED` 보존과 `evidence_refs_json` 근거 참조로 추적합니다(별도 이력 테이블은 이후 개선안).
 
 ## 11. 스트리밍
 

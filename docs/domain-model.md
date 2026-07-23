@@ -50,8 +50,8 @@ erDiagram
 
 - 이메일은 중복될 수 없습니다.
 - 비밀번호 원문을 저장하지 않습니다.
-- 역할은 MVP에서 `USER`, `ADMIN`입니다.
-- 상태는 `ACTIVE`, `DELETED` 초안이며 정지/탈퇴 복구 정책은 TBD입니다.
+- 역할은 MVP에서 `USER`, `ADMIN`입니다(`ADMIN`은 기능 미구현·예약 — DEC-017, `TEACHER`는 제외 확정 — DEC-018).
+- 상태는 `ACTIVE`, `DELETED`입니다. 탈퇴(DEC-028)는 논리 삭제 + 즉시 익명화(email → `deleted_{id}`, name 고정 문구, password_hash 무효화)이며 복구는 MVP 미지원입니다. 유예 기간·물리 삭제 배치는 이후 개선안입니다.
 
 ### LearningMaterial
 

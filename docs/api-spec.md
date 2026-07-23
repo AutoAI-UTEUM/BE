@@ -11,7 +11,7 @@
 
 ## 1. 공통 규칙
 
-- 외부 API base path는 현재 `/api` 초안입니다. `/api/v1` 도입 여부는 TBD입니다.
+- 외부 API base path는 `/api` 무버전으로 확정입니다(DEC-015 — 외부 공개 시 `/api/v1` 도입). breaking change는 FE·BE 합의 후 동시 배포로 반영합니다.
 - 인증 API를 제외한 외부 API는 `Authorization: Bearer {accessToken}`을 요구합니다.
 - 시간은 ISO-8601 UTC로 반환합니다.
 - 페이지네이션은 `page=0`, `size=20` 기본 초안을 사용합니다.
@@ -53,9 +53,11 @@
 | POST | `/api/auth/signup` | 회원가입 | N | 전체 |
 | POST | `/api/auth/login` | 로그인 | N | 전체 |
 | GET | `/api/users/me` | 내 정보 조회 | Y | 본인 |
+| DELETE | `/api/users/me` | 회원 탈퇴(논리 삭제+익명화 — DEC-028) | Y | 본인 (비밀번호 재확인) |
 | POST | `/api/materials` | PDF 업로드 | Y | USER, ADMIN 초안 |
 | GET | `/api/materials` | 자료 목록 | Y | 본인 소유 자료 (DEC-026) |
 | GET | `/api/materials/{materialId}` | 자료 상세 | Y | 본인 소유 자료 |
+| DELETE | `/api/materials/{materialId}` | 자료 논리 삭제 (DEC-028) | Y | 본인 소유 자료 |
 | GET | `/api/materials/{materialId}/pages/{pageNumber}` | 페이지 텍스트 | Y | 본인 소유 자료 — 운영 비노출, dev/디버깅 한정(DEC-025) |
 | POST | `/api/sessions` | 학습 세션 생성 | Y | USER |
 | GET | `/api/sessions` | 내 세션 목록 조회 | Y | 본인 |
@@ -121,6 +123,16 @@
 
 refresh token은 응답 body에 포함하지 않고 `HttpOnly·Secure·SameSite=Lax` 쿠키로 발급합니다(만료 14일, 회전·재사용 감지 — DEC-004 Accepted). access token 만료는 1시간이며 FE는 메모리에 보관합니다. 토큰 갱신 endpoint(`POST /api/auth/refresh` 초안)는 구현 시 OpenAPI에 추가합니다. 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
 
+### DELETE `/api/users/me`
+
+```json
+{
+  "password": "password123"
+}
+```
+
+회원 탈퇴(DEC-028). 비밀번호 재확인 후 `status=DELETED` 전환과 동시에 개인 식별 정보를 익명화합니다(email → `deleted_{id}`, name → 고정 문구, password_hash 무효화 — 재가입 허용). refresh token은 전부 폐기합니다. 소유 자료·세션은 함께 논리 삭제하고, 퀴즈 제출·평가·메모리 레코드는 익명 상태로 보존합니다. 복구는 지원하지 않으므로 FE는 확인 모달을 거쳐 호출합니다. 주요 오류: `INVALID_CREDENTIALS`.
+
 ## 4. 자료 API
 
 ### POST `/api/materials`
@@ -173,6 +185,10 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 ### GET `/api/materials/{materialId}`
 
 자료 제목, 페이지 수, 처리 상태, 학습 가능 여부를 반환합니다. 원본 파일 접근은 Spring의 인증된 다운로드 스트리밍(`GET /api/materials/{materialId}/file` 초안)으로 제공하며, S3 전환 시 presigned URL 방식으로 변경합니다(DEC-005).
+
+### DELETE `/api/materials/{materialId}`
+
+자료를 논리 삭제(`status=DELETED`)합니다(DEC-028). 삭제된 자료는 목록·상세·세션 생성에서 제외합니다. 해당 자료의 ACTIVE 세션이 있으면 `MATERIAL_HAS_ACTIVE_SESSION`(409)으로 거부합니다 — 세션을 완료하거나 삭제한 뒤 재시도합니다. 완료된 세션·퀴즈·평가 기록은 보존하며, storage 파일은 즉시 삭제하지 않습니다(물리 삭제 배치는 이후 개선안). 주요 오류: `MATERIAL_NOT_FOUND`, `MATERIAL_HAS_ACTIVE_SESSION`.
 
 ### GET `/api/materials/{materialId}/pages/{pageNumber}`
 
@@ -500,6 +516,8 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 ```
 
 `learnerLevel`과 `learnerConfidence`는 별도 원천 컬럼 없이 Spring이 `learner_memories`(`target_difficulty`, 약점·강점)와 최근 `quiz_assessments`에서 파생해 전달하는 요약값입니다. 데이터가 없으면 `null`이며 에이전트는 기본 수준으로 동작합니다. 파생 규칙 초안은 [에이전트 시스템 명세](agent-system-spec.md) §4 입력 정의와 함께 확정합니다.
+
+`quizAssessments`는 현재 세션 기준 최근 5개의 평가 요약입니다(DEC-011 — DB는 전량 보존, 스냅샷은 세션 스코프 윈도우. 메모리 승격 판단용 user×material 교차 세션 최근 20개 조회는 별도 경로).
 
 `pendingDiagnosis`와 `latestRepair`는 진단·교정 흐름이 진행 중일 때 Spring이 채워 전달합니다. `latestRepair`에는 직전 교정 답변 원문(또는 원문을 보존한 요약)을 포함해, 교정 후 추가 질문(`USER_QUESTION`)에서 Orchestrator가 QaAgent에 교정 문맥을 넘길 수 있게 합니다.
 

@@ -82,8 +82,8 @@ MySQL:             localhost:3306
 - [프로젝트·CI 기반](00-foundation.md)
 - [health·로그·추적 기준](11-observability.md)
 - 배포 대상 MVP 부모 이슈
-- `DEC-005` 파일 저장소
-- `DEC-019` AWS 구성
+- `DEC-005` 파일 저장소 (Accepted — 로컬 볼륨 + storage_key 어댑터)
+- `DEC-019` AWS 구성 (Accepted — 단일 EC2 + Docker Compose + Nginx, FE 동일 오리진 정적 서빙)
 
 ## 주요 예외·검증
 

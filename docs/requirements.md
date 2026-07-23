@@ -12,11 +12,11 @@
 | --- | --- |
 | 비회원 | 회원가입, 로그인 |
 | USER | 본인 정보 조회, **본인이 업로드한 자료** 조회/업로드, 본인 세션과 퀴즈·메모리 사용 |
-| ADMIN | 사용자와 자료 관리 기능(상세 범위 TBD) |
+| ADMIN | MVP에서는 기능 미구현 — role·인가 체계만 예약(DEC-017). 운영 조치는 DB 수동 처리 |
 | Spring | 상태/데이터 저장, 권한 검증, 결정적 채점, FastAPI 호출 |
 | FastAPI | 전달받은 문맥 안에서 AI 계획과 생성 수행 |
 
-모든 리소스 접근은 역할뿐 아니라 소유권을 검증합니다. `TEACHER`는 현재 요구사항에 포함하지 않습니다.
+모든 리소스 접근은 역할뿐 아니라 소유권을 검증합니다. `TEACHER`와 LMS 도메인(Course/Lecture/Assignment/Notification)은 제외 확정입니다(DEC-018 — 스키마 예약도 두지 않음).
 
 ## 2. 기능 요구사항
 
@@ -29,6 +29,7 @@
 | AUTH-003 | 인증된 사용자는 자신의 정보를 조회할 수 있다. | Must |
 | AUTH-004 | 만료·위조 토큰은 일관된 인증 오류로 거부한다. | Must |
 | AUTH-005 | refresh token 발급·회전·폐기를 제공한다(HttpOnly 쿠키, 회전·재사용 감지 — DEC-004). | Must |
+| AUTH-006 | 사용자는 비밀번호 재확인 후 탈퇴할 수 있다(논리 삭제 + 즉시 익명화, refresh 전체 폐기 — DEC-028). | Must |
 
 ### 학습 자료
 
@@ -39,6 +40,7 @@
 | MATERIAL-003 | 시스템은 전체 페이지 수와 페이지별 학습 문맥을 제공할 수 있다. | Must |
 | MATERIAL-004 | PDF가 아니거나 제한을 넘는 파일을 거부한다. | Must |
 | MATERIAL-005 | 파일 저장소와 텍스트 추출 실패 상태를 관리한다. | Should |
+| MATERIAL-006 | 소유자는 자료를 논리 삭제할 수 있다(활성 세션 존재 시 거부, 기록 보존 — DEC-028). | Must |
 
 ### 학습 세션
 
@@ -86,8 +88,8 @@
 | LEARN-001 | 기준 점수 미달 시 오답과 강의 문맥으로 진단 질문을 생성한다. | Must |
 | LEARN-002 | 학생의 진단 답변 후 헷갈린 개념만 짧게 교정한다. | Must |
 | LEARN-003 | 진단·교정 후 추가 질문은 QaAgent로 이어간다. | Should |
-| LEARN-004 | 최근 QuizAssessment를 제한된 큐로 관리한다. | Must |
-| LEARN-005 | 반복 근거가 있는 패턴만 장기 LearnerMemory로 승격하고 이후 Orchestrator와 학습 에이전트에 반영한다. | Must |
+| LEARN-004 | QuizAssessment는 전량 보존하고, 스냅샷 전달은 세션 스코프 최근 5개 조회 윈도우로 제한한다(DEC-011). | Must |
+| LEARN-005 | 독립 근거 2회 이상 + confidence 0.7 이상인 패턴만 장기 LearnerMemory로 승격하고(DEC-012) 이후 Orchestrator와 학습 에이전트에 반영한다. | Must |
 | LEARN-006 | 사용자는 자신의 학습자 메모리를 조회할 수 있다. | Could |
 
 ### 운영·품질
