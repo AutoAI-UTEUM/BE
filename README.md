@@ -80,7 +80,7 @@ flowchart LR
 | --- | --- |
 | Frontend | React, TypeScript, Vite |
 | Backend | Java 21, Spring Boot 4.1.x, Spring Security, Spring Data JPA, JWT, Flyway |
-| AI Server | Python, FastAPI, Grok API |
+| AI Server | Python 3.14.x, FastAPI, Grok API (전 에이전트 공통 grok-4.5 고정 — DEC-002) |
 | Database | MySQL |
 | Infra | Docker, Docker Compose, GitHub Actions, AWS |
 | Backend Test | JUnit 5, MockMvc, `@SpringBootTest` |
@@ -88,11 +88,10 @@ flowchart LR
 
 ### 구현 전 확정 필요
 
-- Python 버전과 Grok 모델 (DEC-002)
 - Frontend 상태 관리/UI 라이브러리
 - 테스트 보조 도구와 Testcontainers 도입 여부
 
-확정된 항목: PDF 저장소·추출 책임(DEC-005·006), AWS 구성 — 단일 EC2 + Docker Compose + Nginx HTTPS(DEC-019), 라이선스 — 비공개 유지(DEC-020).
+확정된 항목: Python 3.14.x·grok-4.5 고정(DEC-002 v2), PDF 저장소·추출 책임(DEC-005·006), AWS 구성 — 단일 EC2 + Docker Compose + Nginx HTTPS(DEC-019), 라이선스 — 비공개 유지(DEC-020).
 
 결정 대기 항목은 [결정 대기 목록](docs/decisions.md)에서 관리합니다.
 
@@ -139,6 +138,7 @@ EDUPILOT_QUIZ_PASS_RATIO
 
 # FastAPI AI Server
 XAI_API_KEY
+MODEL_NAME
 ```
 
 예제 파일에는 가짜 값만 두며 `.env`, 실제 자격 증명, 운영 접속 정보는 커밋하지 않습니다.
@@ -196,6 +196,8 @@ GET    /api/users/me/memory?materialId={materialId}
 | [상세 작업 분해 계획](docs/issue-plan.md) | 기능별 흐름·예외·구현 작업 참고 | 참고 |
 | [Definition of Done](docs/definition-of-done.md) | 기능 완료 기준 | O |
 | [에이전트 시스템 명세](docs/agent-system-spec.md) | FastAPI 팀 구현 참고 계약 | 참고 |
+| [AI 연동 계약](docs/ai-integration-contract.md) | Spring–FastAPI 내부 계약 세부 (작성 중 — AI 담당) | 참고 |
+| [AI 테스트 전략](docs/test-strategy.md) | golden 세트·표류 감지·TTFT 검증 (작성 중 — AI 담당) | 참고 |
 | [협업 가이드](CONTRIBUTING.md) | 팀 공통 기여 규칙 | O |
 
 권장 합의·개발 순서는 `requirements → feature-spec → screen-api-map → api-spec/OpenAPI → 구현`입니다.
