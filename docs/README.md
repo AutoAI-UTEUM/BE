@@ -50,6 +50,8 @@
 - [GitHub Epic 초안](issues/README.md)
 - [상세 작업 분해 계획](issue-plan.md)
 - [에이전트 시스템 명세](agent-system-spec.md)
+- [Spring–FastAPI AI 연동 계약](ai-integration-contract.md) — 작성 중, 소유: AI
+- [AI 서비스 테스트 전략](test-strategy.md) — 작성 중, 소유: AI
 - [결정 대기 목록](decisions.md)
 - [CONTRIBUTING](../CONTRIBUTING.md)
 
