@@ -501,6 +501,8 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 `learnerLevel`과 `learnerConfidence`는 별도 원천 컬럼 없이 Spring이 `learner_memories`(`target_difficulty`, 약점·강점)와 최근 `quiz_assessments`에서 파생해 전달하는 요약값입니다. 데이터가 없으면 `null`이며 에이전트는 기본 수준으로 동작합니다. 파생 규칙 초안은 [에이전트 시스템 명세](agent-system-spec.md) §4 입력 정의와 함께 확정합니다.
 
+`quizAssessments`는 현재 세션 기준 최근 5개의 평가 요약입니다(DEC-011 — DB는 전량 보존, 스냅샷은 세션 스코프 윈도우. 메모리 승격 판단용 user×material 교차 세션 최근 20개 조회는 별도 경로).
+
 `pendingDiagnosis`와 `latestRepair`는 진단·교정 흐름이 진행 중일 때 Spring이 채워 전달합니다. `latestRepair`에는 직전 교정 답변 원문(또는 원문을 보존한 요약)을 포함해, 교정 후 추가 질문(`USER_QUESTION`)에서 Orchestrator가 QaAgent에 교정 문맥을 넘길 수 있게 합니다.
 
 응답 최소 구조:

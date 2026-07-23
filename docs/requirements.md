@@ -86,8 +86,8 @@
 | LEARN-001 | 기준 점수 미달 시 오답과 강의 문맥으로 진단 질문을 생성한다. | Must |
 | LEARN-002 | 학생의 진단 답변 후 헷갈린 개념만 짧게 교정한다. | Must |
 | LEARN-003 | 진단·교정 후 추가 질문은 QaAgent로 이어간다. | Should |
-| LEARN-004 | 최근 QuizAssessment를 제한된 큐로 관리한다. | Must |
-| LEARN-005 | 반복 근거가 있는 패턴만 장기 LearnerMemory로 승격하고 이후 Orchestrator와 학습 에이전트에 반영한다. | Must |
+| LEARN-004 | QuizAssessment는 전량 보존하고, 스냅샷 전달은 세션 스코프 최근 5개 조회 윈도우로 제한한다(DEC-011). | Must |
+| LEARN-005 | 독립 근거 2회 이상 + confidence 0.7 이상인 패턴만 장기 LearnerMemory로 승격하고(DEC-012) 이후 Orchestrator와 학습 에이전트에 반영한다. | Must |
 | LEARN-006 | 사용자는 자신의 학습자 메모리를 조회할 수 있다. | Could |
 
 ### 운영·품질

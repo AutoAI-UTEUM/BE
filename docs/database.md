@@ -26,9 +26,10 @@
 | `diagnoses` | id, session_id, quiz_submission_id, diagnostic_prompt, user_answer, diagnosis_result_json, status, timestamps | `FK(session_id)`, `FK(quiz_submission_id)`, `UK(quiz_submission_id)`, `IDX(session_id,status)` |
 | `repair_results` | id, diagnosis_id, session_id, repair_content, repair_result_json, created_at | `FK(diagnosis_id)`, `FK(session_id)`, `UK(diagnosis_id)` |
 | `learner_memories` | id, user_id, material_id, strengths_json, weaknesses_json, misconceptions_json, explanation_preferences_json, preferred_quiz_types_json, target_difficulty, next_coaching_goals_json, memory_digest, version, updated_at | `FK(user_id)`, `FK(material_id)`, `UK(user_id,material_id)` |
-| `learner_memory_candidates` | id, user_id, material_id, candidate_type, content, confidence, evidence_refs_json, status, schema_version, timestamps | `FK(user_id)`, `FK(material_id)`, `IDX(user_id,material_id,status)` — 초안 |
+| `learner_memory_candidates` | id, user_id, material_id, candidate_type, content, confidence, evidence_refs_json, status, schema_version, timestamps | `FK(user_id)`, `FK(material_id)`, `IDX(user_id,material_id,status)` — DEC-012 Accepted |
 
-- `learner_memory_candidates`는 임시 메모리 후보의 영속 저장소 초안입니다. FastAPI는 무상태이므로 turn 응답의 후보를 Spring이 이 테이블에 저장하고, 다음 턴 스냅샷의 `memory.temporaryCandidates`로 전달합니다. 승격되면 `status`를 `PROMOTED`/`ARCHIVED`로 전환합니다. 세부 스키마는 `DEC-012`와 함께 확정합니다.
+- `learner_memory_candidates`는 임시 메모리 후보의 영속 저장소입니다. FastAPI는 무상태이므로 turn 응답의 후보를 Spring이 이 테이블에 저장하고, 다음 턴 스냅샷의 `memory.temporaryCandidates`로 전달합니다. 승격되면 후보를 삭제하지 않고 `status`를 `PROMOTED`/`ARCHIVED`로 전환하며, `evidence_refs_json` + 상태 전이 기록이 MVP의 감사 이력 역할을 합니다(DEC-012 Accepted — 별도 이력 테이블은 이후 개선안).
+- `quiz_assessments`는 삭제 없이 전량 보존합니다(DEC-011 Accepted). "평가 큐"는 물리 큐가 아니라 조회 윈도우입니다 — turn 스냅샷용은 세션 스코프 최근 5개(`IDX(session_id, created_at)`), 메모리 승격 판단용은 `quiz_submissions` 조인으로 user×material 교차 세션 최근 20개를 사용합니다.
 - `learning_materials.processing_status`는 `PROCESSING`, `READY`, `FAILED` 최소 3값을 사용합니다.
 
 ## 2. 컬럼 원칙
@@ -89,11 +90,10 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 
 ## 8. 구현 전 결정 항목
 
-확정됨: migration 도구(Flyway — DEC-003), PK 전략(BIGINT — DEC-007), PDF 저장소·처리 상태 enum(DEC-005·016), 페이지 진행 모델(단일 pageStatus — DEC-008), 퀴즈 재제출(1회 — DEC-009).
+확정됨: migration 도구(Flyway — DEC-003), PK 전략(BIGINT — DEC-007), PDF 저장소·처리 상태 enum(DEC-005·016), 페이지 진행 모델(단일 pageStatus — DEC-008), 퀴즈 재제출(1회 — DEC-009), 평가 큐 = 전량 보존 + 조회 윈도우(세션 5 / 승격용 교차 세션 20 — DEC-011), 메모리 승격 기준·감사 이력(독립 근거 2회 + candidates 보존 — DEC-012).
 
 남은 항목:
 
-- 평가 큐 최대 크기와 정리 방식 (DEC-011)
-- LearnerMemory 변경 근거 이력 테이블 필요 여부 (DEC-012 연계)
-- 데이터 보관·삭제·익명화 정책 (DEC-028 연계)
+- 데이터 보관·삭제·익명화 정책 (DEC-028 연계 — quiz_assessments 아카이빙 포함)
+- LearnerMemory 항목별 변경 이력 테이블 (DEC-012 이후 개선안 — 필요 시)
 
