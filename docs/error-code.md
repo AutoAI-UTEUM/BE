@@ -86,6 +86,7 @@
 | `FILE_TOO_LARGE` | 413 | 파일 제한 초과 |
 | `MATERIAL_PROCESSING` | 409 | 아직 처리 중 |
 | `MATERIAL_PROCESSING_FAILED` | 409 | 텍스트 추출 등 처리 실패 |
+| `MATERIAL_HAS_ACTIVE_SESSION` | 409 | 활성 세션이 있어 자료 삭제 불가 (DEC-028) |
 | `PAGE_OUT_OF_RANGE` | 400 | 페이지 번호 범위 초과 |
 
 ### 세션·턴

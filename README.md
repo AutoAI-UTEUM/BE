@@ -23,8 +23,8 @@ EduPilot은 학습자가 PDF 강의 자료를 보면서 AI 튜터와 상호작�
 
 ## 2. MVP 기능
 
-- 회원가입, 로그인, 내 정보 조회
-- PDF 학습 자료 업로드 및 조회
+- 회원가입, 로그인, 내 정보 조회, 회원 탈퇴
+- PDF 학습 자료 업로드, 조회 및 삭제
 - PDF 기반 학습 세션 생성, 조회, 종료
 - 현재 페이지 이동 및 세션 상태 동기화
 - 현재 페이지 기반 AI 설명
@@ -90,10 +90,9 @@ flowchart LR
 
 - Python 버전과 Grok 모델 (DEC-002)
 - Frontend 상태 관리/UI 라이브러리
-- PDF 파일 저장소와 페이지 텍스트 추출 책임
-- AWS 세부 서비스, 배포 토폴로지, 도메인/HTTPS 구성
 - 테스트 보조 도구와 Testcontainers 도입 여부
-- 라이선스
+
+확정된 항목: PDF 저장소·추출 책임(DEC-005·006), AWS 구성 — 단일 EC2 + Docker Compose + Nginx HTTPS(DEC-019), 라이선스 — 비공개 유지(DEC-020).
 
 결정 대기 항목은 [결정 대기 목록](docs/decisions.md)에서 관리합니다.
 
@@ -150,10 +149,12 @@ XAI_API_KEY
 POST   /api/auth/signup
 POST   /api/auth/login
 GET    /api/users/me
+DELETE /api/users/me
 
 POST   /api/materials
 GET    /api/materials
 GET    /api/materials/{materialId}
+DELETE /api/materials/{materialId}
 GET    /api/materials/{materialId}/pages/{pageNumber}
 
 POST   /api/sessions
