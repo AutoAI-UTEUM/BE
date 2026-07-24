@@ -1,0 +1,16 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: ${EDUPILOT_DB_URL:jdbc:mysql://localhost:3306/edupilot?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
+    username: ${EDUPILOT_DB_USERNAME:edupilot}
+    password: ${EDUPILOT_DB_PASSWORD}
+
+edupilot:
+  cors:
+    allowed-origins: ${EDUPILOT_CORS_ALLOWED_ORIGINS:http://localhost:5173}
+
+logging:
+  level:
+    root: DEBUG
