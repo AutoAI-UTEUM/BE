@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.edupilot.ai.AiClientException;
 import io.edupilot.global.response.ApiResponse;
 import io.edupilot.global.security.TraceIdFilter;
 import jakarta.validation.ConstraintViolationException;
@@ -122,6 +123,16 @@ class ApiContractTest {
 			.andExpect(content().string(not(containsString("internal-only-detail"))));
 	}
 
+	@Test
+	void aiClientExceptionUsesCommonEnvelopeWithoutRemoteDetails() throws Exception {
+		mockMvc.perform(get("/contract/ai-failure"))
+			.andExpect(status().isInternalServerError())
+			.andExpect(jsonPath("$.error.code").value("INTERNAL_SERVER_ERROR"))
+			.andExpect(jsonPath("$.error.message")
+				.value(ErrorCode.INTERNAL_SERVER_ERROR.message()))
+			.andExpect(content().string(not(containsString("remote-body"))));
+	}
+
 	@RestController
 	@RequestMapping("/contract")
 	private static class ContractTestController {
@@ -139,6 +150,14 @@ class ApiContractTest {
 		@GetMapping("/failure")
 		void fail() {
 			throw new IllegalStateException("internal-only-detail");
+		}
+
+		@GetMapping("/ai-failure")
+		void aiFailure() {
+			throw new AiClientException(
+				ErrorCode.INTERNAL_SERVER_ERROR,
+				new IllegalStateException("remote-body")
+			);
 		}
 	}
 
