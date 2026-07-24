@@ -27,6 +27,11 @@ springdoc:
 edupilot:
   cors:
     allowed-origins: ${EDUPILOT_CORS_ALLOWED_ORIGINS}
+  ai:
+    internal-token: ${EDUPILOT_INTERNAL_TOKEN}
+    connect-timeout: 3s
+    read-timeout: 30s
+    health-path: /health
 
 logging:
   pattern:
