@@ -1,0 +1,12 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: ${EDUPILOT_DB_URL}
+    username: ${EDUPILOT_DB_USERNAME}
+    password: ${EDUPILOT_DB_PASSWORD}
+
+logging:
+  level:
+    root: INFO
