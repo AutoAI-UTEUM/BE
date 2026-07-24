@@ -558,6 +558,101 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 세션 `status` 전이(`ACTIVE`/`COMPLETED`/`DELETED`)는 statePatch로 허용하지 않으며 Spring 외부 API(complete/delete)로만 변경합니다. 목록의 세부 값은 구현 시 domain-model과 함께 확정합니다.
 
+### 엔드포인트별 요청/응답 초안 (turn 외 4종)
+
+> 아래 구조는 [에이전트 시스템 명세](agent-system-spec.md) §4.5~4.8의 입출력 초안을 endpoint 계약으로 옮긴 **초안**입니다. 필드 수준 확정은 각 Epic의 [Contract] 이슈(extract는 Epic 3, grade는 Epic 6, quiz-assessment·diagnosis는 Epic 7)와 ai-integration-contract v0.3에서 승인합니다.
+
+**POST `/internal/ai/extract`** — `Content-Type: multipart/form-data` (file: PDF ≤ 45MB — DEC-016)
+
+응답:
+
+```json
+{
+  "schemaVersion": "1.0",
+  "pageCount": 42,
+  "pages": [ { "pageNumber": 1, "text": "..." } ]
+}
+```
+
+저장(material_pages)과 READY/FAILED 상태 전이는 Spring이 수행합니다(DEC-006). 추출 불가(암호화·손상·텍스트 없음)는 아래 내부 오류 형식의 `EXTRACTION_FAILED`로 반환합니다.
+
+**POST `/internal/ai/grade`** — SHORT/ESSAY 채점 (파이프라인 1단계)
+
+```json
+{
+  "schemaVersion": "1.0",
+  "quizId": 55,
+  "quizType": "ESSAY",
+  "items": [
+    { "questionId": "q1", "question": "...", "modelAnswer": "...", "rubric": [ { "criterion": "...", "weight": 0.5 } ], "maxScore": 20 }
+  ],
+  "studentAnswers": [ { "questionId": "q1", "answer": "..." } ],
+  "pageContext": { "coverageStartPage": 3, "coverageEndPage": 5, "text": "..." },
+  "learnerMemoryDigest": null
+}
+```
+
+응답은 [에이전트 시스템 명세](agent-system-spec.md) §4.5 출력과 동일: `schemaVersion`, `quizId`, `quizType`, `score`, `maxScore`, `items[].{questionId, score, maxScore, verdict(CORRECT|PARTIAL|WRONG), feedback}`. Spring은 문항 ID·점수 범위·합계·만점 일치를 재검증합니다(검증 실패 시 `GRADING_RESULT_INVALID` 처리, DEC-002 D4의 재시도→실패 원칙).
+
+**POST `/internal/ai/quiz-assessment`** — 내부 평가 생성 (파이프라인 2단계, 채점 후 항상)
+
+```json
+{
+  "schemaVersion": "1.0",
+  "quizResult": { "quizId": 55, "quizType": "ESSAY", "score": 70, "maxScore": 100, "passed": true, "items": [] },
+  "quizItems": [],
+  "studentAnswers": [],
+  "pageContext": { "coverageStartPage": 3, "coverageEndPage": 5, "text": "..." },
+  "learnerMemoryDigest": null
+}
+```
+
+응답은 §4.8 출력 + `schemaVersion`: `understandingSummary`, `strengths[]`, `weaknesses[]`, `suspectedMisconceptions[]`, `recommendedNextDirection`, `memoryCandidates[].{type, content, confidence}`, `evidence[]`. Spring이 `quiz_assessments`에 저장합니다(전량 보존 — DEC-011).
+
+**POST `/internal/ai/diagnosis`** — 진단 질문 생성 (파이프라인 3단계, 기준 미달 시)
+
+```json
+{
+  "schemaVersion": "1.0",
+  "quizAssessment": {},
+  "quizResult": { "quizId": 55, "score": 40, "maxScore": 100, "passed": false },
+  "wrongItems": [
+    { "questionId": "q2", "question": "...", "studentAnswer": "...", "modelAnswer": "...", "feedback": "..." }
+  ],
+  "pageContext": { "coverageStartPage": 3, "coverageEndPage": 5, "text": "..." },
+  "learnerMemoryDigest": null
+}
+```
+
+응답은 §4.7 출력 + `schemaVersion`: `focusConcepts[]`, `suspectedMisconceptions[]`, `diagnosticPrompt`, `evidence[]`, `repairHint`. Spring이 `Diagnosis(PENDING)` 저장과 `pendingDiagnosis` 설정을 수행합니다.
+
+### 내부 오류 응답 형식 초안
+
+FastAPI는 실패 시 아래 형식으로 응답하고, Spring은 `category`로 외부 오류에 매핑합니다.
+
+```json
+{
+  "schemaVersion": "1.0",
+  "error": {
+    "code": "EXTRACTION_FAILED",
+    "category": "INTERNAL",
+    "message": "운영 노출 가능한 요약 메시지",
+    "retryable": false
+  },
+  "traceId": "01J..."
+}
+```
+
+| category | Spring 매핑 | 예 |
+| --- | --- | --- |
+| `AUTH` | 내부 설정 오류로 처리(500) — 외부 노출 없음 | X-Internal-Token 불일치 |
+| `TIMEOUT` | `AI_SERVICE_TIMEOUT` (504) | LLM 응답 시간 초과 |
+| `SCHEMA` | `AI_RESPONSE_INVALID` (502) | 구조화 출력 재시도 후 실패 |
+| `POLICY` | `AI_POLICY_REJECTED` (409/502) | Plan 정책 위반 |
+| `INTERNAL` | `AI_SERVICE_UNAVAILABLE`(503) 또는 502 | 추출 실패, 내부 오류 |
+
+`retryable=true`인 오류만 Spring이 제한 재시도를 검토합니다(재시도·timeout 예산은 ai-integration-contract v0.3에서 확정 — DEC-002 §5 이관 항목).
+
 내부 API 필수 정책:
 
 - 외부에 공개하지 않습니다. FastAPI는 Docker 내부 네트워크에만 바인딩합니다.
