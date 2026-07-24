@@ -25,6 +25,31 @@ public enum ErrorCode {
 		HttpStatus.TOO_MANY_REQUESTS,
 		"요청 한도를 초과했습니다."
 	),
+	AI_SERVICE_UNAVAILABLE(
+		"AI_SERVICE_UNAVAILABLE",
+		HttpStatus.SERVICE_UNAVAILABLE,
+		"AI 서비스를 일시적으로 사용할 수 없습니다."
+	),
+	AI_SERVICE_TIMEOUT(
+		"AI_SERVICE_TIMEOUT",
+		HttpStatus.GATEWAY_TIMEOUT,
+		"AI 서비스 응답 시간이 초과되었습니다."
+	),
+	AI_RESPONSE_INVALID(
+		"AI_RESPONSE_INVALID",
+		HttpStatus.BAD_GATEWAY,
+		"AI 서비스 응답을 처리할 수 없습니다."
+	),
+	AI_POLICY_REJECTED(
+		"AI_POLICY_REJECTED",
+		HttpStatus.BAD_GATEWAY,
+		"AI 서비스가 요청을 처리하지 못했습니다."
+	),
+	AI_STREAM_INTERRUPTED(
+		"AI_STREAM_INTERRUPTED",
+		HttpStatus.BAD_GATEWAY,
+		"AI 응답 스트림이 중단되었습니다."
+	),
 	INTERNAL_SERVER_ERROR(
 		"INTERNAL_SERVER_ERROR",
 		HttpStatus.INTERNAL_SERVER_ERROR,

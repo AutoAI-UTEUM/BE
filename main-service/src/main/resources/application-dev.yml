@@ -7,6 +7,10 @@ spring:
     username: ${EDUPILOT_DB_USERNAME}
     password: ${EDUPILOT_DB_PASSWORD}
 
+edupilot:
+  ai:
+    base-url: ${EDUPILOT_AI_BASE_URL}
+
 logging:
   level:
     root: INFO
