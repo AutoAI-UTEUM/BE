@@ -11,7 +11,7 @@
 
 ## 1. 공통 규칙
 
-- 외부 API base path는 현재 `/api` 초안입니다. `/api/v1` 도입 여부는 TBD입니다.
+- 외부 API base path는 `/api` 무버전으로 확정입니다(DEC-015 — 외부 공개 시 `/api/v1` 도입). breaking change는 FE·BE 합의 후 동시 배포로 반영합니다.
 - 인증 API를 제외한 외부 API는 `Authorization: Bearer {accessToken}`을 요구합니다.
 - 시간은 ISO-8601 UTC로 반환합니다.
 - 페이지네이션은 `page=0`, `size=20` 기본 초안을 사용합니다.
@@ -52,9 +52,10 @@
 | --- | --- | --- | :---: | --- |
 | POST | `/api/auth/signup` | 회원가입 | N | 전체 |
 | POST | `/api/auth/login` | 로그인 | N | 전체 |
-| POST | `/api/auth/refresh` | 토큰 갱신 (refresh 쿠키 — DEC-004) | 쿠키 | 본인 |
+| POST | `/api/auth/refresh` | access 재발급 (refresh 쿠키 회전) | 쿠키 | refresh 쿠키 보유자 |
+| POST | `/api/auth/logout` | 로그아웃 (refresh 폐기·쿠키 만료) | 쿠키 | refresh 쿠키 보유자 (멱등) |
 | GET | `/api/users/me` | 내 정보 조회 | Y | 본인 |
-| DELETE | `/api/users/me` | 회원 탈퇴 (비밀번호 재확인 — DEC-028) | Y | 본인 |
+| DELETE | `/api/users/me` | 회원 탈퇴(논리 삭제+익명화 — DEC-028) | Y | 본인 (비밀번호 재확인) |
 | POST | `/api/materials` | PDF 업로드 | Y | USER, ADMIN 초안 |
 | GET | `/api/materials` | 자료 목록 | Y | 본인 소유 자료 (DEC-026) |
 | GET | `/api/materials/{materialId}` | 자료 상세 | Y | 본인 소유 자료 |
@@ -95,6 +96,8 @@
   "name": "홍길동"
 }
 ```
+
+비밀번호 정책(확정): **8~64자, 영문·숫자 각 1자 이상 포함**(특수문자 허용). 위반 시 `VALIDATION_FAILED` + `details: [{ "field": "password", "reason": "..." }]`.
 
 주요 오류: `VALIDATION_FAILED`, `EMAIL_ALREADY_EXISTS`.
 
@@ -165,7 +168,7 @@ refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DE
 
 | part | 타입 | 필수 | 설명 |
 | --- | --- | :---: | --- |
-| `file` | PDF binary | Y | 제한값 TBD |
+| `file` | PDF binary | Y | 최대 45MB·300페이지, `%PDF-` 매직 바이트 검증(DEC-016) |
 | `title` | string | Y | 자료 제목 |
 
 `data` 초안:
@@ -180,7 +183,7 @@ refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DE
 }
 ```
 
-비동기 추출을 사용하면 최초 응답의 `pageCount`가 null이고 `processingStatus=PROCESSING`일 수 있습니다. `processingStatus`는 `PROCESSING`, `READY`, `FAILED` 최소 3값을 사용합니다. 이 동작은 구현 전 확정합니다.
+업로드 직후 응답은 `processingStatus=PROCESSING`, `pageCount=null`입니다. Spring이 백그라운드에서 내부 API `POST /internal/ai/extract`로 추출을 요청하고, 결과 저장 후 `READY`(실패 시 `FAILED`)로 전이합니다(DEC-006). `processingStatus`는 `PROCESSING`, `READY`, `FAILED` 3값을 사용합니다. FE는 자료 상세 재조회로 상태를 확인합니다.
 
 ### GET `/api/materials`
 
@@ -237,6 +240,7 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
   "currentPage": 1,
   "pageStatus": "NOT_EXPLAINED",
   "status": "ACTIVE",
+  "reused": false,
   "uiActions": [
     {
       "type": "BINARY_DECISION",
@@ -247,6 +251,8 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
   ]
 }
 ```
+
+같은 자료에 기존 `ACTIVE` 세션이 있으면 새로 만들지 않고 그 세션을 반환하며 `reused: true`로 표시합니다(DEC-024). 처음부터 다시 시작하려면 기존 세션을 삭제한 뒤 생성합니다.
 
 ### GET `/api/sessions`
 
@@ -428,7 +434,7 @@ Query:
 
 ### POST `/api/sessions/{sessionId}/complete`
 
-활성 세션을 완료 처리하고 최종 상태를 반환합니다. 재개 정책은 TBD입니다.
+활성 세션을 완료 처리하고 최종 상태를 반환합니다. `COMPLETED → ACTIVE` 재개는 MVP에서 지원하지 않으며, 재학습은 새 세션 생성으로 처리합니다(DEC-024 부가 확정).
 
 ## 6. 퀴즈 API
 
@@ -455,6 +461,22 @@ Query:
 
 - `questions`는 `public_question_json` 기반의 공개 필드만 포함합니다. 정답, 루브릭, 모범 답안(`private_answer_json`)은 절대 포함하지 않습니다.
 - 권한은 퀴즈가 속한 세션의 소유자입니다. 소유권 위반은 `QUIZ_NOT_FOUND`로 은닉 처리합니다.
+- 문항 수는 기본 5개, 5~10개 범위입니다(QUIZ-003). `questionCount`는 `questions` 배열 길이와 항상 일치합니다.
+
+### 유형별 문항 스키마 (공개/비공개 분리 확정안)
+
+문항 공통 필드(공개): `questionId`(퀴즈 내 유일, 예: "q1"), `questionText`, `maxScore`.
+
+| 유형 | 공개 필드 (public_question_json → questions[]) | 비공개 필드 (private_answer_json — 채점·해설 전용) |
+| --- | --- | --- |
+| MCQ | 공통 + `options: [{ "optionId": "a", "text": "..." }]` (4지 기본) | `correctOptionId`, `explanation` |
+| OX | 공통 (questionText가 진위 판별 문장) | `correctAnswer: boolean`, `explanation` |
+| SHORT | 공통 | `referenceAnswer`, `acceptableKeywords: []`, `rubric` |
+| ESSAY | 공통 | `modelAnswer`, `rubric: [{ "criterion": "...", "weight": 0.5 }]` — **weight 합계 = 1.0 검증**(DEC-002 D4, 위반 시 생성 실패 처리) |
+
+- 필드명은 [에이전트 시스템 명세](agent-system-spec.md) §4.4 유형별 최소 필드와 일치시킵니다. AI가 생성한 JSON에서 Spring이 위 기준으로 공개/비공개를 분리 저장하며, 비공개 필드가 공개 측에 남아 있으면 저장을 거부합니다.
+- 유형별 답안 형식(submit의 `answers[].answer`): MCQ = `optionId` 문자열, OX = `"true"`/`"false"`, SHORT/ESSAY = 자유 텍스트. 문항 누락·알 수 없는 questionId는 `INVALID_QUIZ_ANSWER`(400).
+- 이 확정안은 BE·AI·FE 3자 리뷰 대상이며, 승인 후 AI 생성 JSON Schema(구조 검증용)의 기준이 됩니다.
 
 ### POST `/api/quizzes/{quizId}/submit`
 
@@ -502,7 +524,7 @@ Query:
 }
 ```
 
-저득점이면 `uiActions`에 `DIAGNOSIS_QUESTION`과 `diagnosisId`가 포함될 수 있습니다. 채점/Assessment/Diagnosis를 한 동기 요청에서 모두 완료할지 비동기 상태로 분리할지는 성능 검증 후 확정합니다.
+`passed`는 `score/maxScore >= 0.6`(설정 `EDUPILOT_QUIZ_PASS_RATIO` — DEC-010)로 계산합니다. 재제출은 1회 제한이며 재요청은 `QUIZ_ALREADY_SUBMITTED`로 거부합니다(DEC-009). 저득점(기준 미달)이면 `uiActions`에 `DIAGNOSIS_QUESTION`과 `diagnosisId`가 포함될 수 있습니다. 채점/Assessment/Diagnosis를 한 동기 요청에서 모두 완료할지 비동기 상태로 분리할지는 성능 검증 후 확정합니다.
 
 `uiActions`의 `MOVE_NEXT_PAGE`는 turns 이벤트가 아닙니다. FE는 이 액션 선택 시 `PATCH /api/sessions/{sessionId}/page`를 호출합니다(화면-API 매핑 §3 확정 규칙).
 
@@ -516,7 +538,7 @@ Query:
 
 ## 8. Spring → FastAPI 내부 API
 
-### 호출 주체 원칙 (하이브리드 — DEC-022)
+### 호출 주체 원칙 (하이브리드)
 
 - **자유 학습 턴**(질문, 설명 요청, 퀴즈 유형 선택, 진단 답변, 교정 후 질문): Spring은 어떤 AI 에이전트를 쓸지 판단하지 않고 `/internal/ai/turn` 단일 진입점으로 이벤트와 스냅샷을 전달합니다. 에이전트 선택은 FastAPI Orchestrator의 책임입니다. 오개념 교정(RepairAgent)과 메모리 후보 생성·승격도 turn 내부 도구로 실행합니다.
 - **퀴즈 제출 후 결정적 파이프라인**: `QUIZ_SUBMITTED` 처리에서 Spring이 전용 내부 API를 순차 호출합니다 — [SHORT/ESSAY만] `grade` → `quiz-assessment` → [기준 점수 미달 시] `diagnosis`. 트리거가 이벤트 타입과 점수 기준으로 완전히 결정되므로 이는 판단이 아니라 규칙 실행이며, README의 "Spring은 에이전트를 판단하지 않는다" 원칙과 충돌하지 않습니다.
@@ -524,15 +546,13 @@ Query:
 
 | Method | URL | 목적 | 호출 시점 |
 | --- | --- | --- | --- |
-| POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (결정적 전처리 — DEC-006) | 자료 업로드 후 비동기 |
+| POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (LLM 판단 없는 결정적 전처리 — DEC-006) | 자료 업로드 후 비동기 처리 |
 | POST | `/internal/ai/turn` | 자유 학습 턴 계획·실행 (설명, QA, 퀴즈 생성, 교정, 메모리 후보·승격 포함) | turns 이벤트 수신 시 |
-| POST | `/internal/ai/grade` | SHORT/ESSAY 채점 | 퀴즈 제출 파이프라인 1단계 (SHORT/ESSAY만) |
+| POST | `/internal/ai/grade` | SHORT/ESSAY 채점 — 결정성 설정(temperature 최저 등)으로 동일 답안 재채점 편차를 최소화 | 퀴즈 제출 파이프라인 1단계 (SHORT/ESSAY만) |
 | POST | `/internal/ai/quiz-assessment` | 퀴즈 내부 평가 생성 | 퀴즈 제출 파이프라인 2단계 (채점 완료 후 항상) |
 | POST | `/internal/ai/diagnosis` | 진단 질문 생성 | 퀴즈 제출 파이프라인 3단계 (기준 점수 미달 시) |
 
-`diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
-
-`extract`는 multipart PDF(≤45MB)를 받아 `pageCount`와 `pages[]{pageNumber, text}`를 반환하는 결정적 전처리입니다(DEC-006). 결과 저장과 자료 상태 전이(`PROCESSING → READY | FAILED`)는 Spring 책임입니다.
+`extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)을 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
 
 일반 턴 요청 최소 구조:
 
@@ -571,6 +591,8 @@ Query:
 
 `learnerLevel`과 `learnerConfidence`는 별도 원천 컬럼 없이 Spring이 `learner_memories`(`target_difficulty`, 약점·강점)와 최근 `quiz_assessments`에서 파생해 전달하는 요약값입니다. 데이터가 없으면 `null`이며 에이전트는 기본 수준으로 동작합니다. 파생 규칙 초안은 [에이전트 시스템 명세](agent-system-spec.md) §4 입력 정의와 함께 확정합니다.
 
+`quizAssessments`는 현재 세션 기준 최근 5개의 평가 요약입니다(DEC-011 — DB는 전량 보존, 스냅샷은 세션 스코프 윈도우. 메모리 승격 판단용 user×material 교차 세션 최근 20개 조회는 별도 경로).
+
 `pendingDiagnosis`와 `latestRepair`는 진단·교정 흐름이 진행 중일 때 Spring이 채워 전달합니다. `latestRepair`에는 직전 교정 답변 원문(또는 원문을 보존한 요약)을 포함해, 교정 후 추가 질문(`USER_QUESTION`)에서 Orchestrator가 QaAgent에 교정 문맥을 넘길 수 있게 합니다.
 
 응답 최소 구조:
@@ -599,7 +621,7 @@ Query:
 }
 ```
 
-`statePatch` 허용 목록 — Spring은 아래 필드·값 외의 패치를 거부합니다(`domain-model.md` 상태 전이 표와 함께 검증):
+`statePatch` 허용 목록 초안 — Spring은 아래 필드·값 외의 패치를 거부합니다(`domain-model.md` 상태 전이 표와 함께 검증):
 
 | 필드 | 허용 값 | 비고 |
 | --- | --- | --- |
@@ -608,14 +630,14 @@ Query:
 | `pendingDiagnosis` | 진단 참조 또는 `null` | 해제는 교정 완료 턴에서만 |
 | `qaThread` | `{ "mode": "START_NEW" \| "FOLLOW_UP", "threadRef": ... }` | Orchestrator의 스레드 결정 반영 |
 
-세션 `status` 전이(`ACTIVE`/`COMPLETED`/`DELETED`)는 statePatch로 허용하지 않으며 Spring 외부 API(complete/delete)로만 변경합니다.
+세션 `status` 전이(`ACTIVE`/`COMPLETED`/`DELETED`)는 statePatch로 허용하지 않으며 Spring 외부 API(complete/delete)로만 변경합니다. 목록의 세부 값은 구현 시 domain-model과 함께 확정합니다.
 
 DTO 상세·타임아웃·재시도·`usage` 필드는 [docs/ai-integration-contract.md](ai-integration-contract.md) v0.4가 기준입니다(turn 요청/응답 구조, grade/quiz-assessment/diagnosis/extract DTO, 오류 category 5종 AUTH/TIMEOUT/SCHEMA/POLICY/INTERNAL과 Spring 매핑 포함).
 
 내부 API 필수 정책:
 
-- 외부에 공개하지 않습니다.
-- 서비스 간 인증 방식은 TBD입니다.
+- 외부에 공개하지 않습니다. FastAPI는 Docker 내부 네트워크에만 바인딩합니다.
+- 서비스 간 인증: Spring이 모든 내부 호출에 `X-Internal-Token`(환경 변수 주입 시크릿) 헤더를 첨부하고 FastAPI가 검증합니다(DEC-014 Accepted).
 - `schemaVersion`, `turnId`, timeout, 최대 payload 크기를 합의합니다.
 - 알 수 없는 상태 패치나 UI 액션은 Spring이 거부합니다.
 - FastAPI 오류 코드는 Spring 외부 오류로 안전하게 매핑합니다.
