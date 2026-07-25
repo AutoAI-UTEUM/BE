@@ -1,0 +1,20 @@
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      - org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration
+      - org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration
+
+edupilot:
+  cors:
+    allowed-origins: http://localhost:5173
+  ai:
+    base-url: http://localhost:8000
+    internal-token: test-internal-token
+    extract-read-timeout: 120s
+  jwt:
+    secret: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+    access-token-ttl: 1h
+    refresh-token-ttl: 14d
+  storage:
+    root-directory: build/test-storage

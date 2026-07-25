@@ -1,0 +1,20 @@
+spring:
+  config:
+    activate:
+      on-profile: dev
+  datasource:
+    url: ${EDUPILOT_DB_URL}
+    username: ${EDUPILOT_DB_USERNAME}
+    password: ${EDUPILOT_DB_PASSWORD}
+
+edupilot:
+  ai:
+    base-url: ${EDUPILOT_AI_BASE_URL}
+  material:
+    page-text-api-enabled: true
+  storage:
+    root-directory: ${EDUPILOT_STORAGE_DIR}
+
+logging:
+  level:
+    root: INFO

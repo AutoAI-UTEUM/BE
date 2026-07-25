@@ -133,7 +133,9 @@ EDUPILOT_AI_BASE_URL
 EDUPILOT_JWT_SECRET
 EDUPILOT_INTERNAL_TOKEN
 EDUPILOT_CORS_ALLOWED_ORIGINS
+EDUPILOT_STORAGE_DIR
 EDUPILOT_UPLOAD_MAX_MB
+EDUPILOT_AI_EXTRACT_READ_TIMEOUT
 EDUPILOT_QUIZ_PASS_RATIO
 
 # FastAPI AI Server
@@ -154,6 +156,7 @@ DELETE /api/users/me
 POST   /api/materials
 GET    /api/materials
 GET    /api/materials/{materialId}
+GET    /api/materials/{materialId}/file
 DELETE /api/materials/{materialId}
 GET    /api/materials/{materialId}/pages/{pageNumber}
 
