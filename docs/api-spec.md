@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 계약 초안 |
-| 마지막 갱신 | 2026-07-21 |
+| 마지막 갱신 | 2026-07-23 |
 | 외부 호출자 | Frontend |
 | 내부 호출자 | Spring → FastAPI |
 
@@ -67,6 +67,7 @@
 | DELETE | `/api/sessions/{sessionId}` | 세션 논리 삭제 | Y | 세션 소유자 |
 | PATCH | `/api/sessions/{sessionId}/page` | 페이지 이동 | Y | 세션 소유자 |
 | POST | `/api/sessions/{sessionId}/turns` | 학습 턴 처리 | Y | 세션 소유자 |
+| GET | `/api/sessions/{sessionId}/stream` | SSE 스트림 (fetch + Bearer — DEC-021) | Y | 세션 소유자 |
 | GET | `/api/sessions/{sessionId}/messages` | 메시지 조회 | Y | 세션 소유자 |
 | GET | `/api/sessions/{sessionId}/quizzes` | 퀴즈 기록 조회 | Y | 세션 소유자 |
 | GET | `/api/quizzes/{quizId}` | 퀴즈 공개 문항 조회 | Y | 세션 소유자 |
@@ -424,6 +425,7 @@ Query:
 
 - 서버는 커서 기준 **더 과거 방향**으로 `size`개를 조회하고, `items`는 시간 오름차순으로 반환합니다(FE는 리스트 앞에 prepend). 첫 호출(커서 없음)은 최신 `size`개를 반환합니다.
 - `nextCursor`는 다음(더 과거) 조회에 그대로 전달하는 불투명 문자열이며, 더 없으면 `null`·`hasMore=false`입니다. 구현은 `(created_at, id)` 복합 정렬 커서를 권장하되 커서 값의 내부 구조에 FE가 의존하지 않습니다.
+- Base64 형식·내부 필드·시간·메시지 ID가 유효하지 않은 커서는 `VALIDATION_FAILED`(400)로 거부합니다.
 - 삭제·완료된 세션도 소유자는 메시지를 조회할 수 있는지: 완료(COMPLETED)는 조회 허용, 삭제(DELETED)는 목록·조회와 동일하게 차단합니다.
 
 ### GET `/api/sessions/{sessionId}/quizzes`
@@ -630,100 +632,7 @@ Query:
 
 세션 `status` 전이(`ACTIVE`/`COMPLETED`/`DELETED`)는 statePatch로 허용하지 않으며 Spring 외부 API(complete/delete)로만 변경합니다. 목록의 세부 값은 구현 시 domain-model과 함께 확정합니다.
 
-### 엔드포인트별 요청/응답 초안 (turn 외 4종)
-
-> 아래 구조는 [에이전트 시스템 명세](agent-system-spec.md) §4.5~4.8의 입출력 초안을 endpoint 계약으로 옮긴 **초안**입니다. 필드 수준 확정은 각 Epic의 [Contract] 이슈(extract는 Epic 3, grade는 Epic 6, quiz-assessment·diagnosis는 Epic 7)와 ai-integration-contract v0.3에서 승인합니다.
-
-**POST `/internal/ai/extract`** — `Content-Type: multipart/form-data` (file: PDF ≤ 45MB — DEC-016)
-
-응답:
-
-```json
-{
-  "schemaVersion": "1.0",
-  "pageCount": 42,
-  "pages": [ { "pageNumber": 1, "text": "..." } ]
-}
-```
-
-저장(material_pages)과 READY/FAILED 상태 전이는 Spring이 수행합니다(DEC-006). 추출 불가(암호화·손상·텍스트 없음)는 아래 내부 오류 형식의 `EXTRACTION_FAILED`로 반환합니다.
-
-**POST `/internal/ai/grade`** — SHORT/ESSAY 채점 (파이프라인 1단계)
-
-```json
-{
-  "schemaVersion": "1.0",
-  "quizId": 55,
-  "quizType": "ESSAY",
-  "items": [
-    { "questionId": "q1", "question": "...", "modelAnswer": "...", "rubric": [ { "criterion": "...", "weight": 0.5 } ], "maxScore": 20 }
-  ],
-  "studentAnswers": [ { "questionId": "q1", "answer": "..." } ],
-  "pageContext": { "coverageStartPage": 3, "coverageEndPage": 5, "text": "..." },
-  "learnerMemoryDigest": null
-}
-```
-
-응답은 [에이전트 시스템 명세](agent-system-spec.md) §4.5 출력과 동일: `schemaVersion`, `quizId`, `quizType`, `score`, `maxScore`, `items[].{questionId, score, maxScore, verdict(CORRECT|PARTIAL|WRONG), feedback}`. Spring은 문항 ID·점수 범위·합계·만점 일치를 재검증합니다(검증 실패 시 `GRADING_RESULT_INVALID` 처리, DEC-002 D4의 재시도→실패 원칙).
-
-**POST `/internal/ai/quiz-assessment`** — 내부 평가 생성 (파이프라인 2단계, 채점 후 항상)
-
-```json
-{
-  "schemaVersion": "1.0",
-  "quizResult": { "quizId": 55, "quizType": "ESSAY", "score": 70, "maxScore": 100, "passed": true, "items": [] },
-  "quizItems": [],
-  "studentAnswers": [],
-  "pageContext": { "coverageStartPage": 3, "coverageEndPage": 5, "text": "..." },
-  "learnerMemoryDigest": null
-}
-```
-
-응답은 §4.8 출력 + `schemaVersion`: `understandingSummary`, `strengths[]`, `weaknesses[]`, `suspectedMisconceptions[]`, `recommendedNextDirection`, `memoryCandidates[].{type, content, confidence}`, `evidence[]`. Spring이 `quiz_assessments`에 저장합니다(전량 보존 — DEC-011).
-
-**POST `/internal/ai/diagnosis`** — 진단 질문 생성 (파이프라인 3단계, 기준 미달 시)
-
-```json
-{
-  "schemaVersion": "1.0",
-  "quizAssessment": {},
-  "quizResult": { "quizId": 55, "score": 40, "maxScore": 100, "passed": false },
-  "wrongItems": [
-    { "questionId": "q2", "question": "...", "studentAnswer": "...", "modelAnswer": "...", "feedback": "..." }
-  ],
-  "pageContext": { "coverageStartPage": 3, "coverageEndPage": 5, "text": "..." },
-  "learnerMemoryDigest": null
-}
-```
-
-응답은 §4.7 출력 + `schemaVersion`: `focusConcepts[]`, `suspectedMisconceptions[]`, `diagnosticPrompt`, `evidence[]`, `repairHint`. Spring이 `Diagnosis(PENDING)` 저장과 `pendingDiagnosis` 설정을 수행합니다.
-
-### 내부 오류 응답 형식 초안
-
-FastAPI는 실패 시 아래 형식으로 응답하고, Spring은 `category`로 외부 오류에 매핑합니다.
-
-```json
-{
-  "schemaVersion": "1.0",
-  "error": {
-    "code": "EXTRACTION_FAILED",
-    "category": "INTERNAL",
-    "message": "운영 노출 가능한 요약 메시지",
-    "retryable": false
-  },
-  "traceId": "01J..."
-}
-```
-
-| category | Spring 매핑 | 예 |
-| --- | --- | --- |
-| `AUTH` | 내부 설정 오류로 처리(500) — 외부 노출 없음 | X-Internal-Token 불일치 |
-| `TIMEOUT` | `AI_SERVICE_TIMEOUT` (504) | LLM 응답 시간 초과 |
-| `SCHEMA` | `AI_RESPONSE_INVALID` (502) | 구조화 출력 재시도 후 실패 |
-| `POLICY` | `AI_POLICY_REJECTED` (409/502) | Plan 정책 위반 |
-| `INTERNAL` | `AI_SERVICE_UNAVAILABLE`(503) 또는 502 | 추출 실패, 내부 오류 |
-
-`retryable=true`인 오류만 Spring이 제한 재시도를 검토합니다(재시도·timeout 예산은 ai-integration-contract v0.3에서 확정 — DEC-002 §5 이관 항목).
+DTO 상세·타임아웃·재시도·`usage` 필드는 [docs/ai-integration-contract.md](ai-integration-contract.md) v0.4가 기준입니다(turn 요청/응답 구조, grade/quiz-assessment/diagnosis/extract DTO, 오류 category 5종 AUTH/TIMEOUT/SCHEMA/POLICY/INTERNAL과 Spring 매핑 포함).
 
 내부 API 필수 정책:
 
@@ -733,10 +642,13 @@ FastAPI는 실패 시 아래 형식으로 응답하고, Spring은 `category`로 
 - 알 수 없는 상태 패치나 UI 액션은 Spring이 거부합니다.
 - FastAPI 오류 코드는 Spring 외부 오류로 안전하게 매핑합니다.
 
-## 9. SSE 스트리밍 계약 초안
+## 9. SSE 스트리밍 계약 (확정)
 
-AI 응답 스트리밍은 SSE를 기본 전송 방식으로 사용합니다. 이벤트 후보는 `status`, `thought_summary`, `content_delta`, `ui_action`, `completed`, `error`입니다.
+AI 응답 스트리밍은 SSE를 기본 전송 방식으로 사용합니다. 이벤트는 `status`, `thought_summary`, `content_delta`, `ui_action`, `completed`, `error`이며, `completed` 또는 `error`는 정확히 1회, 스트림의 마지막 이벤트입니다.
 
-- 스트림 URL 초안: `GET /api/sessions/{sessionId}/stream` (세션 단위 단일 스트림, 진행 중 턴의 이벤트를 전달)
-- 인증(DEC-021 Accepted): fetch 기반 스트림을 사용합니다. FE는 `Accept: text/event-stream`으로 fetch를 호출해 기존 `Authorization: Bearer` 헤더를 그대로 사용하고, ReadableStream을 파싱합니다. 재연결과 `Last-Event-ID`는 FE가 처리합니다.
-- heartbeat, `Last-Event-ID` 재연결, 최종 저장 시점, 취소 API는 FE/BE/AI 공동 설계 후 OpenAPI에 반영합니다.
+- 스트림 URL: `GET /api/sessions/{sessionId}/stream` (세션 단위 단일 스트림, 진행 중 턴의 이벤트를 전달)
+- 인증: fetch + `Authorization: Bearer` 헤더 + ReadableStream 파싱(DEC-021). 브라우저 `EventSource`는 `Authorization` 헤더를 지원하지 않으므로 사용하지 않습니다.
+- heartbeat: 10초 간격 SSE comment 라인(이벤트 아님, FE는 무시)
+- 취소: 별도 취소 API 없음 — FE fetch abort → Spring 연결 종료 감지 → FastAPI 상류 요청 취소
+- 재연결(MVP): `Last-Event-ID` 재전송 미지원 — 재연결 시 FE가 세션 상태/메시지 재조회로 재동기화하고, 진행 중 턴은 완료 후 확정 메시지로 수신합니다(중간 청크는 비확정이므로 유실 무해).
+- 최종 저장: `completed` 수신·검증 후 1회만 확정 저장합니다. 스트림 중단 시 불완전 메시지는 확정 메시지로 취급하지 않습니다.
