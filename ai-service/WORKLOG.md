@@ -14,6 +14,9 @@
 - 2026-07-25 19:24 KST: uvicorn 팩토리 실행 후 health 200 및 인증된 turn
   고정 응답을 실제 HTTP로 확인.
 - 2026-07-25 19:25 KST: pytest 7개, ruff, mypy 전체 통과.
+- 2026-07-25 19:38 KST: 이슈 #10·#11 인수인계 문서와 500 INTERNAL 오류
+  계약 테스트 추가.
+- 2026-07-25 19:39 KST: pytest 8개, ruff, mypy 전체 재검증 통과.
 
 ## 이슈 #9 체크리스트 매핑
 
@@ -32,7 +35,7 @@
 ## 검증 결과
 
 - `uv sync --locked`: 성공 (CPython 3.14.6)
-- `uv run pytest -q`: `7 passed`
+- `uv run pytest -q`: `8 passed`
 - `uv run ruff check .`: 통과
 - `uv run mypy`: 22개 소스 파일 검사 통과
 - `uvicorn ... --factory`: `/health` 200, 인증된 `/internal/ai/turn` 200
@@ -60,3 +63,8 @@
    `code` 목록은 확정하지 않았습니다. 부트스트랩에서 사용한
    `AI_INTERNAL_AUTH_FAILED`, `AI_REQUEST_INVALID`, `AI_INTERNAL_ERROR`를
    후속 계약에서 승인하거나 교체해야 합니다.
+
+## 이월 메모
+
+- BaseHTTPMiddleware는 SSE 스트리밍과 궁합 이슈 알려짐 — #25 구현 시 pure ASGI 미들웨어 전환 검토
+- 응답 model 필드 대조 assertion은 LlmBridge 실구현이 없어 #23으로 이월
