@@ -10,6 +10,8 @@ spring:
 edupilot:
   ai:
     base-url: ${EDUPILOT_AI_BASE_URL}
+  storage:
+    root-directory: ${EDUPILOT_STORAGE_DIR}
 
 logging:
   level:

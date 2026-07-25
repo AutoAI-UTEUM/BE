@@ -12,6 +12,10 @@ spring:
     locations: classpath:db/migration
   jackson:
     default-property-inclusion: always
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 51MB
 
 server:
   error:
@@ -31,7 +35,12 @@ edupilot:
     internal-token: ${EDUPILOT_INTERNAL_TOKEN}
     connect-timeout: 3s
     read-timeout: 30s
+    extract-read-timeout: ${EDUPILOT_AI_EXTRACT_READ_TIMEOUT:120s}
     health-path: /health
+  material:
+    upload-max-mb: ${EDUPILOT_UPLOAD_MAX_MB:45}
+    max-pages: 300
+    page-text-api-enabled: false
   jwt:
     secret: ${EDUPILOT_JWT_SECRET}
     access-token-ttl: 1h
