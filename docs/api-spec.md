@@ -424,6 +424,7 @@ Query:
 
 - 서버는 커서 기준 **더 과거 방향**으로 `size`개를 조회하고, `items`는 시간 오름차순으로 반환합니다(FE는 리스트 앞에 prepend). 첫 호출(커서 없음)은 최신 `size`개를 반환합니다.
 - `nextCursor`는 다음(더 과거) 조회에 그대로 전달하는 불투명 문자열이며, 더 없으면 `null`·`hasMore=false`입니다. 구현은 `(created_at, id)` 복합 정렬 커서를 권장하되 커서 값의 내부 구조에 FE가 의존하지 않습니다.
+- Base64 형식·내부 필드·시간·메시지 ID가 유효하지 않은 커서는 `VALIDATION_FAILED`(400)로 거부합니다.
 - 삭제·완료된 세션도 소유자는 메시지를 조회할 수 있는지: 완료(COMPLETED)는 조회 허용, 삭제(DELETED)는 목록·조회와 동일하게 차단합니다.
 
 ### GET `/api/sessions/{sessionId}/quizzes`
