@@ -44,7 +44,6 @@ public class UserService {
 			throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
 		}
 
-		// TODO Epic 3·4에서 자료와 세션 논리 삭제 hook 구현체를 등록한다.
 		withdrawalHooks.forEach(hook -> hook.onWithdraw(userId));
 		refreshTokenService.revokeAll(userId);
 		user.withdraw();
