@@ -2,8 +2,8 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 상태 | 초안 — 확정분 병합 (ai-integration-contract v0.4 반영) |
-| 마지막 갱신 | 2026-07-23 |
+| 상태 | 초안 |
+| 마지막 갱신 | 2026-07-21 |
 | 코드 형식 | `UPPER_SNAKE_CASE` |
 
 ## 1. 응답 형식
@@ -46,11 +46,11 @@
 | 422 | 문법은 맞지만 처리할 수 없는 도메인 입력을 쓸지 TBD |
 | 429 | 요청/AI 사용량 제한 |
 | 500 | 예상하지 못한 서버 오류 |
-| 502 | FastAPI/Grok(xAI)의 잘못된 응답 |
+| 502 | FastAPI/Grok의 잘못된 응답 |
 | 503 | 의존 서비스 일시 불가 |
 | 504 | AI 또는 내부 서비스 시간 초과 |
 
-## 3. 코드 목록 (외부 API: Spring → FE)
+## 3. 코드 목록
 
 ### 공통·인증
 
@@ -83,11 +83,10 @@
 | `MATERIAL_NOT_FOUND` | 404 | 자료 없음 |
 | `MATERIAL_ACCESS_DENIED` | 403/404 | 자료 접근 불가 |
 | `INVALID_PDF_FILE` | 400 | PDF가 아니거나 손상됨 |
-| `FILE_TOO_LARGE` | 413 | 파일 제한 초과 (45MB — DEC-016) |
-| `PAGE_LIMIT_EXCEEDED` | 400 | 300페이지 초과 (DEC-016) |
+| `FILE_TOO_LARGE` | 413 | 파일 제한 초과 |
 | `MATERIAL_PROCESSING` | 409 | 아직 처리 중 |
 | `MATERIAL_PROCESSING_FAILED` | 409 | 텍스트 추출 등 처리 실패 |
-| `MATERIAL_HAS_ACTIVE_SESSION` | 409 | 활성 세션 존재 시 자료 삭제 거부 (DEC-028) |
+| `MATERIAL_HAS_ACTIVE_SESSION` | 409 | 활성 세션이 있어 자료 삭제 불가 (DEC-028) |
 | `PAGE_OUT_OF_RANGE` | 400 | 페이지 번호 범위 초과 |
 
 ### 세션·턴
@@ -109,7 +108,7 @@
 | `QUIZ_NOT_FOUND` | 404 | 퀴즈 없음 |
 | `UNSUPPORTED_QUIZ_TYPE` | 400 | 지원하지 않는 유형 |
 | `INVALID_QUIZ_ANSWER` | 400 | 문항 누락/알 수 없는 문항 ID |
-| `QUIZ_ALREADY_SUBMITTED` | 409 | 재제출 불가 상태 (1회 제출 제한 — DEC-009) |
+| `QUIZ_ALREADY_SUBMITTED` | 409 | 재제출 불가 상태 |
 | `QUIZ_NOT_SUBMITTABLE` | 409 | 현재 제출할 수 없는 퀴즈 |
 | `GRADING_RESULT_INVALID` | 502 | AI 채점 결과 불일치 |
 | `DIAGNOSIS_NOT_FOUND` | 404 | 진단 없음 |
@@ -117,71 +116,29 @@
 
 ### AI 연동
 
-| code | HTTP | 의미 | 원천 category |
-| --- | ---: | --- | --- |
-| `AI_SERVICE_UNAVAILABLE` | 503 | FastAPI/Grok 일시 불가 | INTERNAL (미기동 등) |
-| `AI_SERVICE_TIMEOUT` | 504 | AI 호출 시간 초과 | TIMEOUT |
-| `AI_RESPONSE_INVALID` | 502 | 스키마에 맞지 않는 응답 | SCHEMA |
-| `AI_POLICY_REJECTED` | 502 또는 409 | Plan 정책 검증 실패 — 현재 세션 상태에서 허용되지 않는 요청이 원인이면 409, AI가 생성한 Plan 자체가 정책·스키마를 위반하면 502 | POLICY |
-| `AI_STREAM_INTERRUPTED` | 502/504 | 스트림 비정상 종료 — 중계/응답 오류로 끊기면 502, 시간 초과로 끊기면 504 (SSE `error` 이벤트) | — |
+| code | HTTP | 의미 |
+| --- | ---: | --- |
+| `AI_SERVICE_UNAVAILABLE` | 503 | FastAPI/Grok 일시 불가 |
+| `AI_SERVICE_TIMEOUT` | 504 | AI 호출 시간 초과 |
+| `AI_RESPONSE_INVALID` | 502 | 스키마에 맞지 않는 응답 |
+| `AI_POLICY_REJECTED` | 502 또는 409 | Plan 정책 검증 실패 — 현재 세션 상태에서 허용되지 않는 요청이 원인이면 409, AI가 생성한 Plan 자체가 정책·스키마를 위반하면 502 |
+| `AI_STREAM_INTERRUPTED` | 502/504 | 스트림 비정상 종료 — 중계/응답 오류로 끊기면 502, 시간 초과로 끊기면 504 |
 
-## 4. 내부 API (FastAPI → Spring)
-
-내부 오류 응답 형식 (ai-integration-contract v0.4 §1, api-spec §10):
-
-```json
-{
-  "schemaVersion": "1.0",
-  "error": {
-    "code": "EXTRACTION_FAILED",
-    "category": "INTERNAL",
-    "message": "운영 노출 가능한 요약",
-    "retryable": false
-  },
-  "traceId": "01J..."
-}
-```
-
-`category`는 `AUTH | TIMEOUT | SCHEMA | POLICY | INTERNAL` 5종이며 Spring이 외부 코드로 매핑합니다:
-
-| category | Spring 매핑 | 예 |
-| --- | --- | --- |
-| AUTH | 500 (외부 비노출) | 토큰 불일치 |
-| TIMEOUT | `AI_SERVICE_TIMEOUT` 504 | LLM 시간 초과 |
-| SCHEMA | `AI_RESPONSE_INVALID` 502 | 구조화 출력 재시도 후 실패 |
-| POLICY | `AI_POLICY_REJECTED` 409/502 | Plan 정책 위반 |
-| INTERNAL | `AI_SERVICE_UNAVAILABLE` 503 / 502 | 추출 실패, 내부 오류 |
-
-### 내부 코드 목록
-
-| 코드 | category | 조건 |
-| --- | --- | --- |
-| `INTERNAL_TOKEN_INVALID` | AUTH | X-Internal-Token 누락/불일치 |
-| `EXTRACTION_FAILED` | INTERNAL | 손상·암호화·텍스트 레이어 없음 |
-| `PAGE_LIMIT_EXCEEDED` | INTERNAL | 300p 초과 |
-| `PLAN_INVALID` | SCHEMA | Orchestrator Plan 재생성 후 실패 |
-| `PLAN_POLICY_REJECTED` | POLICY | 허용 외 도구·정책 위반 |
-| `LLM_TIMEOUT` | TIMEOUT | Grok 응답 초과 |
-| `LLM_SCHEMA_INVALID` | SCHEMA | structured output 재시도 후 실패 |
-| `GRADING_INVARIANT_VIOLATED` | SCHEMA | 점수 범위·문항 수 불변식 위반 (재시도 후) |
-
-- 재시도: `retryable=true`인 category(TIMEOUT, INTERNAL 일부)만 Spring이 최대 1회. SCHEMA는 FastAPI 내부 재생성으로 소진 — Spring 재시도 없음.
-- 원시 예외 문자열·프롬프트·내부 추론을 `message`에 넣지 않습니다.
-
-## 5. FE 처리 기준
+## 4. FE 처리 기준
 
 | 범주 | 처리 |
 | --- | --- |
-| 400/409 | 해당 입력/상태 안내, 가능한 경우 다시 시도 (409 계열은 상태 재조회 후 UI 갱신) |
+| 400/409 | 해당 입력/상태 안내, 가능한 경우 다시 시도 |
 | 401 | 토큰 정책에 따라 갱신 또는 로그인 이동 |
 | 403/404 | 접근 불가 안내 후 안전한 화면으로 이동 |
 | 429 | 재시도 가능 시점 안내 |
 | 502/503/504 | 현재 상태를 유지하고 제한된 재시도 제공 |
 
-FE는 `message` 문자열을 파싱하지 않고 `code`로 분기합니다. `traceId`는 로깅·문의용입니다.
+FE는 `message` 문자열을 파싱하지 않고 `code`로 분기합니다.
 
-## 6. 로깅 기준
+## 5. 로깅 기준
 
 - 서버 로그에는 `traceId`, 사용자/세션의 안전한 식별자, 에러 코드, 처리 구간을 남깁니다.
-- 비밀번호, JWT, xAI API Key, 전체 PDF 텍스트, 학생 답안 원문은 기본 오류 로그에 남기지 않습니다.
+- 비밀번호, JWT, Grok(xAI) API Key, 전체 PDF 텍스트, 학생 답안 원문은 기본 오류 로그에 남기지 않습니다.
 - AI 원문 로깅이 꼭 필요하면 마스킹, 접근 통제, 보관 기간을 먼저 결정합니다.
+
