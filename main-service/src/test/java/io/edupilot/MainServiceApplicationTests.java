@@ -21,6 +21,8 @@ import io.edupilot.auth.RefreshTokenRepository;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.session.ChatMessageRepository;
+import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.UserRepository;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -45,6 +47,12 @@ class MainServiceApplicationTests {
 
 	@MockitoBean
 	private MaterialPageRepository materialPageRepository;
+
+	@MockitoBean
+	private LearningSessionRepository learningSessionRepository;
+
+	@MockitoBean
+	private ChatMessageRepository chatMessageRepository;
 
 	private MockMvc mockMvc;
 
@@ -88,6 +96,22 @@ class MainServiceApplicationTests {
 			.andExpect(jsonPath("$.paths['/api/auth/refresh'].post").exists())
 			.andExpect(jsonPath("$.paths['/api/auth/logout'].post").exists())
 			.andExpect(jsonPath("$.paths['/api/users/me'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/sessions'].post").exists())
+			.andExpect(jsonPath("$.paths['/api/sessions'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/sessions/{sessionId}'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/sessions/{sessionId}'].delete").exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/sessions/{sessionId}/page'].patch"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/sessions/{sessionId}/turns'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/sessions/{sessionId}/messages'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/sessions/{sessionId}/complete'].post"
+			).exists())
 			.andExpect(jsonPath("$.paths['/api/users/me'].delete").exists())
 			.andExpect(jsonPath("$.paths['/api/materials'].post").exists())
 			.andExpect(jsonPath(
