@@ -38,6 +38,8 @@ import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.dto.MaterialDetailResponse;
 import io.edupilot.material.dto.MaterialListResponse;
 import io.edupilot.material.dto.MaterialSummaryResponse;
+import io.edupilot.session.ChatMessageRepository;
+import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 
@@ -68,6 +70,12 @@ class MaterialApiContractTest {
 
 	@MockitoBean
 	private MaterialPageRepository materialPageRepository;
+
+	@MockitoBean
+	private LearningSessionRepository learningSessionRepository;
+
+	@MockitoBean
+	private ChatMessageRepository chatMessageRepository;
 
 	private MockMvc mockMvc;
 	private String accessToken;

@@ -22,6 +22,8 @@ import io.edupilot.auth.JwtTokenProvider;
 import io.edupilot.auth.RefreshTokenRepository;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.dto.MaterialPageResponse;
+import io.edupilot.session.ChatMessageRepository;
+import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 
@@ -52,6 +54,12 @@ class MaterialPageApiEnabledTest {
 
 	@MockitoBean
 	private MaterialPageRepository materialPageRepository;
+
+	@MockitoBean
+	private LearningSessionRepository learningSessionRepository;
+
+	@MockitoBean
+	private ChatMessageRepository chatMessageRepository;
 
 	private MockMvc mockMvc;
 	private String accessToken;

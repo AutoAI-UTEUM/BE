@@ -66,6 +66,36 @@ public enum ErrorCode {
 		HttpStatus.BAD_REQUEST,
 		"페이지 번호가 자료 범위를 벗어났습니다."
 	),
+	SESSION_NOT_FOUND(
+		"SESSION_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"학습 세션을 찾을 수 없습니다."
+	),
+	SESSION_NOT_ACTIVE(
+		"SESSION_NOT_ACTIVE",
+		HttpStatus.CONFLICT,
+		"활성 상태의 학습 세션이 아닙니다."
+	),
+	SESSION_STATE_CONFLICT(
+		"SESSION_STATE_CONFLICT",
+		HttpStatus.CONFLICT,
+		"현재 세션 상태에서 요청을 처리할 수 없습니다."
+	),
+	UNSUPPORTED_EVENT_TYPE(
+		"UNSUPPORTED_EVENT_TYPE",
+		HttpStatus.BAD_REQUEST,
+		"지원하지 않는 학습 이벤트입니다."
+	),
+	TURN_ALREADY_PROCESSED(
+		"TURN_ALREADY_PROCESSED",
+		HttpStatus.CONFLICT,
+		"이미 처리된 학습 턴입니다."
+	),
+	TURN_IN_PROGRESS(
+		"TURN_IN_PROGRESS",
+		HttpStatus.CONFLICT,
+		"다른 학습 턴을 처리하고 있습니다."
+	),
 	RESOURCE_NOT_FOUND("RESOURCE_NOT_FOUND", HttpStatus.NOT_FOUND, "리소스를 찾을 수 없습니다."),
 	RATE_LIMIT_EXCEEDED(
 		"RATE_LIMIT_EXCEEDED",

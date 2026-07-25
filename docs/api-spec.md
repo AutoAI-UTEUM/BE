@@ -58,8 +58,8 @@
 | POST | `/api/materials` | PDF 업로드 | Y | USER, ADMIN 초안 |
 | GET | `/api/materials` | 자료 목록 | Y | 본인 소유 자료 (DEC-026) |
 | GET | `/api/materials/{materialId}` | 자료 상세 | Y | 본인 소유 자료 |
-| DELETE | `/api/materials/{materialId}` | 자료 논리 삭제 (활성 세션 시 409 — DEC-028) | Y | 본인 소유 자료 |
-| GET | `/api/materials/{materialId}/pages/{pageNumber}` | 페이지 텍스트 | Y | 본인 소유 자료, 운영 노출 TBD(DEC-025) |
+| DELETE | `/api/materials/{materialId}` | 자료 논리 삭제 (DEC-028) | Y | 본인 소유 자료 |
+| GET | `/api/materials/{materialId}/pages/{pageNumber}` | 페이지 텍스트 | Y | 본인 소유 자료 — 운영 비노출, dev/디버깅 한정(DEC-025) |
 | POST | `/api/sessions` | 학습 세션 생성 | Y | USER |
 | GET | `/api/sessions` | 내 세션 목록 조회 | Y | 본인 |
 | GET | `/api/sessions/{sessionId}` | 세션 상태 조회 | Y | 세션 소유자 |
@@ -123,7 +123,39 @@
 }
 ```
 
-refresh token 필드는 정책 확정 후 추가합니다. 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
+refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DEC-004 Accepted). 쿠키 계약(확정): 이름 `edupilot_refresh`, `HttpOnly`, `Secure`, `SameSite=Lax`, **`Path=/api/auth`**(refresh·logout 요청에만 전송되도록 최소화), Max-Age 14일. 서버는 refresh 해시를 DB에 저장하고 회전·재사용 감지·강제 폐기를 지원합니다. access token 만료는 1시간이며 FE는 메모리에 보관합니다(localStorage 금지). 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
+
+### POST `/api/auth/refresh`
+
+요청 body 없음 — `edupilot_refresh` 쿠키만 사용합니다.
+
+`data` (login 응답과 동일 형식):
+
+```json
+{
+  "accessToken": "jwt-token",
+  "tokenType": "Bearer",
+  "expiresIn": 3600
+}
+```
+
+- **회전**: 성공 시 기존 refresh는 폐기되고 새 refresh 쿠키가 재발급됩니다. FE는 401 수신 시 이 API를 `credentials: "include"`로 호출해 access를 재발급받습니다.
+- **재사용 감지**: 이미 폐기(회전)된 refresh가 재사용되면 탈취 신호로 간주해 **해당 사용자의 refresh를 전량 폐기**하고 401을 반환합니다. FE 분기 단순화를 위해 별도 코드 없이 `TOKEN_INVALID`로 통일합니다(재로그인 유도).
+- 주요 오류: `TOKEN_INVALID`(401 — 쿠키 없음·미존재·폐기·만료·재사용 감지), `USER_INACTIVE`(403 — 탈퇴·비활성 사용자).
+
+### POST `/api/auth/logout`
+
+요청 body 없음 — `edupilot_refresh` 쿠키의 refresh를 폐기하고 쿠키를 만료(Max-Age=0)시킵니다. 이미 폐기됐거나 쿠키가 없어도 200을 반환합니다(멱등). access token은 서버가 무효화하지 않으며 만료(최대 1시간)로 소멸합니다 — FE는 로그아웃 시 메모리의 access를 즉시 삭제합니다.
+
+### DELETE `/api/users/me`
+
+```json
+{
+  "password": "password123"
+}
+```
+
+회원 탈퇴(DEC-028). 비밀번호 재확인 후 `status=DELETED` 전환과 동시에 개인 식별 정보를 익명화합니다(email → `deleted_{id}`, name → 고정 문구, password_hash 무효화 — 재가입 허용). refresh token은 전부 폐기합니다. 소유 자료·세션은 함께 논리 삭제하고, 퀴즈 제출·평가·메모리 레코드는 익명 상태로 보존합니다. 복구는 지원하지 않으므로 FE는 확인 모달을 거쳐 호출합니다. 주요 오류: `INVALID_CREDENTIALS`.
 
 ## 4. 자료 API
 
@@ -176,11 +208,15 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 ### GET `/api/materials/{materialId}`
 
-자료 제목, 페이지 수, 처리 상태, 학습 가능 여부를 반환합니다. 원본 파일 접근 URL은 인증된 다운로드 방식 결정 후 스키마에 추가합니다.
+자료 제목, 페이지 수, 처리 상태, 학습 가능 여부를 반환합니다. 원본 파일 접근은 Spring의 인증된 다운로드 스트리밍(`GET /api/materials/{materialId}/file` 초안)으로 제공하며, S3 전환 시 presigned URL 방식으로 변경합니다(DEC-005).
+
+### DELETE `/api/materials/{materialId}`
+
+자료를 논리 삭제(`status=DELETED`)합니다(DEC-028). 삭제된 자료는 목록·상세·세션 생성에서 제외합니다. 해당 자료의 ACTIVE 세션이 있으면 `MATERIAL_HAS_ACTIVE_SESSION`(409)으로 거부합니다 — 세션을 완료하거나 삭제한 뒤 재시도합니다. 완료된 세션·퀴즈·평가 기록은 보존하며, storage 파일은 즉시 삭제하지 않습니다(물리 삭제 배치는 이후 개선안). 주요 오류: `MATERIAL_NOT_FOUND`, `MATERIAL_HAS_ACTIVE_SESSION`.
 
 ### GET `/api/materials/{materialId}/pages/{pageNumber}`
 
-페이지 번호와 추출 텍스트를 반환하는 디버깅/동기화 초안입니다. FE가 PDF 자체를 렌더링하는 데 이 API가 꼭 필요한지는 재검토합니다.
+페이지 번호와 추출 텍스트를 반환합니다. 운영 FE에는 노출하지 않고 dev/디버깅 프로파일에서만 활성화합니다(DEC-025). 추출 텍스트는 AI 문맥 전용이며 FE는 PDF 원본 뷰어를 사용합니다.
 
 ## 5. 세션 API
 
@@ -248,8 +284,6 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
   "currentPage": 3,
   "pageStatus": "EXPLAINED",
   "status": "ACTIVE",
-  "conversationSummary": "1~2페이지에서 평균과 편차를 설명함",
-  "learnerMemoryDigest": "수식 전개를 어려워하고 쉬운 예시를 선호함",
   "pendingDiagnosis": null,
   "activeQuizId": null,
   "uiActions": [
@@ -264,7 +298,9 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 }
 ```
 
-`uiActions`는 마지막 턴/페이지 이동/퀴즈 제출 응답에서 내려간 최신 UI 액션을 그대로 반환해, 새로고침·재진입 후에도 진행 중이던 선택 UI를 복원할 수 있게 합니다. `activeQuizId`가 있으면 FE는 `GET /api/quizzes/{quizId}`로 풀이 화면을 복원합니다. `conversationSummary`·`learnerMemoryDigest`는 내부 AI 문맥 성격이 있어 FE 노출 필요성과 공개 범위를 구현 전에 재검토합니다(메모리 API의 "공개 가능한 요약만" 원칙과 정합 필요).
+`uiActions`는 마지막 턴/페이지 이동/퀴즈 제출 응답에서 내려간 최신 UI 액션을 그대로 반환해, 새로고침·재진입 후에도 진행 중이던 선택 UI를 복원할 수 있게 합니다. `activeQuizId`가 있으면 FE는 `GET /api/quizzes/{quizId}`로 풀이 화면을 복원합니다.
+
+`conversationSummary`·`learnerMemoryDigest`는 **내부 AI 스냅샷 전용이며 세션 상세 응답에 포함하지 않습니다**(확정 — DEC-025의 내부 텍스트 비노출 원칙, 메모리 API의 "공개 가능한 요약만" 원칙과 정합). 서버는 내부 턴 스냅샷 구성에만 사용하고, 학습자에게 보여줄 개인화 요약은 `GET /api/users/me/memory`가 담당합니다.
 
 ### DELETE `/api/sessions/{sessionId}`
 
@@ -323,7 +359,7 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 교정 후 추가 질문은 별도 이벤트 없이 `USER_QUESTION`을 재사용합니다. 직전 교정(repair)이 존재하면 Spring이 내부 턴 스냅샷의 `latestRepair`에 교정 답변 원문(또는 원문을 보존한 요약)을 포함해 전달하고, Orchestrator가 교정 후속 여부를 판단해 QaAgent를 선택합니다([에이전트 시스템 명세](agent-system-spec.md) §9.9 참고).
 
-동일 `requestId` 재전송의 멱등성 보장 범위는 구현 전에 확정합니다.
+동일 `requestId` 재전송 처리(확정): **`TURN_ALREADY_PROCESSED`(409)로 거부**합니다. 기존 결과를 재반환하는 replay는 제공하지 않으며, FE는 409 수신 시 세션 상세·메시지 재조회로 최신 상태를 복원합니다(DEC-024 복원 체계 재사용). 스트리밍 재연결 요구가 생기면 기존 결과 반환 방식으로 확장을 재검토합니다(이후 개선안).
 
 `data`:
 
@@ -353,7 +389,38 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 ### GET `/api/sessions/{sessionId}/messages`
 
-커서 또는 페이지 기반 페이지네이션 중 하나를 구현 전에 선택합니다. 채팅에는 커서 방식이 권장되지만 현재 계약은 TBD입니다.
+커서 기반 페이지네이션을 사용합니다(DEC-024 부가 확정 — 채팅 무한 스크롤 패턴에 적합).
+
+Query:
+
+| 파라미터 | 필수 | 설명 |
+| --- | :---: | --- |
+| `cursor` | N | 이전 응답의 `nextCursor` 값. 없으면 최신 메시지부터 조회 |
+| `size` | N | 기본 30, 최대 100 |
+
+`data`:
+
+```json
+{
+  "items": [
+    {
+      "messageId": 498,
+      "senderType": "AI",
+      "messageType": "EXPLANATION",
+      "content": "...",
+      "pageNumber": 3,
+      "createdAt": "2026-07-10T09:00:00Z"
+    }
+  ],
+  "nextCursor": "471",
+  "hasMore": true
+}
+```
+
+- 서버는 커서 기준 **더 과거 방향**으로 `size`개를 조회하고, `items`는 시간 오름차순으로 반환합니다(FE는 리스트 앞에 prepend). 첫 호출(커서 없음)은 최신 `size`개를 반환합니다.
+- `nextCursor`는 다음(더 과거) 조회에 그대로 전달하는 불투명 문자열이며, 더 없으면 `null`·`hasMore=false`입니다. 구현은 `(created_at, id)` 복합 정렬 커서를 권장하되 커서 값의 내부 구조에 FE가 의존하지 않습니다.
+- Base64 형식·내부 필드·시간·메시지 ID가 유효하지 않은 커서는 `VALIDATION_FAILED`(400)로 거부합니다.
+- 삭제·완료된 세션도 소유자는 메시지를 조회할 수 있는지: 완료(COMPLETED)는 조회 허용, 삭제(DELETED)는 목록·조회와 동일하게 차단합니다.
 
 ### GET `/api/sessions/{sessionId}/quizzes`
 

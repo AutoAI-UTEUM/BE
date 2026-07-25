@@ -99,8 +99,8 @@
 | `SESSION_NOT_ACTIVE` | 409 | 완료/삭제된 세션 |
 | `SESSION_STATE_CONFLICT` | 409 | 현재 상태에서 실행 불가 |
 | `UNSUPPORTED_EVENT_TYPE` | 400 | 알 수 없는 학습 이벤트 |
-| `TURN_ALREADY_PROCESSED` | 409 또는 기존 결과 반환 | 동일 요청 중복 (동일 requestId 멱등 — 기존 결과 반환 권장) |
-| `TURN_IN_PROGRESS` | 409 | 같은 세션에서 충돌하는 턴 진행 중 |
+| `TURN_ALREADY_PROCESSED` | 409 | 동일 `requestId` 재전송 — 확정: 거부 후 FE가 세션 상세·메시지 재조회로 복원 (replay 미제공) |
+| `TURN_IN_PROGRESS` | 409 | 같은 세션에서 충돌하는 턴 진행 중 — 세션당 동시 턴 1개 원칙, 판정 방식(플래그/낙관적 잠금)은 구현에서 선택 |
 
 ### 퀴즈·진단
 

@@ -35,6 +35,8 @@ import org.springframework.web.context.WebApplicationContext;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.session.ChatMessageRepository;
+import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 
@@ -68,6 +70,12 @@ class AuthApiContractTest {
 
 	@MockitoBean
 	private MaterialPageRepository materialPageRepository;
+
+	@MockitoBean
+	private LearningSessionRepository learningSessionRepository;
+
+	@MockitoBean
+	private ChatMessageRepository chatMessageRepository;
 
 	private MockMvc mockMvc;
 	private User user;

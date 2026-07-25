@@ -1,6 +1,6 @@
 # EduPilot Main Service
 
-EduPilot의 인증·권한·영속 상태와 Frontend용 외부 API를 담당하는 Spring Backend입니다. 공통 기반, 인증·사용자 API와 Material 업로드·조회·처리 수명 주기가 구현되어 있습니다.
+EduPilot의 인증·권한·영속 상태와 Frontend용 외부 API를 담당하는 Spring Backend입니다. 공통 기반, 인증·사용자 API, Material 처리 수명 주기와 학습 세션 생성·복원·페이지 이동·메시지 조회 경계가 구현되어 있습니다.
 
 ## 요구 환경
 
@@ -78,6 +78,12 @@ live 테스트는 기본 테스트와 CI에서 비활성화됩니다. 활성화�
 
 원본 PDF는 소유자 인증 후 `GET /api/materials/{materialId}/file`로 스트리밍합니다. 추출 텍스트 API는 local/dev에서만 활성화되며 운영 프로필에는 등록되지 않습니다.
 
+## 학습 세션 흐름
+
+READY 자료로 `POST /api/sessions`를 호출하면 ACTIVE 세션을 생성하거나 기존 세션을 재사용합니다. 페이지 이동은 LLM 없이 `StateReducer`가 처리하고, 상세·messages API로 현재 페이지와 대화를 복원합니다. 동일 turn `requestId`는 409로 거부하며 세션당 동시 turn은 하나만 허용합니다.
+
+Epic 4의 turns API는 사용자·AI 메시지를 저장한 뒤 고정 stub 응답을 반환합니다. 실제 FastAPI 호출, 퀴즈·진단 상태 검증과 statePatch 처리는 후속 Epic에서 연결합니다.
+
 ## 패키지 구조
 
 ```text
@@ -85,6 +91,7 @@ io.edupilot
 ├─ auth             # 회원가입·로그인·JWT·refresh 회전
 ├─ user             # 내 정보·탈퇴와 사용자 영속 모델
 ├─ material         # PDF 저장·업로드·조회·비동기 추출·논리 삭제
+├─ session          # 세션 수명 주기·페이지 이동·turn claim·메시지 복원
 ├─ ai
 │  ├─ dto         # Spring–FastAPI 내부 요청·응답 계약
 │  └─ AiClient    # 내부 인증, timeout, 오류 매핑을 캡슐화한 HTTP 어댑터
