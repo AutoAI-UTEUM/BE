@@ -59,7 +59,6 @@
 | POST | `/api/materials` | PDF 업로드 | Y | USER, ADMIN 초안 |
 | GET | `/api/materials` | 자료 목록 | Y | 본인 소유 자료 (DEC-026) |
 | GET | `/api/materials/{materialId}` | 자료 상세 | Y | 본인 소유 자료 |
-| GET | `/api/materials/{materialId}/file` | 원본 PDF 스트리밍 | Y | 본인 소유 자료 |
 | DELETE | `/api/materials/{materialId}` | 자료 논리 삭제 (DEC-028) | Y | 본인 소유 자료 |
 | GET | `/api/materials/{materialId}/pages/{pageNumber}` | 페이지 텍스트 | Y | 본인 소유 자료 — 운영 비노출, dev/디버깅 한정(DEC-025) |
 | POST | `/api/sessions` | 학습 세션 생성 | Y | USER |
@@ -132,7 +131,7 @@ refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DE
 
 요청 body 없음 — `edupilot_refresh` 쿠키만 사용합니다.
 
-`data`:
+`data` (login 응답과 동일 형식):
 
 ```json
 {
@@ -142,26 +141,13 @@ refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DE
 }
 ```
 
-- **회전**: 성공 시 기존 refresh는 폐기되고 새 refresh 쿠키가 재발급됩니다.
-- **재사용 감지**: 이미 폐기된 refresh가 재사용되면 해당 사용자의 refresh를 전량 폐기하고 `TOKEN_INVALID`(401)를 반환합니다.
-- 주요 오류: `TOKEN_INVALID`(쿠키 없음·미존재·폐기·만료), `USER_INACTIVE`.
+- **회전**: 성공 시 기존 refresh는 폐기되고 새 refresh 쿠키가 재발급됩니다. FE는 401 수신 시 이 API를 `credentials: "include"`로 호출해 access를 재발급받습니다.
+- **재사용 감지**: 이미 폐기(회전)된 refresh가 재사용되면 탈취 신호로 간주해 **해당 사용자의 refresh를 전량 폐기**하고 401을 반환합니다. FE 분기 단순화를 위해 별도 코드 없이 `TOKEN_INVALID`로 통일합니다(재로그인 유도).
+- 주요 오류: `TOKEN_INVALID`(401 — 쿠키 없음·미존재·폐기·만료·재사용 감지), `USER_INACTIVE`(403 — 탈퇴·비활성 사용자).
 
 ### POST `/api/auth/logout`
 
-요청 body 없음 — `edupilot_refresh` 쿠키의 refresh를 폐기하고 쿠키를 만료(Max-Age=0)시킵니다. 이미 폐기됐거나 쿠키가 없어도 200을 반환합니다. access token은 서버에서 별도 폐기하지 않으며 FE가 메모리에서 즉시 삭제합니다.
-
-### GET `/api/users/me`
-
-`data`:
-
-```json
-{
-  "id": 1,
-  "email": "user@example.com",
-  "name": "홍길동",
-  "role": "USER"
-}
-```
+요청 body 없음 — `edupilot_refresh` 쿠키의 refresh를 폐기하고 쿠키를 만료(Max-Age=0)시킵니다. 이미 폐기됐거나 쿠키가 없어도 200을 반환합니다(멱등). access token은 서버가 무효화하지 않으며 만료(최대 1시간)로 소멸합니다 — FE는 로그아웃 시 메모리의 access를 즉시 삭제합니다.
 
 ### DELETE `/api/users/me`
 
@@ -190,8 +176,8 @@ refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DE
 {
   "materialId": 10,
   "title": "선형회귀 기초",
-  "pageCount": null,
-  "processingStatus": "PROCESSING",
+  "pageCount": 25,
+  "processingStatus": "READY",
   "createdAt": "2026-07-10T09:00:00Z"
 }
 ```
@@ -224,26 +210,7 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 ### GET `/api/materials/{materialId}`
 
-자료 제목, 페이지 수, 처리 상태, 학습 가능 여부를 반환합니다.
-
-`data`:
-
-```json
-{
-  "materialId": 10,
-  "title": "선형회귀 기초",
-  "pageCount": 25,
-  "processingStatus": "READY",
-  "learningAvailable": true,
-  "createdAt": "2026-07-10T09:00:00Z"
-}
-```
-
-타인 소유·삭제·미존재 자료는 모두 `MATERIAL_NOT_FOUND`(404)로 응답해 존재 여부를 은닉합니다.
-
-### GET `/api/materials/{materialId}/file`
-
-Spring이 소유권을 검증한 뒤 원본 PDF를 `application/pdf`로 인증 스트리밍합니다. 성공 응답은 JSON envelope가 아닌 PDF binary이며 `Content-Disposition: inline`을 사용합니다. S3 전환 시 권한 확인 후 presigned URL을 발급하는 방식으로 변경합니다(DEC-005).
+자료 제목, 페이지 수, 처리 상태, 학습 가능 여부를 반환합니다. 원본 파일 접근은 Spring의 인증된 다운로드 스트리밍(`GET /api/materials/{materialId}/file` 초안)으로 제공하며, S3 전환 시 presigned URL 방식으로 변경합니다(DEC-005).
 
 ### DELETE `/api/materials/{materialId}`
 
@@ -251,7 +218,7 @@ Spring이 소유권을 검증한 뒤 원본 PDF를 `application/pdf`로 인증 �
 
 ### GET `/api/materials/{materialId}/pages/{pageNumber}`
 
-페이지 번호와 추출 텍스트를 반환합니다. 운영 FE에는 노출하지 않고 local/dev 프로파일에서만 활성화합니다(DEC-025). 추출 텍스트는 AI 문맥 전용이며 FE는 PDF 원본 뷰어를 사용합니다. 처리 중은 `MATERIAL_PROCESSING`, 처리 실패는 `MATERIAL_PROCESSING_FAILED`, 페이지 범위 초과는 `PAGE_OUT_OF_RANGE`를 반환합니다.
+페이지 번호와 추출 텍스트를 반환합니다. 운영 FE에는 노출하지 않고 dev/디버깅 프로파일에서만 활성화합니다(DEC-025). 추출 텍스트는 AI 문맥 전용이며 FE는 PDF 원본 뷰어를 사용합니다.
 
 ## 5. 세션 API
 
@@ -322,8 +289,6 @@ Spring이 소유권을 검증한 뒤 원본 PDF를 `application/pdf`로 인증 �
   "currentPage": 3,
   "pageStatus": "EXPLAINED",
   "status": "ACTIVE",
-  "conversationSummary": "1~2페이지에서 평균과 편차를 설명함",
-  "learnerMemoryDigest": "수식 전개를 어려워하고 쉬운 예시를 선호함",
   "pendingDiagnosis": null,
   "activeQuizId": null,
   "uiActions": [
@@ -338,7 +303,9 @@ Spring이 소유권을 검증한 뒤 원본 PDF를 `application/pdf`로 인증 �
 }
 ```
 
-`uiActions`는 마지막 턴/페이지 이동/퀴즈 제출 응답에서 내려간 최신 UI 액션을 그대로 반환해, 새로고침·재진입 후에도 진행 중이던 선택 UI를 복원할 수 있게 합니다. `activeQuizId`가 있으면 FE는 `GET /api/quizzes/{quizId}`로 풀이 화면을 복원합니다. `conversationSummary`·`learnerMemoryDigest`는 내부 AI 문맥 성격이 있어 FE 노출 필요성과 공개 범위를 구현 전에 재검토합니다(메모리 API의 "공개 가능한 요약만" 원칙과 정합 필요).
+`uiActions`는 마지막 턴/페이지 이동/퀴즈 제출 응답에서 내려간 최신 UI 액션을 그대로 반환해, 새로고침·재진입 후에도 진행 중이던 선택 UI를 복원할 수 있게 합니다. `activeQuizId`가 있으면 FE는 `GET /api/quizzes/{quizId}`로 풀이 화면을 복원합니다.
+
+`conversationSummary`·`learnerMemoryDigest`는 **내부 AI 스냅샷 전용이며 세션 상세 응답에 포함하지 않습니다**(확정 — DEC-025의 내부 텍스트 비노출 원칙, 메모리 API의 "공개 가능한 요약만" 원칙과 정합). 서버는 내부 턴 스냅샷 구성에만 사용하고, 학습자에게 보여줄 개인화 요약은 `GET /api/users/me/memory`가 담당합니다.
 
 ### DELETE `/api/sessions/{sessionId}`
 
@@ -397,7 +364,7 @@ Spring이 소유권을 검증한 뒤 원본 PDF를 `application/pdf`로 인증 �
 
 교정 후 추가 질문은 별도 이벤트 없이 `USER_QUESTION`을 재사용합니다. 직전 교정(repair)이 존재하면 Spring이 내부 턴 스냅샷의 `latestRepair`에 교정 답변 원문(또는 원문을 보존한 요약)을 포함해 전달하고, Orchestrator가 교정 후속 여부를 판단해 QaAgent를 선택합니다([에이전트 시스템 명세](agent-system-spec.md) §9.9 참고).
 
-동일 `requestId` 재전송의 멱등성 보장 범위는 구현 전에 확정합니다.
+동일 `requestId` 재전송 처리(확정): **`TURN_ALREADY_PROCESSED`(409)로 거부**합니다. 기존 결과를 재반환하는 replay는 제공하지 않으며, FE는 409 수신 시 세션 상세·메시지 재조회로 최신 상태를 복원합니다(DEC-024 복원 체계 재사용). 스트리밍 재연결 요구가 생기면 기존 결과 반환 방식으로 확장을 재검토합니다(이후 개선안).
 
 `data`:
 
@@ -427,7 +394,37 @@ Spring이 소유권을 검증한 뒤 원본 PDF를 `application/pdf`로 인증 �
 
 ### GET `/api/sessions/{sessionId}/messages`
 
-커서 기반 페이지네이션을 사용합니다(DEC-024 부가 확정 — 채팅 무한 스크롤 패턴에 적합). 커서 파라미터·응답 형식은 계약 승인 시 확정합니다.
+커서 기반 페이지네이션을 사용합니다(DEC-024 부가 확정 — 채팅 무한 스크롤 패턴에 적합).
+
+Query:
+
+| 파라미터 | 필수 | 설명 |
+| --- | :---: | --- |
+| `cursor` | N | 이전 응답의 `nextCursor` 값. 없으면 최신 메시지부터 조회 |
+| `size` | N | 기본 30, 최대 100 |
+
+`data`:
+
+```json
+{
+  "items": [
+    {
+      "messageId": 498,
+      "senderType": "AI",
+      "messageType": "EXPLANATION",
+      "content": "...",
+      "pageNumber": 3,
+      "createdAt": "2026-07-10T09:00:00Z"
+    }
+  ],
+  "nextCursor": "471",
+  "hasMore": true
+}
+```
+
+- 서버는 커서 기준 **더 과거 방향**으로 `size`개를 조회하고, `items`는 시간 오름차순으로 반환합니다(FE는 리스트 앞에 prepend). 첫 호출(커서 없음)은 최신 `size`개를 반환합니다.
+- `nextCursor`는 다음(더 과거) 조회에 그대로 전달하는 불투명 문자열이며, 더 없으면 `null`·`hasMore=false`입니다. 구현은 `(created_at, id)` 복합 정렬 커서를 권장하되 커서 값의 내부 구조에 FE가 의존하지 않습니다.
+- 삭제·완료된 세션도 소유자는 메시지를 조회할 수 있는지: 완료(COMPLETED)는 조회 허용, 삭제(DELETED)는 목록·조회와 동일하게 차단합니다.
 
 ### GET `/api/sessions/{sessionId}/quizzes`
 
