@@ -14,6 +14,7 @@
 | 테이블 | 핵심 컬럼 | 주요 제약/인덱스 |
 | --- | --- | --- |
 | `users` | id, email, password_hash, name, role, status, timestamps | `UK(email)`, `IDX(status)` |
+| `refresh_tokens` | id, user_id, token_hash, expires_at, revoked_at, created_at | `FK(user_id)`, `UK(token_hash)`, `IDX(user_id)` |
 | `learning_materials` | id, owner_id, title, storage_key, page_count, processing_status, status, timestamps | `FK(owner_id)`, `IDX(owner_id,status)` |
 | `material_pages` | id, material_id, page_number, text_content, created_at | `FK(material_id)`, `UK(material_id,page_number)` |
 | `learning_sessions` | id, user_id, material_id, current_page, page_status, status, conversation_summary, timestamps | `FK(user_id)`, `FK(material_id)`, `IDX(user_id,status,updated_at)` |
@@ -31,6 +32,7 @@
 - `learner_memory_candidates`는 임시 메모리 후보의 영속 저장소입니다. FastAPI는 무상태이므로 turn 응답의 후보를 Spring이 이 테이블에 저장하고, 다음 턴 스냅샷의 `memory.temporaryCandidates`로 전달합니다. 승격되면 후보를 삭제하지 않고 `status`를 `PROMOTED`/`ARCHIVED`로 전환하며, `evidence_refs_json` + 상태 전이 기록이 MVP의 감사 이력 역할을 합니다(DEC-012 Accepted — 별도 이력 테이블은 이후 개선안).
 - `quiz_assessments`는 삭제 없이 전량 보존합니다(DEC-011 Accepted). "평가 큐"는 물리 큐가 아니라 조회 윈도우입니다 — turn 스냅샷용은 세션 스코프 최근 5개(`IDX(session_id, created_at)`), 메모리 승격 판단용은 `quiz_submissions` 조인으로 user×material 교차 세션 최근 20개를 사용합니다.
 - `learning_materials.processing_status`는 `PROCESSING`, `READY`, `FAILED` 최소 3값을 사용합니다.
+- refresh token 원문은 저장하지 않고 SHA-256 해시만 `refresh_tokens.token_hash`에 저장합니다. 회전·로그아웃·탈퇴 시 `revoked_at`을 기록합니다.
 
 ## 2. 컬럼 원칙
 

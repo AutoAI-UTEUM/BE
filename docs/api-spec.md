@@ -52,6 +52,8 @@
 | --- | --- | --- | :---: | --- |
 | POST | `/api/auth/signup` | 회원가입 | N | 전체 |
 | POST | `/api/auth/login` | 로그인 | N | 전체 |
+| POST | `/api/auth/refresh` | access 재발급 (refresh 쿠키 회전) | 쿠키 | refresh 쿠키 보유자 |
+| POST | `/api/auth/logout` | 로그아웃 (refresh 폐기·쿠키 만료) | 쿠키 | refresh 쿠키 보유자 (멱등) |
 | GET | `/api/users/me` | 내 정보 조회 | Y | 본인 |
 | DELETE | `/api/users/me` | 회원 탈퇴(논리 삭제+익명화 — DEC-028) | Y | 본인 (비밀번호 재확인) |
 | POST | `/api/materials` | PDF 업로드 | Y | USER, ADMIN 초안 |
@@ -94,6 +96,8 @@
 }
 ```
 
+비밀번호 정책(확정): **8~64자, 영문·숫자 각 1자 이상 포함**(특수문자 허용). 위반 시 `VALIDATION_FAILED` + `details: [{ "field": "password", "reason": "..." }]`.
+
 주요 오류: `VALIDATION_FAILED`, `EMAIL_ALREADY_EXISTS`.
 
 ### POST `/api/auth/login`
@@ -121,7 +125,42 @@
 }
 ```
 
-refresh token은 응답 body에 포함하지 않고 `HttpOnly·Secure·SameSite=Lax` 쿠키로 발급합니다(만료 14일, 회전·재사용 감지 — DEC-004 Accepted). access token 만료는 1시간이며 FE는 메모리에 보관합니다. 토큰 갱신 endpoint(`POST /api/auth/refresh` 초안)는 구현 시 OpenAPI에 추가합니다. 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
+refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DEC-004 Accepted). 쿠키 계약(확정): 이름 `edupilot_refresh`, `HttpOnly`, `Secure`, `SameSite=Lax`, **`Path=/api/auth`**(refresh·logout 요청에만 전송되도록 최소화), Max-Age 14일. 서버는 refresh 해시를 DB에 저장하고 회전·재사용 감지·강제 폐기를 지원합니다. access token 만료는 1시간이며 FE는 메모리에 보관합니다(localStorage 금지). 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
+
+### POST `/api/auth/refresh`
+
+요청 body 없음 — `edupilot_refresh` 쿠키만 사용합니다.
+
+`data`:
+
+```json
+{
+  "accessToken": "jwt-token",
+  "tokenType": "Bearer",
+  "expiresIn": 3600
+}
+```
+
+- **회전**: 성공 시 기존 refresh는 폐기되고 새 refresh 쿠키가 재발급됩니다.
+- **재사용 감지**: 이미 폐기된 refresh가 재사용되면 해당 사용자의 refresh를 전량 폐기하고 `TOKEN_INVALID`(401)를 반환합니다.
+- 주요 오류: `TOKEN_INVALID`(쿠키 없음·미존재·폐기·만료), `USER_INACTIVE`.
+
+### POST `/api/auth/logout`
+
+요청 body 없음 — `edupilot_refresh` 쿠키의 refresh를 폐기하고 쿠키를 만료(Max-Age=0)시킵니다. 이미 폐기됐거나 쿠키가 없어도 200을 반환합니다. access token은 서버에서 별도 폐기하지 않으며 FE가 메모리에서 즉시 삭제합니다.
+
+### GET `/api/users/me`
+
+`data`:
+
+```json
+{
+  "id": 1,
+  "email": "user@example.com",
+  "name": "홍길동",
+  "role": "USER"
+}
+```
 
 ### DELETE `/api/users/me`
 
