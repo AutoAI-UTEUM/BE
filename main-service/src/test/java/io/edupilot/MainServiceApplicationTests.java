@@ -2,6 +2,7 @@ package io.edupilot;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -15,9 +16,11 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
-import org.springframework.web.filter.CorsFilter;
 
+import io.edupilot.auth.RefreshTokenRepository;
 import io.edupilot.global.security.TraceIdFilter;
+import io.edupilot.user.UserRepository;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -29,15 +32,19 @@ class MainServiceApplicationTests {
 	@Autowired
 	private TraceIdFilter traceIdFilter;
 
-	@Autowired
-	private CorsFilter corsFilter;
+	@MockitoBean
+	private UserRepository userRepository;
+
+	@MockitoBean
+	private RefreshTokenRepository refreshTokenRepository;
 
 	private MockMvc mockMvc;
 
 	@BeforeEach
 	void setUp() {
 		mockMvc = MockMvcBuilders.webAppContextSetup(context)
-			.addFilters(traceIdFilter, corsFilter)
+			.apply(springSecurity())
+			.addFilters(traceIdFilter)
 			.build();
 	}
 
@@ -64,7 +71,16 @@ class MainServiceApplicationTests {
 	void openApiDocumentAndSwaggerUiAreAvailable() throws Exception {
 		mockMvc.perform(get("/v3/api-docs"))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.info.title").value("EduPilot Main Service API"));
+			.andExpect(jsonPath("$.info.title").value("EduPilot Main Service API"))
+			.andExpect(jsonPath(
+				"$.components.securitySchemes.bearerAuth.scheme"
+			).value("bearer"))
+			.andExpect(jsonPath("$.paths['/api/auth/signup'].post").exists())
+			.andExpect(jsonPath("$.paths['/api/auth/login'].post").exists())
+			.andExpect(jsonPath("$.paths['/api/auth/refresh'].post").exists())
+			.andExpect(jsonPath("$.paths['/api/auth/logout'].post").exists())
+			.andExpect(jsonPath("$.paths['/api/users/me'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/users/me'].delete").exists());
 
 		mockMvc.perform(get("/swagger-ui.html"))
 			.andExpect(status().is3xxRedirection());

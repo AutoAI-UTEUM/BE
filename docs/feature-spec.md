@@ -31,7 +31,7 @@
 2. Spring은 자격 증명과 사용자 상태를 검증합니다.
 3. JWT access token과 최소 사용자 정보를 반환합니다.
 
-refresh token 정책은 구현 전에 별도로 확정합니다.
+refresh token 정책은 확정됐습니다(DEC-004): 만료 14일 HttpOnly 쿠키(`edupilot_refresh`, Path=/api/auth), 서버 해시 저장, `POST /api/auth/refresh` 회전 + 재사용 감지 시 전량 폐기, `POST /api/auth/logout`으로 폐기. 세부 계약은 [API 명세](api-spec.md) §3을 따릅니다.
 
 ## 3. PDF 자료
 

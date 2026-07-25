@@ -1,6 +1,6 @@
 # EduPilot Main Service
 
-EduPilot의 인증·권한·영속 상태와 Frontend용 외부 API를 담당하는 Spring Backend입니다. 현재는 Epic 1 공통 기반만 구현되어 있으며 학습 도메인 endpoint는 아직 없습니다.
+EduPilot의 인증·권한·영속 상태와 Frontend용 외부 API를 담당하는 Spring Backend입니다. Epic 1 공통 기반과 Epic 2 인증·사용자 API가 구현되어 있으며 학습 도메인 endpoint는 아직 없습니다.
 
 ## 요구 환경
 
@@ -19,15 +19,17 @@ EduPilot의 인증·권한·영속 상태와 Frontend용 외부 API를 담당하
 | `EDUPILOT_DB_USERNAME` | `edupilot` | DB 사용자 |
 | `EDUPILOT_DB_PASSWORD` | `local-dev-password` | DB 비밀번호 |
 | `EDUPILOT_CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | 콤마 구분 허용 origin, `*` 금지 |
+| `EDUPILOT_JWT_SECRET` | Base64 인코딩된 32바이트 가짜 값 | JWT HS256 secret, 디코딩 후 최소 256bit |
 | `EDUPILOT_AI_BASE_URL` | `http://localhost:8000` | FastAPI AI Service base URL |
 | `EDUPILOT_INTERNAL_TOKEN` | `replace-with-local-internal-token` | Spring–FastAPI 내부 인증 토큰 |
 
-`prod` 프로필에는 여섯 변수를 모두 명시해야 합니다. `local`은 DB URL·사용자·CORS origin·AI base URL에 개발 기본값이 있지만 DB 비밀번호와 내부 인증 토큰은 반드시 환경 변수로 주입합니다. 두 서비스에는 같은 `EDUPILOT_INTERNAL_TOKEN` 값을 사용합니다.
+`prod` 프로필에는 일곱 변수를 모두 명시해야 합니다. `local`은 DB URL·사용자·CORS origin·AI base URL에 개발 기본값이 있지만 DB 비밀번호, JWT secret, 내부 인증 토큰은 반드시 환경 변수로 주입합니다. 두 서비스에는 같은 `EDUPILOT_INTERNAL_TOKEN` 값을 사용합니다.
 
 ## 실행과 검증
 
 ```powershell
 $env:EDUPILOT_DB_PASSWORD='local-dev-password'
+$env:EDUPILOT_JWT_SECRET='MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY='
 $env:EDUPILOT_INTERNAL_TOKEN='replace-with-local-internal-token'
 .\gradlew.bat bootRun --args="--spring.profiles.active=local"
 ```
@@ -44,6 +46,10 @@ Swagger UI: http://localhost:8080/swagger-ui.html
 ```
 
 테스트 프로필은 DB/JPA/Flyway 자동 설정을 제외하여 공통 Web 계약 테스트가 로컬 MySQL에 의존하지 않게 합니다. Flyway 호환성은 빈 MySQL 스키마에서 local 프로필을 기동해 별도로 확인합니다.
+
+## 인증 흐름
+
+회원가입 후 로그인하면 access token은 응답 body로, refresh token은 `edupilot_refresh` HttpOnly 쿠키로 발급됩니다. access 만료 시 `/api/auth/refresh`가 쿠키를 회전하며 로그아웃과 탈퇴는 저장된 refresh를 폐기합니다.
 
 ## FastAPI 연동 로컬 검증
 
@@ -67,6 +73,8 @@ live 테스트는 기본 테스트와 CI에서 비활성화됩니다. 활성화�
 
 ```text
 io.edupilot
+├─ auth             # 회원가입·로그인·JWT·refresh 회전
+├─ user             # 내 정보·탈퇴와 사용자 영속 모델
 ├─ ai
 │  ├─ dto         # Spring–FastAPI 내부 요청·응답 계약
 │  └─ AiClient    # 내부 인증, timeout, 오류 매핑을 캡슐화한 HTTP 어댑터
