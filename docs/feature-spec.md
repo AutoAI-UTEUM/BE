@@ -150,7 +150,7 @@ refresh token 정책은 구현 전에 별도로 확정합니다.
 3. Spring은 각 점수가 `0..maxScore`이고 합계가 일관적인지 검증합니다.
 4. 결과를 저장한 후 파이프라인 2단계로 `/internal/ai/quiz-assessment`를 호출합니다.
 
-채점 판정은 `CORRECT`, `PARTIAL`, `WRONG`만 사용합니다. 재제출 정책이 정해지기 전에는 한 퀴즈당 한 번 제출을 기본 초안으로 둡니다. 재제출 허용(DEC-009)으로 확정할 경우, 제출 응답의 `verdict`/`feedback`으로 정답을 역산해 재제출 만점을 받는 경로를 막는 정답 보호 규칙(공개 시점·재제출 점수 처리)을 반드시 함께 정의합니다.
+채점 판정은 `CORRECT`, `PARTIAL`, `WRONG`만 사용합니다. MVP는 한 퀴즈당 1회 제출로 제한하며 재제출은 `QUIZ_ALREADY_SUBMITTED`로 거부합니다(DEC-009). 이후 재제출을 허용하려면 verdict/feedback 공개 시점, 점수 처리, attempt 상한을 함께 정의해야 합니다.
 
 ## 9. 저득점 진단과 오개념 교정
 
@@ -163,7 +163,7 @@ refresh token 정책은 구현 전에 별도로 확정합니다.
 
 전체 페이지 재설명은 하지 않습니다. 진단 후 추가 질문은 별도 이벤트 없이 `USER_QUESTION`을 재사용하며, Spring이 스냅샷 `latestRepair`에 교정 답변 원문을 포함해 전달하면 Orchestrator가 RepairAgent가 아니라 QaAgent를 선택해 교정 답변 문맥을 이어받아 처리합니다.
 
-통과 기준 점수는 TBD입니다.
+통과 기준은 `score/maxScore >= 0.6`이며 `EDUPILOT_QUIZ_PASS_RATIO` 설정으로 관리합니다(DEC-010).
 
 ## 10. 평가 메모리와 장기 학습자 메모리
 

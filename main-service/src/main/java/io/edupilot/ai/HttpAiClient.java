@@ -26,6 +26,8 @@ import io.edupilot.ai.dto.AiErrorResponse;
 import io.edupilot.ai.dto.AiHealthResponse;
 import io.edupilot.ai.dto.ExtractResponse;
 import io.edupilot.ai.dto.ExtractedPage;
+import io.edupilot.ai.dto.GradeRequest;
+import io.edupilot.ai.dto.GradeResponse;
 import io.edupilot.ai.dto.TurnRequest;
 import io.edupilot.ai.dto.TurnResponse;
 import io.edupilot.global.error.ErrorCode;
@@ -39,10 +41,12 @@ public class HttpAiClient implements AiClient {
 	private static final String TRACE_ID_HEADER = "X-Trace-Id";
 	private static final String TURN_PATH = "/internal/ai/turn";
 	private static final String EXTRACT_PATH = "/internal/ai/extract";
+	private static final String GRADE_PATH = "/internal/ai/grade";
 	private static final String SCHEMA_VERSION = "1.0";
 
 	private final RestClient restClient;
 	private final RestClient extractRestClient;
+	private final RestClient gradeRestClient;
 	private final String healthPath;
 
 	public HttpAiClient(AiClientProperties properties) {
@@ -51,6 +55,10 @@ public class HttpAiClient implements AiClient {
 		this.extractRestClient = buildRestClient(
 			properties,
 			properties.extractReadTimeout()
+		);
+		this.gradeRestClient = buildRestClient(
+			properties,
+			properties.gradeReadTimeout()
 		);
 		this.healthPath = properties.healthPath();
 	}
@@ -164,6 +172,50 @@ public class HttpAiClient implements AiClient {
 		}
 	}
 
+	@Override
+	public GradeResponse grade(GradeRequest request) {
+		for (int attempt = 0; attempt < 2; attempt++) {
+			try {
+				GradeResponse response = gradeRestClient.post()
+					.uri(GRADE_PATH)
+					.contentType(MediaType.APPLICATION_JSON)
+					.body(request)
+					.retrieve()
+					.body(GradeResponse.class);
+				if (response == null
+					|| !SCHEMA_VERSION.equals(response.schemaVersion())) {
+					throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+				}
+				return response;
+			} catch (AiClientException exception) {
+				if (attempt == 0 && exception.retryable()) {
+					continue;
+				}
+				throw exception;
+			} catch (ResourceAccessException exception) {
+				throw mapResourceFailure(exception);
+			} catch (RestClientResponseException exception) {
+				AiClientException mapped = mapErrorResponse(exception);
+				if (attempt == 0 && mapped.retryable()) {
+					continue;
+				}
+				throw mapped;
+			} catch (RestClientException exception) {
+				if (isTimeoutFailure(exception)) {
+					throw new AiClientException(
+						ErrorCode.AI_SERVICE_TIMEOUT,
+						exception
+					);
+				}
+				throw new AiClientException(
+					ErrorCode.AI_RESPONSE_INVALID,
+					exception
+				);
+			}
+		}
+		throw new AiClientException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+	}
+
 	private void validateTurnResponse(TurnResponse response, TurnRequest request) {
 		if (response == null
 			|| !StringUtils.hasText(response.schemaVersion())
@@ -236,7 +288,10 @@ public class HttpAiClient implements AiClient {
 			log.error("AI internal authentication failed: status={}, errorCode={}",
 				exception.getStatusCode().value(), errorCode.code());
 		}
-		return new AiClientException(errorCode, exception);
+		boolean retryable = response.error().retryable()
+			&& (response.error().category() == AiErrorResponse.Category.TIMEOUT
+				|| response.error().category() == AiErrorResponse.Category.INTERNAL);
+		return new AiClientException(errorCode, retryable, exception);
 	}
 
 	private AiClientException fallbackForStatus(

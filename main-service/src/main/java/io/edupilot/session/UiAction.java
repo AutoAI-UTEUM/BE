@@ -24,4 +24,13 @@ public record UiAction(
 			"WAIT"
 		);
 	}
+
+	public static UiAction moveNextPage() {
+		return new UiAction(
+			"BINARY_DECISION",
+			"다음 페이지로 이동할까요?",
+			"MOVE_NEXT_PAGE",
+			"WAIT"
+		);
+	}
 }

@@ -40,6 +40,8 @@ import io.edupilot.material.dto.MaterialListResponse;
 import io.edupilot.material.dto.MaterialSummaryResponse;
 import io.edupilot.session.ChatMessageRepository;
 import io.edupilot.session.LearningSessionRepository;
+import io.edupilot.quiz.QuizRepository;
+import io.edupilot.quiz.QuizSubmissionRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 
@@ -76,6 +78,12 @@ class MaterialApiContractTest {
 
 	@MockitoBean
 	private ChatMessageRepository chatMessageRepository;
+
+	@MockitoBean
+	private QuizRepository quizRepository;
+
+	@MockitoBean
+	private QuizSubmissionRepository quizSubmissionRepository;
 
 	private MockMvc mockMvc;
 	private String accessToken;

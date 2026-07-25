@@ -7,6 +7,8 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.time.Duration;
+import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -17,6 +19,7 @@ import org.slf4j.MDC;
 import org.springframework.core.io.ByteArrayResource;
 
 import io.edupilot.ai.dto.TurnRequest;
+import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
 import okhttp3.mockwebserver.MockResponse;
@@ -70,6 +73,87 @@ class HttpAiClientContractTest {
 		assertThat(request.getPath()).isEqualTo("/internal/ai/turn");
 		assertThat(request.getHeader("X-Internal-Token")).isEqualTo(INTERNAL_TOKEN);
 		assertThat(request.getHeader("X-Trace-Id")).isEqualTo(TRACE_ID);
+		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
+	@Test
+	void gradeUsesDedicatedContractAndPropagatesInternalHeaders() throws Exception {
+		server.enqueue(jsonResponse(200, gradeSuccessBody()));
+
+		var response = client(Duration.ofSeconds(1)).grade(gradeRequest());
+
+		assertThat(response.quizId()).isEqualTo(50L);
+		assertThat(response.score()).isEqualByComparingTo("10.00");
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getPath()).isEqualTo("/internal/ai/grade");
+		assertThat(request.getHeader("X-Internal-Token")).isEqualTo(INTERNAL_TOKEN);
+		assertThat(request.getHeader("X-Trace-Id")).isEqualTo(TRACE_ID);
+		assertThat(request.getBody().readUtf8())
+			.contains("\"schemaVersion\":\"1.0\"")
+			.contains("\"quizId\":50")
+			.contains("\"studentAnswers\"");
+	}
+
+	@Test
+	void gradeRetriesOnlyRetryableInternalErrorOnce() {
+		server.enqueue(jsonResponse(503, errorBody("INTERNAL", true)));
+		server.enqueue(jsonResponse(200, gradeSuccessBody()));
+
+		var response = client(Duration.ofSeconds(1)).grade(gradeRequest());
+
+		assertThat(response.score()).isEqualByComparingTo("10.00");
+		assertThat(server.getRequestCount()).isEqualTo(2);
+	}
+
+	@Test
+	void gradeRetriesRetryableTimeoutOnlyOnce() {
+		server.enqueue(jsonResponse(504, errorBody("TIMEOUT", true)));
+		server.enqueue(jsonResponse(200, gradeSuccessBody()));
+
+		var response = client(Duration.ofSeconds(1)).grade(gradeRequest());
+
+		assertThat(response.score()).isEqualByComparingTo("10.00");
+		assertThat(server.getRequestCount()).isEqualTo(2);
+	}
+
+	@Test
+	void gradeDoesNotRetryWhenRemoteMarksErrorNonRetryable() {
+		server.enqueue(jsonResponse(504, errorBody("TIMEOUT", false)));
+
+		assertThatThrownBy(() ->
+			client(Duration.ofSeconds(1)).grade(gradeRequest()))
+			.isInstanceOfSatisfying(AiClientException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT)
+			);
+		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
+	@Test
+	void gradeNeverRetriesSchemaErrorEvenWhenRemoteFlagIsTrue() {
+		server.enqueue(jsonResponse(422, errorBody("SCHEMA", true)));
+
+		assertThatThrownBy(() ->
+			client(Duration.ofSeconds(1)).grade(gradeRequest()))
+			.isInstanceOfSatisfying(AiClientException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.AI_RESPONSE_INVALID)
+			);
+		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
+	@Test
+	void gradeTransportTimeoutWithoutRemoteFlagIsNotRetried() {
+		server.enqueue(jsonResponse(200, gradeSuccessBody())
+			.setBodyDelay(500, TimeUnit.MILLISECONDS));
+
+		assertThatThrownBy(() ->
+			client(Duration.ofMillis(100)).grade(gradeRequest()))
+			.isInstanceOfSatisfying(AiClientException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT)
+			);
 		assertThat(server.getRequestCount()).isEqualTo(1);
 	}
 
@@ -271,6 +355,7 @@ class HttpAiClientContractTest {
 			Duration.ofMillis(300),
 			readTimeout,
 			readTimeout,
+			readTimeout,
 			"/health"
 		);
 	}
@@ -283,6 +368,49 @@ class HttpAiClientContractTest {
 			Map.of("eventType", "USER_QUESTION", "payload", Map.of()),
 			Map.of()
 		);
+	}
+
+	private GradeRequest gradeRequest() {
+		return new GradeRequest(
+			"1.0",
+			50L,
+			"SHORT",
+			List.of(new GradeRequest.Item(
+				"q1",
+				"문항",
+				"기준 답안",
+				List.of(new GradeRequest.Rubric(
+					"정확성",
+					BigDecimal.ONE
+				)),
+				new BigDecimal("10.00")
+			)),
+			List.of(new GradeRequest.StudentAnswer("q1", "학생 답안")),
+			new GradeRequest.PageContext(1, 1, "페이지 문맥"),
+			null
+		);
+	}
+
+	private String gradeSuccessBody() {
+		return """
+			{
+			  "schemaVersion": "1.0",
+			  "quizId": 50,
+			  "quizType": "SHORT",
+			  "score": 10.00,
+			  "maxScore": 10.00,
+			  "items": [
+			    {
+			      "questionId": "q1",
+			      "score": 10.00,
+			      "maxScore": 10.00,
+			      "verdict": "CORRECT",
+			      "feedback": "정확합니다."
+			    }
+			  ],
+			  "usage": null
+			}
+			""";
 	}
 
 	private MockResponse jsonResponse(int status, String body) {
