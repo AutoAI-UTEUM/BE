@@ -35,8 +35,11 @@ edupilot:
     internal-token: ${EDUPILOT_INTERNAL_TOKEN}
     connect-timeout: 3s
     read-timeout: 30s
+    grade-read-timeout: ${EDUPILOT_AI_GRADE_READ_TIMEOUT:90s}
     extract-read-timeout: ${EDUPILOT_AI_EXTRACT_READ_TIMEOUT:120s}
     health-path: /health
+  quiz:
+    pass-ratio: ${EDUPILOT_QUIZ_PASS_RATIO:0.6}
   material:
     upload-max-mb: ${EDUPILOT_UPLOAD_MAX_MB:45}
     max-pages: 300

@@ -1,11 +1,15 @@
 package io.edupilot;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.math.BigDecimal;
+import java.time.Duration;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,10 +21,14 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import io.edupilot.ai.AiClientProperties;
 import io.edupilot.auth.RefreshTokenRepository;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.quiz.QuizRepository;
+import io.edupilot.quiz.QuizProperties;
+import io.edupilot.quiz.QuizSubmissionRepository;
 import io.edupilot.session.ChatMessageRepository;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.UserRepository;
@@ -35,6 +43,12 @@ class MainServiceApplicationTests {
 
 	@Autowired
 	private TraceIdFilter traceIdFilter;
+
+	@Autowired
+	private AiClientProperties aiClientProperties;
+
+	@Autowired
+	private QuizProperties quizProperties;
 
 	@MockitoBean
 	private UserRepository userRepository;
@@ -54,6 +68,12 @@ class MainServiceApplicationTests {
 	@MockitoBean
 	private ChatMessageRepository chatMessageRepository;
 
+	@MockitoBean
+	private QuizRepository quizRepository;
+
+	@MockitoBean
+	private QuizSubmissionRepository quizSubmissionRepository;
+
 	private MockMvc mockMvc;
 
 	@BeforeEach
@@ -71,6 +91,14 @@ class MainServiceApplicationTests {
 			.andExpect(jsonPath("$.success").value(true))
 			.andExpect(jsonPath("$.data.status").value("UP"))
 			.andExpect(jsonPath("$.message").value("요청이 성공했습니다."));
+	}
+
+	@Test
+	void quizDefaultsUseSixtyPercentAndNinetySecondGradeTimeout() {
+		assertThat(quizProperties.passRatio())
+			.isEqualByComparingTo(new BigDecimal("0.6"));
+		assertThat(aiClientProperties.gradeReadTimeout())
+			.isEqualTo(Duration.ofSeconds(90));
 	}
 
 	@Test
@@ -111,6 +139,15 @@ class MainServiceApplicationTests {
 			).exists())
 			.andExpect(jsonPath(
 				"$.paths['/api/sessions/{sessionId}/complete'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/sessions/{sessionId}/quizzes'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/quizzes/{quizId}'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/quizzes/{quizId}/submit'].post"
 			).exists())
 			.andExpect(jsonPath("$.paths['/api/users/me'].delete").exists())
 			.andExpect(jsonPath("$.paths['/api/materials'].post").exists())

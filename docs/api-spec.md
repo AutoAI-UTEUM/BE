@@ -430,7 +430,32 @@ Query:
 
 ### GET `/api/sessions/{sessionId}/quizzes`
 
-퀴즈 제목, 유형, 범위, 제출 상태, 점수 요약을 반환합니다. 정답/루브릭은 포함하지 않습니다.
+퀴즈 제목, 유형, 범위, 제출 상태, 점수 요약을 생성 시각 역순으로 최대 100건 반환합니다. MVP에서는 페이지네이션을 제공하지 않으며 정답/루브릭은 포함하지 않습니다.
+
+`data`:
+
+```json
+{
+  "quizzes": [
+    {
+      "quizId": 50,
+      "title": "선형회귀 핵심 확인",
+      "quizType": "MCQ",
+      "page": 3,
+      "coverageStartPage": 1,
+      "coverageEndPage": 3,
+      "questionCount": 5,
+      "submitted": true,
+      "score": 80.5,
+      "maxScore": 100.0,
+      "passed": true,
+      "createdAt": "2026-07-25T10:00:00Z"
+    }
+  ]
+}
+```
+
+`score`와 `maxScore`는 제출 전에는 `null`이며 제출 후 소수 둘째 자리까지 포함할 수 있습니다.
 
 ### POST `/api/sessions/{sessionId}/complete`
 
@@ -524,7 +549,9 @@ Query:
 }
 ```
 
-`passed`는 `score/maxScore >= 0.6`(설정 `EDUPILOT_QUIZ_PASS_RATIO` — DEC-010)로 계산합니다. 재제출은 1회 제한이며 재요청은 `QUIZ_ALREADY_SUBMITTED`로 거부합니다(DEC-009). 저득점(기준 미달)이면 `uiActions`에 `DIAGNOSIS_QUESTION`과 `diagnosisId`가 포함될 수 있습니다. 채점/Assessment/Diagnosis를 한 동기 요청에서 모두 완료할지 비동기 상태로 분리할지는 성능 검증 후 확정합니다.
+`passed`는 `score/maxScore >= 0.6`(설정 `EDUPILOT_QUIZ_PASS_RATIO` — DEC-010)로 계산합니다. 제출은 퀴즈당 1회로 제한하며 재제출은 `QUIZ_ALREADY_SUBMITTED`로 거부합니다(DEC-009). 저득점(기준 미달)이면 `uiActions`에 `DIAGNOSIS_QUESTION`과 `diagnosisId`가 포함될 수 있습니다. 채점/Assessment/Diagnosis를 한 동기 요청에서 모두 완료할지 비동기 상태로 분리할지는 성능 검증 후 확정합니다.
+
+`score`와 `maxScore`는 `DECIMAL(10,2)` 기준이며 외부 응답에서도 소수 둘째 자리까지 포함할 수 있습니다.
 
 `uiActions`의 `MOVE_NEXT_PAGE`는 turns 이벤트가 아닙니다. FE는 이 액션 선택 시 `PATCH /api/sessions/{sessionId}/page`를 호출합니다(화면-API 매핑 §3 확정 규칙).
 

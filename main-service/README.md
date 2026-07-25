@@ -1,6 +1,6 @@
 # EduPilot Main Service
 
-EduPilot의 인증·권한·영속 상태와 Frontend용 외부 API를 담당하는 Spring Backend입니다. 공통 기반, 인증·사용자 API, Material 처리 수명 주기와 학습 세션 생성·복원·페이지 이동·메시지 조회 경계가 구현되어 있습니다.
+EduPilot의 인증·권한·영속 상태와 Frontend용 외부 API를 담당하는 Spring Backend입니다. 공통 기반, 인증·사용자 API, Material 처리 수명 주기, 학습 세션 경계와 Quiz 저장·조회·제출·채점 수명 주기가 구현되어 있습니다.
 
 ## 요구 환경
 
@@ -25,6 +25,8 @@ EduPilot의 인증·권한·영속 상태와 Frontend용 외부 API를 담당하
 | `EDUPILOT_STORAGE_DIR` | `./storage` | 원본 PDF를 저장할 로컬 볼륨 루트. prod에서는 필수 |
 | `EDUPILOT_UPLOAD_MAX_MB` | `45` | PDF 업로드 최대 크기(MB) |
 | `EDUPILOT_AI_EXTRACT_READ_TIMEOUT` | `120s` | PDF 추출 내부 API read timeout |
+| `EDUPILOT_AI_GRADE_READ_TIMEOUT` | `90s` | SHORT/ESSAY 채점 내부 API read timeout |
+| `EDUPILOT_QUIZ_PASS_RATIO` | `0.6` | 퀴즈 통과 비율(0~1) |
 
 `prod` 프로필에는 DB·인증·AI·저장소 변수를 모두 명시해야 합니다. `local`은 DB URL·사용자·CORS origin·AI base URL·저장소 경로·업로드 제한에 개발 기본값이 있지만 DB 비밀번호, JWT secret, 내부 인증 토큰은 반드시 환경 변수로 주입합니다. 두 서비스에는 같은 `EDUPILOT_INTERNAL_TOKEN` 값을 사용합니다.
 
@@ -84,6 +86,12 @@ READY 자료로 `POST /api/sessions`를 호출하면 ACTIVE 세션을 생성하�
 
 Epic 4의 turns API는 사용자·AI 메시지를 저장한 뒤 고정 stub 응답을 반환합니다. 실제 FastAPI 호출, 퀴즈·진단 상태 검증과 statePatch 처리는 후속 Epic에서 연결합니다.
 
+## Quiz 처리 흐름
+
+퀴즈 생성 턴 연결 전까지 `QuizService#createFromGeneration`이 QuizAgent 생성 JSON의 문항 수·범위·유형별 필드와 ESSAY rubric weight를 검증하고 공개 문제와 비공개 정답을 분리 저장합니다. 공개 조회는 최신 세션 퀴즈 100건과 개별 공개 문항만 반환합니다.
+
+제출은 세션 소유권·ACTIVE 상태·1회 제한·답안 구조를 확인합니다. MCQ/OX는 Spring이 저장 정답으로 채점하고 SHORT/ESSAY는 `/internal/ai/grade` 결과를 재검증합니다. AI 호출 중에는 DB 트랜잭션을 유지하지 않으며, 검증 통과 후 제출과 세션 UI 상태를 함께 저장합니다.
+
 ## 패키지 구조
 
 ```text
@@ -92,6 +100,7 @@ io.edupilot
 ├─ user             # 내 정보·탈퇴와 사용자 영속 모델
 ├─ material         # PDF 저장·업로드·조회·비동기 추출·논리 삭제
 ├─ session          # 세션 수명 주기·페이지 이동·turn claim·메시지 복원
+├─ quiz             # 퀴즈 공개/비공개 저장·조회·제출·채점
 ├─ ai
 │  ├─ dto         # Spring–FastAPI 내부 요청·응답 계약
 │  └─ AiClient    # 내부 인증, timeout, 오류 매핑을 캡슐화한 HTTP 어댑터

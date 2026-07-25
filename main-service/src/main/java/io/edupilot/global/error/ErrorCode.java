@@ -96,6 +96,36 @@ public enum ErrorCode {
 		HttpStatus.CONFLICT,
 		"다른 학습 턴을 처리하고 있습니다."
 	),
+	QUIZ_NOT_FOUND(
+		"QUIZ_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"퀴즈를 찾을 수 없습니다."
+	),
+	UNSUPPORTED_QUIZ_TYPE(
+		"UNSUPPORTED_QUIZ_TYPE",
+		HttpStatus.BAD_REQUEST,
+		"지원하지 않는 퀴즈 유형입니다."
+	),
+	INVALID_QUIZ_ANSWER(
+		"INVALID_QUIZ_ANSWER",
+		HttpStatus.BAD_REQUEST,
+		"퀴즈 답안을 확인해 주세요."
+	),
+	QUIZ_ALREADY_SUBMITTED(
+		"QUIZ_ALREADY_SUBMITTED",
+		HttpStatus.CONFLICT,
+		"이미 제출한 퀴즈입니다."
+	),
+	QUIZ_NOT_SUBMITTABLE(
+		"QUIZ_NOT_SUBMITTABLE",
+		HttpStatus.CONFLICT,
+		"현재 제출할 수 없는 퀴즈입니다."
+	),
+	GRADING_RESULT_INVALID(
+		"GRADING_RESULT_INVALID",
+		HttpStatus.BAD_GATEWAY,
+		"채점 결과를 처리할 수 없습니다."
+	),
 	RESOURCE_NOT_FOUND("RESOURCE_NOT_FOUND", HttpStatus.NOT_FOUND, "리소스를 찾을 수 없습니다."),
 	RATE_LIMIT_EXCEEDED(
 		"RATE_LIMIT_EXCEEDED",

@@ -2,6 +2,7 @@ package io.edupilot.session;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -102,6 +103,13 @@ public class LearningSession {
 
 	public void complete() {
 		this.status = SessionStatus.COMPLETED;
+	}
+
+	public void completeQuizSubmission(Long quizId, List<UiAction> uiActions) {
+		if (Objects.equals(this.activeQuizId, quizId)) {
+			this.activeQuizId = null;
+		}
+		this.lastUiActions = List.copyOf(uiActions);
 	}
 
 	public void delete() {
