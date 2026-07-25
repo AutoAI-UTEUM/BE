@@ -3,9 +3,12 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 다른 팀원 구현을 위한 참고·계약 초안 |
-| 마지막 갱신 | 2026-07-21 |
+| 마지막 갱신 | 2026-07-23 |
+| 변경 이력 | 2026-07-23: Grok 전환·계약 v0.4 정합 용어 정리 |
 | 구현 소유 | FastAPI AI Server |
 | 연동 소유 | Spring Backend ↔ FastAPI AI Server |
+
+> **주의**: 이 문서의 입출력·엔드포인트·이벤트가 [docs/ai-integration-contract.md](ai-integration-contract.md)(v0.4)와 충돌하면 계약 문서가 우선한다.
 
 ## 0. 문서 범위와 우선순위
 
@@ -130,7 +133,7 @@ Orchestrator Plan의 JSON 스키마와 교수 정책을 검증하고 허용되�
 
 ### LlmBridge
 
-Grok SDK/API 세부사항을 격리합니다. 모델 선택, 파일 참조, 구조화 출력, 스트리밍, timeout, provider 오류 변환을 담당하되 도메인 정책을 결정하지 않습니다.
+Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출력, 스트리밍, timeout, provider 오류 변환을 담당하되 도메인 정책을 결정하지 않습니다. 페이지 근거는 파일 업로드가 아니라 Spring이 추출해 동봉하는 `pageContext` 텍스트로 전달받습니다(DEC-006).
 
 ## 3. 멀티 에이전트 턴 처리 단계
 
@@ -212,7 +215,7 @@ Grok SDK/API 세부사항을 격리합니다. 모델 선택, 파일 참조, 구�
 
 입력:
 
-- `fileRef`, `page`
+- `pageContext`(Backend 추출 페이지 텍스트 동봉 — DEC-006), `page`
 - 현재 페이지 및 필요한 인접 페이지 문맥
 - `detailLevel`: `NORMAL` 또는 `DETAILED`
 - `learnerLevel`, `learnerMemoryDigest`
@@ -245,7 +248,7 @@ Grok SDK/API 세부사항을 격리합니다. 모델 선택, 파일 참조, 구�
 
 입력:
 
-- `fileRef`, `page`, 현재 페이지 문맥
+- `page`, `pageContext` — 현재 페이지 문맥 텍스트(Backend 추출 동봉 — DEC-006)
 - 학생 질문
 - `learnerLevel`, `learnerMemoryDigest`
 - `qaThreadDigest`
@@ -276,7 +279,7 @@ Grok SDK/API 세부사항을 격리합니다. 모델 선택, 파일 참조, 구�
 
 입력:
 
-- `fileRef`, `page`
+- `pageContext`(Backend 추출 페이지 텍스트 동봉 — DEC-006), `page`
 - `quizType`: `MCQ`, `OX`, `SHORT`, `ESSAY`
 - `coverageStartPage`, `coverageEndPage`
 - `learnerLevel`, `learnerConfidence`
@@ -285,7 +288,6 @@ Grok SDK/API 세부사항을 격리합니다. 모델 선택, 파일 참조, 구�
 
 학습 정책:
 
-- 퀴즈 범위는 MVP에서 현재 페이지 단위(coverageStart=End=currentPage)가 기본이며, Orchestrator가 범위를 임의 확장하는 Plan은 Policy가 거부합니다(누적 범위는 확장 항목).
 - 문항 수 기본값은 5개이며 5~10개 범위에서 조절합니다.
 - 낮은 confidence는 기초·개념 점검 비중과 필요한 문항 수를 늘립니다.
 - 높은 confidence는 불필요한 반복을 줄이고 응용·심화 문항을 포함할 수 있습니다.
@@ -335,7 +337,7 @@ Grok SDK/API 세부사항을 격리합니다. 모델 선택, 파일 참조, 구�
 
 입력:
 
-- `fileRef`, `page`
+- `pageContext`(Backend 추출 페이지 텍스트 동봉 — DEC-006), `page`
 - 퀴즈 JSON: 문항, 기준 답안/모범 답안, 루브릭, 배점
 - 학생 답안 JSON
 - `learnerMemoryDigest` — 피드백 보완에만 사용
@@ -349,7 +351,6 @@ Grok SDK/API 세부사항을 격리합니다. 모델 선택, 파일 참조, 구�
 - `0 <= score <= maxScore`를 지킵니다.
 - 판정은 `CORRECT`, `PARTIAL`, `WRONG`만 사용합니다.
 - 학습자 메모리로 점수를 가감하지 않습니다.
-- 채점 재현성을 위해 LlmBridge는 결정성 설정(temperature 최저 등)을 사용합니다. 같은 답안 재채점의 점수 편차를 최소화합니다.
 
 피드백 규칙:
 
@@ -386,7 +387,7 @@ Spring은 문항 ID, 점수 범위, 합계, 만점 일치를 다시 검증합니
 
 입력:
 
-- `fileRef`, `page`
+- `pageContext`(Backend 추출 페이지 텍스트 동봉 — DEC-006), `page`
 - 틀린 문항과 채점 결과
 - `focusConcepts`, `suspectedMisconceptions`, `repairHint`
 - 학생의 진단 답변을 포함한 `repairQuestion`
@@ -449,7 +450,7 @@ Spring은 문항 ID, 점수 범위, 합계, 만점 일치를 다시 검증합니
 입력:
 
 - `quizResult`, `studentAnswers`, `quizItems`
-- `fileRef`, `page`
+- `pageContext`(Backend 추출 페이지 텍스트 동봉 — DEC-006), `page`
 - `learnerMemoryDigest`
 
 제약:
@@ -506,7 +507,7 @@ Spring은 문항 ID, 점수 범위, 합계, 만점 일치를 다시 검증합니
 제약:
 
 - 첫 관찰은 임시 후보로만 둡니다.
-- 서로 독립된 여러 근거에서 반복 확인된 경우에만 승격 후보가 됩니다. 기준은 DEC-012로 확정 — 서로 다른 출처(퀴즈 평가/진단/QA 패턴) 또는 서로 다른 세션·시점의 **독립 근거 2회 이상**, 그리고 후보 `confidence >= 0.7`. 이 규칙은 Policy가 결정적으로 검증합니다.
+- 서로 독립된 여러 근거에서 반복 확인된 경우에만 승격 후보가 됩니다.
 - 메모리는 짧고 구체적이며 다음 에이전트가 바로 사용할 수 있어야 합니다.
 - 근거 없이 성격, 지능, 능력을 추론하지 않습니다.
 
@@ -638,7 +639,7 @@ Spring 결정적 파이프라인 전용 기능(자유 턴 Plan에서 사용 금�
 
 - 스키마 오류: 한 번의 구조화 재생성/수정 시도 후 실패 응답을 반환하는 방안을 검토합니다.
 - 알 수 없는 tool/args: 실행하지 않고 Policy 오류로 중단합니다.
-- Grok timeout/rate limit: 제한된 정책에 따라 재시도하고 Spring에 분류된 오류를 반환합니다.
+- Grok(xAI) timeout/rate limit: 제한된 정책에 따라 재시도하고 Spring에 분류된 오류를 반환합니다.
 - 일부 액션 성공 후 후속 액션 실패: 성공 artifact와 실패 지점을 명시하고 Spring이 원자 반영 여부를 결정합니다.
 - 근거 부족: 답을 꾸며내지 않고 한계 안내 메시지를 생성합니다.
 - 필수 문맥 누락: 안전한 stop과 필요한 입력을 반환합니다.
@@ -652,7 +653,7 @@ Spring 결정적 파이프라인 전용 기능(자유 턴 Plan에서 사용 금�
 - 진단 답변 전 RepairAgent를 호출하지 않는가?
 - 새 QA와 후속 QA의 thread mode가 일치하는가?
 - 페이지 범위와 퀴즈 범위가 유효한가?
-- 메모리 승격에 반복 근거가 있는가? (`PROMOTE_MEMORY`는 DEC-012 규칙 — 독립 근거 2회 이상 + `confidence >= 0.7` — 을 통과해야 실행)
+- 메모리 승격에 반복 근거가 있는가?
 - action 수와 intervention budget을 넘지 않는가?
 
 파이프라인 구간 규칙("퀴즈 타입과 채점 도구 일치", "통과한 퀴즈에 진단을 실행하지 않음")은 하이브리드 원칙에 따라 Spring의 이벤트 타입·점수 기준 규칙이 구조적으로 집행합니다. Policy/Verifier는 자유 턴 Plan에 대해서만 위 검증을 수행합니다.
@@ -670,7 +671,7 @@ Spring 결정적 파이프라인 전용 기능(자유 턴 Plan에서 사용 금�
 
 - 답변 content chunk와 사용자 표시용 `thoughtSummary`/진행 상태를 점진적으로 전달합니다.
 - ToolDispatcher에서 Spring과 Frontend까지 전달하는 기본 외부 스트림은 SSE를 사용합니다.
-- Grok의 스트리밍·구조화 출력 지원 방식은 실제 사용 모델의 공식 가이드를 기준으로 구현 시 확인합니다.
+- Grok(xAI)의 스트리밍·구조화 출력 지원 방식은 실제 사용 모델의 공식 가이드를 기준으로 구현 시 확인합니다.
 - `thoughtSummary`는 내부 chain-of-thought가 아니라 짧은 처리 단계/근거 요약입니다.
 - ToolDispatcher는 청크를 표준 스트림 이벤트로 변환하고 Spring이 FE에 중계합니다.
 - 완료 전에 받은 청크는 임시 UI 상태이며, 최종 결과 검증 후 확정 저장합니다.
@@ -741,8 +742,8 @@ error
 1. 여러 QuizAssessment에서 같은 약점/오개념/선호 패턴이 반복됩니다.
 2. Orchestrator가 LearnerMemoryService를 호출해 임시 후보를 정리합니다.
 3. 추가 퀴즈·QA·교정에서 독립 근거가 쌓입니다.
-4. 검증된 `memoryWrite`가 있을 때만 장기 LearnerMemory로 반영합니다. Policy는 DEC-012 규칙(독립 근거 2회 이상 + `confidence >= 0.7`)을 검증합니다. 승격 판단용 평가 조회는 세션이 아니라 user×material 교차 세션 최근 20개를 사용합니다(DEC-011).
-5. 승격된 임시 후보는 삭제하지 않고 `status=PROMOTED`로 보존하며 `evidence_refs_json`의 근거 참조가 감사 이력 역할을 합니다(DEC-012).
+4. 검증된 `memoryWrite`가 있을 때만 장기 LearnerMemory로 반영합니다.
+5. 승격된 임시 후보는 삭제 또는 archive하고 근거 참조를 남깁니다.
 
 ### 9.8 저득점 오개념 교정
 
@@ -791,8 +792,9 @@ error
 - 각 agent JSON Schema와 `schemaVersion` 호환 정책
 - Orchestrator 허용 tool 목록과 args
 - Plan 보정과 완전 거부의 기준
-- 모델/파일 참조 방식과 페이지 근거 전달 방식
+- 모델 선택과 페이지 근거(`pageContext` 텍스트 동봉 — DEC-006) 전달 방식
 - timeout, 재시도, rate limit, fallback 모델 정책
 - 부분 액션 성공 시 Spring 반영 원자성
+- 평가 큐 크기와 메모리 승격 근거 기준
 - SSE 이벤트 schema와 heartbeat·취소·재연결
 - AI 결과 및 prompt/response의 로그·보관·마스킹 정책
