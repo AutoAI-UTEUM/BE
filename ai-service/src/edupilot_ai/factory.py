@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from fastapi import FastAPI
 
+from edupilot_ai.api.extract import router as extract_router
 from edupilot_ai.api.health import router as health_router
 from edupilot_ai.api.turn import router as turn_router
 from edupilot_ai.core.errors import register_exception_handlers
@@ -48,5 +49,6 @@ def create_app(
     )
     register_exception_handlers(app)
     app.include_router(health_router)
+    app.include_router(extract_router)
     app.include_router(turn_router)
     return app
