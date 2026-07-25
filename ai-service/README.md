@@ -1,0 +1,66 @@
+# EduPilot AI Service
+
+FastAPI 기반 내부 AI 서비스의 이슈 #9 부트스트랩입니다. 현재 범위는 health,
+내부 토큰 인증, 표준 오류 형식, 고정 turn 응답, LLM 격리 인터페이스까지입니다.
+실제 Grok 호출과 에이전트 실행은 포함하지 않습니다.
+
+## 요구 사항
+
+- Python 3.14.x
+- [uv](https://docs.astral.sh/uv/)
+
+## 로컬 실행
+
+```bash
+cd ai-service
+cp .env.example .env
+uv sync --locked
+uv run uvicorn edupilot_ai.factory:create_app --factory --host 127.0.0.1 --port 8000
+```
+
+`.env.example` 값은 예시이며 실제 시크릿이 아닙니다. 로컬 `.env`에는 안전한 별도 값을
+설정하고 커밋하지 않습니다.
+
+health 확인:
+
+```bash
+curl --fail http://127.0.0.1:8000/health
+```
+
+turn 스텁 확인:
+
+```bash
+curl --fail \
+  -H 'Content-Type: application/json' \
+  -H 'X-Internal-Token: replace-with-local-internal-token' \
+  -d '{
+    "schemaVersion": "1.0",
+    "turnId": "turn-local-1",
+    "session": {"sessionId": 100},
+    "event": {"eventType": "USER_QUESTION", "payload": {}},
+    "context": {}
+  }' \
+  http://127.0.0.1:8000/internal/ai/turn
+```
+
+## 검증
+
+모든 PR 게이트는 실제 Grok과 외부 네트워크 호출 없이 실행됩니다.
+
+```bash
+uv run pytest
+uv run ruff check .
+uv run mypy
+```
+
+## 구조
+
+- `src/edupilot_ai/factory.py`: `create_app()`과 app-scoped lifespan
+- `src/edupilot_ai/settings.py`: 환경 변수와 `AgentLlmProfile`
+- `src/edupilot_ai/core/`: 표준 오류 및 내부 토큰 미들웨어
+- `src/edupilot_ai/llm/`: 실제 구현이 없는 `LlmBridge` Protocol
+- `src/edupilot_ai/api/`: health와 turn 스텁
+- `tests/`: ASGITransport 계약 테스트와 `FakeLlm`
+
+상태와 영속 데이터의 기준은 Spring/MySQL이며, 이 서비스는 자체 영속 저장소를 두지
+않습니다.

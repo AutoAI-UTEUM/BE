@@ -1,0 +1,33 @@
+"""Test doubles for provider-neutral dependencies."""
+
+from collections.abc import Mapping, Sequence
+
+from pydantic import BaseModel
+
+from edupilot_ai.settings import AgentLlmProfile
+
+
+class FakeLlm:
+    """Scripted LLM double that fails on any unplanned call."""
+
+    def __init__(self, responses: Sequence[BaseModel] = ()) -> None:
+        self._responses = list(responses)
+        self.calls: list[tuple[Sequence[Mapping[str, str]], AgentLlmProfile]] = []
+
+    async def complete_json(
+        self,
+        *,
+        messages: Sequence[Mapping[str, str]],
+        response_model: type[BaseModel],
+        profile: AgentLlmProfile,
+    ) -> BaseModel:
+        self.calls.append((messages, profile))
+        if not self._responses:
+            raise AssertionError("Unexpected LLM call")
+        response = self._responses.pop(0)
+        if not isinstance(response, response_model):
+            raise AssertionError(
+                f"Scripted response {type(response).__name__} does not match "
+                f"{response_model.__name__}"
+            )
+        return response
