@@ -33,6 +33,8 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.global.security.TraceIdFilter;
+import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 
@@ -60,6 +62,12 @@ class AuthApiContractTest {
 
 	@MockitoBean
 	private RefreshTokenRepository refreshTokenRepository;
+
+	@MockitoBean
+	private LearningMaterialRepository learningMaterialRepository;
+
+	@MockitoBean
+	private MaterialPageRepository materialPageRepository;
 
 	private MockMvc mockMvc;
 	private User user;

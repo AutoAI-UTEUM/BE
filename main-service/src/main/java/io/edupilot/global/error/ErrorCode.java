@@ -31,6 +31,41 @@ public enum ErrorCode {
 	),
 	USER_INACTIVE("USER_INACTIVE", HttpStatus.FORBIDDEN, "비활성화된 사용자입니다."),
 	USER_NOT_FOUND("USER_NOT_FOUND", HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."),
+	MATERIAL_NOT_FOUND(
+		"MATERIAL_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"학습 자료를 찾을 수 없습니다."
+	),
+	INVALID_PDF_FILE(
+		"INVALID_PDF_FILE",
+		HttpStatus.BAD_REQUEST,
+		"유효한 PDF 파일을 업로드해 주세요."
+	),
+	FILE_TOO_LARGE(
+		"FILE_TOO_LARGE",
+		HttpStatus.CONTENT_TOO_LARGE,
+		"파일 크기 제한을 초과했습니다."
+	),
+	MATERIAL_PROCESSING(
+		"MATERIAL_PROCESSING",
+		HttpStatus.CONFLICT,
+		"학습 자료를 처리하고 있습니다."
+	),
+	MATERIAL_PROCESSING_FAILED(
+		"MATERIAL_PROCESSING_FAILED",
+		HttpStatus.CONFLICT,
+		"학습 자료 처리에 실패했습니다."
+	),
+	MATERIAL_HAS_ACTIVE_SESSION(
+		"MATERIAL_HAS_ACTIVE_SESSION",
+		HttpStatus.CONFLICT,
+		"진행 중인 학습 세션이 있어 자료를 삭제할 수 없습니다."
+	),
+	PAGE_OUT_OF_RANGE(
+		"PAGE_OUT_OF_RANGE",
+		HttpStatus.BAD_REQUEST,
+		"페이지 번호가 자료 범위를 벗어났습니다."
+	),
 	RESOURCE_NOT_FOUND("RESOURCE_NOT_FOUND", HttpStatus.NOT_FOUND, "리소스를 찾을 수 없습니다."),
 	RATE_LIMIT_EXCEEDED(
 		"RATE_LIMIT_EXCEEDED",

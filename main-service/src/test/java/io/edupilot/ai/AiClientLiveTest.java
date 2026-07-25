@@ -60,6 +60,7 @@ class AiClientLiveTest {
 			token,
 			Duration.ofSeconds(3),
 			Duration.ofSeconds(30),
+			Duration.ofSeconds(120),
 			"/health"
 		);
 	}

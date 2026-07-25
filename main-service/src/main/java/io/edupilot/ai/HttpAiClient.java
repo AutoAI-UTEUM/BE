@@ -9,9 +9,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
+import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.StringUtils;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -19,6 +24,8 @@ import org.springframework.web.client.RestClientResponseException;
 
 import io.edupilot.ai.dto.AiErrorResponse;
 import io.edupilot.ai.dto.AiHealthResponse;
+import io.edupilot.ai.dto.ExtractResponse;
+import io.edupilot.ai.dto.ExtractedPage;
 import io.edupilot.ai.dto.TurnRequest;
 import io.edupilot.ai.dto.TurnResponse;
 import io.edupilot.global.error.ErrorCode;
@@ -31,18 +38,33 @@ public class HttpAiClient implements AiClient {
 	private static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
 	private static final String TRACE_ID_HEADER = "X-Trace-Id";
 	private static final String TURN_PATH = "/internal/ai/turn";
+	private static final String EXTRACT_PATH = "/internal/ai/extract";
+	private static final String SCHEMA_VERSION = "1.0";
 
 	private final RestClient restClient;
+	private final RestClient extractRestClient;
 	private final String healthPath;
 
 	public HttpAiClient(AiClientProperties properties) {
 		// TODO ai-integration-contract v0.3에서 예산 확정 전까지 비멱등 turn 호출은 재시도하지 않는다.
+		this.restClient = buildRestClient(properties, properties.readTimeout());
+		this.extractRestClient = buildRestClient(
+			properties,
+			properties.extractReadTimeout()
+		);
+		this.healthPath = properties.healthPath();
+	}
+
+	private RestClient buildRestClient(
+		AiClientProperties properties,
+		java.time.Duration readTimeout
+	) {
 		SimpleClientHttpRequestFactory requestFactory =
 			new SimpleClientHttpRequestFactory();
 		requestFactory.setConnectTimeout(properties.connectTimeout());
-		requestFactory.setReadTimeout(properties.readTimeout());
+		requestFactory.setReadTimeout(readTimeout);
 
-		this.restClient = RestClient.builder()
+		return RestClient.builder()
 			.baseUrl(properties.baseUrl().toString())
 			.requestFactory(requestFactory)
 			.requestInterceptor((request, body, execution) -> {
@@ -54,7 +76,6 @@ public class HttpAiClient implements AiClient {
 				return execution.execute(request, body);
 			})
 			.build();
-		this.healthPath = properties.healthPath();
 	}
 
 	@Override
@@ -107,6 +128,42 @@ public class HttpAiClient implements AiClient {
 		}
 	}
 
+	@Override
+	public ExtractResponse extract(Resource pdfResource) {
+		try {
+			HttpHeaders partHeaders = new HttpHeaders();
+			partHeaders.setContentType(MediaType.APPLICATION_PDF);
+			partHeaders.setContentDispositionFormData(
+				"file",
+				StringUtils.hasText(pdfResource.getFilename())
+					? pdfResource.getFilename()
+					: "material.pdf"
+			);
+			MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+			body.add("file", new HttpEntity<>(pdfResource, partHeaders));
+
+			ExtractResponse response = extractRestClient.post()
+				.uri(EXTRACT_PATH)
+				.contentType(MediaType.MULTIPART_FORM_DATA)
+				.body(body)
+				.retrieve()
+				.body(ExtractResponse.class);
+			validateExtractResponse(response);
+			return response;
+		} catch (AiClientException exception) {
+			throw exception;
+		} catch (ResourceAccessException exception) {
+			throw mapResourceFailure(exception);
+		} catch (RestClientResponseException exception) {
+			throw mapErrorResponse(exception);
+		} catch (RestClientException exception) {
+			if (isTimeoutFailure(exception)) {
+				throw new AiClientException(ErrorCode.AI_SERVICE_TIMEOUT, exception);
+			}
+			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID, exception);
+		}
+	}
+
 	private void validateTurnResponse(TurnResponse response, TurnRequest request) {
 		if (response == null
 			|| !StringUtils.hasText(response.schemaVersion())
@@ -120,6 +177,25 @@ public class HttpAiClient implements AiClient {
 			|| !response.schemaVersion().equals(request.schemaVersion())
 			|| !response.turnId().equals(request.turnId())) {
 			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+		}
+	}
+
+	private void validateExtractResponse(ExtractResponse response) {
+		if (response == null
+			|| !SCHEMA_VERSION.equals(response.schemaVersion())
+			|| response.pageCount() < 1
+			|| response.pages() == null
+			|| response.pages().size() != response.pageCount()) {
+			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+		}
+
+		for (int index = 0; index < response.pages().size(); index++) {
+			ExtractedPage page = response.pages().get(index);
+			if (page == null
+				|| page.pageNumber() != index + 1
+				|| page.text() == null) {
+				throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+			}
 		}
 	}
 

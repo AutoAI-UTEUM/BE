@@ -59,6 +59,7 @@
 | POST | `/api/materials` | PDF 업로드 | Y | USER, ADMIN 초안 |
 | GET | `/api/materials` | 자료 목록 | Y | 본인 소유 자료 (DEC-026) |
 | GET | `/api/materials/{materialId}` | 자료 상세 | Y | 본인 소유 자료 |
+| GET | `/api/materials/{materialId}/file` | 원본 PDF 스트리밍 | Y | 본인 소유 자료 |
 | DELETE | `/api/materials/{materialId}` | 자료 논리 삭제 (DEC-028) | Y | 본인 소유 자료 |
 | GET | `/api/materials/{materialId}/pages/{pageNumber}` | 페이지 텍스트 | Y | 본인 소유 자료 — 운영 비노출, dev/디버깅 한정(DEC-025) |
 | POST | `/api/sessions` | 학습 세션 생성 | Y | USER |
@@ -189,8 +190,8 @@ refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DE
 {
   "materialId": 10,
   "title": "선형회귀 기초",
-  "pageCount": 25,
-  "processingStatus": "READY",
+  "pageCount": null,
+  "processingStatus": "PROCESSING",
   "createdAt": "2026-07-10T09:00:00Z"
 }
 ```
@@ -223,7 +224,26 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 ### GET `/api/materials/{materialId}`
 
-자료 제목, 페이지 수, 처리 상태, 학습 가능 여부를 반환합니다. 원본 파일 접근은 Spring의 인증된 다운로드 스트리밍(`GET /api/materials/{materialId}/file` 초안)으로 제공하며, S3 전환 시 presigned URL 방식으로 변경합니다(DEC-005).
+자료 제목, 페이지 수, 처리 상태, 학습 가능 여부를 반환합니다.
+
+`data`:
+
+```json
+{
+  "materialId": 10,
+  "title": "선형회귀 기초",
+  "pageCount": 25,
+  "processingStatus": "READY",
+  "learningAvailable": true,
+  "createdAt": "2026-07-10T09:00:00Z"
+}
+```
+
+타인 소유·삭제·미존재 자료는 모두 `MATERIAL_NOT_FOUND`(404)로 응답해 존재 여부를 은닉합니다.
+
+### GET `/api/materials/{materialId}/file`
+
+Spring이 소유권을 검증한 뒤 원본 PDF를 `application/pdf`로 인증 스트리밍합니다. 성공 응답은 JSON envelope가 아닌 PDF binary이며 `Content-Disposition: inline`을 사용합니다. S3 전환 시 권한 확인 후 presigned URL을 발급하는 방식으로 변경합니다(DEC-005).
 
 ### DELETE `/api/materials/{materialId}`
 
@@ -231,7 +251,7 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 ### GET `/api/materials/{materialId}/pages/{pageNumber}`
 
-페이지 번호와 추출 텍스트를 반환합니다. 운영 FE에는 노출하지 않고 dev/디버깅 프로파일에서만 활성화합니다(DEC-025). 추출 텍스트는 AI 문맥 전용이며 FE는 PDF 원본 뷰어를 사용합니다.
+페이지 번호와 추출 텍스트를 반환합니다. 운영 FE에는 노출하지 않고 local/dev 프로파일에서만 활성화합니다(DEC-025). 추출 텍스트는 AI 문맥 전용이며 FE는 PDF 원본 뷰어를 사용합니다. 처리 중은 `MATERIAL_PROCESSING`, 처리 실패는 `MATERIAL_PROCESSING_FAILED`, 페이지 범위 초과는 `PAGE_OUT_OF_RANGE`를 반환합니다.
 
 ## 5. 세션 API
 
