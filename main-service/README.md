@@ -1,6 +1,6 @@
 # EduPilot Main Service
 
-EduPilot의 인증·권한·영속 상태와 Frontend용 외부 API를 담당하는 Spring Backend입니다. Epic 1 공통 기반과 Epic 2 인증·사용자 API가 구현되어 있으며 학습 도메인 endpoint는 아직 없습니다.
+EduPilot의 인증·권한·영속 상태와 Frontend용 외부 API를 담당하는 Spring Backend입니다. 공통 기반, 인증·사용자 API와 Material 업로드·조회·처리 수명 주기가 구현되어 있습니다.
 
 ## 요구 환경
 
@@ -22,8 +22,11 @@ EduPilot의 인증·권한·영속 상태와 Frontend용 외부 API를 담당하
 | `EDUPILOT_JWT_SECRET` | Base64 인코딩된 32바이트 가짜 값 | JWT HS256 secret, 디코딩 후 최소 256bit |
 | `EDUPILOT_AI_BASE_URL` | `http://localhost:8000` | FastAPI AI Service base URL |
 | `EDUPILOT_INTERNAL_TOKEN` | `replace-with-local-internal-token` | Spring–FastAPI 내부 인증 토큰 |
+| `EDUPILOT_STORAGE_DIR` | `./storage` | 원본 PDF를 저장할 로컬 볼륨 루트. prod에서는 필수 |
+| `EDUPILOT_UPLOAD_MAX_MB` | `45` | PDF 업로드 최대 크기(MB) |
+| `EDUPILOT_AI_EXTRACT_READ_TIMEOUT` | `120s` | PDF 추출 내부 API read timeout |
 
-`prod` 프로필에는 일곱 변수를 모두 명시해야 합니다. `local`은 DB URL·사용자·CORS origin·AI base URL에 개발 기본값이 있지만 DB 비밀번호, JWT secret, 내부 인증 토큰은 반드시 환경 변수로 주입합니다. 두 서비스에는 같은 `EDUPILOT_INTERNAL_TOKEN` 값을 사용합니다.
+`prod` 프로필에는 DB·인증·AI·저장소 변수를 모두 명시해야 합니다. `local`은 DB URL·사용자·CORS origin·AI base URL·저장소 경로·업로드 제한에 개발 기본값이 있지만 DB 비밀번호, JWT secret, 내부 인증 토큰은 반드시 환경 변수로 주입합니다. 두 서비스에는 같은 `EDUPILOT_INTERNAL_TOKEN` 값을 사용합니다.
 
 ## 실행과 검증
 
@@ -69,12 +72,19 @@ $env:EDUPILOT_INTERNAL_TOKEN='replace-with-local-internal-token'
 
 live 테스트는 기본 테스트와 CI에서 비활성화됩니다. 활성화하면 FastAPI의 `/health`와 `/internal/ai/turn`을 각각 호출해 `schemaVersion`·`turnId`를 확인하고, 잘못된 내부 토큰이 거부되는지도 검증합니다. health 경로는 현재 `/health`가 기본값이며 필요하면 `EDUPILOT_AI_HEALTH_PATH`로 변경할 수 있습니다.
 
+## Material 처리 흐름
+
+`POST /api/materials`는 PDF 원본과 `PROCESSING` 메타데이터를 저장한 뒤 즉시 응답합니다. 트랜잭션 커밋 후 전용 executor가 `/internal/ai/extract`를 호출하고, 정상 결과는 페이지 문맥과 함께 `READY`, 오류·300페이지 초과는 `FAILED`로 전이합니다. 삭제된 자료에 늦게 도착한 추출 결과는 폐기합니다.
+
+원본 PDF는 소유자 인증 후 `GET /api/materials/{materialId}/file`로 스트리밍합니다. 추출 텍스트 API는 local/dev에서만 활성화되며 운영 프로필에는 등록되지 않습니다.
+
 ## 패키지 구조
 
 ```text
 io.edupilot
 ├─ auth             # 회원가입·로그인·JWT·refresh 회전
 ├─ user             # 내 정보·탈퇴와 사용자 영속 모델
+├─ material         # PDF 저장·업로드·조회·비동기 추출·논리 삭제
 ├─ ai
 │  ├─ dto         # Spring–FastAPI 내부 요청·응답 계약
 │  └─ AiClient    # 내부 인증, timeout, 오류 매핑을 캡슐화한 HTTP 어댑터

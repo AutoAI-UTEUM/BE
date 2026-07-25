@@ -19,6 +19,8 @@ import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.auth.RefreshTokenRepository;
 import io.edupilot.global.security.TraceIdFilter;
+import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.user.UserRepository;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -37,6 +39,12 @@ class MainServiceApplicationTests {
 
 	@MockitoBean
 	private RefreshTokenRepository refreshTokenRepository;
+
+	@MockitoBean
+	private LearningMaterialRepository learningMaterialRepository;
+
+	@MockitoBean
+	private MaterialPageRepository materialPageRepository;
 
 	private MockMvc mockMvc;
 
@@ -80,7 +88,23 @@ class MainServiceApplicationTests {
 			.andExpect(jsonPath("$.paths['/api/auth/refresh'].post").exists())
 			.andExpect(jsonPath("$.paths['/api/auth/logout'].post").exists())
 			.andExpect(jsonPath("$.paths['/api/users/me'].get").exists())
-			.andExpect(jsonPath("$.paths['/api/users/me'].delete").exists());
+			.andExpect(jsonPath("$.paths['/api/users/me'].delete").exists())
+			.andExpect(jsonPath("$.paths['/api/materials'].post").exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/materials'].post.requestBody.content"
+					+ "['multipart/form-data'].schema.properties.file"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/materials'].post.requestBody.content"
+					+ "['multipart/form-data'].schema.properties.title"
+			).exists())
+			.andExpect(jsonPath("$.paths['/api/materials'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/materials/{materialId}'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/materials/{materialId}'].delete").exists())
+			.andExpect(jsonPath("$.paths['/api/materials/{materialId}/file'].get").exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/materials/{materialId}/pages/{pageNumber}']"
+			).doesNotExist());
 
 		mockMvc.perform(get("/swagger-ui.html"))
 			.andExpect(status().is3xxRedirection());

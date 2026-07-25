@@ -14,6 +14,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
+import org.springframework.core.io.ByteArrayResource;
 
 import io.edupilot.ai.dto.TurnRequest;
 import io.edupilot.global.error.ErrorCode;
@@ -69,6 +70,87 @@ class HttpAiClientContractTest {
 		assertThat(request.getPath()).isEqualTo("/internal/ai/turn");
 		assertThat(request.getHeader("X-Internal-Token")).isEqualTo(INTERNAL_TOKEN);
 		assertThat(request.getHeader("X-Trace-Id")).isEqualTo(TRACE_ID);
+		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
+	@Test
+	void extractSendsPdfMultipartAndValidatesResponse() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "pageCount": 2,
+			  "pages": [
+			    {"pageNumber": 1, "text": "first"},
+			    {"pageNumber": 2, "text": "second"}
+			  ]
+			}
+			"""));
+
+		ByteArrayResource pdf = new ByteArrayResource("%PDF-test".getBytes()) {
+			@Override
+			public String getFilename() {
+				return "material.pdf";
+			}
+		};
+		var response = client(Duration.ofSeconds(1)).extract(pdf);
+
+		assertThat(response.pageCount()).isEqualTo(2);
+		assertThat(response.pages()).extracting("pageNumber").containsExactly(1, 2);
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getPath()).isEqualTo("/internal/ai/extract");
+		assertThat(request.getHeader("X-Internal-Token")).isEqualTo(INTERNAL_TOKEN);
+		assertThat(request.getHeader("X-Trace-Id")).isEqualTo(TRACE_ID);
+		assertThat(request.getHeader("Content-Type")).startsWith("multipart/form-data");
+		assertThat(request.getBody().readUtf8())
+			.contains("name=\"file\"")
+			.contains("filename=\"material.pdf\"")
+			.contains("%PDF-test");
+	}
+
+	@Test
+	void extractRejectsNonContiguousPageNumbers() {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "pageCount": 1,
+			  "pages": [{"pageNumber": 2, "text": "wrong"}]
+			}
+			"""));
+
+		ByteArrayResource pdf = new ByteArrayResource("%PDF-test".getBytes()) {
+			@Override
+			public String getFilename() {
+				return "material.pdf";
+			}
+		};
+
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).extract(pdf))
+			.isInstanceOfSatisfying(AiClientException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.AI_RESPONSE_INVALID)
+			);
+	}
+
+	@Test
+	void delayedExtractResponseUsesExtractTimeoutWithoutRetry() {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "pageCount": 1,
+			  "pages": [{"pageNumber": 1, "text": "page"}]
+			}
+			""").setBodyDelay(500, TimeUnit.MILLISECONDS));
+		ByteArrayResource pdf = new ByteArrayResource("%PDF-test".getBytes()) {
+			@Override
+			public String getFilename() {
+				return "material.pdf";
+			}
+		};
+
+		assertThatThrownBy(() -> client(Duration.ofMillis(100)).extract(pdf))
+			.isInstanceOfSatisfying(AiClientException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT)
+			);
 		assertThat(server.getRequestCount()).isEqualTo(1);
 	}
 
@@ -187,6 +269,7 @@ class HttpAiClientContractTest {
 			baseUrl,
 			INTERNAL_TOKEN,
 			Duration.ofMillis(300),
+			readTimeout,
 			readTimeout,
 			"/health"
 		);

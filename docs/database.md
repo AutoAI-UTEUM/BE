@@ -15,8 +15,8 @@
 | --- | --- | --- |
 | `users` | id, email, password_hash, name, role, status, timestamps | `UK(email)`, `IDX(status)` |
 | `refresh_tokens` | id, user_id, token_hash, expires_at, revoked_at, created_at | `FK(user_id)`, `UK(token_hash)`, `IDX(user_id)` |
-| `learning_materials` | id, owner_id, title, storage_key, page_count, processing_status, status, timestamps | `FK(owner_id)`, `IDX(owner_id,status)` |
-| `material_pages` | id, material_id, page_number, text_content, created_at | `FK(material_id)`, `UK(material_id,page_number)` |
+| `learning_materials` | id, owner_id, title, storage_key, page_count, processing_status, status, timestamps | `FK(owner_id)`, `UK(storage_key)`, `IDX(owner_id,status)`, 상태·page_count CHECK |
+| `material_pages` | id, material_id, page_number, text_content, created_at | `FK(material_id)`, `UK(material_id,page_number)`, `CHECK(page_number >= 1)` |
 | `learning_sessions` | id, user_id, material_id, current_page, page_status, status, conversation_summary, timestamps | `FK(user_id)`, `FK(material_id)`, `IDX(user_id,status,updated_at)` |
 | `chat_messages` | id, session_id, sender_type, message_type, content, page_number, request_id, status, created_at | `FK(session_id)`, `UK(session_id,request_id)`, `IDX(session_id,created_at,id)` |
 | `qa_threads` | id, session_id, page_number, status, timestamps | `FK(session_id)`, `IDX(session_id,status)` |
@@ -31,7 +31,7 @@
 
 - `learner_memory_candidates`는 임시 메모리 후보의 영속 저장소입니다. FastAPI는 무상태이므로 turn 응답의 후보를 Spring이 이 테이블에 저장하고, 다음 턴 스냅샷의 `memory.temporaryCandidates`로 전달합니다. 승격되면 후보를 삭제하지 않고 `status`를 `PROMOTED`/`ARCHIVED`로 전환하며, `evidence_refs_json` + 상태 전이 기록이 MVP의 감사 이력 역할을 합니다(DEC-012 Accepted — 별도 이력 테이블은 이후 개선안).
 - `quiz_assessments`는 삭제 없이 전량 보존합니다(DEC-011 Accepted). "평가 큐"는 물리 큐가 아니라 조회 윈도우입니다 — turn 스냅샷용은 세션 스코프 최근 5개(`IDX(session_id, created_at)`), 메모리 승격 판단용은 `quiz_submissions` 조인으로 user×material 교차 세션 최근 20개를 사용합니다.
-- `learning_materials.processing_status`는 `PROCESSING`, `READY`, `FAILED` 최소 3값을 사용합니다.
+- `learning_materials.processing_status`는 `PROCESSING`, `READY`, `FAILED` 3값을 사용하고 `status`는 `ACTIVE`, `DELETED`를 사용합니다. `page_count`는 처리 전·실패 시 `NULL`, READY일 때 1 이상입니다.
 - refresh token 원문은 저장하지 않고 SHA-256 해시만 `refresh_tokens.token_hash`에 저장합니다. 회전·로그아웃·탈퇴 시 `revoked_at`을 기록합니다.
 
 ## 2. 컬럼 원칙
@@ -47,6 +47,7 @@
 ## 3. 핵심 제약조건
 
 - `material_pages.page_number >= 1`
+- `learning_materials.page_count IS NULL OR page_count >= 1`
 - `learning_sessions.current_page >= 1`이며 애플리케이션에서 자료 `page_count` 이하인지 검증
 - 퀴즈 범위는 `1 <= coverage_start_page <= coverage_end_page <= page_count`
 - `quiz_submissions.score >= 0`
@@ -70,6 +71,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - AI 턴은 `chat_messages.request_id`(`UK(session_id,request_id)`), 퀴즈 제출은 `quiz_submissions.request_id`(`UK(quiz_id,user_id,request_id)`)로 클라이언트 `requestId`를 저장해 중복 처리를 방지합니다. 동일 `requestId` 재전송은 `TURN_ALREADY_PROCESSED` 또는 기존 결과 반환으로 처리합니다.
 - LearnerMemory 승격은 낙관적 잠금으로 덮어쓰기를 방지합니다.
 - AI 호출 중 DB 트랜잭션을 오래 유지하지 않습니다. 호출 전 스냅샷과 호출 후 조건부 반영 패턴을 사용합니다.
+- 자료 삭제와 추출 결과 반영은 `learning_materials` 행을 잠그고 상태를 재검증하여 삭제된 자료가 READY로 되살아나지 않게 합니다.
 
 ## 6. 인덱스 초안
 
