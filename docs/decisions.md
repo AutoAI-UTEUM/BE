@@ -2,277 +2,62 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 상태 | Open |
+| 상태 | Accepted — DEC-001~028 전 항목 확정 |
 | 마지막 갱신 | 2026-07-23 |
 
 확정된 선택은 날짜, 결정자, 이유를 기록하고 관련 문서를 함께 갱신합니다. 마감일은 팀 일정 확정 후 입력합니다.
 
 `DEC-001` 같은 값은 이 문서 안에서 결정을 추적하기 위한 ID이며 GitHub 이슈 번호가 아닙니다. 기본적으로 관련 Epic의 `결정 필요` 체크박스로 관리합니다. 여러 팀의 합의가 필요하거나 실제 개발을 막는 항목만 별도 `[Decision]` 이슈로 만들고, 이 표에 GitHub 이슈 링크를 추가합니다.
 
-| ID | 결정 항목 | 현재 후보/질문 | 영향 | 소유자 | 목표 시점 |
-| --- | --- | --- | --- | --- | --- |
-| DEC-013 | 스트리밍 (Accepted) | 전송 방식은 SSE로 **확정** — 아래 확정 기록 참조. 이 표에는 세부 계약(이벤트·취소/재연결·저장 시점)의 잔여 합의만 남음 | FE/BE/AI | 전 팀 | AI 턴 계약 구현 전 |
+> 2026-07-23 기준 전 항목이 Accepted로 확정되었습니다. 원래의 후보/질문 열은 결정 배경 보존을 위해 그대로 두고, 확정 내용을 마지막 열에 기입합니다. DEC-002는 v2로 교체되었습니다(전문: `docs/DEC-002-python-grok-model.md`).
+
+| ID | 결정 항목 | 현재 후보/질문 | 영향 | 소유자 | 목표 시점 | 상태 · 확정 내용 (2026-07-23) |
+| --- | --- | --- | --- | --- | --- | --- |
+| DEC-001 | Spring Boot 버전 | Java 21 호환 안정 버전 | 전체 Backend | Backend | 프로젝트 생성 전 | **Accepted** — Spring Boot 4.1.x + Java 21 (핵심 의존성 호환 실패 시 4.0.x 하향 후 기록) |
+| DEC-002 | Python/Gemini 버전 | Python 버전, 모델명, 지원 기능 | AI 계약/비용 | AI | AI 프로젝트 생성 전 | **Accepted (v2로 교체)** — Python 3.14.x / Grok(xAI) grok-4.5 dated 고정+표류 감지 / reasoning_effort 차등 / 채점 결정성은 구조로 담보 / AgentLlmProfile — 전문: `docs/DEC-002-python-grok-model.md` |
+| DEC-003 | Migration 도구 | Flyway vs Liquibase | DB/배포 | Backend | 첫 schema 전 | **Accepted** — Flyway, 빈 baseline부터 |
+| DEC-004 | JWT 정책 | access 만료, refresh 저장·회전·폐기 | 보안/FE | Backend+FE | Auth 구현 전 | **Accepted** — access 1시간, refresh 14일 HttpOnly·Secure·SameSite=Lax 쿠키, 회전·재사용 감지·폐기. FE는 access를 메모리 보관(localStorage 금지) |
+| DEC-005 | PDF 저장소 | 로컬/오브젝트 스토리지, 인증 다운로드 | Material/Infra | Backend+Infra | 업로드 구현 전 | **Accepted** — 로컬 볼륨 + 저장소 어댑터(storage_key), S3 전환 계획. 파일 접근은 Spring 인증 스트리밍(→S3 시 presigned) |
+| DEC-006 | PDF 텍스트 추출 | Spring, Python worker, FastAPI 중 책임 | Material/AI | Backend+AI | 자료 처리 구현 전 | **Accepted** — FastAPI `/internal/ai/extract`가 추출, 저장(material_pages)·상태 전이는 Spring 소유. LLM은 Grok(xAI) |
+| DEC-007 | PK/외부 ID | BIGINT vs UUID/별도 public ID | API/DB | Backend | 첫 migration 전 | **Accepted** — BIGINT AUTO_INCREMENT |
+| DEC-008 | 페이지 진행 모델 | 세션 단일 pageStatus vs 페이지별 progress | Session/DB | Backend | Session schema 전 | **Accepted** — 세션당 단일 pageStatus (페이지별 진행 엔티티 없음), 페이지 이동 시 초기화 |
+| DEC-009 | 퀴즈 재제출 | 1회 제한 vs attempt 관리. 재제출 허용으로 확정할 경우 정답 보호 규칙(제출 후 verdict/정답 공개 시점, 재제출 점수 처리)을 반드시 함께 정의 | Quiz/UX/DB | 전 팀 | Quiz 계약 전 | **Accepted** — 1회 제출 제한 (attempt_no 1 고정) |
+| DEC-010 | 통과 기준 | 고정 점수 vs 유형/난이도별 기준 | 진단 흐름 | Product+AI | 채점 구현 전 | **Accepted** — 60% 고정 (env `EDUPILOT_QUIZ_PASS_RATIO`) |
+| DEC-011 | 평가 큐 | 최대 개수, 보관/정리 방식 | AI 문맥/DB | Backend+AI | Assessment 구현 전 | **Accepted** — DB 전량 보존. 스냅샷 `quizAssessments`는 세션 스코프 최근 5개. 메모리 승격 판단용은 user×material 교차 세션 최근 20개 (별도 조회 경로) |
+| DEC-012 | 메모리 승격 | 반복 횟수/근거/감사 이력 | 개인화 | Product+AI+BE | Memory 구현 전 | **Accepted** — 독립 근거 2회 이상 + confidence ≥ 0.7. candidates 보존이 감사 이력 |
+| DEC-013 | 스트리밍 (Accepted) | 전송 방식은 SSE로 **확정** — 아래 확정 기록 참조. 이 표에는 세부 계약(이벤트·취소/재연결·저장 시점)의 잔여 합의만 남음 | FE/BE/AI | 전 팀 | AI 턴 계약 구현 전 | **Accepted** — SSE 기본 Accepted, 세부(이벤트 6종·heartbeat 10s·취소 fetch abort·재연결 재동기화)는 ai-integration-contract v0.4 §5로 확정 |
+| DEC-021 | SSE 인증 방식 | EventSource는 Authorization 헤더 불가 — 쿠키 vs 단기 서명 쿼리 토큰 vs fetch 기반 스트림 | 보안/FE/BE | Backend+FE | 스트리밍 구현 전 | **Accepted** — fetch 기반 스트림 (`Authorization: Bearer` 헤더 유지, ReadableStream 파싱). EventSource 미사용 |
+| DEC-024 | 활성 세션 재사용 | 같은 자료로 세션 생성 시 기존 ACTIVE 세션 재사용 vs 항상 신규 생성 | Session/UX | Backend+FE | Session 구현 전 | **Accepted** — 동일 자료 세션 생성 시 기존 ACTIVE 재사용(+`reused` 표시), COMPLETED 재개 불가, 메시지 커서 페이지네이션 |
+| DEC-025 | 페이지 텍스트 API 노출 | `GET .../pages/{pageNumber}` 운영 노출 여부 — 보안·저작권 검토 | 보안/저작권 | Product+Backend | 자료 API 구현 전 | **Accepted** — 운영 비노출 (dev/디버깅 한정) |
+| DEC-027 | CORS 정책 | FE(`localhost:5173`)↔Spring(`8080`) 교차 출처 — 허용 오리진, 자격 증명, SSE 인증(DEC-021)과 연계 | 보안/FE/BE | Backend+FE | FE-BE 연동 전 | **Accepted** — 전역 설정, 오리진 env `EDUPILOT_CORS_ALLOWED_ORIGINS`, allowCredentials=true, 와일드카드 금지 |
+| DEC-028 | 회원 탈퇴·자료 삭제 경로 | User/Material의 DELETED(논리 삭제) 상태에 도달하는 기능·API 범위 — 현재는 상태만 정의되고 경로 없음 | 범위/DB | Product+Backend | MVP 범위 확정 시 | **Accepted** — 논리 삭제 + 즉시 익명화(재가입 허용), refresh 전체 폐기, 소유 자료·세션 논리 삭제(퀴즈·평가·메모리는 익명 보존). 자료 삭제는 활성 세션 존재 시 409 거부 |
+| DEC-014 | 내부 API 보안 | 사설망, service token, mTLS 등 | 보안/Infra | Backend+AI+Infra | 연동 전 | **Accepted** — `X-Internal-Token` 정적 시크릿 헤더 (env `EDUPILOT_INTERNAL_TOKEN`), FastAPI는 Docker 내부 네트워크에만 바인딩 |
+| DEC-015 | API versioning | `/api` vs `/api/v1`, 변경 정책 | 전 클라이언트 | 전 팀 | 첫 외부 API 전 | **Accepted** — base path `/api` (v1 미도입) |
+| DEC-016 | 업로드 제한 | 크기, 페이지 수, MIME 검증 | 보안/비용 | Product+Backend | 업로드 구현 전 | **Accepted** — PDF 45MB, 300페이지, MIME/매직바이트 검증 |
+| DEC-017 | 관리자 범위 | 자료/사용자 관리 상세 | MVP 범위 | Product | 관리자 구현 전 | **Accepted** — MVP 제외 (상세 TBD) |
+| DEC-018 | TEACHER 및 LMS 도메인 | Course/Lecture/Assignment 포함 여부 | 범위/DB | Product | MVP 이후 검토 | **Accepted** — MVP 제외, 이후 검토 |
+| DEC-019 | AWS 구성 | EC2/RDS/S3/Nginx/도메인 구성 | 배포/비용 | Infra | dev 배포 전 | **Accepted** — 단일 EC2 + Docker Compose + Nginx HTTPS(certbot), FE 동일 오리진 정적 서빙 |
+| DEC-020 | 라이선스 | 오픈소스/비공개 | 배포/공개 | 팀 | 저장소 공개 전 | **Accepted** — 저장소 비공개 유지, 라이선스 파일 없음 |
 
 ## 확정된 기본안
 
-### DEC-002 — Python 버전 · Grok 모델 선정 (v2)
+### DEC-002 — Python/모델 (v2)
 
-| 항목 | 내용 |
-| --- | --- |
-| 상태 | 확정 (AI 담당 결정, 3인 패널 검토 반영) |
-| 소유 | 고영빈 (Agent Server) |
-| 결정일 | 2026-07-23 (v2: 패널 검토 조건 반영 개정) |
-| 관련 | DEC-006 (LLM provider = Grok/xAI), 에이전트 명세 §4.5, ai-integration-contract.md §5·§6, test-strategy.md |
-
-#### 1. 결정 사항
-
-##### D1. Python — 3.14.x
-
-- pydantic v2 전용을 전제로 한다 (v1 호환 계층은 3.14 비호환 — 공식 확인됨. 새 코드에서 v1 API 사용 금지, 의존성의 v1 사용 여부를 lockfile 확정 시 확인).
-- CI는 3.14.x 단일 버전으로 고정한다.
-- Fallback 조건: 스켈레톤 단계에서 전체 의존성 설치 + 테스트 통과를 검증하고, 핵심 의존성 하나라도 3.14에서 막히면 3.13으로 하향한다. 검증 완료 시 이 조항은 소멸.
-
-##### D2. 모델 — 전 에이전트 공통, grok-4.5 버전 고정 + 표류 감지
-
-- MVP는 단일 모델을 전 에이전트가 공유한다. 에이전트별 모델 이원화는 하지 않는다.
-- dated 버전(`grok-4.5-<date>`)으로 고정하고 `MODEL_NAME` env로 관리한다. 단, grok-4.5는 출시 초기라 dated 식별자 발행 여부가 미확인이므로:
-  - dated 미발행 시 대체 경로: alias(`grok-4.5`) 고정 + 채점 golden 세트를 모델 표류 감지기로 운용.
-- **버전 고정만으로는 안정성이 담보되지 않는다.** xAI는 dated 버전까지 은퇴시키고 은퇴된 슬러그를 에러 없이 다른 모델로 무언 리다이렉트한 전례가 있다(2026-05-15, 8개 모델 일괄 은퇴). 따라서:
-  - 매 응답의 실제 `model` 필드를 고정값과 대조하고, 불일치 시 경보 로그를 남긴다(런타임 assertion).
-  - xAI deprecation 공지 모니터링을 운영 루틴에 포함한다(소유: AI 담당, 주 1회).
-
-##### D3. 용도별 차등 — `reasoning_effort`로 (temperature는 보조)
-
-| 용도 | reasoning_effort | 근거 |
-| --- | --- | --- |
-| 오케스트레이터 Plan | **low~medium** | 짧은 structured output. high로 두면 자유 발화 턴의 첫 토큰이 플래너 완료(high TTFT 중앙값 ~17초) 뒤로 밀려 채팅 UX 실격 |
-| 설명 · QA · 퀴즈 생성 (스트리밍) | low~medium | 반응성 우선 |
-| 채점 · 평가 · 진단 (비대화형) | high | 판단 깊이 우선, 지연 허용 |
-
-- 지연 예산: 자유 발화 턴의 첫 answer_delta까지 p50 5초 이내를 목표로 하고, 구현 첫 주에 effort별 TTFT를 실측해 표를 확정한다.
-- 사실관계: grok-4.5는 reasoning 비활성화 불가(단, 이는 grok-4.5에 한정된 사실 — grok-4.3은 `reasoning_effort: none` 지원). `presencePenalty`/`frequencyPenalty`/`stop`은 reasoning 모델에서 요청 시 에러.
-- temperature: 공식 문서의 비호환 파라미터 목록에 없음(지원 가능성 높음). 구현 첫 주 스모크 테스트(동일 채점 입력 N=10회, 점수 분산 비교로 반영 여부 판정)로 확인 후, 지원 시 채점 계열에 최저값을 추가 적용한다. 미지원이어도 D4가 결정성을 담보하므로 계획 영향 없음.
-
-##### D4. 채점 결정성(§4.5)의 담보 방식 — 구조로
-
-- §4.5의 "결정성"은 "동일 입력 → 비트 단위 동일 출력"(LLM 불가)이 아니라 **"루브릭 기준 일관 채점 + 검증 통과"**로 해석한다. 이 재해석은 명세 소유자(팀) 합의로 명세에 역반영한다. `[액션: 팀 회의 안건]`
-- 담보 장치:
-  1. MCQ/OX: Backend 결정론 채점 (LLM 미개입)
-  2. SHORT/ESSAY: structured outputs(json_schema)로 채점 JSON 스키마 강제
-  3. ESSAY는 출제 단계에서 전용 스키마(modelAnswer + rubric 항목·가중치, weight 합계 검증) 강제 → 채점은 루브릭 항목별 점수 산출, 총점은 코드에서 합산
-  4. 검증 계층: questionId 매칭, 점수 범위 검증(범위 초과는 clamp가 아니라 재시도 → 실패 처리), verdict-점수 일관성(CORRECT ≥ 0.8·maxScore, PARTIAL 0.2~0.8, WRONG ≤ 0.2 — 구현 시 확정), 문항 수 일치. 위반 시 재시도 후 실패, 부분 결과 반환 금지.
-- 구조가 담보하는 것과 못 하는 것의 구분: 위 장치는 형식적 유효성과 집계 재현성을 담보하고 채점 분산을 축소한다. "일관 채점" 자체는 측정으로 확인한다 — **golden 답안 세트(정답/부분정답/오답 각 5개) 반복 채점(N=10)에서 문항 점수 표준편차 ≤ 0.1**을 수용 기준으로 하고, live 스모크에 포함한다.
-
-##### D5. 에이전트별 LLM 프로필 config 선반영
-
-- `AgentLlmProfile { model, reasoningEffort, maxTokens, temperature? }`를 settings로 관리. 지금은 전 에이전트가 같은 모델을 가리키되, 이후 이원화는 코드 변경 없이 config 변경만으로 가능하게 한다.
-- maxTokens 기본값: reasoning 토큰이 max_tokens를 잠식해 출력이 절단되면 스키마 파싱 실패로 직결되므로, 채점·Plan 계열은 여유값(예: 16K)으로 설정하고 첫 주 실측으로 조정한다.
-- 계약의 `config.model`(Backend 오버라이드)과의 우선순위: **AgentLlmProfile이 항상 우선**, `config.model`은 allowlist에 있는 값만 허용(그 외 거부) — 버전 고정이 요청으로 우회되는 것을 차단.
-
-#### 2. 비용 전제와 이원화 임계값
-
-- 추정(보수적 가정: 세션 30턴 중 LLM 경유 22턴, 호출당 입력 ~6K·출력 ~4K 토큰, 턴당 2회 호출): 세션당 약 $1.2, 월 300세션 시 약 $360.
-- 재검토 트리거: **월 LLM 비용 $150 초과 시**(팀 확정 필요 — 제안값) 이원화 검토 개시. 이원화 대상은 grok-4.3($1.25/$2.50, 캐시 입력 $0.20), 설명·QA를 내릴 경우 약 55% 절감 추정.
-- 판단 데이터: `done.data.usage` + `/grade` 응답 usage(추가 필요) + reasoningTokens 필드 수집. `[액션: 계약 usage 스키마 보강]`
-
-#### 3. 검토했으나 채택하지 않은 대안
-
-| 대안 | 기각 사유 |
-| --- | --- |
-| alias만 사용 (표류 감지 없이) | 모델 자동 업데이트 시 채점 기준 표류를 감지 수단 없이 수용하게 됨 |
-| 채점 = temperature 최저 (원안) | reasoning 모델에서 반영 여부 미검증. D3·D4로 대체, 스모크 확인 후 보조 적용 |
-| 역방향 이원화 (저가 모델 기본 + 채점만 4.5) | 후보였던 grok-4.1-fast 등 fast 계열이 2026-05 일괄 은퇴로 부재. 현실 대안은 grok-4.3 하나이며, MVP 테스트 매트릭스 단순화를 위해 단일 모델 유지, §2 임계값으로 전환 시점 관리 |
-| Python 3.13 | 3.14 안정·호환 확인됨. 단 D1 fallback 유지 |
-
-#### 4. 후속 조치 (구현 첫 주)
-
-- [ ] 3.14 의존성 전체 검증 (통과 시 D1 fallback 조항 소멸)
-- [ ] grok-4.5 dated 버전 발행 여부 확인 → 발행 시 env 반영 / 미발행 시 alias+감지기 경로 확정
-- [ ] 응답 `model` 필드 대조 assertion 구현
-- [ ] effort별 TTFT 실측 → D3 표 확정 (자유 턴 p50 5초 예산 검증)
-- [ ] temperature 스모크 테스트 (N=10 분산 비교) → 결과 추기
-- [ ] AgentLlmProfile + maxTokens 기본값 스켈레톤 반영
-- [ ] usage 수집 시작 (§2 판단 데이터)
-
-#### 5. DEC-002 범위 밖 — 연계 결정 필요 (계약 문서로 이관)
-
-- `/internal/ai/grade` 타임아웃(비스트리밍, heartbeat 불가) 및 재시도 횟수/예산
-- 재시도와 turnId 멱등성 충돌 해소 (실패 턴은 같은 turnId 재호출 허용 = replay, 성공 턴만 DUPLICATE_TURN)
-- 계약 §7 `MODEL_NAME` 기본값·§3.4 usage 예시를 고정 버전 체계로 정합화, usage에 reasoningTokens·grade usage 추가
-- §4.5 재해석의 명세 역반영 (팀 합의)
-
-#### 6. 재검토 조건
-
-- xAI의 grok-4.5 가격/정책 변경 또는 deprecation 공지 (감지: AI 담당 주 1회 모니터링)
-- 월 LLM 비용 $150 초과 (→ grok-4.3 이원화 검토)
-- 응답 model 필드 불일치 경보 발생 (무언 리다이렉트 감지 시 즉시 재검토)
-- TTFT 실측이 p50 5초 예산을 초과 (→ D3 effort 배치 재조정)
-
-### DEC-007 — PK/외부 ID 전략
-
-- 상태: Accepted
-- 결정일: 2026-07-21
-- 결정자: 한승준 (Backend)
-- 선택: 전 테이블 기본 키는 **BIGINT AUTO_INCREMENT**를 사용하고, 외부 API 식별자도 동일 값을 노출한다.
-- 이유: 단순하고 JPA·인덱스 효율이 좋다. ID 추측(enumeration) 리스크는 소유권 검증 + 404 은닉 정책이 방어한다.
-- 대안과 trade-off: UUID(v7)는 노출 안전성이 장점이나 인덱스 비대·가독성 저하. MVP 규모에서 이점이 작다.
-- **이후 개선안**: 외부 공개 API·공유 링크가 생기면 노출용 public ID(UUID/난수 slug) 컬럼을 추가하고 내부 BIGINT와 매핑하는 방식으로 확장한다. 기존 스키마 변경 없이 컬럼 추가만으로 가능하다.
-- 후속 변경 문서: database.md §2 컬럼 원칙, requirements §4 비기능
-
-### DEC-009 — 퀴즈 재제출 정책
-
-- 상태: Accepted
-- 결정일: 2026-07-21
-- 결정자: 한승준 (Backend) — FE UX는 계약 리뷰에서 공유
-- 선택: **MVP는 한 퀴즈당 1회 제출 제한**. 재제출 요청은 `QUIZ_ALREADY_SUBMITTED`(409)로 거부한다. 스키마의 `attempt_no`는 유지하되 1로 고정해 이후 확장 시 migration 없이 전환 가능하게 한다.
-- 이유: 정답 유출 경로(1차 제출의 verdict/feedback으로 정답 역산 후 재제출 만점)를 원천 차단하고 채점·평가 데이터의 단순성을 유지한다.
-- 대안과 trade-off: attempt 허용은 학습 반복에 유리하나 정답 보호 규칙 설계가 선행돼야 한다. 실수 제출은 FE 제출 전 확인 모달로 완화한다.
-- **이후 개선안**: 재제출을 허용하는 확장 시 반드시 함께 정의할 것 — ① 재제출 시 verdict/feedback 공개 시점(예: 최종 제출 후에만 정답 공개) ② 점수 처리(최고점 vs 최신) ③ attempt 상한. 이 규칙 없이 attempt만 여는 것을 금지한다.
-- 후속 변경 문서: feature-spec §8, requirements QUIZ-007, database.md quiz_submissions 주석
-
-### DEC-010 — 퀴즈 통과 기준
-
-- 상태: Accepted
-- 결정일: 2026-07-21
-- 결정자: 한승준 (Backend) — 값은 Product·AI와 운영 중 조정
-- 선택: **고정 비율 60%** — `passed = (score / maxScore) >= 0.6`. 값은 설정(`EDUPILOT_QUIZ_PASS_RATIO`, 기본 0.6)으로 관리한다. 이 기준 미달이 저득점 진단 파이프라인(`/internal/ai/diagnosis`)의 트리거다.
-- 이유: MVP에서 유형·난이도별 차등은 근거 데이터가 없어 과설계다. 설정으로 빼두면 코드 변경 없이 조정 가능하다.
-- 대안과 trade-off: 유형별 차등(예: OX는 높게)은 정밀하나 초기 근거 부족.
-- **이후 개선안**: 운영 데이터(유형별 평균 점수·진단 진입률)가 쌓이면 유형/난이도별 차등 기준으로 확장한다. 확장 시 quiz_type별 설정 맵으로 전환한다.
-- 후속 변경 문서: api-spec §6 제출 응답, feature-spec §9 통과 기준, README §6 환경 변수
-
-### DEC-008 — 페이지 진행 모델
-
-- 상태: Accepted
-- 결정일: 2026-07-21
-- 결정자: 한승준 (Backend)
-- 선택: MVP는 세션 단일 `pageStatus`를 유지한다. 페이지 이동 시 새 페이지 상태는 `NOT_EXPLAINED`로 초기화하며, 과거 페이지의 설명 원문은 채팅 이력으로 복원한다. 페이지별 이력 모델(`SessionPageProgress`) 분리는 MVP 이후 확장으로 미룬다.
-- 이유: 상태 전이·복원 로직이 단순해지고, 재방문 시 "설명할까요?" UI가 다시 떠도 사용자가 거절하면 그만이라 UX 손실이 작다.
-- 대안과 trade-off: 페이지별 분리는 방문 이력 보존이 강점이나 테이블·전이 복잡도가 증가한다. 재방문 페이지의 중복 설명은 LLM 비용이 들 수 있어, 재방문 시 기본 선택지를 "아니오"로 두는 UX 보완을 FE와 합의한다.
-- 후속 변경 문서: domain-model §4 pageStatus, feature-spec §4, api-spec §5
-
-### DEC-024 — 활성 세션 재사용
-
-- 상태: Accepted
-- 결정일: 2026-07-21
-- 결정자: 한승준 (Backend) — FE UX는 계약 리뷰에서 재확인
-- 선택: 같은 자료로 `POST /api/sessions` 호출 시 기존 `ACTIVE` 세션이 있으면 새로 만들지 않고 그 세션을 반환한다(재사용). 응답에 `reused` 필드로 구분을 제공한다. "처음부터 다시"는 기존 세션 삭제(`DELETE`) 후 생성으로 해결한다.
-- 이유: 자료당 학습 맥락(대화·평가 큐·pageStatus)이 하나로 유지되고 목록에 중복 ACTIVE가 쌓이지 않는다. 목록(SESSION-008)·삭제(SESSION-009) API가 있어 이어하기/새로 시작 UX가 모두 성립한다.
-- 대안과 trade-off: 항상 신규 생성은 구현이 단순하나 맥락 분산·목록 혼란을 만든다. 409 거부는 FE 왕복이 늘어난다.
-- 부가 확정: 세션 `COMPLETED → ACTIVE` 재개는 MVP에서 불가(완료 세션은 열람만, 재학습은 새 세션). 메시지 조회 페이지네이션은 커서 방식으로 확정.
-- 후속 변경 문서: api-spec §5 세션 생성·complete·messages, feature-spec §4, domain-model §4
-
-### DEC-005 — PDF 저장소
-
-- 상태: Accepted
-- 결정일: 2026-07-21
-- 결정자: 한승준 (Backend)
-- 선택: MVP는 로컬 볼륨(Docker volume) 저장으로 시작하되, 코드가 물리 경로를 알지 못하도록 저장소 어댑터 인터페이스 뒤에 격리하고 DB에는 `storage_key`만 저장한다. FE의 PDF 접근은 Spring의 인증된 다운로드 스트리밍으로 제공한다.
-- 이유: 단일 호스트 MVP에서 구현·비용 최소. 어댑터 격리로 이후 전환 비용을 낮춘다.
-- 대안과 trade-off: S3는 내구성·presigned URL이 강점이나 AWS 구성(DEC-019) 선행이 필요해 초기 채택을 보류.
-- **S3 전환 계획**: AWS 전개(DEC-019 확정) 시 어댑터 구현체를 S3로 교체한다. 이때 FE 다운로드는 Spring이 권한 확인 후 발급하는 **presigned URL**(유효기간 있는 서명 링크, 예: 10분)로 변경해 파일 바이트가 Spring을 거치지 않게 한다. `storage_key` 체계는 전환 시에도 유지한다.
-- 후속 변경 문서: api-spec §4 자료 상세, database.md §2, backend-plan §11
-
-### DEC-006 — PDF 텍스트 추출 책임
-
-- 상태: Accepted
-- 결정일: 2026-07-21
-- 결정자: 한승준 (Backend) + AI 담당 합의
-- 선택: **FastAPI가 추출을 실행하고 Spring이 저장·상태 전이를 소유**한다. 흐름: Spring이 업로드 저장(PROCESSING) → 백그라운드에서 내부 API `POST /internal/ai/extract`로 PDF를 멀티파트 전송 → FastAPI가 페이지별 텍스트를 추출해 배열로 반환 → Spring이 `material_pages` 저장 후 READY/FAILED 전이. LLM provider는 **Grok API(xAI)** 를 사용하며, 에이전트 문맥의 기본 근거는 이 추출 텍스트다(Grok 파일 첨부는 보조 수단으로 AI 담당이 실험 후 결정).
-- 이유: Python 추출 생태계를 활용하면서 "FastAPI는 영속 데이터를 직접 만들지 않는다"는 아키텍처 원칙을 유지한다. 추출은 LLM 판단이 없는 결정적 전처리라 하이브리드 원칙(DEC-022)과 충돌하지 않는다. Grok 파일 첨부(attachment_search)는 페이지 단위 문맥 제어가 약해 자체 추출이 설계와 정합.
-- 대안과 trade-off: Spring 내 추출(PDFBox)은 경계가 단순하나 팀 결정(Python 측 추출)과 상이. FastAPI 직접 DB 저장은 원칙 위반으로 배제.
-- 후속 변경 문서: api-spec §8 내부 API 표, feature-spec §3, Epic3 이슈 구조([AI] 추출 이슈 필수)
-
-### DEC-016 — 업로드 제한
-
-- 상태: Accepted
-- 결정일: 2026-07-21
-- 결정자: 한승준 (Backend)
-- 선택: 최대 파일 크기 **45MB**, 최대 **300페이지**, Content-Type 확인 + 매직 바이트(`%PDF-`) 검사 + 손상 파일 거부(`INVALID_PDF_FILE`). 크기 초과는 `FILE_TOO_LARGE`(413)이며 Spring multipart 설정과 일치시킨다. 제한값은 환경 변수(`EDUPILOT_UPLOAD_MAX_MB` 등)로 관리한다.
-- 이유: 45MB는 Grok 파일 첨부 상한(48MB)보다 작아 원본 첨부 경로를 열어도 안전하고, 서버 메모리·추출 시간을 보호한다.
-- 대안과 trade-off: 더 큰 상한은 대용량 강의 자료를 수용하지만 추출·전송 비용이 커진다. 값은 운영 데이터를 보고 조정한다.
-- 후속 변경 문서: api-spec §4 업로드, README §6 환경 변수
-
-### DEC-025 — 페이지 텍스트 API 노출
-
-- 상태: Accepted
-- 결정일: 2026-07-21
-- 결정자: 한승준 (Backend)
-- 선택: `GET /api/materials/{materialId}/pages/{pageNumber}`는 **운영 FE에 노출하지 않는다**. 개발/디버깅 프로파일에서만 활성화하고, 추출 텍스트는 AI 문맥 전용으로 사용한다.
-- 이유: 추출 텍스트 무단 유출은 저작권 리스크가 크고, FE가 이 API를 사용하는 화면이 없다(FE는 PDF 원본 뷰어 사용).
-- 대안과 trade-off: 운영 노출은 디버깅 편의가 있으나 유출 표면만 넓힌다. 필요 시 관리자 전용으로 재검토.
-- 후속 변경 문서: api-spec §2 표·§4, screen-api-map §1, feature-spec §3
-
-### DEC-001 — Spring Boot 버전
-
-- 상태: Accepted (조건부)
-- 결정일: 2026-07-21
-- 결정자: 한승준 (Backend)
-- 선택: Spring Boot 4.1.x 최신 패치 + Java 21.
-- 이유: 2026-07 기준 최신 안정 버전이며 OSS 지원 기간(2027-07-31)이 가장 길다. 4.0은 2026-12 OSS 지원 종료, 3.5는 이미 종료.
-- 대안과 trade-off: 4.0.x는 검증 기간이 길지만 지원 종료가 임박. 초기 세팅에서 핵심 의존성(springdoc-openapi, JJWT 등) 호환 문제가 발생하면 4.0.x 최신 패치로 하향한다.
-- 후속 변경 문서: README §4 기술 스택, backend-plan §1
-
-### DEC-003 — Migration 도구
-
-- 상태: Accepted
-- 결정일: 2026-07-21
-- 결정자: 한승준 (Backend)
-- 선택: Flyway (Community).
-- 이유: SQL 파일 기반이라 database.md의 DDL 초안 이전이 쉽고 Spring Boot 통합·학습 곡선이 최소. rollback은 forward-fix 원칙이라 Liquibase의 선언적 rollback 이점이 작다.
-- 대안과 trade-off: Liquibase는 DB 독립성이 강점이나 MySQL 고정 프로젝트에서 관리 비용만 추가. Flyway Community의 지원 MySQL 버전 범위는 채택 시 확인한다.
-- 후속 변경 문서: README §4, database.md 헤더, backend-plan §4
-
-### DEC-004 — JWT 정책
-
-- 상태: Accepted
-- 결정일: 2026-07-21
-- 결정자: 한승준 (Backend) — FE 연동 세부는 구현 전 FE와 재확인
-- 선택: access token 만료 1시간(FE 메모리 보관, localStorage 금지) + refresh token 만료 14일(HttpOnly·Secure·SameSite=Lax 쿠키, 회전 + 재사용 감지 시 전체 폐기). 서버는 refresh 해시를 DB에 저장해 로그아웃·강제 폐기를 지원한다.
-- 이유: XSS로부터 refresh를 보호하고 탈취 피해를 access 수명(1시간)으로 제한. 쿠키 채택은 DEC-027 CORS credentials 정책과 한 묶음으로 정합.
-- 대안과 trade-off: refresh 미도입은 만료 UX가 나쁘고, body 반환·FE 저장은 XSS 노출면이 커진다.
-- 후속 변경 문서: api-spec §3 로그인 응답, requirements AUTH-005, error-code 갱신 흐름
-
-### DEC-014 — 내부 API 인증
-
-- 상태: Accepted
-- 결정일: 2026-07-21
-- 결정자: 한승준 (Backend)
-- 선택: 네트워크 격리 + 정적 service token 2중 방어. FastAPI는 Docker 내부 네트워크에만 바인딩하고, Spring은 모든 내부 호출에 `X-Internal-Token`(환경 변수 `EDUPILOT_INTERNAL_TOKEN` 주입) 헤더를 첨부하며 FastAPI가 검증한다.
-- 이유: 단일 호스트 Docker Compose 규모에서 충분한 방어이며 구현 부담이 작다.
-- 대안과 trade-off: mTLS는 인증서 운영 부담이 MVP에 과함 — 다중 호스트 전개 시 재검토. 무인증은 설정 실수 한 번에 내부 API 위조가 가능해 배제.
-- 후속 변경 문서: api-spec §8 내부 API 필수 정책, README §6 환경 변수
-
-### DEC-021 — SSE 인증 방식
-
-- 상태: Accepted
-- 결정일: 2026-07-21
-- 결정자: 한승준 (Backend) — FE 구현 방식은 구현 전 FE와 재확인
-- 선택: fetch 기반 스트림. FE는 EventSource 대신 `Accept: text/event-stream`으로 fetch를 호출해 ReadableStream을 파싱하고, 기존 `Authorization: Bearer` 헤더를 그대로 사용한다. 재연결·`Last-Event-ID`는 FE가 처리한다(fetch-event-source 패턴).
-- 이유: 기존 Bearer 인증 체계를 재사용해 추가 서버 작업(쿼리 토큰 발급 등)이 불필요하고, access 토큰 메모리 보관 정책(DEC-004)과 정합.
-- 대안과 trade-off: 단기 서명 쿼리 토큰은 EventSource 자동 재연결을 살리지만 발급 API·URL 노출 마스킹이 추가된다. 쿠키 인증은 권한 모델이 꼬인다.
-- 후속 변경 문서: api-spec §9 SSE 계약, screen-api-map §5
-
-### DEC-027 — CORS 정책
-
-- 상태: Accepted
-- 결정일: 2026-07-21
-- 결정자: 한승준 (Backend) — 운영 오리진은 배포 도메인 확정 시 추가
-- 선택: Spring 전역 `CorsConfigurationSource` 단일 설정. 허용 오리진은 환경 변수 주입(local `http://localhost:5173`, 와일드카드 금지), 메서드 GET/POST/PATCH/DELETE/OPTIONS, 헤더 `Authorization`·`Content-Type`, `allowCredentials=true`(DEC-004 refresh 쿠키 채택), preflight 캐시 3600초.
-- 이유: 컨트롤러별 `@CrossOrigin` 산재를 막고 환경별 오리진을 설정으로 관리. credentials 사용 시 명시 오리진이 필수라 와일드카드를 금지한다.
-- 대안과 trade-off: 오리진 와일드카드는 설정이 쉽지만 credentials와 병용 불가·보안상 부적합.
-- 후속 변경 문서: backend-plan §2, README §6 환경 변수
+- 상태: Accepted (v2 — v1의 Python/Gemini 안을 대체)
+- 결정일: 2026-07-23
+- 선택: Python 3.14.x(pydantic v2 전용, 실패 시 3.13 fallback) / 전 에이전트 공통 Grok(xAI) grok-4.5 dated 버전 고정 + 표류 감지(model 필드 assertion) / 용도별 reasoning_effort 차등(Plan·설명·QA=low~medium, 채점·평가·진단=high) / 채점 결정성은 구조로 담보 / `AgentLlmProfile` config
+- 전문: [docs/DEC-002-python-grok-model.md](DEC-002-python-grok-model.md)
 
 ### DEC-013 — AI 응답 스트리밍 전송 방식
 
-- 상태: Accepted — 세부 계약은 Open
-- 결정일: 2026-07-10
+- 상태: Accepted — 세부 계약 포함 확정 (2026-07-23)
+- 결정일: 2026-07-10 (SSE 기본), 세부 확정일: 2026-07-23
 - 결정자: 프로젝트 담당자
 - 선택: Frontend와 Spring 사이의 AI 응답 스트리밍은 SSE를 기본 방식으로 사용한다.
 - 이유: 설명·QA처럼 서버에서 클라이언트로 전달되는 단방향 이벤트 스트림에 적합하고 HTTP 기반 인증·중계 구조를 유지할 수 있다.
-- 남은 결정: 이벤트 schema, heartbeat, `Last-Event-ID` 재연결, 사용자 취소 API, timeout, 최종 메시지 저장 시점, 인증 방식(DEC-021)
+- 남은 결정(해소됨): 이벤트 schema, heartbeat, `Last-Event-ID` 재연결, 사용자 취소 API, timeout, 최종 메시지 저장 시점, 인증 방식(DEC-021) → **ai-integration-contract v0.4 §5로 확정** — 이벤트 6종(status/thought_summary/content_delta/ui_action/completed/error), heartbeat 10s(SSE comment), 취소=fetch abort, 재연결=`Last-Event-ID` 미지원·FE 재동기화(MVP). 인증은 DEC-021(fetch 기반 스트림)로 확정.
 - 대안과 trade-off: WebSocket은 양방향 실시간 통신이 필수로 바뀌는 경우 별도 결정 후 검토한다.
-- 후속 변경 문서: [API 명세](api-spec.md) §9에 스트림 URL 초안(`GET /api/sessions/{sessionId}/stream`) 반영
+- 후속 변경 문서: [API 명세](api-spec.md) §9에 스트림 URL 초안(`GET /api/sessions/{sessionId}/stream`) 반영, [ai-integration-contract](ai-integration-contract.md) v0.4 §5
 
 ### DEC-022 — AI 호출 주체 원칙 (하이브리드)
 
@@ -304,96 +89,15 @@
 - 대안과 trade-off: 전체 공유 모델은 콘텐츠 풀이 풍부해지지만 저작권 검토·공유 권한 모델이 선행돼야 하므로 MVP 이후 검토(DEC-017 관리자 범위와 연계).
 - 후속 변경 문서: [요구사항 명세](requirements.md) §1·MATERIAL-002, [API 명세](api-spec.md) §2 권한 열
 
-### DEC-028 — 회원 탈퇴·자료 삭제 (MVP 포함)
+~~`DEC-011` 평가 큐 정책과 `DEC-012` 학습자 메모리 승격 기준·범위는 계속 Open 상태로 유지한다.~~ → 2026-07-23 확정 — 위 표의 DEC-011·DEC-012 확정 내용 참조.
 
-- 상태: Accepted
-- 결정일: 2026-07-23
-- 결정자: 프로젝트 담당자
-- 선택: 회원 탈퇴와 자료 삭제를 MVP 기능으로 포함한다.
-  - **자료 삭제 `DELETE /api/materials/{materialId}`**: 논리 삭제(`status=DELETED`) — 목록·조회·세션 생성에서 제외. 소유자 전용(DEC-026, 404 은닉 동일 적용). 해당 자료의 ACTIVE 세션이 있으면 `MATERIAL_HAS_ACTIVE_SESSION`(409)으로 거부한다(세션 완료/삭제 후 재시도). 완료된 세션·퀴즈·평가 기록은 보존한다. storage 파일은 즉시 삭제하지 않는다.
-  - **회원 탈퇴 `DELETE /api/users/me`**: 요청 본문의 비밀번호 재확인 필수. `status=DELETED` 전환과 동시에 개인 식별 정보를 즉시 익명화한다 — email → `deleted_{id}` 형식, name → 고정 문구, password_hash 무효화. 익명화로 이메일 UK 충돌 없이 재가입을 허용한다. refresh token은 전부 폐기하고(DEC-004) access token은 만료를 대기한다. 소유 자료·세션은 함께 논리 삭제하며, 퀴즈 제출·평가·메모리 레코드는 익명 상태로 보존한다. 복구는 MVP 미지원 — FE 확인 모달로 실수를 완화한다(DEC-009 패턴).
-- 이유: 사용자가 자신의 데이터를 정리할 수 있어야 한다는 팀 결정. 논리 삭제·기록 보존 원칙이 세션 삭제(SESSION-009)·평가 전량 보존(DEC-011)과 같은 패턴이라 저장 모델의 일관성이 유지되고, 즉시 익명화가 개인정보 최소 보유와 재가입 허용을 동시에 만족한다.
-- 대안과 trade-off: 물리 삭제는 개인정보 관점에서 명확하나 FK 연쇄·감사 이력 소실 문제가 있어 배치 단계로 미룬다. 재가입 차단(이메일 UK 유지)은 단순하나 사용자 권리를 과도하게 제한한다.
-- **이후 개선안**: ① 탈퇴 유예 기간(예: 7일 내 복구) ② 보존 레코드·storage 파일의 기간 만료 후 물리 삭제 배치 ③ 서비스 공개 운영 시 개인정보 처리방침 문서화. 이 규칙들은 운영 전환 전에 확정한다.
-- 후속 변경 문서: [요구사항 명세](requirements.md) AUTH-006·MATERIAL-006, [API 명세](api-spec.md) §2·§3·§4, [에러 코드](error-code.md), [도메인 모델](domain-model.md) User 상태
+## 추가 확정 (계약 v0.4에서, DEC 미등재)
 
-### DEC-015 — API versioning (무버전 `/api` 유지)
-
-- 상태: Accepted
-- 결정일: 2026-07-23
-- 결정자: 프로젝트 담당자
-- 선택: 외부 API base path는 **`/api` 무버전을 유지**한다. 변경 정책 — breaking change는 FE와 합의 후 FE·BE 동시 배포로 반영하고, OpenAPI 문서를 계약의 단일 기준으로 삼는다.
-- 이유: 클라이언트가 자사 FE 하나뿐이라 URL 버전의 실익이 없고, 전 문서·이슈 양식이 이미 `/api` 기준으로 작성돼 있다.
-- 대안과 trade-off: `/api/v1` 선도입은 외부 공개에 유리하나 MVP에서는 관리 비용만 늘어난다.
-- **이후 개선안**: 외부 공개 API·서드파티 클라이언트가 생기는 시점에 `/api/v1`을 도입한다. DEC-007 개선안(public ID)과 같은 트리거로 묶어 함께 진행한다.
-- 후속 변경 문서: [API 명세](api-spec.md) §1 base path 주석
-
-### DEC-017 — 관리자 범위 (MVP 미구현, role 예약)
-
-- 상태: Accepted
-- 결정일: 2026-07-23
-- 결정자: 프로젝트 담당자
-- 선택: **MVP에서 관리자 기능(API·화면)을 구현하지 않는다.** `role=ADMIN` enum과 인가 체계만 예약으로 유지하고, 운영상 필요한 조치(문제 자료 차단 등)는 DB에서 수동 처리한다.
-- 이유: 기획안이 관리자를 보조 사용자(Could)로 규정하며, MVP 핵심 가치(학습 흐름)와 무관한 구현을 줄인다.
-- 대안과 trade-off: 최소 관리자 API 선구현은 운영 편의가 있으나 인가·감사 설계가 선행돼야 해 MVP 범위를 넘는다.
-- **이후 개선안**: 최소 2기능(사용자 목록·상태 변경, 자료 강제 비활성)부터 시작한다. 관리자 API에도 DEC-025(페이지 텍스트 비노출)·정답/루브릭 보호 원칙을 동일 적용하고, 관리자 행위 감사 로그를 함께 설계한다.
-- 후속 변경 문서: [요구사항 명세](requirements.md) §1, [프로젝트 목표](project-goals.md)
-
-### DEC-018 — TEACHER·LMS 도메인 (제외 확정)
-
-- 상태: Accepted
-- 결정일: 2026-07-23
-- 결정자: 프로젝트 담당자
-- 선택: **`TEACHER` 권한과 Course/Lecture/Assignment/Notification 도메인을 MVP·차기 범위에서 제외한다.** 스키마 예약(빈 테이블·미사용 컬럼)도 두지 않는다.
-- 이유: 기획안 제외 목록의 방향을 그대로 종결하는 것이다. BIGINT PK·enum 확장이 쉬워 선제 예약의 이점이 없고 과설계만 남는다.
-- 대안과 trade-off: 도메인 선예약은 확장 시 migration을 줄이지만, 요구가 확정되지 않은 상태의 스키마는 재작업 가능성이 더 크다.
-- **이후 개선안**: 교사-학생 관계 요구가 실제로 생기면 별도 DEC로 승격해 도메인 모델부터 재설계한다. 그 시점에 이 DEC를 Superseded로 갱신한다.
-- 후속 변경 문서: [요구사항 명세](requirements.md) §1, [프로젝트 목표](project-goals.md), [도메인 모델](domain-model.md)
-
-### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
-
-- 상태: Accepted
-- 결정일: 2026-07-23
-- 결정자: 한승준 (Backend/Infra) — 세부 스펙은 dev 프로비저닝 시 조정
-- 선택: **EC2 1대(t3.small~medium)에서 Docker Compose로 전체 스택을 실행**한다 — Nginx + Spring + FastAPI + MySQL(컨테이너 + EBS 볼륨). Nginx만 80/443을 공개하고 FastAPI·MySQL은 Docker 내부 네트워크에 비공개로 둔다(DEC-014 정합). 업로드 파일은 EC2 볼륨 마운트로 저장한다(DEC-005 storage_key 어댑터 정합). FE는 같은 Nginx에서 정적 서빙하며 `/api`를 리버스 프록시한다. 도메인 1개 + Let's Encrypt(certbot)로 HTTPS를 구성한다 — refresh 쿠키(HttpOnly·Secure)와 SSE에 HTTPS가 필요하다.
-- 이유: 팀 프로젝트 규모에서 비용·운영 난이도를 최소화하면서 재현 가능한 배포(Compose 단일 정의)를 얻는다. 로컬 Compose와 dev 구성이 같은 파일 체계를 공유해 환경 차이가 줄어든다. FE 동일 오리진 서빙으로 CORS·쿠키 이슈도 최소화된다.
-- 대안과 trade-off: RDS 분리는 백업·가용성이 강점이나 비용이 즉시 2배 이상이고 MVP 트래픽에 과설계. S3+CloudFront FE 배포는 확장성이 좋으나 CORS·쿠키 도메인 관리가 복잡해진다. ECS/K8s는 필요성이 검증되지 않았다.
-- **이후 개선안**: 트래픽·안정성 요구 발생 시 단계 확장 — ① RDS 분리(백업 자동화) → ② S3 파일 저장 전환(DEC-005 개선안과 동시 진행, presigned URL) → ③ FE S3+CloudFront → ④ ECS 전환. 각 단계는 독립적으로 진행 가능하다.
-- 후속 변경 문서: [배포·운영 상세 계획](issues/12-deployment.md), README §4 기술 스택
-
-### DEC-020 — 라이선스 (비공개 유지)
-
-- 상태: Accepted
-- 결정일: 2026-07-23
-- 결정자: 팀
-- 선택: **저장소를 비공개(private)로 유지하고 라이선스 파일을 두지 않는다.** 오픈소스로 공개하지 않는다.
-- 이유: 팀 결정으로 코드 공개 계획이 없다. 비공개 저장소는 라이선스 없이도 저작권이 팀에 유보되며, 불필요한 라이선스 파일은 공개 의사로 오해될 수 있다.
-- 대안과 trade-off: MIT 공개는 포트폴리오 활용에 유리하나 공개 전 저작권 콘텐츠·비밀값 전수 점검이 선행돼야 한다.
-- **이후 개선안**: 공개로 전환하는 경우 ① 라이선스는 MIT를 우선 검토 ② PDF 강의 자료 등 저작권 콘텐츠와 비밀값·커밋 이력 전수 점검 ③ 의존성 라이선스 고지 확인을 선행 조건으로 한다. 전환 시 이 DEC를 Superseded로 갱신한다.
-- 후속 변경 문서: README §4(구현 전 확정 필요 목록에서 제거), CONTRIBUTING(공개 전환 시)
-
-### DEC-011 — 평가 큐 (QuizAssessment 보관·전달 정책)
-
-- 상태: Accepted
-- 결정일: 2026-07-23
-- 결정자: 한승준 (Backend) — 스냅샷 계약은 AI(고영빈)와 계약 리뷰에서 공유
-- 선택: **DB(`quiz_assessments`)는 삭제 없이 전량 보존**하고, "큐"는 스냅샷 전달용 조회 윈도우로 재정의한다. ① turn 스냅샷의 `recentAssessments`는 **현재 세션 기준 최근 N=5개**(프롬프트 비대화 방지, `IDX(session_id, created_at)` 사용). ② 메모리 승격 판단용 조회는 별도로 **user×material 교차 세션 최근 M=20개**를 사용한다(`quiz_submissions` 조인으로 user 스코프 확보 — 비정규화 컬럼은 두지 않음).
-- 이유: 큐를 물리 삭제로 구현하면 감사·승격 근거가 소실된다. 승격 판단은 세션을 넘는 반복 패턴이 근거여야 하므로(LEARN-005) 세션 스코프 윈도우와 승격용 교차 세션 조회를 분리해야 한다. MVP 데이터량에서 정리 작업은 불필요하다.
-- 대안과 trade-off: 고정 크기 큐(오래된 레코드 삭제)는 저장 공간에 유리하나 근거 소실·감사 불가. `quiz_assessments`에 `user_id` 비정규화는 조회가 단순해지지만 정합성 관리 비용이 생겨 MVP에서는 조인을 유지한다.
-- **이후 개선안**: 보관 기간·정리(아카이빙) 정책은 운영 데이터가 쌓인 뒤 DEC-028(데이터 보관·삭제·익명화)과 함께 결정한다. 조인 성능이 문제가 되면 그때 `user_id` 비정규화 또는 요약 테이블을 검토한다.
-- 후속 변경 문서: [데이터베이스](database.md) §1·§6·§8, [API 명세](api-spec.md) §8 스냅샷 구조, [에이전트 시스템 명세](agent-system-spec.md) 스냅샷·메모리 관련 절
-
-### DEC-012 — 학습자 메모리 승격 기준
-
-- 상태: Accepted
-- 결정일: 2026-07-23
-- 결정자: 한승준 (Backend) — Product·AI 관점은 계약 리뷰에서 공유
-- 선택: **독립 근거 2회 이상**일 때만 승격한다. 서로 다른 출처(퀴즈 평가/진단/QA 패턴) **또는** 서로 다른 세션·시점에서 동일 패턴이 2회 이상 관측된 후보만 승격 대상이다. 절차는 3중 게이트로 고정한다 — ① `learner_memory_candidates`에 후보 저장(`evidence_refs_json`에 근거 참조 누적) → ② Orchestrator가 `PROMOTE_MEMORY` 도구 선택 → ③ Policy가 "독립 근거 2회 이상 + confidence 0.7 이상" 규칙을 검증 통과시킨 경우에만 statePatch로 승격(Spring이 낙관적 잠금으로 반영). confidence 0.7 미만 후보는 승격 대상에서 제외한다.
-- 이유: 원안 명세서 원칙("단일 질문·단일 퀴즈 결과만으로 장기 메모리를 확정하지 않는다")을 검증 가능한 규칙으로 구체화한 것이다. LLM 판단(Orchestrator)과 결정적 검증(Policy)을 분리해 과잉 승격을 차단한다.
-- 대안과 trade-off: 3회 이상 기준은 더 보수적이나 MVP 데이터량에서 승격이 거의 발생하지 않아 개인화 검증이 불가능해진다. LLM 단독 판단은 유연하나 재현성·감사가 어렵다.
-- **감사 이력(MVP)**: 별도 이력 테이블 없이 `learner_memory_candidates`로 처리한다 — 승격 시 후보를 삭제하지 않고 `status=PROMOTED`로 보존하여 `evidence_refs_json` + 상태 전이 기록이 이력 역할을 한다.
-- **이후 개선안**: 메모리 항목별 변경 이력·롤백이 필요해지면 별도 이력 테이블(`learner_memory_revisions` 등)을 도입한다. 자료 범위를 넘는 전역 프로필은 DEC-023 대안 검토와 함께 별도 결정한다.
-- 후속 변경 문서: [데이터베이스](database.md) §1 candidates·§8, [에이전트 시스템 명세](agent-system-spec.md) Policy 규칙, [요구사항 명세](requirements.md) LEARN-005
+- 학습자 메모리 스코프: 수집(후보·평가 윈도우)=세션, 승격된 장기 메모리·digest=user×material
+- `REPAIR_FOLLOWUP_QUESTION_SUBMITTED` 이벤트 삭제 — `USER_QUESTION` + `latestRepair` 문맥으로 대체
+- 내부 API 타임아웃: turn 180s(첫 이벤트 30s) / grade 90s / assessment·diagnosis 45s / extract 120s (env 관리, extract는 실측 후 조정)
+- usage 필드(model, inputTokens, outputTokens, reasoningTokens)를 전 내부 응답 표준 선택 필드로 채택
+- 평가 리포트 PDF 출력: 보류(Deferred) — MVP 이후 별도 이슈+DEC
 
 ## 결정 기록 형식
 
