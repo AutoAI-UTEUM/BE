@@ -35,6 +35,7 @@ import io.edupilot.quiz.QuizRepository;
 import io.edupilot.quiz.QuizSubmissionRepository;
 import io.edupilot.session.dto.MessageListResponse;
 import io.edupilot.session.dto.MessageResponse;
+import io.edupilot.session.dto.PendingDiagnosisResponse;
 import io.edupilot.session.dto.SessionDetailResponse;
 import io.edupilot.session.dto.TurnResponse;
 import io.edupilot.session.dto.TurnStateResponse;
@@ -139,6 +140,67 @@ class SessionApiContractTest {
 				.value("BINARY_DECISION"))
 			.andExpect(jsonPath("$.data.conversationSummary").doesNotExist())
 			.andExpect(jsonPath("$.data.learnerMemoryDigest").doesNotExist());
+	}
+
+	@Test
+	void detailRestoresPendingDiagnosisReferenceAndPrompt() throws Exception {
+		when(sessionService.detail(1L, 100L)).thenReturn(
+			new SessionDetailResponse(
+				100L,
+				10L,
+				3,
+				PageStatus.DIAGNOSIS_PENDING,
+				SessionStatus.ACTIVE,
+				new PendingDiagnosisResponse(30L, "진단 질문"),
+				null,
+				List.of(UiAction.diagnosisQuestion("진단 질문", 30L)),
+				NOW
+			)
+		);
+
+		mockMvc.perform(get("/api/sessions/100")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.pendingDiagnosis.diagnosisId")
+				.value(30))
+			.andExpect(jsonPath("$.data.pendingDiagnosis.prompt")
+				.value("진단 질문"));
+	}
+
+	@Test
+	void diagnosisTurnUsesStableNotFoundAndNotPendingErrors()
+		throws Exception {
+		when(turnService.execute(
+			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(100L),
+			org.mockito.ArgumentMatchers.any()
+		)).thenThrow(
+			new BusinessException(ErrorCode.DIAGNOSIS_NOT_FOUND),
+			new BusinessException(ErrorCode.DIAGNOSIS_NOT_PENDING)
+		);
+		String body = """
+			{
+			  "requestId": "diagnosis-1",
+			  "eventType": "DIAGNOSIS_ANSWER_SUBMITTED",
+			  "payload": {"diagnosisId": 30, "answer": "답변"}
+			}
+			""";
+
+		mockMvc.perform(post("/api/sessions/100/turns")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(body))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code")
+				.value("DIAGNOSIS_NOT_FOUND"));
+
+		mockMvc.perform(post("/api/sessions/100/turns")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(body))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.error.code")
+				.value("DIAGNOSIS_NOT_PENDING"));
 	}
 
 	@Test

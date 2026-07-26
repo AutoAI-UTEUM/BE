@@ -36,6 +36,7 @@ edupilot:
     connect-timeout: 3s
     read-timeout: 30s
     grade-read-timeout: ${EDUPILOT_AI_GRADE_READ_TIMEOUT:90s}
+    pipeline-read-timeout: ${EDUPILOT_AI_PIPELINE_READ_TIMEOUT:45s}
     extract-read-timeout: ${EDUPILOT_AI_EXTRACT_READ_TIMEOUT:120s}
     health-path: /health
   quiz:

@@ -1,7 +1,11 @@
 package io.edupilot.quiz;
 
+import java.util.List;
+
+import io.edupilot.session.UiAction;
+
 @FunctionalInterface
 public interface QuizPostGradingHook {
 
-	void onGraded(QuizSubmissionSnapshot submission);
+	List<UiAction> onGraded(QuizPostGradingContext context);
 }

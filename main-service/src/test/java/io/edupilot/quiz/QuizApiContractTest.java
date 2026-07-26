@@ -229,6 +229,57 @@ class QuizApiContractTest {
 			.andExpect(jsonPath("$.error.code").value("QUIZ_NOT_FOUND"));
 	}
 
+	@Test
+	void failedSubmitReturnsDiagnosisQuestionWithStableReferenceFields()
+		throws Exception {
+		GradingResult gradingResult = new GradingResult(
+			"1.0",
+			new BigDecimal("40.00"),
+			new BigDecimal("100.00"),
+			List.of()
+		);
+		when(submissionService.submit(
+			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(50L),
+			org.mockito.ArgumentMatchers.any()
+		)).thenReturn(new QuizSubmitResponse(
+			200L,
+			50L,
+			QuizType.MCQ,
+			new BigDecimal("40.00"),
+			new BigDecimal("100.00"),
+			false,
+			QuizGradingResultResponse.from(gradingResult),
+			List.of(UiAction.diagnosisQuestion(
+				"왜 역수를 곱하는지가 막혔나요?",
+				30L
+			))
+		));
+
+		mockMvc.perform(post("/api/quizzes/50/submit")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "requestId": "request-2",
+					  "answers": [
+					    {"questionId": "q1", "answer": "a"}
+					  ]
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.uiActions[0].type")
+				.value("DIAGNOSIS_QUESTION"))
+			.andExpect(jsonPath("$.data.uiActions[0].content")
+				.value("왜 역수를 곱하는지가 막혔나요?"))
+			.andExpect(jsonPath("$.data.uiActions[0].diagnosisId")
+				.value(30))
+			.andExpect(jsonPath("$.data.uiActions[0].yesEvent")
+				.doesNotExist())
+			.andExpect(jsonPath("$.data.uiActions[0].noEvent")
+				.doesNotExist());
+	}
+
 	private String bearer() {
 		return "Bearer " + accessToken;
 	}

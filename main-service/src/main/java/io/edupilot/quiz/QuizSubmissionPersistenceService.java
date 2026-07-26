@@ -2,7 +2,6 @@ package io.edupilot.quiz;
 
 import java.util.List;
 
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,20 +22,17 @@ public class QuizSubmissionPersistenceService {
 	private final QuizRepository quizRepository;
 	private final QuizSubmissionRepository submissionRepository;
 	private final UserRepository userRepository;
-	private final ApplicationEventPublisher eventPublisher;
 
 	public QuizSubmissionPersistenceService(
 		LearningSessionRepository sessionRepository,
 		QuizRepository quizRepository,
 		QuizSubmissionRepository submissionRepository,
-		UserRepository userRepository,
-		ApplicationEventPublisher eventPublisher
+		UserRepository userRepository
 	) {
 		this.sessionRepository = sessionRepository;
 		this.quizRepository = quizRepository;
 		this.submissionRepository = submissionRepository;
 		this.userRepository = userRepository;
-		this.eventPublisher = eventPublisher;
 	}
 
 	@Transactional
@@ -81,10 +77,6 @@ public class QuizSubmissionPersistenceService {
 		session.completeQuizSubmission(quiz.getId(), uiActions);
 		sessionRepository.flush();
 
-		eventPublisher.publishEvent(
-			new QuizGradedEvent(QuizSubmissionSnapshot.from(submission))
-		);
-		// TODO Epic7: 미달 시 진단 파이프라인과 DIAGNOSIS_QUESTION으로 교체한다.
 		return QuizSubmitResponse.from(submission, uiActions);
 	}
 }

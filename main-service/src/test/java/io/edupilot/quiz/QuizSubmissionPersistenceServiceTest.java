@@ -13,10 +13,8 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.edupilot.global.error.BusinessException;
@@ -42,11 +40,8 @@ class QuizSubmissionPersistenceServiceTest {
 	@Mock
 	private UserRepository userRepository;
 
-	@Mock
-	private ApplicationEventPublisher eventPublisher;
-
 	@Test
-	void persistsSubmissionClearsActiveQuizAndPublishesAfterCommitEvent() {
+	void persistsSubmissionAndClearsActiveQuiz() {
 		User owner = User.create("owner@example.com", "hash", "소유자");
 		ReflectionTestUtils.setField(owner, "id", 1L);
 		LearningMaterial material = LearningMaterial.create(
@@ -104,8 +99,7 @@ class QuizSubmissionPersistenceServiceTest {
 				sessionRepository,
 				quizRepository,
 				submissionRepository,
-				userRepository,
-				eventPublisher
+				userRepository
 			);
 
 		var response = service.persist(1L, prepared, result, true);
@@ -114,29 +108,6 @@ class QuizSubmissionPersistenceServiceTest {
 		assertThat(session.getActiveQuizId()).isNull();
 		assertThat(session.getLastUiActions().getFirst().yesEvent())
 			.isEqualTo("MOVE_NEXT_PAGE");
-		ArgumentCaptor<QuizGradedEvent> event =
-			ArgumentCaptor.forClass(QuizGradedEvent.class);
-		verify(eventPublisher).publishEvent(event.capture());
-		assertThat(event.getValue().submission().submissionId()).isEqualTo(200L);
-	}
-
-	@Test
-	void hookFailureDoesNotEscapeListener() {
-		QuizPostGradingHook failingHook = submission -> {
-			throw new IllegalStateException("hook failed");
-		};
-		QuizGradedEventListener listener = new QuizGradedEventListener(failingHook);
-		QuizGradedEvent event = new QuizGradedEvent(new QuizSubmissionSnapshot(
-			200L,
-			50L,
-			1L,
-			QuizType.MCQ,
-			BigDecimal.ONE,
-			BigDecimal.TEN,
-			false
-		));
-
-		listener.onGraded(event);
 	}
 
 	@Test
@@ -160,7 +131,6 @@ class QuizSubmissionPersistenceServiceTest {
 				.isEqualTo(ErrorCode.QUIZ_ALREADY_SUBMITTED)
 		);
 		verify(submissionRepository, never()).saveAndFlush(any());
-		verify(eventPublisher, never()).publishEvent(any());
 	}
 
 	@Test
@@ -189,8 +159,7 @@ class QuizSubmissionPersistenceServiceTest {
 			sessionRepository,
 			quizRepository,
 			submissionRepository,
-			userRepository,
-			eventPublisher
+			userRepository
 		);
 	}
 

@@ -33,4 +33,17 @@ public record QuizSubmitResponse(
 			List.copyOf(uiActions)
 		);
 	}
+
+	public QuizSubmitResponse withUiActions(List<UiAction> nextUiActions) {
+		return new QuizSubmitResponse(
+			submissionId,
+			quizId,
+			quizType,
+			score,
+			maxScore,
+			passed,
+			gradingResult,
+			List.copyOf(nextUiActions)
+		);
+	}
 }

@@ -64,9 +64,7 @@ public class QuizSubmissionPreparationService {
 			publicQuestions,
 			request.answers()
 		);
-		GradeRequest.PageContext pageContext = quiz.getQuizType().usesAiGrading()
-			? pageContext(quiz)
-			: null;
+		GradeRequest.PageContext pageContext = pageContext(quiz);
 
 		return new PreparedQuizSubmission(
 			quiz.getId(),

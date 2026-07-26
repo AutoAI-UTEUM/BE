@@ -14,19 +14,26 @@ public record SessionDetailResponse(
 	int currentPage,
 	PageStatus pageStatus,
 	SessionStatus status,
-	Object pendingDiagnosis,
+	PendingDiagnosisResponse pendingDiagnosis,
 	Long activeQuizId,
 	List<UiAction> uiActions,
 	Instant updatedAt
 ) {
 	public static SessionDetailResponse from(LearningSession session) {
+		return from(session, null);
+	}
+
+	public static SessionDetailResponse from(
+		LearningSession session,
+		PendingDiagnosisResponse pendingDiagnosis
+	) {
 		return new SessionDetailResponse(
 			session.getId(),
 			session.getMaterialId(),
 			session.getCurrentPage(),
 			session.getPageStatus(),
 			session.getStatus(),
-			null,
+			pendingDiagnosis,
 			session.getActiveQuizId(),
 			session.getLastUiActions(),
 			session.getUpdatedAt()

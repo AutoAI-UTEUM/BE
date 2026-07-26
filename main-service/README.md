@@ -26,6 +26,7 @@ EduPilot의 인증·권한·영속 상태와 Frontend용 외부 API를 담당하
 | `EDUPILOT_UPLOAD_MAX_MB` | `45` | PDF 업로드 최대 크기(MB) |
 | `EDUPILOT_AI_EXTRACT_READ_TIMEOUT` | `120s` | PDF 추출 내부 API read timeout |
 | `EDUPILOT_AI_GRADE_READ_TIMEOUT` | `90s` | SHORT/ESSAY 채점 내부 API read timeout |
+| `EDUPILOT_AI_PIPELINE_READ_TIMEOUT` | `45s` | assessment·diagnosis 내부 API read timeout(v0.4 §4) |
 | `EDUPILOT_QUIZ_PASS_RATIO` | `0.6` | 퀴즈 통과 비율(0~1) |
 
 `prod` 프로필에는 DB·인증·AI·저장소 변수를 모두 명시해야 합니다. `local`은 DB URL·사용자·CORS origin·AI base URL·저장소 경로·업로드 제한에 개발 기본값이 있지만 DB 비밀번호, JWT secret, 내부 인증 토큰은 반드시 환경 변수로 주입합니다. 두 서비스에는 같은 `EDUPILOT_INTERNAL_TOKEN` 값을 사용합니다.
@@ -84,13 +85,17 @@ live 테스트는 기본 테스트와 CI에서 비활성화됩니다. 활성화�
 
 READY 자료로 `POST /api/sessions`를 호출하면 ACTIVE 세션을 생성하거나 기존 세션을 재사용합니다. 페이지 이동은 LLM 없이 `StateReducer`가 처리하고, 상세·messages API로 현재 페이지와 대화를 복원합니다. 동일 turn `requestId`는 409로 거부하며 세션당 동시 turn은 하나만 허용합니다.
 
-Epic 4의 turns API는 사용자·AI 메시지를 저장한 뒤 고정 stub 응답을 반환합니다. 실제 FastAPI 호출, 퀴즈·진단 상태 검증과 statePatch 처리는 후속 Epic에서 연결합니다.
+turns API는 사용자·AI 메시지를 저장한 뒤 고정 stub 응답을 반환합니다. `DIAGNOSIS_ANSWER_SUBMITTED`는 진단·사용자·세션 소유권과 pending 상태를 검증하고 `PENDING → ANSWERED`로 저장합니다. 실제 RepairAgent 호출과 statePatch 처리는 Epic 5에서 연결합니다.
 
 ## Quiz 처리 흐름
 
 퀴즈 생성 턴 연결 전까지 `QuizService#createFromGeneration`이 QuizAgent 생성 JSON의 문항 수·범위·유형별 필드와 ESSAY rubric weight를 검증하고 공개 문제와 비공개 정답을 분리 저장합니다. 공개 조회는 최신 세션 퀴즈 100건과 개별 공개 문항만 반환합니다.
 
-제출은 세션 소유권·ACTIVE 상태·1회 제한·답안 구조를 확인합니다. MCQ/OX는 Spring이 저장 정답으로 채점하고 SHORT/ESSAY는 `/internal/ai/grade` 결과를 재검증합니다. AI 호출 중에는 DB 트랜잭션을 유지하지 않으며, 검증 통과 후 제출과 세션 UI 상태를 함께 저장합니다.
+제출은 세션 소유권·ACTIVE 상태·1회 제한·답안 구조를 확인합니다. MCQ/OX는 Spring이 저장 정답으로 채점하고 SHORT/ESSAY는 `/internal/ai/grade` 결과를 재검증합니다. 제출·채점·기본 UI 액션을 커밋한 뒤 같은 HTTP 요청에서 assessment를 호출하고, 기준 미달일 때만 diagnosis를 호출합니다. AI 호출 중에는 DB 트랜잭션을 유지하지 않으며 결과 저장 시 세션을 다시 잠금 조회합니다. 그사이 세션이 `COMPLETED` 또는 `DELETED`가 되면 늦게 도착한 결과는 폐기합니다.
+
+제출 후 assessment·diagnosis 실패는 저장된 제출·채점에 영향을 주지 않고 HTTP 200과 기본 이동 액션으로 격리합니다. diagnosis 실패 시 assessment는 유지됩니다. 제출이 1회 제한이므로 누락된 assessment를 외부에서 다시 생성하는 API는 현재 없으며, 관리자 재실행·복구 배치·실패 작업 큐/outbox는 후속 개선 항목입니다.
+
+학습자 메모리는 `GET /api/users/me/memory?materialId={materialId}`로 자료별 공개 요약만 제공합니다. 독립 근거 2회 이상·confidence 0.70 이상 후보의 승격 서비스는 준비되어 있으며, turn 응답의 `memoryWrite` 연결은 Epic 5 범위입니다.
 
 ## 패키지 구조
 
@@ -101,6 +106,9 @@ io.edupilot
 ├─ material         # PDF 저장·업로드·조회·비동기 추출·논리 삭제
 ├─ session          # 세션 수명 주기·페이지 이동·turn claim·메시지 복원
 ├─ quiz             # 퀴즈 공개/비공개 저장·조회·제출·채점
+├─ assessment       # 제출 후 평가 저장·조회와 메모리 후보 생성
+├─ diagnosis        # 진단 질문·답변·교정 결과 상태 전이
+├─ memory           # 자료별 학습자 메모리 조회·후보 승격
 ├─ ai
 │  ├─ dto         # Spring–FastAPI 내부 요청·응답 계약
 │  └─ AiClient    # 내부 인증, timeout, 오류 매핑을 캡슐화한 HTTP 어댑터
