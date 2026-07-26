@@ -44,6 +44,9 @@ uv run uvicorn edupilot_ai.factory:create_app \
 | `AGENT_REASONING_EFFORT` | N | `medium` | 기본 `AgentLlmProfile.reasoningEffort` |
 | `AGENT_MAX_TOKENS` | N | `16384` | 기본 `AgentLlmProfile.maxTokens` |
 | `AGENT_TEMPERATURE` | N | `null` | 선택적 temperature |
+| `ORCHESTRATOR_REASONING_EFFORT` | N | `low` | Plan용 프로필(현재 turn 스텁에서는 미사용) |
+| `EXPLAINER_REASONING_EFFORT` | N | `medium` | 설명용 프로필(현재 turn 스텁에서는 미사용) |
+| `QA_REASONING_EFFORT` | N | `medium` | QA용 프로필(현재 turn 스텁에서는 미사용) |
 
 로컬에서는 `.env.example`의 다음 가짜 값을 그대로 사용할 수 있습니다.
 
@@ -323,7 +326,8 @@ jobs:
   에이전트 실행은 Epic 5에서 구현합니다.
 - `/health`는 프로세스 liveness만 확인합니다. 외부 의존성 readiness는 Epic 8
   범위입니다.
-- 실제 Grok/xAI HTTP 클라이언트는 없으며 로컬·테스트 실행 중 외부 네트워크를
-  호출하지 않습니다.
 - extract는 텍스트 레이어만 처리합니다. OCR은 범위 밖이며 전 페이지가 공백이면
   `EXTRACTION_FAILED`로 반환합니다.
+- xAI OpenAI-compatible HTTP 어댑터는 구현되어 있으나 `/internal/ai/turn` 고정
+  스텁에는 아직 연결되지 않았습니다. `respx` 와이어 테스트는 `api.x.ai` 요청을
+  전부 가로채며 로컬·테스트 실행 중 외부 네트워크를 호출하지 않습니다.

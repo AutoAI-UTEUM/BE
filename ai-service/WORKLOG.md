@@ -139,3 +139,82 @@
 3. `PAGE_LIMIT_EXCEEDED`와 `FILE_TOO_LARGE`의 category가 v0.4에 명시되지 않았다.
    재시도해도 바뀌지 않는 요청 제약이므로 현재 `SCHEMA`, `retryable=false`로
    분류했다. Spring 매핑 전에 승인 필요.
+
+---
+
+# Issue #23 Partial Worklog
+
+기준 브랜치: `origin/develop` (`ddaecd9`)
+
+## 작업 로그
+
+- 2026-07-26 02:30 KST: Phase 1 커밋이 포함되지 않은 최신 develop에서
+  `feature/23-turn-core` 생성.
+- 2026-07-26 02:31 KST: 통합 계약 v0.4 §3·§5·§7,
+  agent-system-spec §2~§7, DEC-002, 이슈 #23·#27 상태 확인. #27의 계약
+  체크리스트가 전부 미승인임을 확인.
+- 2026-07-26 02:32 KST: xAI 공식 structured outputs·reasoning·chat
+  completions 문서를 확인하고 provider 어댑터 경계 구현 시작.
+- 2026-07-26 12:54 KST: `date` 기준 Phase 2 시작 후 4시간 예산 초과를 확인.
+  절반만 연결된 ContextBuilder/Orchestrator/Agent 코드는 제거하고 새 기능 구현 중단.
+- 2026-07-26 12:56 KST: 독립적으로 완료 가능한 xAI 어댑터·프로필·respx
+  테스트만 정리. pytest/ruff/mypy 통과.
+
+## 완료된 부분
+
+- [x] `LlmBridge`가 validated output과 provider `model`·usage
+  (`inputTokens`, `outputTokens`, `reasoningTokens`)를 함께 반환하도록 확장.
+- [x] `https://api.x.ai/v1/chat/completions` OpenAI-compatible 어댑터 구현.
+- [x] 모든 요청에 `response_format.type=json_schema`, `strict=true`,
+  Pydantic JSON Schema, reasoning effort, max tokens, timeout 적용.
+- [x] timeout→`TIMEOUT`, structured output 검증 실패→`SCHEMA`,
+  provider/network 오류→`INTERNAL` 분류.
+- [x] 실제 응답 `model`과 설정 model 불일치 warning assertion 구현.
+- [x] Orchestrator/Explainer/QA effort 프로필 설정을 app Settings에 반영.
+- [x] app lifespan이 production HTTP client와 bridge를 소유하고 종료 시 close.
+- [x] respx로 Authorization·와이어 JSON·usage·model mismatch·timeout·schema·503
+  경로 검증. 실제 xAI/외부 네트워크 0회.
+
+## 미완·미착수
+
+- [ ] ContextBuilder — 시간 초과로 미착수 상태로 되돌림.
+- [ ] Orchestrator Plan 생성, schema 1회 재생성 fallback — 미착수.
+- [ ] Policy/Verifier — 허용 도구, pipeline 전용 도구, qaThreadMode,
+  intervention budget 검증 — 미착수.
+- [ ] ToolDispatcher — 순차 실행, 부분 실패, statePatch 병합 — 미착수.
+- [ ] ExplainerAgent와 분리 프롬프트 — 미착수.
+- [ ] QaAgent START_NEW/FOLLOW_UP, latestRepair, 근거 부족 처리 — 미착수.
+- [ ] QUIZ_TYPE_SELECTED·DIAGNOSIS_ANSWER_SUBMITTED stub을 새 pipeline에 연결 —
+  미착수. 현재 이슈 #9 고정 turn stub 유지.
+- [ ] turn 응답 usage 합산과 statePatch 허용목록 검증 — 미착수.
+- [ ] FakeLLM 기반 turn 계약 테스트 — 미착수.
+- [ ] Phase 3 테스트 보강과 #25 사전 조사 — 남는 시간이 없어 미착수.
+
+## 검증 결과
+
+- `uv sync --locked`: 성공 (CPython 3.14.6, respx 0.23.1)
+- `uv run pytest -q`: 13개 통과
+- `uv run ruff check .`: 통과
+- `uv run mypy`: 24개 소스 파일 검사 통과
+- 테스트 중 실제 Grok 및 외부 네트워크 호출: 0회
+
+## 이슈 체크 대기
+
+- 이슈 #23의 각 체크박스는 pipeline 전체 단위로 작성되어 있으며, 이번 부분
+  완료 범위만으로 완전히 충족된 항목이 없다. 완료되지 않은 항목은 `[x]`로
+  바꾸지 않는다.
+- PR은 “계약 v0.4 기준 부분 선구현 — #27 승인 후 리뷰”를 명시한 Draft로 생성한다.
+
+## 미결 질문
+
+1. 전체 마감이 `<YYYY-MM-DD HH:00>` 자리표시자로 남아 절대 마감은 계산할 수
+   없었다. Phase 2는 명시된 4시간 상한을 적용해 중단했다.
+2. #27이 미승인인 상태에서 qaThread의 `threadRef` 생성 주체·형식과
+   `statePatch` 세부 JSON Schema가 확정되지 않았다.
+3. 이슈 #23은 LlmBridge “재시도”를 요구하지만 v0.4는 Spring이
+   `retryable=true`만 최대 1회 재시도하고 SCHEMA는 Orchestrator 내부 1회
+   재생성으로 소진한다고 규정한다. provider adapter 자체 HTTP 재시도를 둘지
+   #27에서 명확히 해야 한다. 이번 어댑터는 중복 비용을 피하려고 분류만 하고
+   자동 재시도하지 않는다.
+4. Phase 3도 독립 브랜치·PR이 필요한지, 아니면 Phase 1·2 브랜치에 각각 보강을
+   추가하는지 지시가 없다. 분리 원칙을 어기지 않기 위해 미착수로 남겼다.

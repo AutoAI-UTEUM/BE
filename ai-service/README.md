@@ -1,8 +1,10 @@
 # EduPilot AI Service
 
 FastAPI 기반 내부 AI 서비스입니다. 현재 범위는 health, 내부 토큰 인증, 표준 오류
-형식, 고정 turn 응답, LLM 격리 인터페이스와 결정적 PDF 텍스트 추출입니다. 실제
-Grok 호출과 에이전트 실행은 포함하지 않습니다.
+형식, 고정 turn 응답, LLM 격리 인터페이스와 xAI structured-output HTTP
+어댑터, 결정적 PDF 텍스트 추출까지입니다. `/internal/ai/turn`은 아직 이
+어댑터를 호출하지 않는 고정 스텁이며 Orchestrator와 에이전트 실행은 포함하지
+않습니다.
 
 ## 요구 사항
 
@@ -72,10 +74,13 @@ uv run mypy
 - `src/edupilot_ai/factory.py`: `create_app()`과 app-scoped lifespan
 - `src/edupilot_ai/settings.py`: 환경 변수와 `AgentLlmProfile`
 - `src/edupilot_ai/core/`: 표준 오류 및 내부 토큰 미들웨어
-- `src/edupilot_ai/llm/`: 실제 구현이 없는 `LlmBridge` Protocol
+- `src/edupilot_ai/llm/`: `LlmBridge` Protocol과 xAI HTTP 어댑터
 - `src/edupilot_ai/extraction/`: 영속화 없는 `pypdf` 추출 코어
 - `src/edupilot_ai/api/`: health, turn 스텁, extract 내부 API
 - `tests/`: ASGITransport 계약 테스트와 `FakeLlm`
 
 상태와 영속 데이터의 기준은 Spring/MySQL이며, 이 서비스는 자체 영속 저장소를 두지
 않습니다.
+
+xAI 어댑터의 와이어 테스트는 `respx`가 `https://api.x.ai`를 전부 가로채며 실제
+네트워크를 사용하지 않습니다. 실제 자격 증명으로 실행하는 live 테스트는 없습니다.
