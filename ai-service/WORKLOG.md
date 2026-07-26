@@ -165,6 +165,9 @@
   설명·QA 에이전트와 turn 응답 조립을 완료.
 - 2026-07-26 15:56 KST: FakeLlm 계약 테스트를 포함해 pytest 24개,
   ruff, mypy 전체 통과.
+- 2026-07-26 16:04 KST: Phase 3 오류·경계 보강으로 provider usage 합산,
+  agent timeout, intervention budget, event payload 불일치, statePatch 충돌
+  테스트를 추가.
 
 ## 이슈 #23 체크리스트 매핑
 
@@ -201,7 +204,7 @@
 ## 검증 결과
 
 - `uv sync --locked`: 성공 (CPython 3.14.6, respx 0.23.1)
-- `uv run pytest -q`: 24개 통과
+- `uv run pytest -q`: 29개 통과
 - `uv run ruff check .`: 통과
 - `uv run mypy src tests`: 33개 소스 파일 검사 통과
 - 테스트 중 실제 Grok 및 외부 네트워크 호출: 0회

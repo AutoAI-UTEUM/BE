@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from edupilot_ai.core.errors import ErrorCategory, InternalErrorResponse
-from edupilot_ai.llm.bridge import LlmBridgeError
+from edupilot_ai.llm.bridge import LlmBridgeError, LlmUsage
 from edupilot_ai.models.plan import (
     AgentOutput,
     PedagogyPolicy,
@@ -220,6 +220,60 @@ async def test_plan_schema_failure_twice_returns_schema_envelope(
     assert error.error.retryable is False
 
 
+async def test_agent_timeout_returns_retryable_timeout_envelope(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    fake_llm.queue(
+        make_plan(
+            ToolName.ANSWER_QUESTION,
+            {"qaThreadMode": "START_NEW", "threadRef": None},
+            "ANSWER_USER_QUESTION",
+        ),
+        LlmBridgeError(category=ErrorCategory.TIMEOUT, retryable=True),
+    )
+
+    response = await post_turn(client, auth_headers, turn_payload)
+
+    assert response.status_code == 504
+    error = InternalErrorResponse.model_validate(response.json())
+    assert error.error.code == "AI_SERVICE_TIMEOUT"
+    assert error.error.category == "TIMEOUT"
+    assert error.error.retryable is True
+
+
+async def test_turn_aggregates_plan_and_agent_usage(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    fake_llm.queue_completion(
+        make_plan(
+            ToolName.ANSWER_QUESTION,
+            {"qaThreadMode": "START_NEW", "threadRef": None},
+            "ANSWER_USER_QUESTION",
+        ),
+        LlmUsage("grok-4.5", 10, 4, 2),
+    )
+    fake_llm.queue_completion(
+        AgentOutput(markdown="usage answer", thought_summary="usage"),
+        LlmUsage("grok-4.5", 5, 8, 3),
+    )
+
+    response = await post_turn(client, auth_headers, turn_payload)
+
+    assert response.status_code == 200
+    assert response.json()["usage"] == {
+        "model": "grok-4.5",
+        "inputTokens": 15,
+        "outputTokens": 12,
+        "reasoningTokens": 5,
+    }
+
+
 async def test_follow_up_without_digest_is_rejected(
     client: httpx.AsyncClient,
     fake_llm: FakeLlm,
@@ -238,6 +292,56 @@ async def test_follow_up_without_digest_is_rejected(
 
     assert response.status_code == 502
     assert response.json()["error"]["category"] == "POLICY"
+
+
+async def test_intervention_budget_violation_is_rejected(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    first = PlanAction(
+        action_id="action-1",
+        tool=ToolName.ANSWER_QUESTION,
+        args={"qaThreadMode": "START_NEW", "threadRef": None},
+    )
+    fake_llm.queue(
+        TurnPlan(
+            turn_goal="ANSWER_USER_QUESTION",
+            pedagogy_policy=PedagogyPolicy(
+                mode="GROUND_FIRST",
+                reason="budget test",
+                allow_direct_answer=True,
+                hint_depth="MEDIUM",
+                intervention_budget=1,
+            ),
+            actions=[first, first.model_copy(update={"action_id": "action-2"})],
+            reason="budget violation",
+        )
+    )
+
+    response = await post_turn(client, auth_headers, turn_payload)
+
+    assert response.status_code == 502
+    assert response.json()["error"]["category"] == "POLICY"
+    assert len(fake_llm.calls) == 1
+
+
+async def test_event_payload_mismatch_returns_schema_envelope(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "USER_QUESTION",
+        "payload": {"detailLevel": "DETAILED"},
+    }
+
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["category"] == "SCHEMA"
 
 
 @pytest.mark.parametrize(
@@ -326,3 +430,11 @@ async def test_dispatcher_marks_partial_failure(
 def test_state_patch_allowlist_rejects_unknown_key() -> None:
     with pytest.raises(PolicyViolation):
         merge_state_patch({}, {"sessionStatus": "COMPLETED"})
+
+
+def test_state_patch_rejects_conflicting_values() -> None:
+    with pytest.raises(PolicyViolation):
+        merge_state_patch(
+            {"pageStatus": "EXPLAINING"},
+            {"pageStatus": "EXPLAINED"},
+        )
