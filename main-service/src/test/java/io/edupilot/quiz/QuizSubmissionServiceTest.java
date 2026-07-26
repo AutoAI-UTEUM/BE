@@ -2,6 +2,7 @@ package io.edupilot.quiz;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -33,6 +34,9 @@ class QuizSubmissionServiceTest {
 
 	@Mock
 	private QuizSubmissionPersistenceService persistenceService;
+
+	@Mock
+	private QuizPostGradingHook postGradingHook;
 
 	@Test
 	void appliesConfiguredPassRatioWithoutDivisionRounding() {
@@ -68,11 +72,14 @@ class QuizSubmissionServiceTest {
 				QuizGradingResultResponse.from(sixty),
 				List.of(UiAction.moveNextPage())
 			));
+		when(postGradingHook.onGraded(any()))
+			.thenReturn(List.of(UiAction.moveNextPage()));
 		QuizSubmissionService service = new QuizSubmissionService(
 			preparationService,
 			gradingService,
 			persistenceService,
-			new QuizProperties(new BigDecimal("0.6"))
+			new QuizProperties(new BigDecimal("0.6")),
+			postGradingHook
 		);
 
 		QuizSubmitResponse response = service.submit(1L, 50L, request);
@@ -109,6 +116,8 @@ class QuizSubmissionServiceTest {
 		QuizSubmitResponse persisted = response(valid, true);
 		when(persistenceService.persist(1L, prepared, valid, true))
 			.thenReturn(persisted);
+		when(postGradingHook.onGraded(any()))
+			.thenReturn(List.of(UiAction.moveNextPage()));
 		QuizSubmissionService service = service("0.6");
 
 		assertThatThrownBy(() -> service.submit(1L, 50L, request))
@@ -126,6 +135,33 @@ class QuizSubmissionServiceTest {
 		assertThat(service.submit(1L, 50L, request)).isEqualTo(persisted);
 	}
 
+	@Test
+	void postGradingFailureReturnsPersistedSubmissionWithDefaultAction() {
+		PreparedQuizSubmission prepared = prepared();
+		QuizSubmitRequest request = new QuizSubmitRequest(
+			"request-1",
+			List.of()
+		);
+		GradingResult result = result("40.00");
+		when(preparationService.prepare(1L, 50L, request))
+			.thenReturn(prepared);
+		when(gradingService.grade(prepared)).thenReturn(result);
+		when(persistenceService.persist(1L, prepared, result, false))
+			.thenReturn(response(result, false));
+		when(postGradingHook.onGraded(any()))
+			.thenThrow(new IllegalStateException("pipeline failed"));
+
+		QuizSubmitResponse actual = service("0.6").submit(
+			1L,
+			50L,
+			request
+		);
+
+		assertThat(actual.submissionId()).isEqualTo(200L);
+		assertThat(actual.uiActions())
+			.containsExactly(UiAction.moveNextPage());
+	}
+
 	private void assertPassDecision(
 		String score,
 		String ratio,
@@ -138,6 +174,8 @@ class QuizSubmissionServiceTest {
 		when(gradingService.grade(prepared)).thenReturn(result);
 		when(persistenceService.persist(1L, prepared, result, expected))
 			.thenReturn(response(result, expected));
+		when(postGradingHook.onGraded(any()))
+			.thenReturn(List.of(UiAction.moveNextPage()));
 
 		assertThat(service(ratio).submit(1L, 50L, request).passed())
 			.isEqualTo(expected);
@@ -148,7 +186,8 @@ class QuizSubmissionServiceTest {
 			preparationService,
 			gradingService,
 			persistenceService,
-			new QuizProperties(new BigDecimal(ratio))
+			new QuizProperties(new BigDecimal(ratio)),
+			postGradingHook
 		);
 	}
 

@@ -19,10 +19,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.session.dto.PendingDiagnosisResponse;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 
@@ -40,6 +42,9 @@ class SessionServiceTest {
 	@Mock
 	private UserRepository userRepository;
 
+	@Mock
+	private DiagnosisService diagnosisService;
+
 	private SessionService sessionService;
 	private User owner;
 	private LearningMaterial material;
@@ -51,7 +56,8 @@ class SessionServiceTest {
 			materialRepository,
 			userRepository,
 			new StateReducer(),
-			Clock.fixed(NOW, ZoneOffset.UTC)
+			Clock.fixed(NOW, ZoneOffset.UTC),
+			diagnosisService
 		);
 		owner = User.create("owner@example.com", "hash", "소유자");
 		ReflectionTestUtils.setField(owner, "id", 1L);
@@ -95,6 +101,29 @@ class SessionServiceTest {
 
 		assertThat(reused.reused()).isTrue();
 		assertThat(reused.sessionId()).isEqualTo(100L);
+	}
+
+	@Test
+	void detailRestoresPendingDiagnosisFromStoredReference() {
+		material.markReady(3);
+		LearningSession session = LearningSession.create(owner, material);
+		ReflectionTestUtils.setField(session, "id", 100L);
+		session.startDiagnosis(
+			30L,
+			UiAction.diagnosisQuestion("진단 질문", 30L)
+		);
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(diagnosisService.findPending(100L, 30L))
+			.thenReturn(Optional.of(
+				new PendingDiagnosisResponse(30L, "진단 질문")
+			));
+
+		var response = sessionService.detail(1L, 100L);
+
+		assertThat(response.pendingDiagnosis().diagnosisId()).isEqualTo(30L);
+		assertThat(response.pendingDiagnosis().prompt())
+			.isEqualTo("진단 질문");
 	}
 
 	@Test

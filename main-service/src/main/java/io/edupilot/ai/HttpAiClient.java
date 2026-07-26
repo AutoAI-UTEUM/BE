@@ -24,10 +24,14 @@ import org.springframework.web.client.RestClientResponseException;
 
 import io.edupilot.ai.dto.AiErrorResponse;
 import io.edupilot.ai.dto.AiHealthResponse;
+import io.edupilot.ai.dto.DiagnosisRequest;
+import io.edupilot.ai.dto.DiagnosisResponse;
 import io.edupilot.ai.dto.ExtractResponse;
 import io.edupilot.ai.dto.ExtractedPage;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
+import io.edupilot.ai.dto.QuizAssessmentRequest;
+import io.edupilot.ai.dto.QuizAssessmentResponse;
 import io.edupilot.ai.dto.TurnRequest;
 import io.edupilot.ai.dto.TurnResponse;
 import io.edupilot.global.error.ErrorCode;
@@ -42,11 +46,15 @@ public class HttpAiClient implements AiClient {
 	private static final String TURN_PATH = "/internal/ai/turn";
 	private static final String EXTRACT_PATH = "/internal/ai/extract";
 	private static final String GRADE_PATH = "/internal/ai/grade";
+	private static final String QUIZ_ASSESSMENT_PATH =
+		"/internal/ai/quiz-assessment";
+	private static final String DIAGNOSIS_PATH = "/internal/ai/diagnosis";
 	private static final String SCHEMA_VERSION = "1.0";
 
 	private final RestClient restClient;
 	private final RestClient extractRestClient;
 	private final RestClient gradeRestClient;
+	private final RestClient pipelineRestClient;
 	private final String healthPath;
 
 	public HttpAiClient(AiClientProperties properties) {
@@ -59,6 +67,10 @@ public class HttpAiClient implements AiClient {
 		this.gradeRestClient = buildRestClient(
 			properties,
 			properties.gradeReadTimeout()
+		);
+		this.pipelineRestClient = buildRestClient(
+			properties,
+			properties.pipelineReadTimeout()
 		);
 		this.healthPath = properties.healthPath();
 	}
@@ -216,6 +228,90 @@ public class HttpAiClient implements AiClient {
 		throw new AiClientException(ErrorCode.AI_SERVICE_UNAVAILABLE);
 	}
 
+	@Override
+	public QuizAssessmentResponse quizAssessment(
+		QuizAssessmentRequest request
+	) {
+		for (int attempt = 0; attempt < 2; attempt++) {
+			try {
+				QuizAssessmentResponse response = pipelineRestClient.post()
+					.uri(QUIZ_ASSESSMENT_PATH)
+					.contentType(MediaType.APPLICATION_JSON)
+					.body(request)
+					.retrieve()
+					.body(QuizAssessmentResponse.class);
+				validateQuizAssessmentResponse(response);
+				return response;
+			} catch (AiClientException exception) {
+				if (attempt == 0 && exception.retryable()) {
+					continue;
+				}
+				throw exception;
+			} catch (ResourceAccessException exception) {
+				throw mapResourceFailure(exception);
+			} catch (RestClientResponseException exception) {
+				AiClientException mapped = mapErrorResponse(exception);
+				if (attempt == 0 && mapped.retryable()) {
+					continue;
+				}
+				throw mapped;
+			} catch (RestClientException exception) {
+				if (isTimeoutFailure(exception)) {
+					throw new AiClientException(
+						ErrorCode.AI_SERVICE_TIMEOUT,
+						exception
+					);
+				}
+				throw new AiClientException(
+					ErrorCode.AI_RESPONSE_INVALID,
+					exception
+				);
+			}
+		}
+		throw new AiClientException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+	}
+
+	@Override
+	public DiagnosisResponse diagnosis(DiagnosisRequest request) {
+		for (int attempt = 0; attempt < 2; attempt++) {
+			try {
+				DiagnosisResponse response = pipelineRestClient.post()
+					.uri(DIAGNOSIS_PATH)
+					.contentType(MediaType.APPLICATION_JSON)
+					.body(request)
+					.retrieve()
+					.body(DiagnosisResponse.class);
+				validateDiagnosisResponse(response);
+				return response;
+			} catch (AiClientException exception) {
+				if (attempt == 0 && exception.retryable()) {
+					continue;
+				}
+				throw exception;
+			} catch (ResourceAccessException exception) {
+				throw mapResourceFailure(exception);
+			} catch (RestClientResponseException exception) {
+				AiClientException mapped = mapErrorResponse(exception);
+				if (attempt == 0 && mapped.retryable()) {
+					continue;
+				}
+				throw mapped;
+			} catch (RestClientException exception) {
+				if (isTimeoutFailure(exception)) {
+					throw new AiClientException(
+						ErrorCode.AI_SERVICE_TIMEOUT,
+						exception
+					);
+				}
+				throw new AiClientException(
+					ErrorCode.AI_RESPONSE_INVALID,
+					exception
+				);
+			}
+		}
+		throw new AiClientException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+	}
+
 	private void validateTurnResponse(TurnResponse response, TurnRequest request) {
 		if (response == null
 			|| !StringUtils.hasText(response.schemaVersion())
@@ -249,6 +345,52 @@ public class HttpAiClient implements AiClient {
 				throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
 			}
 		}
+	}
+
+	private void validateQuizAssessmentResponse(
+		QuizAssessmentResponse response
+	) {
+		if (response == null
+			|| !SCHEMA_VERSION.equals(response.schemaVersion())
+			|| !StringUtils.hasText(response.understandingSummary())
+			|| !validTextList(response.strengths())
+			|| !validTextList(response.weaknesses())
+			|| !validTextList(response.suspectedMisconceptions())
+			|| !StringUtils.hasText(response.recommendedNextDirection())
+			|| response.memoryCandidates() == null
+			|| !validTextList(response.evidence())) {
+			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+		}
+		for (QuizAssessmentResponse.MemoryCandidate candidate
+			: response.memoryCandidates()) {
+			if (candidate == null
+				|| !StringUtils.hasText(candidate.type())
+				|| !StringUtils.hasText(candidate.content())
+				|| candidate.confidence() == null
+				|| candidate.confidence().signum() < 0
+				|| candidate.confidence().compareTo(
+					java.math.BigDecimal.ONE
+				) > 0) {
+				throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+			}
+		}
+	}
+
+	private void validateDiagnosisResponse(DiagnosisResponse response) {
+		if (response == null
+			|| !SCHEMA_VERSION.equals(response.schemaVersion())
+			|| !validTextList(response.focusConcepts())
+			|| !validTextList(response.suspectedMisconceptions())
+			|| !StringUtils.hasText(response.diagnosticPrompt())
+			|| !validTextList(response.evidence())
+			|| !StringUtils.hasText(response.repairHint())) {
+			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+		}
+	}
+
+	private boolean validTextList(java.util.List<String> values) {
+		return values != null
+			&& values.stream().allMatch(StringUtils::hasText);
 	}
 
 	private AiClientException mapResourceFailure(ResourceAccessException exception) {

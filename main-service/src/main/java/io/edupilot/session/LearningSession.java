@@ -61,6 +61,9 @@ public class LearningSession {
 	@Column(name = "active_quiz_id")
 	private Long activeQuizId;
 
+	@Column(name = "pending_diagnosis_id")
+	private Long pendingDiagnosisId;
+
 	@Column(name = "active_turn_request_id", length = 255)
 	private String activeTurnRequestId;
 
@@ -110,6 +113,19 @@ public class LearningSession {
 			this.activeQuizId = null;
 		}
 		this.lastUiActions = List.copyOf(uiActions);
+	}
+
+	public void startDiagnosis(Long diagnosisId, UiAction uiAction) {
+		this.pendingDiagnosisId = diagnosisId;
+		this.pageStatus = PageStatus.DIAGNOSIS_PENDING;
+		this.lastUiActions = List.of(uiAction);
+	}
+
+	public void completeDiagnosis(Long diagnosisId) {
+		if (Objects.equals(this.pendingDiagnosisId, diagnosisId)) {
+			this.pendingDiagnosisId = null;
+			this.pageStatus = PageStatus.REPAIR_COMPLETED;
+		}
 	}
 
 	public void delete() {
@@ -170,6 +186,10 @@ public class LearningSession {
 
 	public Long getActiveQuizId() {
 		return activeQuizId;
+	}
+
+	public Long getPendingDiagnosisId() {
+		return pendingDiagnosisId;
 	}
 
 	public String getActiveTurnRequestId() {

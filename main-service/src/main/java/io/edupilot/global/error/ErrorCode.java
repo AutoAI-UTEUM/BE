@@ -126,6 +126,16 @@ public enum ErrorCode {
 		HttpStatus.BAD_GATEWAY,
 		"채점 결과를 처리할 수 없습니다."
 	),
+	DIAGNOSIS_NOT_FOUND(
+		"DIAGNOSIS_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"진단을 찾을 수 없습니다."
+	),
+	DIAGNOSIS_NOT_PENDING(
+		"DIAGNOSIS_NOT_PENDING",
+		HttpStatus.CONFLICT,
+		"답변 대기 상태의 진단이 아닙니다."
+	),
 	RESOURCE_NOT_FOUND("RESOURCE_NOT_FOUND", HttpStatus.NOT_FOUND, "리소스를 찾을 수 없습니다."),
 	RATE_LIMIT_EXCEEDED(
 		"RATE_LIMIT_EXCEEDED",

@@ -17,6 +17,7 @@ public record AiClientProperties(
 	@NotNull Duration connectTimeout,
 	@NotNull Duration readTimeout,
 	@NotNull Duration gradeReadTimeout,
+	@NotNull Duration pipelineReadTimeout,
 	@NotNull Duration extractReadTimeout,
 	@NotBlank String healthPath
 ) {

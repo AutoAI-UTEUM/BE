@@ -38,14 +38,18 @@ public class SessionTurnService {
 		TurnRequest request
 	) {
 		TurnEventType eventType = parseEventType(request.eventType());
-		String userContent = validatePayload(eventType, request.payload());
+		ValidatedPayload payload = validatePayload(
+			eventType,
+			request.payload()
+		);
 		claimService.claim(userId, sessionId, request.requestId());
 		try {
 			return persistenceService.persist(
 				userId,
 				sessionId,
 				request.requestId(),
-				userContent
+				payload.userContent(),
+				payload.diagnosisId()
 			);
 		} catch (DataIntegrityViolationException exception) {
 			throw new BusinessException(ErrorCode.TURN_ALREADY_PROCESSED);
@@ -62,23 +66,35 @@ public class SessionTurnService {
 		}
 	}
 
-	private String validatePayload(TurnEventType eventType, JsonNode payload) {
+	private ValidatedPayload validatePayload(
+		TurnEventType eventType,
+		JsonNode payload
+	) {
 		if (!payload.isObject()) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}
 		return switch (eventType) {
 			case EXPLAIN_CURRENT_PAGE -> {
 				String detailLevel = requiredText(payload, "detailLevel");
-				yield "현재 페이지 설명 요청: " + detailLevel;
+				yield new ValidatedPayload(
+					"현재 페이지 설명 요청: " + detailLevel,
+					null
+				);
 			}
-			case USER_QUESTION -> requiredText(payload, "message");
+			case USER_QUESTION -> new ValidatedPayload(
+				requiredText(payload, "message"),
+				null
+			);
 			case QUIZ_TYPE_SELECTED -> {
 				String quizType = requiredText(payload, "quizType");
 				if (!QUIZ_TYPES.contains(quizType)) {
 					throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 				}
 				// TODO Epic 6: 실제 퀴즈 생성과 세션 activeQuizId 전제를 검증한다.
-				yield "퀴즈 유형 선택: " + quizType;
+				yield new ValidatedPayload(
+					"퀴즈 유형 선택: " + quizType,
+					null
+				);
 			}
 			case DIAGNOSIS_ANSWER_SUBMITTED -> {
 				JsonNode diagnosisId = payload.get("diagnosisId");
@@ -88,8 +104,11 @@ public class SessionTurnService {
 					throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 				}
 				String answer = requiredText(payload, "answer");
-				// TODO Epic 7: pending diagnosis 소유권과 답변 대기 상태를 검증한다.
-				yield answer;
+				// TODO Epic5: ANSWERED 진단을 RepairAgent turn에 연결한다.
+				yield new ValidatedPayload(
+					answer,
+					diagnosisId.longValue()
+				);
 			}
 		};
 	}
@@ -100,5 +119,11 @@ public class SessionTurnService {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}
 		return value.textValue().trim();
+	}
+
+	private record ValidatedPayload(
+		String userContent,
+		Long diagnosisId
+	) {
 	}
 }

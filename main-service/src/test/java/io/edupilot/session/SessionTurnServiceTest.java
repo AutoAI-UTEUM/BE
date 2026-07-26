@@ -49,7 +49,8 @@ class SessionTurnServiceTest {
 			1L,
 			100L,
 			"request-1",
-			"퀴즈 유형 선택: MCQ"
+			"퀴즈 유형 선택: MCQ",
+			null
 		)).thenReturn(response);
 
 		var actual = service.execute(
@@ -66,7 +67,13 @@ class SessionTurnServiceTest {
 		verify(claimService).claim(1L, 100L, "request-1");
 		verify(claimService).release(100L, "request-1");
 
-		when(persistenceService.persist(1L, 100L, "request-2", "답변"))
+		when(persistenceService.persist(
+			1L,
+			100L,
+			"request-2",
+			"답변",
+			30L
+		))
 			.thenReturn(response);
 		service.execute(
 			1L,

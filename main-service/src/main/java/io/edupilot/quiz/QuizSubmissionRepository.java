@@ -2,6 +2,7 @@ package io.edupilot.quiz;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -14,4 +15,6 @@ public interface QuizSubmissionRepository
 		Collection<Long> quizIds,
 		Long userId
 	);
+
+	Optional<QuizSubmission> findByIdAndUser_Id(Long id, Long userId);
 }
