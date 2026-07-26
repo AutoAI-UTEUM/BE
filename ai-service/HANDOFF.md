@@ -1,12 +1,13 @@
-# AI Service Issues #9 and #5 Handoff
+# AI Service Handoff
 
 대상: 한승준(Main Service 담당), 이슈 #7(Material 추출 연동), #10(AiClient 연동
 검증), #11(CI)
 
-이 문서는 이슈 #9에서 만든 FastAPI 부트스트랩과 이슈 #5의 PDF 추출 API
-실행·계약·CI 인수인계 정보입니다. 기존 health/turn/error curl 응답은
-2026-07-25에 로컬 `127.0.0.1:8000`에서, extract 응답은 2026-07-26에 격리
-smoke 포트 `127.0.0.1:8015`에서 실제로 실행해 확인했습니다.
+이 문서는 이슈 #9의 FastAPI 부트스트랩, 이슈 #5의 PDF 추출 API와 이슈 #23의
+현재 turn 상태를 함께 설명합니다. health/turn/error curl 응답은 2026-07-25에
+로컬 `127.0.0.1:8000`에서, extract 응답은 2026-07-26에 격리 smoke 포트
+`127.0.0.1:8015`에서 실제로 실행해 확인했습니다. 현재 turn 요청의 전체 DTO는
+`README.md` 예시를 사용하며 정상 응답 내용은 LLM 결과에 따라 달라집니다.
 
 ## 1. 로컬 실행
 
@@ -31,8 +32,8 @@ uv run uvicorn edupilot_ai.factory:create_app \
 | 환경 변수 | 필수 | 기본값 | 설명 |
 | --- | :---: | --- | --- |
 | `EDUPILOT_INTERNAL_TOKEN` | Y | 없음 | Spring과 AI Service가 동일하게 사용하는 `X-Internal-Token` 값 |
-| `XAI_API_KEY` | Y | 없음 | 현재 스텁에서는 사용하지 않지만 Settings 시작 검증에 필요 |
-| `MODEL_NAME` | N | `grok-4.5` | 고정 응답의 `usage.model` 및 향후 LLM 프로필 모델명 |
+| `XAI_API_KEY` | Y | 없음 | xAI OpenAI-compatible endpoint 인증 키 |
+| `MODEL_NAME` | N | `grok-4.5` | LLM 프로필 모델명과 응답 model 검증 기준 |
 | `TURN_TIMEOUT_SECONDS` | N | `180` | turn 전체 timeout |
 | `TURN_FIRST_EVENT_TIMEOUT_SECONDS` | N | `30` | turn 첫 이벤트 timeout |
 | `GRADE_TIMEOUT_SECONDS` | N | `90` | grade timeout |
@@ -44,9 +45,9 @@ uv run uvicorn edupilot_ai.factory:create_app \
 | `AGENT_REASONING_EFFORT` | N | `medium` | 기본 `AgentLlmProfile.reasoningEffort` |
 | `AGENT_MAX_TOKENS` | N | `16384` | 기본 `AgentLlmProfile.maxTokens` |
 | `AGENT_TEMPERATURE` | N | `null` | 선택적 temperature |
-| `ORCHESTRATOR_REASONING_EFFORT` | N | `low` | Plan용 프로필(현재 turn 스텁에서는 미사용) |
-| `EXPLAINER_REASONING_EFFORT` | N | `medium` | 설명용 프로필(현재 turn 스텁에서는 미사용) |
-| `QA_REASONING_EFFORT` | N | `medium` | QA용 프로필(현재 turn 스텁에서는 미사용) |
+| `ORCHESTRATOR_REASONING_EFFORT` | N | `low` | Plan용 프로필 |
+| `EXPLAINER_REASONING_EFFORT` | N | `medium` | 설명용 프로필 |
+| `QA_REASONING_EFFORT` | N | `medium` | QA용 프로필 |
 
 로컬에서는 `.env.example`의 다음 가짜 값을 그대로 사용할 수 있습니다.
 
@@ -56,7 +57,7 @@ XAI_API_KEY=xai-example-not-a-real-key
 MODEL_NAME=grok-4.5
 ```
 
-## 2. curl 계약 확인
+## 2. 이슈 #9 부트스트랩 curl 기록
 
 ### GET /health 정상
 
@@ -75,7 +76,8 @@ HTTP 200:
 
 ### POST /internal/ai/turn 정상
 
-README와 동일한 요청 body입니다.
+아래는 이슈 #9 당시 고정 스텁의 역사적 검증 기록입니다. 현재 요청 DTO 예시는
+`README.md`를 따릅니다.
 
 ```bash
 curl --silent --show-error \
@@ -322,12 +324,15 @@ jobs:
 
 ## 5. 알려진 제약과 후속 범위
 
-- `/internal/ai/turn`은 이슈 #9의 고정 스텁 응답입니다. 실제 Orchestrator와
-  에이전트 실행은 Epic 5에서 구현합니다.
+- `/internal/ai/turn`의 설명·질의응답 경로는 이슈 #23 비스트리밍
+  오케스트레이션에 연결되어 있습니다. 퀴즈 생성과 오개념 교정 실행은 각각
+  이슈 #31, #38의 고정 스텁입니다.
 - `/health`는 프로세스 liveness만 확인합니다. 외부 의존성 readiness는 Epic 8
   범위입니다.
 - extract는 텍스트 레이어만 처리합니다. OCR은 범위 밖이며 전 페이지가 공백이면
   `EXTRACTION_FAILED`로 반환합니다.
-- xAI OpenAI-compatible HTTP 어댑터는 구현되어 있으나 `/internal/ai/turn` 고정
-  스텁에는 아직 연결되지 않았습니다. `respx` 와이어 테스트는 `api.x.ai` 요청을
-  전부 가로채며 로컬·테스트 실행 중 외부 네트워크를 호출하지 않습니다.
+- xAI OpenAI-compatible HTTP 어댑터는 turn 경로에 연결되어 있습니다.
+  `respx` 와이어 테스트와 `FakeLlm` 계약 테스트는 `api.x.ai` 요청을 전부
+  가로채거나 대체하므로 테스트 중 외부 네트워크를 호출하지 않습니다.
+- turn 스트리밍은 이슈 #25 범위이며 현재 endpoint는 완성된 JSON 응답을
+  반환합니다.

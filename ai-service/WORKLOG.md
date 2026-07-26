@@ -142,7 +142,7 @@
 
 ---
 
-# Issue #23 Partial Worklog
+# Issue #23 Worklog
 
 기준 브랜치: `origin/develop` (`ddaecd9`)
 
@@ -159,8 +159,14 @@
   절반만 연결된 ContextBuilder/Orchestrator/Agent 코드는 제거하고 새 기능 구현 중단.
 - 2026-07-26 12:56 KST: 독립적으로 완료 가능한 xAI 어댑터·프로필·respx
   테스트만 정리. pytest/ruff/mypy 통과.
+- 2026-07-26 15:50 KST: 사용자가 전체 마감을 18:00 KST로 연장해 Phase 2
+  작업을 재개. 17:20부터 새 구현을 중단하는 기준을 적용.
+- 2026-07-26 15:54 KST: ContextBuilder, Plan 생성, 정책 검증, 순차 dispatcher,
+  설명·QA 에이전트와 turn 응답 조립을 완료.
+- 2026-07-26 15:56 KST: FakeLlm 계약 테스트를 포함해 pytest 24개,
+  ruff, mypy 전체 통과.
 
-## 완료된 부분
+## 이슈 #23 체크리스트 매핑
 
 - [x] `LlmBridge`가 validated output과 provider `model`·usage
   (`inputTokens`, `outputTokens`, `reasoningTokens`)를 함께 반환하도록 확장.
@@ -174,47 +180,48 @@
 - [x] app lifespan이 production HTTP client와 bridge를 소유하고 종료 시 close.
 - [x] respx로 Authorization·와이어 JSON·usage·model mismatch·timeout·schema·503
   경로 검증. 실제 xAI/외부 네트워크 0회.
-
-## 미완·미착수
-
-- [ ] ContextBuilder — 시간 초과로 미착수 상태로 되돌림.
-- [ ] Orchestrator Plan 생성, schema 1회 재생성 fallback — 미착수.
-- [ ] Policy/Verifier — 허용 도구, pipeline 전용 도구, qaThreadMode,
-  intervention budget 검증 — 미착수.
-- [ ] ToolDispatcher — 순차 실행, 부분 실패, statePatch 병합 — 미착수.
-- [ ] ExplainerAgent와 분리 프롬프트 — 미착수.
-- [ ] QaAgent START_NEW/FOLLOW_UP, latestRepair, 근거 부족 처리 — 미착수.
-- [ ] QUIZ_TYPE_SELECTED·DIAGNOSIS_ANSWER_SUBMITTED stub을 새 pipeline에 연결 —
-  미착수. 현재 이슈 #9 고정 turn stub 유지.
-- [ ] turn 응답 usage 합산과 statePatch 허용목록 검증 — 미착수.
-- [ ] FakeLLM 기반 turn 계약 테스트 — 미착수.
-- [ ] Phase 3 테스트 보강과 #25 사전 조사 — 남는 시간이 없어 미착수.
+- [x] ContextBuilder가 Spring 스냅샷을 불변 AgentContext로 변환.
+- [x] Orchestrator가 strict TurnPlan structured output을 생성하고 SCHEMA 실패 시
+  정확히 1회 재생성.
+- [x] PolicyVerifier가 허용 도구, pipeline 전용 도구, event/argument 일치,
+  qaThreadMode와 intervention budget을 검증.
+- [x] ToolDispatcher가 도구를 순차 실행하고 action별 성공·실패를 기록하며
+  statePatch를 충돌 없이 병합.
+- [x] ExplainerAgent가 현재 페이지를 주 근거로 detailLevel,
+  learnerMemoryDigest를 반영.
+- [x] QaAgent가 START_NEW/FOLLOW_UP, qaThreadDigest, latestRepair를 반영하고
+  근거 부족을 명시.
+- [x] QUIZ_TYPE_SELECTED와 DIAGNOSIS_ANSWER_SUBMITTED는 각각 #31, #38
+  실행 스텁으로 유지.
+- [x] turn 응답에 turnGoal, actionsExecuted, messages, 허용목록 statePatch,
+  uiActions, memoryCandidates와 reasoningTokens 포함 usage를 조립.
+- [x] FakeLlm 기반 explain, QA 새 질문·후속 질문, Plan 거부, SCHEMA 재생성,
+  statePatch 위반과 부분 실패 계약 테스트 작성.
 
 ## 검증 결과
 
 - `uv sync --locked`: 성공 (CPython 3.14.6, respx 0.23.1)
-- `uv run pytest -q`: 13개 통과
+- `uv run pytest -q`: 24개 통과
 - `uv run ruff check .`: 통과
-- `uv run mypy`: 24개 소스 파일 검사 통과
+- `uv run mypy src tests`: 33개 소스 파일 검사 통과
 - 테스트 중 실제 Grok 및 외부 네트워크 호출: 0회
 
-## 이슈 체크 대기
+## 완료 범위와 이월
 
-- 이슈 #23의 각 체크박스는 pipeline 전체 단위로 작성되어 있으며, 이번 부분
-  완료 범위만으로 완전히 충족된 항목이 없다. 완료되지 않은 항목은 `[x]`로
-  바꾸지 않는다.
-- PR은 “계약 v0.4 기준 부분 선구현 — #27 승인 후 리뷰”를 명시한 Draft로 생성한다.
+- 설명과 QA turn core는 완료했습니다.
+- QUIZ_TYPE_SELECTED의 실제 생성은 #31, DIAGNOSIS_ANSWER_SUBMITTED의 실제
+  repair는 #38로 이월했습니다.
+- 스트림 이벤트 전달은 #25 범위로 이월했습니다.
+- PR은 “계약 v0.4 기준 선구현 — #27 승인 후 리뷰”를 명시한 Draft로 유지합니다.
 
 ## 미결 질문
 
-1. 전체 마감이 `<YYYY-MM-DD HH:00>` 자리표시자로 남아 절대 마감은 계산할 수
-   없었다. Phase 2는 명시된 4시간 상한을 적용해 중단했다.
-2. #27이 미승인인 상태에서 qaThread의 `threadRef` 생성 주체·형식과
+1. #27이 미승인인 상태에서 qaThread의 `threadRef` 생성 주체·형식과
    `statePatch` 세부 JSON Schema가 확정되지 않았다.
-3. 이슈 #23은 LlmBridge “재시도”를 요구하지만 v0.4는 Spring이
+2. 이슈 #23은 LlmBridge “재시도”를 요구하지만 v0.4는 Spring이
    `retryable=true`만 최대 1회 재시도하고 SCHEMA는 Orchestrator 내부 1회
    재생성으로 소진한다고 규정한다. provider adapter 자체 HTTP 재시도를 둘지
    #27에서 명확히 해야 한다. 이번 어댑터는 중복 비용을 피하려고 분류만 하고
    자동 재시도하지 않는다.
-4. Phase 3도 독립 브랜치·PR이 필요한지, 아니면 Phase 1·2 브랜치에 각각 보강을
-   추가하는지 지시가 없다. 분리 원칙을 어기지 않기 위해 미착수로 남겼다.
+3. Plan action `args`, `statePatch.activeQuizId`, `pendingDiagnosis`의 세부
+   schema는 #27 승인 전까지 v0.4의 허용 키와 event별 검증만 적용했다.
