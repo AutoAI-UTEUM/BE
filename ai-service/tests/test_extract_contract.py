@@ -70,6 +70,19 @@ async def test_extract_rejects_non_pdf_magic_bytes(
     assert_extraction_failure(response, reason_phrase="invalid or corrupted")
 
 
+async def test_extract_rejects_non_pdf_content_type(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    response = await client.post(
+        "/internal/ai/extract",
+        headers=auth_headers,
+        files={"file": ("lesson.pdf", make_pdf("text"), "application/octet-stream")},
+    )
+
+    assert_extraction_failure(response, reason_phrase="invalid or corrupted")
+
+
 async def test_extract_rejects_scanned_document(
     client: httpx.AsyncClient,
     auth_headers: dict[str, str],
@@ -116,6 +129,28 @@ async def test_extract_rejects_corrupted_document_without_raw_error(
     assert "EOF marker" not in response.text
 
 
+async def test_extract_accepts_exactly_300_pages(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    response = await client.post(
+        "/internal/ai/extract",
+        headers=auth_headers,
+        files={
+            "file": (
+                "boundary.pdf",
+                make_pdf("Boundary page", *(None for _ in range(299))),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    payload = ExtractResponse.model_validate(response.json())
+    assert payload.page_count == 300
+    assert payload.pages[-1].page_number == 300
+
+
 async def test_extract_rejects_301_pages(
     client: httpx.AsyncClient,
     auth_headers: dict[str, str],
@@ -131,6 +166,25 @@ async def test_extract_rejects_301_pages(
     assert error.error.code == "PAGE_LIMIT_EXCEEDED"
     assert error.error.category == "SCHEMA"
     assert error.error.retryable is False
+
+
+async def test_extract_accepts_file_equal_to_configured_size_limit(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    settings: Settings,
+) -> None:
+    settings.edupilot_upload_max_mb = 1
+    pdf = make_pdf("At the byte boundary")
+    exact_limit = pdf + (b"\x00" * (settings.upload_max_bytes - len(pdf)))
+
+    response = await client.post(
+        "/internal/ai/extract",
+        headers=auth_headers,
+        files={"file": ("boundary.pdf", exact_limit, "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["pageCount"] == 1
 
 
 async def test_extract_rejects_size_as_soon_as_configured_limit_is_exceeded(
