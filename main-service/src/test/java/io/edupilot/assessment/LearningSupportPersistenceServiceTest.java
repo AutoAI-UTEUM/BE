@@ -183,7 +183,8 @@ class LearningSupportPersistenceServiceTest {
 				List.of()
 			),
 			passed,
-			new GradeRequest.PageContext(1, 1, "문맥")
+			new GradeRequest.PageContext(1, 1, "문맥"),
+			List.of(io.edupilot.session.UiAction.moveNextPage())
 		);
 	}
 

@@ -99,7 +99,8 @@ class QuizSubmissionPersistenceServiceTest {
 				sessionRepository,
 				quizRepository,
 				submissionRepository,
-				userRepository
+				userRepository,
+				new io.edupilot.session.UiActionResolver()
 			);
 
 		var response = service.persist(1L, prepared, result, true);
@@ -108,6 +109,37 @@ class QuizSubmissionPersistenceServiceTest {
 		assertThat(session.getActiveQuizId()).isNull();
 		assertThat(session.getLastUiActions().getFirst().yesEvent())
 			.isEqualTo("MOVE_NEXT_PAGE");
+	}
+
+	@Test
+	void passedQuizOnLastPageOffersSessionCompletion() {
+		Fixture fixture = fixture();
+		ReflectionTestUtils.setField(fixture.session(), "currentPage", 2);
+		ReflectionTestUtils.setField(fixture.session(), "activeQuizId", 50L);
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(fixture.session()));
+		when(quizRepository.findByIdAndSessionId(50L, 100L))
+			.thenReturn(Optional.of(fixture.quiz()));
+		User owner = User.create("owner@example.com", "hash", "소유자");
+		ReflectionTestUtils.setField(owner, "id", 1L);
+		when(userRepository.getReferenceById(1L)).thenReturn(owner);
+		when(submissionRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+			QuizSubmission submission = invocation.getArgument(0);
+			ReflectionTestUtils.setField(submission, "id", 200L);
+			return submission;
+		});
+
+		var response = service().persist(
+			1L,
+			fixture.prepared(),
+			fixture.result(),
+			true
+		);
+
+		assertThat(response.uiActions())
+			.containsExactly(io.edupilot.session.UiAction.completeSession());
+		assertThat(fixture.session().getLastUiActions())
+			.containsExactly(io.edupilot.session.UiAction.completeSession());
 	}
 
 	@Test
@@ -159,7 +191,8 @@ class QuizSubmissionPersistenceServiceTest {
 			sessionRepository,
 			quizRepository,
 			submissionRepository,
-			userRepository
+			userRepository,
+			new io.edupilot.session.UiActionResolver()
 		);
 	}
 

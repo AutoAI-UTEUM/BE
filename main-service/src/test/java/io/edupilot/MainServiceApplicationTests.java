@@ -141,7 +141,7 @@ class MainServiceApplicationTests {
 		assertThat(aiClientProperties.pipelineReadTimeout())
 			.isEqualTo(Duration.ofSeconds(45));
 		assertThat(aiClientProperties.turnReadTimeout())
-			.isEqualTo(Duration.ofSeconds(180));
+			.isEqualTo(Duration.ofSeconds(200));
 		assertThat(aiClientProperties.healthTimeout())
 			.isEqualTo(Duration.ofSeconds(2));
 	}
