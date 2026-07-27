@@ -36,7 +36,7 @@ type: chore
 - traceId/requestId/turnId 전달
 - Main Service 구조화 요청·오류 로그
 - AI Service 구조화 호출·오류 로그
-- Gemini 호출 시간·성공/실패 분류
+- Grok 호출 시간·성공/실패 분류
 - 환경별 로그 레벨
 - 민감정보 마스킹
 - health/readiness 기본 상태
@@ -53,7 +53,7 @@ type: chore
 
 - `[Contract]` 공통 추적 ID와 로그 필드 기준
 - `[Main]` 요청·오류·외부 AI 호출 구조화 로그
-- `[AI]` agent/tool/Gemini 호출 구조화 로그
+- `[AI]` agent/tool/Grok 호출 구조화 로그
 - `[Security]` 민감정보 마스킹·로그 접근 정책
 - `[Infra]` 로그 수집·보관·메트릭·알림 도구 결정
 - `[Integration]` 단일 요청의 end-to-end trace 검증
@@ -127,7 +127,7 @@ errorCode
 - 원칙: **치환(`***`)보다 비로깅 우선** — 금지 필드는 로그 객체에 아예 넣지 않는다.
 - 요청/응답 body는 기본 미로깅. 디버깅 필요 시에도 금지 목록 필드는 제외한 요약만 로깅.
 - `Authorization` 헤더·`Cookie` 값 로깅 금지. 예외 stack trace는 그대로 남기되, 예외 메시지에 토큰을 포함시키지 않는 것을 코드 규칙으로 한다(마스킹 테스트로 검증).
-- 외부 LLM(Gemini) 호출 로그(AI Service): 모델명·소요 시간·성공/실패 분류·재시도 횟수만. 프롬프트·응답 원문은 기본 미로깅(디버그 옵션에서도 금지 목록 준수).
+- 외부 LLM(Grok) 호출 로그(AI Service): 모델명·소요 시간·성공/실패 분류·재시도 횟수만. 프롬프트·응답 원문은 기본 미로깅(디버그 옵션에서도 금지 목록 준수).
 
 ### 4. health / readiness
 
