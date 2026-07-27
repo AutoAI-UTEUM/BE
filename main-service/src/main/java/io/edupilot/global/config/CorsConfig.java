@@ -10,6 +10,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import io.edupilot.global.security.TraceIdFilter;
+
 @Configuration
 @EnableConfigurationProperties(CorsProperties.class)
 public class CorsConfig {
@@ -19,7 +21,14 @@ public class CorsConfig {
 		CorsConfiguration configuration = new CorsConfiguration();
 		configuration.setAllowedOrigins(properties.allowedOrigins());
 		configuration.setAllowedMethods(List.of("GET", "POST", "PATCH", "DELETE", "OPTIONS"));
-		configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+		configuration.setAllowedHeaders(List.of(
+			"Authorization",
+			"Content-Type",
+			TraceIdFilter.TRACE_ID_HEADER
+		));
+		configuration.setExposedHeaders(List.of(
+			TraceIdFilter.TRACE_ID_HEADER
+		));
 		configuration.setAllowCredentials(true);
 		configuration.setMaxAge(Duration.ofHours(1));
 
