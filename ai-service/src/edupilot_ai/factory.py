@@ -41,7 +41,6 @@ def create_app(
             bridge = XaiLlmBridge(
                 client=owned_http_client,
                 api_key=resolved_settings.xai_api_key,
-                timeout_seconds=resolved_settings.turn_timeout_seconds,
             )
         app.state.settings = resolved_settings
         app.state.llm_bridge = bridge

@@ -44,4 +44,6 @@ def get_turn_service(
         policy=PolicyVerifier(),
         dispatcher=ToolDispatcher(explainer=explainer, qa=qa, model=settings.model_name),
         model=settings.model_name,
+        turn_timeout_seconds=settings.turn_timeout_seconds,
+        first_event_timeout_seconds=settings.turn_first_event_timeout_seconds,
     )

@@ -1,13 +1,15 @@
 # AI Service Handoff
 
 대상: 한승준(Main Service 담당), 이슈 #7(Material 추출 연동), #10(AiClient 연동
-검증), #11(CI)
+검증), #11(CI), #26(SSE 중계)
 
 이 문서는 이슈 #9의 FastAPI 부트스트랩, 이슈 #5의 PDF 추출 API와 이슈 #23의
 현재 turn 상태를 함께 설명합니다. health/turn/error curl 응답은 2026-07-25에
 로컬 `127.0.0.1:8000`에서, extract 응답은 2026-07-26에 격리 smoke 포트
 `127.0.0.1:8015`에서 실제로 실행해 확인했습니다. 현재 turn 요청의 전체 DTO는
 `README.md` 예시를 사용하며 정상 응답 내용은 LLM 결과에 따라 달라집니다.
+NDJSON turn 스트림은 2026-07-27에 FakeLlm을 주입한 격리 uvicorn 포트
+`127.0.0.1:8025`에서 실제로 확인했습니다.
 
 ## 1. 로컬 실행
 
@@ -215,7 +217,98 @@ HTTP 422:
 }
 ```
 
-## 3. Spring AiClient 매핑
+## 3. 이슈 #26 내부 NDJSON → 외부 SSE 중계
+
+Spring이 점진 응답을 원하면 기존 turn 요청에 다음 헤더를 추가합니다.
+
+```http
+Accept: application/x-ndjson
+```
+
+헤더가 없으면 기존 JSON `TurnResponse`가 유지됩니다. 아래 curl은
+2026-07-27 로컬 FakeLlm uvicorn에서 실제 실행한 기록이며 xAI나 외부
+네트워크를 호출하지 않았습니다.
+
+```bash
+curl --fail --silent --show-error --no-buffer \
+  -H 'Accept: application/x-ndjson' \
+  -H 'Content-Type: application/json' \
+  -H 'X-Internal-Token: stream-smoke-token' \
+  -H 'X-Trace-Id: stream-smoke-trace' \
+  -d '{
+    "schemaVersion": "1.0",
+    "turnId": "turn-stream-smoke-1",
+    "session": {
+      "sessionId": 100,
+      "userId": 1,
+      "materialId": 10,
+      "currentPage": 3,
+      "pageStatus": "EXPLAINED"
+    },
+    "event": {
+      "eventType": "USER_QUESTION",
+      "payload": {"message": "편차가 무슨 뜻이야?"}
+    },
+    "context": {
+      "currentPageText": "편차는 관측값과 평균의 차이입니다.",
+      "previousPageText": null,
+      "nextPageText": null,
+      "recentMessages": [],
+      "qaThreadDigest": null,
+      "quizAssessments": [],
+      "learnerMemoryDigest": null,
+      "learnerLevel": null,
+      "learnerConfidence": null,
+      "pendingDiagnosis": null,
+      "latestRepair": null,
+      "memory": {"temporaryCandidates": []}
+    }
+  }' \
+  http://127.0.0.1:8025/internal/ai/turn
+```
+
+실제 응답(`Content-Type: application/x-ndjson`, 한 줄에 JSON 1개):
+
+```jsonl
+{"type":"status","stage":"PLANNING"}
+{"type":"thought_summary","text":"학습 계획을 세우는 중입니다"}
+{"type":"status","stage":"ANSWERING"}
+{"type":"thought_summary","text":"3페이지 근거로 답변을 작성하는 중입니다"}
+{"type":"content_delta","text":"편차는 "}
+{"type":"content_delta","text":"관측값이 평균에서 얼마나 떨어져 있는지를 나타냅니다."}
+{"type":"status","stage":"FINALIZING"}
+{"type":"completed","result":{"schemaVersion":"1.0","turnId":"turn-stream-smoke-1","turnGoal":"ANSWER_USER_QUESTION","actionsExecuted":[{"actionId":"action-1","agent":"QaAgent","status":"SUCCESS"}],"messages":[{"messageType":"QA","content":"편차는 관측값이 평균에서 얼마나 떨어져 있는지를 나타냅니다."}],"statePatch":{"qaThread":{"mode":"START_NEW"}},"uiActions":[],"memoryCandidates":[],"usage":{"model":"grok-4.5","inputTokens":0,"outputTokens":0,"reasoningTokens":null}}}
+```
+
+### 이벤트 중계 규칙
+
+| 내부 NDJSON | 외부 SSE |
+| --- | --- |
+| `status` | `event: status` + JSON `data` |
+| `thought_summary` | `event: thought_summary` + JSON `data` |
+| `content_delta` | `event: content_delta` + JSON `data` |
+| `heartbeat` | SSE comment `: heartbeat` — `event`/`data` 없음 |
+| `completed` | `event: completed` + 전체 `result` JSON |
+| `error` | `event: error` + `code/category/message/retryable` JSON |
+
+- NDJSON은 임의 HTTP 청크 경계가 아니라 줄바꿈 기준으로 파싱합니다. 한 줄을
+  완성하기 전에는 JSON 파싱을 시도하지 않습니다.
+- `completed`와 `error`는 상호 배타이며 정확히 1회, 마지막입니다.
+- `content_delta` 누적 문자열과
+  `completed.result.messages[].content`를 순서대로 이은 문자열이 같은지
+  검증합니다.
+- 메시지·statePatch의 확정 저장은 `completed.result` 전체 검증 뒤 정확히
+  1회만 수행합니다. `error`, 연결 중단, completed 이전 청크는 저장하지
+  않습니다.
+- 내부 `heartbeat`는 10초 무이벤트 시 발행됩니다. Spring은 외부 SSE comment로
+  바꾸며 FE 이벤트 핸들러로 전달하지 않습니다.
+- stream HTTP 응답이 시작된 뒤의 AI 실패는 HTTP status 변경이 아니라 마지막
+  `error` 이벤트로 전달됩니다. 인증·요청 schema처럼 스트림 시작 전 오류는
+  기존 JSON 오류 envelope와 HTTP 401/422를 유지합니다.
+- Spring이 연결을 닫으면 FastAPI의 상류 xAI 스트림도 취소됩니다. 별도 취소
+  endpoint와 `Last-Event-ID` 재전송은 없습니다.
+
+## 4. Spring AiClient 매핑
 
 AI Service 오류의 `message`를 외부 사용자에게 그대로 노출하지 않고,
 `error.category`를 기준으로 Spring의 안정된 오류로 변환합니다.
@@ -253,7 +346,7 @@ AI Service 오류의 `message`를 외부 사용자에게 그대로 노출하지 
 | `PAGE_LIMIT_EXCEEDED` | 설정된 최대 페이지 수 초과 | `SCHEMA` |
 | `FILE_TOO_LARGE` | 설정된 최대 PDF 바이트 초과 | `SCHEMA` |
 
-## 4. 이슈 #11 CI 워크플로 예시
+## 5. 이슈 #11 CI 워크플로 예시
 
 아래 내용은 인수인계 예시일 뿐이며 이번 PR에서
 `.github/workflows/ai-service-ci.yml`을 수정하지 않습니다. 기존의
@@ -322,7 +415,7 @@ jobs:
         run: uv run mypy
 ```
 
-## 5. 알려진 제약과 후속 범위
+## 6. 알려진 제약과 후속 범위
 
 - `/internal/ai/turn`의 설명·질의응답 경로는 이슈 #23 비스트리밍
   오케스트레이션에 연결되어 있습니다. 퀴즈 생성과 오개념 교정 실행은 각각
@@ -334,5 +427,7 @@ jobs:
 - xAI OpenAI-compatible HTTP 어댑터는 turn 경로에 연결되어 있습니다.
   `respx` 와이어 테스트와 `FakeLlm` 계약 테스트는 `api.x.ai` 요청을 전부
   가로채거나 대체하므로 테스트 중 외부 네트워크를 호출하지 않습니다.
-- turn 스트리밍은 이슈 #25 범위이며 현재 endpoint는 완성된 JSON 응답을
-  반환합니다.
+- `/internal/ai/turn`은 `Accept: application/x-ndjson`일 때 Explainer·QA
+  NDJSON 스트림을 반환하고, 그 외에는 기존 완성 JSON 응답을 유지합니다.
+- 퀴즈·교정 스텁은 NDJSON 요청에서도 provider 본문 스트림을 사용하지 않고
+  terminal `completed` 또는 `error`로 종료합니다.
