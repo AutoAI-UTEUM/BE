@@ -43,6 +43,26 @@ class InternalErrorResponse(BaseModel):
     traceId: str
 
 
+class InternalApiError(Exception):
+    """Safe application error that can cross the internal HTTP boundary."""
+
+    def __init__(
+        self,
+        *,
+        status_code: HTTPStatus,
+        code: str,
+        category: ErrorCategory,
+        message: str,
+        retryable: bool,
+    ) -> None:
+        super().__init__(code)
+        self.status_code = status_code
+        self.code = code
+        self.category = category
+        self.safe_message = message
+        self.retryable = retryable
+
+
 def build_error_response(
     *,
     status_code: HTTPStatus,
@@ -104,7 +124,25 @@ async def unexpected_exception_handler(
     )
 
 
+async def internal_api_exception_handler(
+    request: Request,
+    exception: Exception,
+) -> JSONResponse:
+    """Serialize an explicitly classified application error."""
+    if not isinstance(exception, InternalApiError):
+        raise TypeError
+    return build_error_response(
+        status_code=exception.status_code,
+        trace_id=request_trace_id(request),
+        code=exception.code,
+        category=exception.category,
+        message=exception.safe_message,
+        retryable=exception.retryable,
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Register app-scoped handlers without module-level app instances."""
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(InternalApiError, internal_api_exception_handler)
     app.add_exception_handler(Exception, unexpected_exception_handler)
