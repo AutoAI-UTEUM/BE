@@ -109,8 +109,13 @@ public class GlobalExceptionHandler {
 		HttpServletRequest request
 	) {
 		String traceId = traceId(request);
-		log.error("Unhandled exception: errorCode={}",
-			ErrorCode.INTERNAL_SERVER_ERROR.code(), exception);
+		log.atError()
+			.addKeyValue(
+				"errorCode",
+				ErrorCode.INTERNAL_SERVER_ERROR.code()
+			)
+			.setCause(exception)
+			.log("Unhandled exception");
 		return errorResponse(ErrorCode.INTERNAL_SERVER_ERROR, List.of(), traceId);
 	}
 

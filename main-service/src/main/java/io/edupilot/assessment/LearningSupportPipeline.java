@@ -69,11 +69,12 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 					assessmentResponse
 				);
 			if (!result.applied()) {
-				log.info(
-					"Quiz assessment discarded after session state changed: submissionId={}, sessionId={}",
-					context.submissionId(),
-					context.sessionId()
-				);
+				log.atInfo()
+					.addKeyValue("submissionId", context.submissionId())
+					.addKeyValue("sessionId", context.sessionId())
+					.log(
+						"Quiz assessment discarded after session state changed"
+					);
 				return defaultActions();
 			}
 		} catch (RuntimeException exception) {
@@ -227,12 +228,11 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 		String errorCode = exception instanceof AiClientException aiException
 			? aiException.errorCode().code()
 			: "PIPELINE_PERSISTENCE_FAILED";
-		log.warn(
-			"Quiz learning-support stage failed: stage={}, submissionId={}, sessionId={}, errorCode={}",
-			stage,
-			context.submissionId(),
-			context.sessionId(),
-			errorCode
-		);
+		log.atWarn()
+			.addKeyValue("stage", stage)
+			.addKeyValue("submissionId", context.submissionId())
+			.addKeyValue("sessionId", context.sessionId())
+			.addKeyValue("errorCode", errorCode)
+			.log("Quiz learning-support stage failed");
 	}
 }

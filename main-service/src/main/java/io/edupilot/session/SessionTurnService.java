@@ -133,15 +133,19 @@ public class SessionTurnService {
 				responseValidator.validate(response, turnId);
 				return response;
 			} catch (AiClientException exception) {
-				log.warn(
-					"AI turn attempt failed: requestId={}, traceId={}, attempt={}, turnId={}, errorCode={}, retryable={}",
-					request.requestId(),
-					MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY),
-					attempt,
-					turnId,
-					exception.errorCode().code(),
-					exception.retryable()
-				);
+				log.atWarn()
+					.addKeyValue("requestId", request.requestId())
+					.addKeyValue(
+						"traceId",
+						MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY)
+					)
+					.addKeyValue("attempt", attempt)
+					.addKeyValue("retried", attempt > 1)
+					.addKeyValue("turnId", turnId)
+					.addKeyValue("category", exception.category())
+					.addKeyValue("errorCode", exception.errorCode().code())
+					.addKeyValue("retryable", exception.retryable())
+					.log("AI turn attempt failed");
 				if (attempt == 1 && exception.retryable()) {
 					continue;
 				}
@@ -172,12 +176,14 @@ public class SessionTurnService {
 				persisted.memoryWrite()
 			);
 		} catch (RuntimeException exception) {
-			log.warn(
-				"Learner memory promotion failed after turn commit: userId={}, materialId={}, errorType={}",
-				userId,
-				persisted.materialId(),
-				exception.getClass().getSimpleName()
-			);
+			log.atWarn()
+				.addKeyValue("userId", userId)
+				.addKeyValue("materialId", persisted.materialId())
+				.addKeyValue(
+					"errorType",
+					exception.getClass().getSimpleName()
+				)
+				.log("Learner memory promotion failed after turn commit");
 		}
 	}
 

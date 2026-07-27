@@ -59,6 +59,7 @@ class AiClientLiveTest {
 			URI.create(baseUrl),
 			token,
 			Duration.ofSeconds(3),
+			Duration.ofSeconds(2),
 			Duration.ofSeconds(30),
 			Duration.ofSeconds(180),
 			Duration.ofSeconds(90),

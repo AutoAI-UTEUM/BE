@@ -54,6 +54,7 @@
 | POST | `/api/auth/login` | 로그인 | N | 전체 |
 | POST | `/api/auth/refresh` | access 재발급 (refresh 쿠키 회전) | 쿠키 | refresh 쿠키 보유자 |
 | POST | `/api/auth/logout` | 로그아웃 (refresh 폐기·쿠키 만료) | 쿠키 | refresh 쿠키 보유자 (멱등) |
+| GET | `/api/health/ready` | DB·AI Service readiness ([응답 계약](issues/11-observability.md)) | N | 전체 |
 | GET | `/api/users/me` | 내 정보 조회 | Y | 본인 |
 | DELETE | `/api/users/me` | 회원 탈퇴(논리 삭제+익명화 — DEC-028) | Y | 본인 (비밀번호 재확인) |
 | POST | `/api/materials` | PDF 업로드 | Y | USER, ADMIN 초안 |

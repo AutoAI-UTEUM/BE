@@ -1,5 +1,6 @@
 package io.edupilot.auth;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
@@ -15,10 +16,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
@@ -33,6 +36,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.global.security.TraceIdFilter;
+import io.edupilot.global.logging.AccessLogFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.quiz.QuizRepository;
@@ -41,16 +45,24 @@ import io.edupilot.session.ChatMessageRepository;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 @SpringBootTest
 @ActiveProfiles("test")
 class AuthApiContractTest {
+
+	private static final String TRACE_ID = "auth-contract-trace";
 
 	@Autowired
 	private WebApplicationContext context;
 
 	@Autowired
 	private TraceIdFilter traceIdFilter;
+
+	@Autowired
+	private AccessLogFilter accessLogFilter;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -93,7 +105,7 @@ class AuthApiContractTest {
 		reset(userRepository, refreshTokenRepository);
 		mockMvc = MockMvcBuilders.webAppContextSetup(context)
 			.apply(springSecurity())
-			.addFilters(traceIdFilter)
+			.addFilters(traceIdFilter, accessLogFilter)
 			.build();
 		user = User.create(
 			"user@example.com",
@@ -148,6 +160,55 @@ class AuthApiContractTest {
 			.andExpect(content().string(not(containsString("password"))))
 			.andExpect(content().string(not(containsString("passwordHash"))))
 			.andExpect(content().string(not(containsString("refreshToken"))));
+	}
+
+	@Test
+	void credentialsAndAuthenticationHeadersNeverAppearInLogs() throws Exception {
+		String passwordSentinel = "masking-password-987654";
+		String authorizationSentinel = "masking-authorization-token";
+		String cookieSentinel = "masking-refresh-cookie";
+		when(userRepository.findByEmail("user@example.com"))
+			.thenReturn(Optional.of(user));
+
+		Logger rootLogger = (Logger) LoggerFactory.getLogger(
+			org.slf4j.Logger.ROOT_LOGGER_NAME
+		);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		rootLogger.addAppender(appender);
+		try {
+			mockMvc.perform(post("/api/auth/login")
+					.header(TraceIdFilter.TRACE_ID_HEADER, TRACE_ID)
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+						{"email":"user@example.com","password":"%s"}
+						""".formatted(passwordSentinel)))
+				.andExpect(status().isUnauthorized());
+
+			mockMvc.perform(get("/api/users/me")
+					.header(
+						HttpHeaders.AUTHORIZATION,
+						"Bearer " + authorizationSentinel
+					)
+					.cookie(new MockCookie(
+						"edupilot_refresh",
+						cookieSentinel
+					)))
+				.andExpect(status().isUnauthorized());
+		} finally {
+			rootLogger.detachAppender(appender);
+			appender.stop();
+		}
+
+		assertThat(appender.list).isNotEmpty();
+		assertThat(appender.list)
+			.allSatisfy(event -> assertThat(logText(event))
+				.doesNotContain(
+					passwordSentinel,
+					authorizationSentinel,
+					cookieSentinel,
+					user.getPasswordHash()
+				));
 	}
 
 	@Test
@@ -254,5 +315,16 @@ class AuthApiContractTest {
 
 		org.assertj.core.api.Assertions.assertThat(user.getEmail()).isEqualTo("deleted_1");
 		org.assertj.core.api.Assertions.assertThat(user.isActive()).isFalse();
+	}
+
+	private String logText(ILoggingEvent event) {
+		String throwableMessage = event.getThrowableProxy() == null
+			? ""
+			: String.valueOf(event.getThrowableProxy().getMessage());
+		return event.getFormattedMessage()
+			+ Arrays.toString(event.getArgumentArray())
+			+ event.getKeyValuePairs()
+			+ event.getMDCPropertyMap()
+			+ throwableMessage;
 	}
 }

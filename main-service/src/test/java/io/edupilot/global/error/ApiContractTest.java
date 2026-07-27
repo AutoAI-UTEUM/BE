@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -58,14 +59,19 @@ class ApiContractTest {
 	@Test
 	void invalidBodyReturnsValidationDetails() throws Exception {
 		mockMvc.perform(post("/contract/validate")
+				.header(TraceIdFilter.TRACE_ID_HEADER, TRACE_ID)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"name\":\"\"}"))
 			.andExpect(status().isBadRequest())
+			.andExpect(header().string(
+				TraceIdFilter.TRACE_ID_HEADER,
+				TRACE_ID
+			))
 			.andExpect(jsonPath("$.success").value(false))
 			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"))
 			.andExpect(jsonPath("$.error.details[0].field").value("name"))
 			.andExpect(jsonPath("$.error.details[0].reason").value("이름은 필수입니다."))
-			.andExpect(jsonPath("$.traceId").isNotEmpty())
+			.andExpect(jsonPath("$.traceId").value(TRACE_ID))
 			.andExpect(jsonPath("$.timestamp").isString());
 	}
 

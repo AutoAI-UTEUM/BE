@@ -15,6 +15,7 @@ public record AiClientProperties(
 	@NotNull URI baseUrl,
 	@NotBlank String internalToken,
 	@NotNull Duration connectTimeout,
+	@NotNull Duration healthTimeout,
 	@NotNull Duration readTimeout,
 	@NotNull Duration turnReadTimeout,
 	@NotNull Duration gradeReadTimeout,
