@@ -38,10 +38,10 @@ public class MaterialExtractionEventListener {
 			);
 		} catch (TaskRejectedException exception) {
 			persistenceService.fail(event.materialId());
-			log.warn(
-				"Material extraction scheduling failed: materialId={}, reason=EXECUTOR_REJECTED",
-				event.materialId()
-			);
+			log.atWarn()
+				.addKeyValue("materialId", event.materialId())
+				.addKeyValue("reason", "EXECUTOR_REJECTED")
+				.log("Material extraction scheduling failed");
 		}
 	}
 }

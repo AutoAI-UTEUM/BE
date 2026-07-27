@@ -33,14 +33,16 @@ public class LearnerMemoryPromotionService {
 					write
 				);
 				if (!promoted) {
-					log.info(
-						"Learner memory promotion rejected: userId={}, materialId={}, candidateCount={}",
-						userId,
-						materialId,
-						write == null || write.candidateIds() == null
-							? 0
-							: write.candidateIds().size()
-					);
+					log.atInfo()
+						.addKeyValue("userId", userId)
+						.addKeyValue("materialId", materialId)
+						.addKeyValue(
+							"candidateCount",
+							write == null || write.candidateIds() == null
+								? 0
+								: write.candidateIds().size()
+						)
+						.log("Learner memory promotion rejected");
 				}
 				return promoted;
 			} catch (

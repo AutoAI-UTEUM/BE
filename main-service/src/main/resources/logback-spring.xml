@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+	<springProfile name="prod">
+		<property name="LOG_ENVIRONMENT" value="prod"/>
+	</springProfile>
+	<springProfile name="dev &amp; !prod">
+		<property name="LOG_ENVIRONMENT" value="dev"/>
+	</springProfile>
+	<springProfile name="local &amp; !dev &amp; !prod">
+		<property name="LOG_ENVIRONMENT" value="local"/>
+	</springProfile>
+	<springProfile name="test &amp; !local &amp; !dev &amp; !prod">
+		<property name="LOG_ENVIRONMENT" value="test"/>
+	</springProfile>
+	<springProfile name="!test &amp; !local &amp; !dev &amp; !prod">
+		<property name="LOG_ENVIRONMENT" value="local"/>
+	</springProfile>
+
+	<springProfile name="!dev &amp; !prod">
+		<appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+			<encoder>
+				<pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %5p [main-service] [environment:${LOG_ENVIRONMENT}] [traceId:%X{traceId:-unknown}] %logger{36} - %msg %kvp%n%ex</pattern>
+			</encoder>
+		</appender>
+		<root>
+			<appender-ref ref="CONSOLE"/>
+		</root>
+	</springProfile>
+
+	<springProfile name="dev | prod">
+		<appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
+			<encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+				<providers>
+					<timestamp>
+						<fieldName>timestamp</fieldName>
+						<timeZone>Asia/Seoul</timeZone>
+					</timestamp>
+					<logLevel>
+						<fieldName>level</fieldName>
+					</logLevel>
+					<pattern>
+						<pattern>
+							{
+								"service": "main-service",
+								"environment": "${LOG_ENVIRONMENT}",
+								"traceId": "%mdc{traceId:-unknown}"
+							}
+						</pattern>
+					</pattern>
+					<message/>
+					<keyValuePairs/>
+					<stackTrace/>
+				</providers>
+			</encoder>
+		</appender>
+		<root>
+			<appender-ref ref="CONSOLE_JSON"/>
+		</root>
+	</springProfile>
+</configuration>
