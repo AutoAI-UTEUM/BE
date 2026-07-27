@@ -10,12 +10,14 @@ import java.time.Duration;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ByteArrayResource;
 
 import io.edupilot.ai.dto.TurnRequest;
@@ -28,6 +30,9 @@ import io.edupilot.global.security.TraceIdFilter;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 class HttpAiClientContractTest {
 
@@ -177,6 +182,7 @@ class HttpAiClientContractTest {
 		assertThat(request.getPath()).isEqualTo(
 			"/internal/ai/quiz-assessment"
 		);
+		assertThat(request.getHeader("X-Trace-Id")).isEqualTo(TRACE_ID);
 		assertThat(request.getBody().readUtf8())
 			.contains("\"schemaVersion\":\"1.0\"")
 			.contains("\"quizResult\"")
@@ -219,6 +225,7 @@ class HttpAiClientContractTest {
 		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
 		assertThat(request).isNotNull();
 		assertThat(request.getPath()).isEqualTo("/internal/ai/diagnosis");
+		assertThat(request.getHeader("X-Trace-Id")).isEqualTo(TRACE_ID);
 
 		server.enqueue(jsonResponse(200, diagnosisSuccessBody()
 			.replace(
@@ -339,6 +346,7 @@ class HttpAiClientContractTest {
 		assertThat(request.getMethod()).isEqualTo("GET");
 		assertThat(request.getPath()).isEqualTo("/health");
 		assertThat(request.getHeader("X-Internal-Token")).isEqualTo(INTERNAL_TOKEN);
+		assertThat(request.getHeader("X-Trace-Id")).isEqualTo(TRACE_ID);
 	}
 
 	@Test
@@ -431,6 +439,88 @@ class HttpAiClientContractTest {
 			});
 	}
 
+	@Test
+	void aiFailureLogContainsOnlyStructuredSafeMetadata() {
+		server.enqueue(jsonResponse(401, errorBody("AUTH", false)));
+		Logger logger = (Logger) LoggerFactory.getLogger(HttpAiClient.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			assertThatThrownBy(() ->
+				client(Duration.ofSeconds(1))
+					.executeTurn(turnRequest("turn-structured-log")))
+				.isInstanceOf(AiClientException.class);
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+
+		assertThat(appender.list)
+			.filteredOn(event ->
+				event.getFormattedMessage().equals("AI service call failed")
+			)
+			.singleElement()
+			.satisfies(event -> {
+				Map<String, String> fields = event.getKeyValuePairs().stream()
+					.collect(Collectors.toMap(
+						pair -> pair.key,
+						pair -> String.valueOf(pair.value)
+					));
+				assertThat(fields)
+					.containsEntry("endpoint", "/internal/ai/turn")
+					.containsEntry("status", "FAILED")
+					.containsEntry("category", "AUTH")
+					.containsEntry("errorCode", "INTERNAL_SERVER_ERROR")
+					.containsEntry("attempt", "1")
+					.containsEntry("retried", "false")
+					.containsKey("durationMs")
+					.containsEntry("turnId", "turn-structured-log")
+					.containsEntry("sessionId", "100");
+				assertThat(eventText(event)).doesNotContain(
+					INTERNAL_TOKEN,
+					"token mismatch",
+					"secret-value"
+				);
+			});
+	}
+
+	@Test
+	void retryLogsEachAttemptAndMarksTheRetriedCall() {
+		server.enqueue(jsonResponse(503, errorBody("INTERNAL", true)));
+		server.enqueue(jsonResponse(200, gradeSuccessBody()));
+		Logger logger = (Logger) LoggerFactory.getLogger(HttpAiClient.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			client(Duration.ofSeconds(1)).grade(gradeRequest());
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+
+		List<Map<String, String>> calls = appender.list.stream()
+			.filter(event -> event.getFormattedMessage().startsWith(
+				"AI service call"
+			))
+			.map(event -> event.getKeyValuePairs().stream()
+				.collect(Collectors.toMap(
+					pair -> pair.key,
+					pair -> String.valueOf(pair.value)
+				)))
+			.toList();
+		assertThat(calls).hasSize(2);
+		assertThat(calls.get(0))
+			.containsEntry("status", "FAILED")
+			.containsEntry("attempt", "1")
+			.containsEntry("retried", "false");
+		assertThat(calls.get(1))
+			.containsEntry("status", "SUCCESS")
+			.containsEntry("attempt", "2")
+			.containsEntry("retried", "true");
+	}
+
 	private HttpAiClient client(Duration readTimeout) {
 		return new HttpAiClient(properties(server.url("/").uri(), readTimeout));
 	}
@@ -440,6 +530,7 @@ class HttpAiClientContractTest {
 			baseUrl,
 			INTERNAL_TOKEN,
 			Duration.ofMillis(300),
+			readTimeout,
 			readTimeout,
 			readTimeout,
 			readTimeout,
@@ -636,5 +727,11 @@ class HttpAiClientContractTest {
 			  "traceId": "ai-trace"
 			}
 			""".formatted(category, retryable);
+	}
+
+	private String eventText(ILoggingEvent event) {
+		return event.getFormattedMessage()
+			+ event.getKeyValuePairs()
+			+ event.getMDCPropertyMap();
 	}
 }
