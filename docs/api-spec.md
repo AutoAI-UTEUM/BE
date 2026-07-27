@@ -308,6 +308,54 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 `conversationSummary`·`learnerMemoryDigest`는 **내부 AI 스냅샷 전용이며 세션 상세 응답에 포함하지 않습니다**(확정 — DEC-025의 내부 텍스트 비노출 원칙, 메모리 API의 "공개 가능한 요약만" 원칙과 정합). 서버는 내부 턴 스냅샷 구성에만 사용하고, 학습자에게 보여줄 개인화 요약은 `GET /api/users/me/memory`가 담당합니다.
 
+#### uiActions 위젯
+
+AI Service의 `uiActions`는 예약 필드이며 항상 빈 배열입니다. 위젯은 Spring이
+마지막 상태 전이에 따라 생성해 외부 응답에 포함합니다.
+
+서버가 발급하는 위젯 스키마는 다음 2종입니다.
+
+```json
+{
+  "type": "BINARY_DECISION",
+  "content": "퀴즈를 진행할까요?",
+  "yesEvent": "SHOW_QUIZ_TYPE_SELECT",
+  "noEvent": "MOVE_NEXT_PAGE"
+}
+```
+
+```json
+{
+  "type": "DIAGNOSIS_QUESTION",
+  "content": "왜 역수를 곱하는지가 막혔나요?",
+  "diagnosisId": 30
+}
+```
+
+- `BINARY_DECISION`: `{type, content, yesEvent, noEvent}`를 모두 포함합니다.
+- `DIAGNOSIS_QUESTION`: `{type, content, diagnosisId}`인 입력형 위젯이며
+  `yesEvent`·`noEvent`를 포함하지 않습니다.
+- `QUIZ_TYPE_SELECT`: FE 로컬 전용 타입입니다. 서버는 이 타입을 발급하거나
+  저장하지 않으며, 유형 선택 후 FE가 `QUIZ_TYPE_SELECTED` 턴을 보냅니다.
+
+위젯 생성 규칙은 다음과 같습니다.
+
+| 규칙 | 마지막 상태 전이 | 생성 위젯·동작 |
+| --- | --- | --- |
+| W1 | 세션 최초 생성 | `BINARY_DECISION("강의를 시작할까요?", EXPLAIN_CURRENT_PAGE, WAIT)` |
+| W2 | 페이지 이동 완료 | `BINARY_DECISION("현재 페이지를 설명할까요?", EXPLAIN_CURRENT_PAGE, WAIT)` |
+| W3 | 현재 페이지 설명 완료 | `BINARY_DECISION("퀴즈를 진행할까요?", SHOW_QUIZ_TYPE_SELECT, MOVE_NEXT_PAGE)` |
+| W4 | W3의 yes 선택 | FE가 로컬 `QUIZ_TYPE_SELECT`를 표시하고 선택값으로 `QUIZ_TYPE_SELECTED` 턴 호출 |
+| W5 | 퀴즈 제출 파이프라인 완료 후 다음 학습 가능 | 마지막 페이지가 아니면 `BINARY_DECISION("다음 페이지로 이동할까요?", MOVE_NEXT_PAGE, WAIT)`. 마지막 페이지면 `BINARY_DECISION("학습을 완료할까요?", COMPLETE_SESSION, WAIT)`이며 yes 선택 시 FE가 `POST /api/sessions/{sessionId}/complete` 호출 |
+| W6 | 기준 미달이고 진단 생성 성공 | `DIAGNOSIS_QUESTION(content, diagnosisId)` |
+| W7 | 진단 답변의 교정 완료 | W5와 같은 다음 페이지/마지막 페이지 완료 분기 |
+
+한 응답에서 여러 상태가 연속으로 바뀌어도 위젯은 **마지막 상태 전이 1개에
+대해서만** 생성합니다. 재진입 복원 대상은 Spring이 발급·저장한 위젯만입니다.
+W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위젯으로 복원합니다.
+`MOVE_NEXT_PAGE`는 turns 이벤트가 아니라 페이지 PATCH 호출,
+`COMPLETE_SESSION`은 turns 이벤트가 아니라 complete API 호출로 해석합니다.
+
 ### DELETE `/api/sessions/{sessionId}`
 
 세션을 논리 삭제(`status=DELETED`)합니다. 삭제된 세션은 목록·조회에서 제외하고, 이후 턴·페이지 이동·제출 요청은 `SESSION_NOT_ACTIVE`로 거부합니다. 진행 중 턴과 충돌하면 `SESSION_STATE_CONFLICT`를 반환합니다.

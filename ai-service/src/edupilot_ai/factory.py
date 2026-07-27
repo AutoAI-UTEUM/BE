@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
+import httpx
 from fastapi import FastAPI
 
 from edupilot_ai.api.extract import router as extract_router
@@ -12,6 +13,7 @@ from edupilot_ai.api.turn import router as turn_router
 from edupilot_ai.core.errors import register_exception_handlers
 from edupilot_ai.core.middleware import InternalTokenMiddleware
 from edupilot_ai.llm.bridge import LlmBridge
+from edupilot_ai.llm.xai import XaiLlmBridge
 from edupilot_ai.settings import Settings
 
 
@@ -32,11 +34,24 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        owned_http_client: httpx.AsyncClient | None = None
+        bridge = resolved_dependencies.llm_bridge
+        if bridge is None:
+            owned_http_client = httpx.AsyncClient()
+            bridge = XaiLlmBridge(
+                client=owned_http_client,
+                api_key=resolved_settings.xai_api_key,
+                timeout_seconds=resolved_settings.turn_timeout_seconds,
+            )
         app.state.settings = resolved_settings
-        app.state.llm_bridge = resolved_dependencies.llm_bridge
-        yield
-        del app.state.llm_bridge
-        del app.state.settings
+        app.state.llm_bridge = bridge
+        try:
+            yield
+        finally:
+            if owned_http_client is not None:
+                await owned_http_client.aclose()
+            del app.state.llm_bridge
+            del app.state.settings
 
     app = FastAPI(
         title="EduPilot AI Service",

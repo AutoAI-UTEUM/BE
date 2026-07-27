@@ -104,6 +104,18 @@ class Settings(BaseSettings):
         default=None,
         validation_alias="AGENT_TEMPERATURE",
     )
+    orchestrator_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.LOW,
+        validation_alias="ORCHESTRATOR_REASONING_EFFORT",
+    )
+    explainer_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.MEDIUM,
+        validation_alias="EXPLAINER_REASONING_EFFORT",
+    )
+    qa_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.MEDIUM,
+        validation_alias="QA_REASONING_EFFORT",
+    )
 
     @property
     def agent_llm_profile(self) -> AgentLlmProfile:
@@ -114,6 +126,29 @@ class Settings(BaseSettings):
             max_tokens=self.agent_max_tokens,
             temperature=self.agent_temperature,
         )
+
+    def _profile(self, effort: ReasoningEffort) -> AgentLlmProfile:
+        return AgentLlmProfile(
+            model=self.model_name,
+            reasoning_effort=effort,
+            max_tokens=self.agent_max_tokens,
+            temperature=self.agent_temperature,
+        )
+
+    @property
+    def orchestrator_llm_profile(self) -> AgentLlmProfile:
+        """Build the low-latency Plan profile."""
+        return self._profile(self.orchestrator_reasoning_effort)
+
+    @property
+    def explainer_llm_profile(self) -> AgentLlmProfile:
+        """Build the interactive explanation profile."""
+        return self._profile(self.explainer_reasoning_effort)
+
+    @property
+    def qa_llm_profile(self) -> AgentLlmProfile:
+        """Build the interactive question-answering profile."""
+        return self._profile(self.qa_reasoning_effort)
 
     @property
     def upload_max_bytes(self) -> int:

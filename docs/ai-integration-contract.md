@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 상태 | 초안 v0.4 — 잔여 확정 항목 해소 (메모리 스코프·이벤트 정리·타임아웃·SSE 세부·usage) |
+| 상태 | v0.4 — #27 서면 확정 반영 |
 | 작성일 | 2026-07-23 |
 | 역할 | Epic5 ⓐ(#27 턴 계약)·Epic6 ⓐ(퀴즈 계약)·Epic7 ⓐ(평가·진단·메모리 계약)의 AI측 상위 기준 문서 |
 | 선행 결정 | DEC-002 v2(모델), DEC-006(추출 책임), DEC-013(SSE 기본, 세부 잔여), DEC-014(X-Internal-Token), DEC-022(하이브리드) |
@@ -96,7 +96,21 @@
   "schemaVersion": "1.0",
   "turnId": "turn-123",
   "turnGoal": "ANSWER_USER_QUESTION",
-  "actionsExecuted": [ { "actionId": "action-1", "agent": "QaAgent", "status": "SUCCESS" } ],
+  "actionsExecuted": [
+    {
+      "actionId": "action-1",
+      "agent": "QaAgent",
+      "status": "SUCCESS",
+      "adjustments": [
+        {
+          "field": "page",
+          "from": 2,
+          "to": 3,
+          "reason": "PAGE_MISMATCH_CORRECTED"
+        }
+      ]
+    }
+  ],
   "messages": [ { "messageType": "QA", "content": "..." } ],
   "statePatch": {},
   "uiActions": [],
@@ -107,9 +121,17 @@
 ```
 
 - `messageType`: `EXPLANATION | QA | DIAGNOSIS | REPAIR | SYSTEM` `[Epic5 ⓐ에서 확정]`
+- `actionsExecuted[].adjustments`: Policy가 Plan을 보정한 경우에만 포함하는 선택
+  필드입니다. 각 항목은 `{field, from, to, reason}`이며 보정이 없으면 필드를
+  생략합니다. `reason`은 자유 문자열로 Spring이 enum 검증 없이 저장합니다.
+  초기 reason 값은 `PAGE_MISMATCH_CORRECTED`,
+  `EVENT_PAYLOAD_MISMATCH_CORRECTED`입니다.
 - `usage`: **채택 확정** — 모든 내부 응답의 표준 선택 필드 (reasoningTokens 포함, 미제공 시 null). Spring은 로그로만 수집(DB 저장 없음) — DEC-002 비용 트리거(월 $150) 판단 데이터.
 - 퀴즈 생성 결과는 `actionsExecuted[].artifacts.quizGeneration`에 둡니다. Spring은 이를 검증·저장한 뒤 자체 발급한 quiz ID만 `state.activeQuizId`로 반환합니다.
 - `memoryWrite`는 최상위 nullable 필드입니다. Spring은 턴 핵심 저장 커밋 후 별도 트랜잭션에서 반복 근거·confidence 정책을 검증해 승격합니다.
+- `uiActions`: 예약 필드이며 AI Service는 항상 `[]`을 반환합니다. Spring은
+  비어 있지 않은 값이 오면 무시하고 경고 로그를 남깁니다. 사용자 위젯은
+  Spring이 [API 명세](api-spec.md) §5 규칙표에 따라 생성합니다.
 
 ### 3.4 statePatch 허용목록 (api-spec §10 표와 동일 — Spring이 이외 전부 거부)
 
@@ -118,11 +140,28 @@
 | `pageStatus` | `EXPLAINING, EXPLAINED, QUIZ_READY, DIAGNOSIS_PENDING, REPAIR_COMPLETED` | `NOT_EXPLAINED` 역전이는 페이지 이동(StateReducer)만 |
 | `activeQuizId` | 퀴즈 ID 또는 null | 생성 턴에서 설정, 제출 완료 시 Spring 해제 |
 | `pendingDiagnosis` | 진단 참조 또는 null | 해제는 교정 완료 턴에서만 |
-| `qaThread` | `{ "mode": "START_NEW"\|"FOLLOW_UP", "threadRef": ... }` | Orchestrator 스레드 결정 반영 |
+| `qaThread` | `START_NEW`: `{ "mode": "START_NEW" }`; `FOLLOW_UP`: `{ "mode": "FOLLOW_UP", "threadRef": "qa-{id}" }` | `threadRef`는 Spring이 `qa-{id}` 형식으로 발급. START_NEW에는 포함하지 않고, FOLLOW_UP은 스냅샷 `qaThreadDigest.threadRef`를 그대로 반환 |
 
 - 세션 `status` 전이는 statePatch 불허 (외부 API 전용).
 
-### 3.5 턴 내부 파이프라인 (FastAPI)
+### 3.5 Policy 보정·거부 규칙
+
+Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니다.
+
+| 구분 | 규칙 |
+| --- | --- |
+| 보정 허용 | `page`가 스냅샷과 다르면 `currentPage`로 교정하고 adjustment 기록 |
+| 보정 허용 | `detailLevel`이 이벤트 payload와 다르면 payload 값으로 교정하고 adjustment 기록 |
+| 보정 허용 | 도구별 허용 args 외의 여분 키는 통지 없이 제거 |
+| 반드시 거부 | 이벤트와 도구의 불일치 |
+| 반드시 거부 | 결정적 파이프라인 전용 도구 사용 |
+| 반드시 거부 | `FOLLOW_UP`인데 `qaThreadDigest`가 없음 |
+| 반드시 거부 | Plan의 `threadRef`가 스냅샷 값과 다른 위조 |
+
+보정은 허용된 입력을 계약값으로 정규화하는 것에 한정하며, 거부 대상의 의미를
+바꾸어 실행하는 용도로 사용하지 않습니다.
+
+### 3.6 턴 내부 파이프라인 (FastAPI)
 
 ```
 스냅샷 → ContextBuilder → Orchestrator(Grok structured output, Plan)
@@ -147,7 +186,12 @@
 | quiz-assessment / diagnosis | 45s | 구조화 출력 단건 |
 | extract | 120s | 45MB·300p 상한 (실측 후 조정 — #5 체크리스트) |
 
-- **재시도**: `retryable=true`인 category(TIMEOUT, INTERNAL 일부)만 Spring이 최대 1회. SCHEMA는 FastAPI 내부 1회 재생성으로 소진했으므로 Spring 재시도 없음. 부분 결과 반환 금지(전부 아니면 실패).
+- **재시도**: provider 어댑터는 자동 재시도하지 않습니다. SCHEMA는
+  Orchestrator의 1회 재생성으로 재시도 예산을 소진합니다. Spring은
+  `retryable=true`인 오류만 최대 1회 재시도하며, `retryable=false`는
+  재시도하지 않습니다. 부분 결과 반환은 금지합니다(전부 아니면 실패).
+- **turn 총 시간**: Plan·Agent 호출을 모두 포함해 180초 이내입니다. 호출별
+  남은 시간 예산 분배는 스트리밍 이슈 #25에서 구현합니다.
 
 ## 5. 스트림 이벤트 (표준 5+1종 — DEC-013 세부는 Epic5 ⓐ에서 마감)
 
@@ -199,7 +243,25 @@
 - 전 에이전트 공통 grok-4.5 dated 버전 고정(`MODEL_NAME`), 미발행 시 alias + golden 표류 감지. 매 응답 `model` 필드 대조 assertion.
 - `reasoning_effort`: Plan·설명·QA·퀴즈 생성 = low~medium (자유 턴 첫 토큰 p50 5초 예산), 채점·평가·진단 = high.
 - 전 출력 `response_format: json_schema` 강제. `AgentLlmProfile { model, reasoningEffort, maxTokens, temperature? }` config 관리.
-- env: `XAI_API_KEY`, `MODEL_NAME`, `EDUPILOT_INTERNAL_TOKEN` (+타임아웃 계열은 §4 확정치).
+환경 변수는 다음 이름과 기본값을 계약으로 사용합니다.
+
+| 환경 변수 | 기본값 | 용도 |
+| --- | --- | --- |
+| `EDUPILOT_INTERNAL_TOKEN` | 없음(필수) | Spring↔AI 내부 인증 |
+| `XAI_API_KEY` | 없음(필수) | xAI API 인증 |
+| `MODEL_NAME` | `grok-4.5` | 공통 모델명 |
+| `TURN_TIMEOUT_SECONDS` | `180` | turn 총 시간 |
+| `TURN_FIRST_EVENT_TIMEOUT_SECONDS` | `30` | 스트림 첫 이벤트 |
+| `GRADE_TIMEOUT_SECONDS` | `90` | grade |
+| `QUIZ_ASSESSMENT_TIMEOUT_SECONDS` | `45` | quiz-assessment |
+| `DIAGNOSIS_TIMEOUT_SECONDS` | `45` | diagnosis |
+| `EXTRACT_TIMEOUT_SECONDS` | `120` | extract |
+| `AGENT_REASONING_EFFORT` | `medium` | 기본 Agent 프로필 |
+| `AGENT_MAX_TOKENS` | `16384` | 기본 최대 출력 토큰 |
+| `AGENT_TEMPERATURE` | `null` | 선택적 temperature |
+| `ORCHESTRATOR_REASONING_EFFORT` | `low` | Orchestrator 프로필 |
+| `EXPLAINER_REASONING_EFFORT` | `medium` | ExplainerAgent 프로필 |
+| `QA_REASONING_EFFORT` | `medium` | QaAgent 프로필 |
 
 ## 8. 확정 로그 및 문서 반영 대기
 

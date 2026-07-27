@@ -124,6 +124,16 @@
 | `AI_POLICY_REJECTED` | 502 또는 409 | Plan 정책 검증 실패 — 현재 세션 상태에서 허용되지 않는 요청이 원인이면 409, AI가 생성한 Plan 자체가 정책·스키마를 위반하면 502 |
 | `AI_STREAM_INTERRUPTED` | 502/504 | 스트림 비정상 종료 — 중계/응답 오류로 끊기면 502, 시간 초과로 끊기면 504 |
 
+FastAPI 내부 API가 직접 반환하는 현재 오류 code는 다음 3종입니다.
+
+| code | HTTP | category | 의미 |
+| --- | ---: | --- | --- |
+| `AI_INTERNAL_AUTH_FAILED` | 401 | `AUTH` | `X-Internal-Token` 누락 또는 불일치 |
+| `AI_REQUEST_INVALID` | 422 | `SCHEMA` | 내부 요청 body·DTO 검증 실패 |
+| `AI_INTERNAL_ERROR` | 500 | `INTERNAL` | 분류되지 않은 AI Service 내부 오류 |
+
+새 오류 code는 구현보다 먼저 이 문서에 추가합니다.
+
 ## 4. FE 처리 기준
 
 | 범주 | 처리 |
@@ -141,4 +151,3 @@ FE는 `message` 문자열을 파싱하지 않고 `code`로 분기합니다.
 - 서버 로그에는 `traceId`, 사용자/세션의 안전한 식별자, 에러 코드, 처리 구간을 남깁니다.
 - 비밀번호, JWT, Grok(xAI) API Key, 전체 PDF 텍스트, 학생 답안 원문은 기본 오류 로그에 남기지 않습니다.
 - AI 원문 로깅이 꼭 필요하면 마스킹, 접근 통제, 보관 기간을 먼저 결정합니다.
-
