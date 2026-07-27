@@ -54,7 +54,10 @@ class QaAgent:
                 agent="QaAgent",
                 message=Message(
                     message_type="QA",
-                    content="The supplied page context is insufficient to answer this question.",
+                    content=(
+                        "제공된 강의 자료만으로는 이 질문에 답하기 어렵습니다. "
+                        "현재 페이지와 관련된 질문으로 다시 물어봐 주세요."
+                    ),
                 ),
                 state_patch={"qaThread": {"mode": mode.value, "threadRef": thread_ref}},
                 usage=LlmUsage(self._profile.model, 0, 0, None),

@@ -104,9 +104,9 @@ class ToolDispatcher:
             )
             return await self._qa.run(context, mode, thread_ref)
         if action.tool.value.startswith("GENERATE_QUIZ_"):
-            return self._stub("QuizAgent", "Quiz generation remains deferred to issue #31.")
+            return self._stub("QuizAgent", "퀴즈 생성 기능은 준비 중입니다. (이슈 #31)")
         if action.tool is ToolName.REPAIR_MISCONCEPTION:
-            return self._stub("RepairAgent", "Repair remains deferred to issue #38.")
+            return self._stub("RepairAgent", "오개념 교정 기능은 준비 중입니다. (이슈 #38)")
         raise PolicyViolation("tool is not implemented in issue #23")
 
     def _stub(self, agent: str, content: str) -> AgentResult:

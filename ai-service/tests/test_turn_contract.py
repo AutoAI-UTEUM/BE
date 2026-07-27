@@ -155,7 +155,10 @@ async def test_qa_insufficient_evidence_does_not_call_agent_llm(
     response = await post_turn(client, auth_headers, payload)
 
     assert response.status_code == 200
-    assert "insufficient" in response.json()["messages"][0]["content"]
+    assert response.json()["messages"][0]["content"] == (
+        "제공된 강의 자료만으로는 이 질문에 답하기 어렵습니다. "
+        "현재 페이지와 관련된 질문으로 다시 물어봐 주세요."
+    )
     assert len(fake_llm.calls) == 1
 
 
@@ -345,13 +348,14 @@ async def test_event_payload_mismatch_returns_schema_envelope(
 
 
 @pytest.mark.parametrize(
-    ("event", "tool", "args", "agent"),
+    ("event", "tool", "args", "agent", "content"),
     [
         (
             {"eventType": "QUIZ_TYPE_SELECTED", "payload": {"quizType": "MCQ"}},
             ToolName.GENERATE_QUIZ_MCQ,
             {"quizType": "MCQ"},
             "QuizAgent",
+            "퀴즈 생성 기능은 준비 중입니다. (이슈 #31)",
         ),
         (
             {
@@ -361,6 +365,7 @@ async def test_event_payload_mismatch_returns_schema_envelope(
             ToolName.REPAIR_MISCONCEPTION,
             {"diagnosisId": 30},
             "RepairAgent",
+            "오개념 교정 기능은 준비 중입니다. (이슈 #38)",
         ),
     ],
 )
@@ -373,6 +378,7 @@ async def test_deferred_turns_remain_stubs(
     tool: ToolName,
     args: dict[str, object],
     agent: str,
+    content: str,
 ) -> None:
     payload = deepcopy(turn_payload)
     payload["event"] = event
@@ -382,6 +388,7 @@ async def test_deferred_turns_remain_stubs(
 
     assert response.status_code == 200
     assert response.json()["actionsExecuted"][0]["agent"] == agent
+    assert response.json()["messages"][0]["content"] == content
     assert len(fake_llm.calls) == 1
 
 
