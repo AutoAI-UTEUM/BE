@@ -2,20 +2,26 @@ package io.edupilot.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import io.edupilot.ai.AiClient;
+import io.edupilot.ai.AiClientException;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.memory.LearnerMemoryPromotionService;
 import io.edupilot.session.dto.TurnRequest;
 import io.edupilot.session.dto.TurnResponse;
 import io.edupilot.session.dto.TurnStateResponse;
@@ -28,74 +34,92 @@ class SessionTurnServiceTest {
 
 	@Mock
 	private TurnClaimService claimService;
-
+	@Mock
+	private TurnPreparationService preparationService;
+	@Mock
+	private TurnSnapshotService snapshotService;
+	@Mock
+	private AiClient aiClient;
+	@Mock
+	private TurnResponseValidator responseValidator;
 	@Mock
 	private TurnPersistenceService persistenceService;
+	@Mock
+	private LearnerMemoryPromotionService memoryPromotionService;
 
 	@Test
-	void futureQuizAndDiagnosisEventsUseStubBoundaryAndAlwaysRelease() throws Exception {
-		SessionTurnService service = new SessionTurnService(
-			claimService,
-			persistenceService
-		);
-		TurnResponse response = new TurnResponse(
-			"stub:request-1",
-			100L,
-			List.of(),
-			List.of(),
-			new TurnStateResponse(1, PageStatus.NOT_EXPLAINED)
-		);
-		when(persistenceService.persist(
+	void retryableFailureUsesNewTurnIdAndAlwaysReleases() throws Exception {
+		when(preparationService.prepare(
 			1L,
 			100L,
 			"request-1",
-			"퀴즈 유형 선택: MCQ",
+			"질문",
 			null
-		)).thenReturn(response);
+		)).thenReturn(new PreparedTurn(501L));
+		when(snapshotService.build(1L, 100L, 501L))
+			.thenReturn(new TurnSnapshot(
+				Map.of("sessionId", 100L),
+				Map.of(),
+				10L
+			));
+		io.edupilot.ai.dto.TurnResponse aiResponse = aiResponse("ignored");
+		when(aiClient.executeTurn(any()))
+			.thenThrow(new AiClientException(
+				ErrorCode.AI_SERVICE_UNAVAILABLE,
+				true,
+				null
+			))
+			.thenAnswer(invocation -> {
+				io.edupilot.ai.dto.TurnRequest aiRequest =
+					invocation.getArgument(0);
+				return aiResponse(aiRequest.turnId());
+			});
+		TurnResponse publicResponse = new TurnResponse(
+			"successful-turn",
+			100L,
+			List.of(),
+			List.of(),
+			new TurnStateResponse(1, PageStatus.EXPLAINED, null)
+		);
+		when(persistenceService.persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		)).thenReturn(new PersistedTurn(publicResponse, null, 10L));
 
-		var actual = service.execute(
+		TurnResponse actual = service().execute(
 			1L,
 			100L,
 			new TurnRequest(
 				"request-1",
-				"QUIZ_TYPE_SELECTED",
-				objectMapper.readTree("{\"quizType\":\"MCQ\"}")
+				"USER_QUESTION",
+				objectMapper.readTree("{\"message\":\"질문\"}")
 			)
 		);
 
-		assertThat(actual).isEqualTo(response);
+		assertThat(actual).isSameAs(publicResponse);
+		ArgumentCaptor<io.edupilot.ai.dto.TurnRequest> requests =
+			ArgumentCaptor.forClass(
+				io.edupilot.ai.dto.TurnRequest.class
+			);
+		verify(aiClient, org.mockito.Mockito.times(2))
+			.executeTurn(requests.capture());
+		assertThat(requests.getAllValues())
+			.extracting(io.edupilot.ai.dto.TurnRequest::turnId)
+			.doesNotHaveDuplicates();
 		verify(claimService).claim(1L, 100L, "request-1");
 		verify(claimService).release(100L, "request-1");
-
-		when(persistenceService.persist(
-			1L,
-			100L,
-			"request-2",
-			"답변",
-			30L
-		))
-			.thenReturn(response);
-		service.execute(
-			1L,
-			100L,
-			new TurnRequest(
-				"request-2",
-				"DIAGNOSIS_ANSWER_SUBMITTED",
-				objectMapper.readTree("{\"diagnosisId\":30,\"answer\":\"답변\"}")
-			)
-		);
-		verify(claimService).release(100L, "request-2");
 	}
 
 	@Test
-	void rejectsUnknownEventAndMalformedPayloadBeforeClaim() throws Exception {
-		SessionTurnService service = new SessionTurnService(
-			claimService,
-			persistenceService
-		);
-
+	void rejectsUnknownEventAndMalformedPayloadBeforeClaim()
+		throws Exception {
 		assertError(
-			() -> service.execute(
+			() -> service().execute(
 				1L,
 				100L,
 				new TurnRequest(
@@ -107,7 +131,7 @@ class SessionTurnServiceTest {
 			ErrorCode.UNSUPPORTED_EVENT_TYPE
 		);
 		assertError(
-			() -> service.execute(
+			() -> service().execute(
 				1L,
 				100L,
 				new TurnRequest(
@@ -122,6 +146,33 @@ class SessionTurnServiceTest {
 			org.mockito.ArgumentMatchers.anyLong(),
 			org.mockito.ArgumentMatchers.anyLong(),
 			anyString()
+		);
+	}
+
+	private SessionTurnService service() {
+		return new SessionTurnService(
+			claimService,
+			preparationService,
+			snapshotService,
+			aiClient,
+			responseValidator,
+			persistenceService,
+			memoryPromotionService
+		);
+	}
+
+	private io.edupilot.ai.dto.TurnResponse aiResponse(String turnId) {
+		return new io.edupilot.ai.dto.TurnResponse(
+			"1.0",
+			turnId,
+			"ANSWER_USER_QUESTION",
+			List.of(),
+			List.of(),
+			Map.of(),
+			List.of(),
+			List.of(),
+			null,
+			null
 		);
 	}
 

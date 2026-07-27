@@ -88,6 +88,9 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 
 ## 7. Migration 및 seed 원칙
 
+- `V7__turn_integration.sql`은 `qa_threads`, `qa_messages`를 생성하고 `chat_messages.message_type`에 `SYSTEM`을 추가합니다.
+- QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
+- 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.
 - 운영 스키마 변경은 수동 DDL이 아니라 migration 파일로만 수행합니다.
 - 이미 적용된 migration은 수정하지 않고 새 migration을 추가합니다.
 - 파괴적 변경은 데이터 백필, 호환 배포, 롤백 계획을 함께 작성합니다.

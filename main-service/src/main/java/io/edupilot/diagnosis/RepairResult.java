@@ -72,4 +72,16 @@ public class RepairResult {
 			new RepairResultData("1.0", repairContent)
 		);
 	}
+
+	public Long getDiagnosisId() {
+		return diagnosis.getId();
+	}
+
+	public String getRepairContent() {
+		return repairContent;
+	}
+
+	public Instant getCreatedAt() {
+		return createdAt;
+	}
 }

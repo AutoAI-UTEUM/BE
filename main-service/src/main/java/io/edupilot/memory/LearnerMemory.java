@@ -131,6 +131,10 @@ public class LearnerMemory {
 		return memoryDigest;
 	}
 
+	public String getTargetDifficulty() {
+		return targetDifficulty;
+	}
+
 	public Instant getUpdatedAt() {
 		return updatedAt;
 	}

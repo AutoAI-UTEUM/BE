@@ -83,8 +83,9 @@ erDiagram
 ### QaThread / QaMessage
 
 - 같은 페이지/설명/교정 문맥의 이어지는 질문을 묶습니다.
-- 한 세션에서 활성 스레드를 하나로 제한할지 여부는 TBD입니다.
-- `START_NEW` 이벤트 시 기존 활성 스레드를 닫는 정책을 기본으로 합니다.
+- 한 세션의 활성 스레드는 하나로 운영합니다. `START_NEW`는 기존 ACTIVE 스레드를 `CLOSED`로 바꾸고 새 스레드를 생성합니다.
+- `FOLLOW_UP`은 같은 세션의 ACTIVE `qa-{id}`만 허용하며 타 세션·종료 스레드 참조는 정책 위반으로 거부합니다.
+- AI 호출 전에 저장된 사용자 메시지와 최종 저장된 QA 메시지를 `qa_messages.chat_message_id`로 연결합니다.
 
 ### Quiz
 

@@ -128,6 +128,22 @@ public class LearningSession {
 		}
 	}
 
+	public void applyAiTurn(
+		PageStatus nextPageStatus,
+		List<UiAction> uiActions
+	) {
+		if (nextPageStatus != null) {
+			this.pageStatus = nextPageStatus;
+		}
+		this.lastUiActions = List.copyOf(uiActions);
+	}
+
+	public void activateQuiz(Long quizId, List<UiAction> uiActions) {
+		this.activeQuizId = Objects.requireNonNull(quizId);
+		this.pageStatus = PageStatus.QUIZ_READY;
+		this.lastUiActions = List.copyOf(uiActions);
+	}
+
 	public void delete() {
 		this.status = SessionStatus.DELETED;
 		this.activeTurnRequestId = null;

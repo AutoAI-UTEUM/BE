@@ -70,6 +70,8 @@ FE가 낙관적으로 페이지를 먼저 움직이더라도 실패 시 Spring �
 
 `DIAGNOSIS_QUESTION`은 `{ "type": "DIAGNOSIS_QUESTION", "content": "<diagnosticPrompt>", "diagnosisId": 30 }` 형식입니다. FE는 `content`를 질문 본문으로 표시하고 답변 제출 시 같은 `diagnosisId`를 `DIAGNOSIS_ANSWER_SUBMITTED` payload에 포함합니다. 이 액션에는 `yesEvent`·`noEvent`가 없습니다.
 
+turn 응답의 `state.activeQuizId`는 nullable입니다. 퀴즈 생성 턴에서는 Spring이 저장한 quiz ID이며 FE는 `GET /api/quizzes/{quizId}`로 공개 문항을 조회합니다. 일반 설명·QA·교정 턴에서는 현재 세션의 값을 그대로 반환합니다.
+
 ## 4. FE가 의존하면 안 되는 정보
 
 - FastAPI 내부 엔드포인트
