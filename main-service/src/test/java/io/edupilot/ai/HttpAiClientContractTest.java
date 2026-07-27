@@ -19,7 +19,10 @@ import org.slf4j.MDC;
 import org.springframework.core.io.ByteArrayResource;
 
 import io.edupilot.ai.dto.TurnRequest;
+import io.edupilot.ai.dto.DiagnosisRequest;
 import io.edupilot.ai.dto.GradeRequest;
+import io.edupilot.ai.dto.QuizAssessmentRequest;
+import io.edupilot.ai.dto.QuizAssessmentResponse;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
 import okhttp3.mockwebserver.MockResponse;
@@ -150,6 +153,90 @@ class HttpAiClientContractTest {
 
 		assertThatThrownBy(() ->
 			client(Duration.ofMillis(100)).grade(gradeRequest()))
+			.isInstanceOfSatisfying(AiClientException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT)
+			);
+		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
+	@Test
+	void assessmentUsesDedicatedContractAndValidatesNumericConfidence()
+		throws Exception {
+		server.enqueue(jsonResponse(200, assessmentSuccessBody()));
+
+		var response = client(Duration.ofSeconds(1))
+			.quizAssessment(assessmentRequest());
+
+		assertThat(response.memoryCandidates())
+			.singleElement()
+			.extracting(QuizAssessmentResponse.MemoryCandidate::confidence)
+			.isEqualTo(new BigDecimal("0.80"));
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getPath()).isEqualTo(
+			"/internal/ai/quiz-assessment"
+		);
+		assertThat(request.getBody().readUtf8())
+			.contains("\"schemaVersion\":\"1.0\"")
+			.contains("\"quizResult\"")
+			.contains("\"studentAnswers\"");
+	}
+
+	@Test
+	void assessmentRetriesRetryableInternalErrorOnce() {
+		server.enqueue(jsonResponse(503, errorBody("INTERNAL", true)));
+		server.enqueue(jsonResponse(200, assessmentSuccessBody()));
+
+		client(Duration.ofSeconds(1)).quizAssessment(assessmentRequest());
+
+		assertThat(server.getRequestCount()).isEqualTo(2);
+	}
+
+	@Test
+	void assessmentRejectsConfidenceOutsideZeroToOne() {
+		server.enqueue(jsonResponse(200, assessmentSuccessBody()
+			.replace("\"confidence\": 0.80", "\"confidence\": 1.10")));
+
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1))
+			.quizAssessment(assessmentRequest()))
+			.isInstanceOfSatisfying(AiClientException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.AI_RESPONSE_INVALID)
+			);
+		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
+	@Test
+	void diagnosisUsesDedicatedContractAndRejectsBlankPrompt()
+		throws Exception {
+		server.enqueue(jsonResponse(200, diagnosisSuccessBody()));
+
+		var response = client(Duration.ofSeconds(1))
+			.diagnosis(diagnosisRequest());
+
+		assertThat(response.diagnosticPrompt()).contains("막혔나요");
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getPath()).isEqualTo("/internal/ai/diagnosis");
+
+		server.enqueue(jsonResponse(200, diagnosisSuccessBody()
+			.replace(
+				"\"왜 역수를 곱하는지가 막혔나요?\"",
+				"\" \""
+			)));
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1))
+			.diagnosis(diagnosisRequest()))
+			.isInstanceOf(AiClientException.class);
+	}
+
+	@Test
+	void pipelineTransportTimeoutIsNotRetried() {
+		server.enqueue(jsonResponse(200, assessmentSuccessBody())
+			.setBodyDelay(500, TimeUnit.MILLISECONDS));
+
+		assertThatThrownBy(() -> client(Duration.ofMillis(100))
+			.quizAssessment(assessmentRequest()))
 			.isInstanceOfSatisfying(AiClientException.class, exception ->
 				assertThat(exception.errorCode())
 					.isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT)
@@ -356,6 +443,7 @@ class HttpAiClientContractTest {
 			readTimeout,
 			readTimeout,
 			readTimeout,
+			readTimeout,
 			"/health"
 		);
 	}
@@ -391,6 +479,66 @@ class HttpAiClientContractTest {
 		);
 	}
 
+	private QuizAssessmentRequest assessmentRequest() {
+		return new QuizAssessmentRequest(
+			"1.0",
+			new QuizAssessmentRequest.QuizResult(
+				50L,
+				"SHORT",
+				new BigDecimal("4.00"),
+				new BigDecimal("10.00"),
+				false,
+				List.of(new QuizAssessmentRequest.ResultItem(
+					"q1",
+					new BigDecimal("4.00"),
+					new BigDecimal("10.00"),
+					"WRONG",
+					"개념을 다시 확인해 보세요."
+				))
+			),
+			List.of(new QuizAssessmentRequest.QuizItem(
+				"q1",
+				"문항",
+				"기준 답안",
+				new BigDecimal("10.00")
+			)),
+			List.of(new QuizAssessmentRequest.StudentAnswer(
+				"q1",
+				"학생 답안"
+			)),
+			new QuizAssessmentRequest.PageContext(1, 1, "페이지 문맥"),
+			null
+		);
+	}
+
+	private DiagnosisRequest diagnosisRequest() {
+		QuizAssessmentResponse assessment = new QuizAssessmentResponse(
+			"1.0",
+			"분수 나눗셈 이해가 부족합니다.",
+			List.of(),
+			List.of("역수 개념"),
+			List.of("절차만 암기함"),
+			"REVIEW",
+			List.of(),
+			List.of("q1 오답"),
+			null
+		);
+		return new DiagnosisRequest(
+			"1.0",
+			assessment,
+			assessmentRequest().quizResult(),
+			List.of(new DiagnosisRequest.WrongItem(
+				"q1",
+				"문항",
+				"학생 답안",
+				"기준 답안",
+				"개념을 다시 확인해 보세요."
+			)),
+			assessmentRequest().pageContext(),
+			null
+		);
+	}
+
 	private String gradeSuccessBody() {
 		return """
 			{
@@ -408,6 +556,42 @@ class HttpAiClientContractTest {
 			      "feedback": "정확합니다."
 			    }
 			  ],
+			  "usage": null
+			}
+			""";
+	}
+
+	private String assessmentSuccessBody() {
+		return """
+			{
+			  "schemaVersion": "1.0",
+			  "understandingSummary": "분수 나눗셈 이해가 부족합니다.",
+			  "strengths": [],
+			  "weaknesses": ["역수 개념"],
+			  "suspectedMisconceptions": ["절차만 암기함"],
+			  "recommendedNextDirection": "REVIEW",
+			  "memoryCandidates": [
+			    {
+			      "type": "WEAKNESS",
+			      "content": "역수의 의미를 어려워함",
+			      "confidence": 0.80
+			    }
+			  ],
+			  "evidence": ["q1 오답"],
+			  "usage": null
+			}
+			""";
+	}
+
+	private String diagnosisSuccessBody() {
+		return """
+			{
+			  "schemaVersion": "1.0",
+			  "focusConcepts": ["역수"],
+			  "suspectedMisconceptions": ["절차만 암기함"],
+			  "diagnosticPrompt": "왜 역수를 곱하는지가 막혔나요?",
+			  "evidence": ["q1 오답"],
+			  "repairHint": "나눗셈 상황과 연결",
 			  "usage": null
 			}
 			""";

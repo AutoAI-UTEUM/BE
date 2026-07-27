@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.session.dto.MessageResponse;
@@ -18,13 +19,16 @@ public class TurnPersistenceService {
 
 	private final LearningSessionRepository sessionRepository;
 	private final ChatMessageRepository messageRepository;
+	private final DiagnosisService diagnosisService;
 
 	public TurnPersistenceService(
 		LearningSessionRepository sessionRepository,
-		ChatMessageRepository messageRepository
+		ChatMessageRepository messageRepository,
+		DiagnosisService diagnosisService
 	) {
 		this.sessionRepository = sessionRepository;
 		this.messageRepository = messageRepository;
+		this.diagnosisService = diagnosisService;
 	}
 
 	@Transactional
@@ -32,7 +36,8 @@ public class TurnPersistenceService {
 		Long userId,
 		Long sessionId,
 		String requestId,
-		String userContent
+		String userContent,
+		Long diagnosisId
 	) {
 		LearningSession session = sessionRepository.findByIdAndUser_Id(sessionId, userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
@@ -41,6 +46,14 @@ public class TurnPersistenceService {
 		}
 		if (!requestId.equals(session.getActiveTurnRequestId())) {
 			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
+		}
+		if (diagnosisId != null) {
+			diagnosisService.answer(
+				userId,
+				sessionId,
+				diagnosisId,
+				userContent
+			);
 		}
 
 		messageRepository.saveAndFlush(

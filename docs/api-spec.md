@@ -430,32 +430,7 @@ Query:
 
 ### GET `/api/sessions/{sessionId}/quizzes`
 
-퀴즈 제목, 유형, 범위, 제출 상태, 점수 요약을 생성 시각 역순으로 최대 100건 반환합니다. MVP에서는 페이지네이션을 제공하지 않으며 정답/루브릭은 포함하지 않습니다.
-
-`data`:
-
-```json
-{
-  "quizzes": [
-    {
-      "quizId": 50,
-      "title": "선형회귀 핵심 확인",
-      "quizType": "MCQ",
-      "page": 3,
-      "coverageStartPage": 1,
-      "coverageEndPage": 3,
-      "questionCount": 5,
-      "submitted": true,
-      "score": 80.5,
-      "maxScore": 100.0,
-      "passed": true,
-      "createdAt": "2026-07-25T10:00:00Z"
-    }
-  ]
-}
-```
-
-`score`와 `maxScore`는 제출 전에는 `null`이며 제출 후 소수 둘째 자리까지 포함할 수 있습니다.
+퀴즈 제목, 유형, 범위, 제출 상태, 점수 요약을 반환합니다. 정답/루브릭은 포함하지 않습니다.
 
 ### POST `/api/sessions/{sessionId}/complete`
 
@@ -549,9 +524,19 @@ Query:
 }
 ```
 
-`passed`는 `score/maxScore >= 0.6`(설정 `EDUPILOT_QUIZ_PASS_RATIO` — DEC-010)로 계산합니다. 제출은 퀴즈당 1회로 제한하며 재제출은 `QUIZ_ALREADY_SUBMITTED`로 거부합니다(DEC-009). 저득점(기준 미달)이면 `uiActions`에 `DIAGNOSIS_QUESTION`과 `diagnosisId`가 포함될 수 있습니다. 채점/Assessment/Diagnosis를 한 동기 요청에서 모두 완료할지 비동기 상태로 분리할지는 성능 검증 후 확정합니다.
+`passed`는 `score/maxScore >= 0.6`(설정 `EDUPILOT_QUIZ_PASS_RATIO` — DEC-010)로 계산합니다. 재제출은 1회 제한이며 재요청은 `QUIZ_ALREADY_SUBMITTED`로 거부합니다(DEC-009).
 
-`score`와 `maxScore`는 `DECIMAL(10,2)` 기준이며 외부 응답에서도 소수 둘째 자리까지 포함할 수 있습니다.
+MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·채점·기본 UI 액션을 먼저 커밋한 다음, 같은 HTTP 요청 안에서 `quiz-assessment`를 항상 호출하고 기준 미달일 때만 `diagnosis`를 호출합니다. 외부 AI 호출 중에는 DB 트랜잭션을 유지하지 않습니다. 파이프라인 실패와 무관하게 저장된 제출·채점은 유지하고 HTTP 200과 기본 `MOVE_NEXT_PAGE` 액션을 반환합니다. assessment 실패 시 diagnosis는 호출하지 않으며, diagnosis 실패 시 이미 저장된 assessment는 유지합니다. AI 호출 뒤 저장 시점에 세션이 `COMPLETED` 또는 `DELETED`로 전이되었다면 늦게 도착한 assessment·diagnosis와 pending 상태·UI 액션을 폐기합니다.
+
+기준 미달 진단 응답의 UI 액션 계약은 다음과 같습니다. `yesEvent`·`noEvent` 같은 다른 액션용 nullable 필드는 노출하지 않습니다.
+
+```json
+{
+  "type": "DIAGNOSIS_QUESTION",
+  "content": "왜 역수를 곱하는지가 막혔나요?",
+  "diagnosisId": 30
+}
+```
 
 `uiActions`의 `MOVE_NEXT_PAGE`는 turns 이벤트가 아닙니다. FE는 이 액션 선택 시 `PATCH /api/sessions/{sessionId}/page`를 호출합니다(화면-API 매핑 §3 확정 규칙).
 
@@ -561,7 +546,23 @@ Query:
 
 학습자 메모리는 자료(material) 단위로 저장되므로(`learner_memories` `UK(user_id, material_id)`) `materialId` 쿼리 파라미터가 필수입니다. 해당 자료 스코프의 메모리 요약을 반환하며, 자료별 메모리가 없으면 빈 요약을 반환합니다.
 
-학습자에게 공개 가능한 요약만 반환합니다. 내부 근거 점수, 프롬프트, 시스템 판단 원문은 노출하지 않습니다. MVP 화면 필요성을 확인한 뒤 Must/Could 우선순위를 최종 결정합니다. 자료 범위를 넘어선 전역 프로필 제공 여부는 별도 결정 사항입니다.
+`data` (확정안 — 공개 가능 요약만):
+
+```json
+{
+  "materialId": 10,
+  "strengths": ["평균 개념을 정확히 사용함"],
+  "weaknesses": ["수식 전개 과정 설명"],
+  "explanationPreferences": ["쉬운 예시 중심 설명 선호"],
+  "preferredQuizTypes": ["MCQ"],
+  "memoryDigest": "수식 전개를 어려워하고 쉬운 예시를 선호함",
+  "updatedAt": "2026-07-10T09:00:00Z"
+}
+```
+
+- 메모리가 없으면 각 배열은 빈 배열, `memoryDigest`·`updatedAt`은 `null`인 빈 요약을 반환합니다(404 아님).
+- **비노출 필드(확정)**: `misconceptions`, `target_difficulty`, `next_coaching_goals`, confidence·`evidence_refs` 등 내부 근거와 시스템 판단 원문은 응답에 포함하지 않습니다 — 학습자 관점 요약(강점·약점·선호)과 digest만 공개합니다.
+- 자료 범위를 넘어선 전역 프로필 제공 여부는 별도 결정 사항입니다(DEC-023 대안 검토 연계).
 
 ## 8. Spring → FastAPI 내부 API
 

@@ -94,11 +94,13 @@ class MainServiceApplicationTests {
 	}
 
 	@Test
-	void quizDefaultsUseSixtyPercentAndNinetySecondGradeTimeout() {
+	void quizAndAiPipelineDefaultsMatchAcceptedContracts() {
 		assertThat(quizProperties.passRatio())
 			.isEqualByComparingTo(new BigDecimal("0.6"));
 		assertThat(aiClientProperties.gradeReadTimeout())
 			.isEqualTo(Duration.ofSeconds(90));
+		assertThat(aiClientProperties.pipelineReadTimeout())
+			.isEqualTo(Duration.ofSeconds(45));
 	}
 
 	@Test
@@ -148,6 +150,9 @@ class MainServiceApplicationTests {
 			).exists())
 			.andExpect(jsonPath(
 				"$.paths['/api/quizzes/{quizId}/submit'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/users/me/memory'].get"
 			).exists())
 			.andExpect(jsonPath("$.paths['/api/users/me'].delete").exists())
 			.andExpect(jsonPath("$.paths['/api/materials'].post").exists())

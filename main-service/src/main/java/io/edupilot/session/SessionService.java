@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialProcessingStatus;
@@ -33,19 +34,22 @@ public class SessionService {
 	private final UserRepository userRepository;
 	private final StateReducer stateReducer;
 	private final Clock clock;
+	private final DiagnosisService diagnosisService;
 
 	public SessionService(
 		LearningSessionRepository sessionRepository,
 		LearningMaterialRepository materialRepository,
 		UserRepository userRepository,
 		StateReducer stateReducer,
-		Clock clock
+		Clock clock,
+		DiagnosisService diagnosisService
 	) {
 		this.sessionRepository = sessionRepository;
 		this.materialRepository = materialRepository;
 		this.userRepository = userRepository;
 		this.stateReducer = stateReducer;
 		this.clock = clock;
+		this.diagnosisService = diagnosisService;
 	}
 
 	@Transactional
@@ -101,7 +105,15 @@ public class SessionService {
 
 	@Transactional(readOnly = true)
 	public SessionDetailResponse detail(Long userId, Long sessionId) {
-		return SessionDetailResponse.from(visibleOwnedSession(userId, sessionId));
+		LearningSession session = visibleOwnedSession(userId, sessionId);
+		return SessionDetailResponse.from(
+			session,
+			diagnosisService.findPending(
+					session.getId(),
+					session.getPendingDiagnosisId()
+				)
+				.orElse(null)
+		);
 	}
 
 	@Transactional

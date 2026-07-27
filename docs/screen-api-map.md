@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-07-21 |
+| 마지막 갱신 | 2026-07-26 |
 | 대상 | Frontend · Spring Backend |
 
 ## 1. 화면별 매핑
@@ -33,7 +33,7 @@
 | 채팅 | 진단 답변 제출 | 같은 turns API | 오개념 교정 답변 표시 | 진단 상태 충돌 |
 | 퀴즈 유형 선택 | MCQ/OX/SHORT/ESSAY 선택 | 같은 turns API | 응답의 `state.activeQuizId`로 퀴즈 문항 조회 후 UI 열기 | 지원하지 않는 타입 |
 | 퀴즈 풀이 | 문항 표시/새로고침 복원 | `GET /api/quizzes/{quizId}` | 공개 문항 렌더링 | 퀴즈 없음/세션 권한 |
-| 퀴즈 풀이 | 제출 | `POST /api/quizzes/{quizId}/submit` | 채점 결과 또는 진단 질문 | 중복 제출/답안 오류/AI 채점 오류 |
+| 퀴즈 풀이 | 제출 | `POST /api/quizzes/{quizId}/submit` | 동기 채점·평가 결과, 기준 미달이면 `DIAGNOSIS_QUESTION` 표시 | 중복 제출/답안 오류. 제출 후 AI 파이프라인 실패는 기본 이동 액션으로 격리 |
 | 학습 기록 | 퀴즈 탭 진입 | `GET /api/sessions/{sessionId}/quizzes` | 퀴즈/점수 요약 | 세션 권한 |
 | 학습 분석 | 메모리 화면 진입 | `GET /api/users/me/memory?materialId={materialId}` | 해당 자료의 공개 가능한 개인화 요약 | 데이터 없음 |
 | 학습 세션 | 종료 버튼 | `POST /api/sessions/{sessionId}/complete` | 완료 화면/목록 이동 | 이미 완료/상태 충돌 |
@@ -67,6 +67,8 @@ FE가 낙관적으로 페이지를 먼저 움직이더라도 실패 시 Spring �
 | 교정 내용 추가 질문 | `USER_QUESTION` 재사용 | `message` — 교정 문맥은 Spring이 서버 측에서 연결하므로 FE는 별도 표시가 필요 없음 |
 
 확정 규칙: `MOVE_NEXT_PAGE`는 turns 이벤트가 아니라 `PATCH /api/sessions/{sessionId}/page` 호출로 처리하고, 단순 `WAIT`는 API 호출 없이 FE 로컬로 처리합니다. `SHOW_QUIZ_TYPE_SELECT`는 FE 로컬 UI 표시(유형 선택 후 `QUIZ_TYPE_SELECTED` 전송)입니다.
+
+`DIAGNOSIS_QUESTION`은 `{ "type": "DIAGNOSIS_QUESTION", "content": "<diagnosticPrompt>", "diagnosisId": 30 }` 형식입니다. FE는 `content`를 질문 본문으로 표시하고 답변 제출 시 같은 `diagnosisId`를 `DIAGNOSIS_ANSWER_SUBMITTED` payload에 포함합니다. 이 액션에는 `yesEvent`·`noEvent`가 없습니다.
 
 ## 4. FE가 의존하면 안 되는 정보
 

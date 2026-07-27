@@ -12,6 +12,7 @@ edupilot:
     base-url: http://localhost:8000
     internal-token: test-internal-token
     extract-read-timeout: 120s
+    pipeline-read-timeout: 45s
   jwt:
     secret: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
     access-token-ttl: 1h
