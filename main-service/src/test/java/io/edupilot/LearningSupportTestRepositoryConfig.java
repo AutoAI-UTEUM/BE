@@ -10,6 +10,8 @@ import io.edupilot.diagnosis.DiagnosisRepository;
 import io.edupilot.diagnosis.RepairResultRepository;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
 import io.edupilot.memory.LearnerMemoryRepository;
+import io.edupilot.session.QaMessageRepository;
+import io.edupilot.session.QaThreadRepository;
 
 @Configuration
 @Profile("test")
@@ -38,5 +40,15 @@ class LearningSupportTestRepositoryConfig {
 	@Bean
 	LearnerMemoryCandidateRepository learnerMemoryCandidateRepository() {
 		return Mockito.mock(LearnerMemoryCandidateRepository.class);
+	}
+
+	@Bean
+	QaThreadRepository qaThreadRepository() {
+		return Mockito.mock(QaThreadRepository.class);
+	}
+
+	@Bean
+	QaMessageRepository qaMessageRepository() {
+		return Mockito.mock(QaMessageRepository.class);
 	}
 }

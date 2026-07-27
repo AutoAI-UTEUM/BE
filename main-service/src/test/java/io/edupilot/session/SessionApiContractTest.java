@@ -208,8 +208,8 @@ class SessionApiContractTest {
 		MessageResponse message = new MessageResponse(
 			501L,
 			SenderType.AI,
-			MessageType.TEXT,
-			"AI 연동 전 임시 응답",
+			MessageType.QA,
+			"질문에 대한 답변",
 			3,
 			NOW
 		);
@@ -218,11 +218,11 @@ class SessionApiContractTest {
 			org.mockito.ArgumentMatchers.eq(100L),
 			org.mockito.ArgumentMatchers.any()
 		)).thenReturn(new TurnResponse(
-			"stub:request-1",
+			"turn-123",
 			100L,
 			List.of(message),
 			List.of(),
-			new TurnStateResponse(3, PageStatus.EXPLAINED)
+			new TurnStateResponse(3, PageStatus.EXPLAINED, null)
 		));
 
 		mockMvc.perform(post("/api/sessions/100/turns")
@@ -236,9 +236,11 @@ class SessionApiContractTest {
 					}
 					"""))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.turnId").value("stub:request-1"))
+			.andExpect(jsonPath("$.data.turnId").value("turn-123"))
 			.andExpect(jsonPath("$.data.messages[0].requestId").doesNotExist())
-			.andExpect(jsonPath("$.data.messages[0].messageType").value("TEXT"));
+			.andExpect(jsonPath("$.data.messages[0].messageType").value("QA"))
+			.andExpect(jsonPath("$.data.state.activeQuizId")
+				.value(org.hamcrest.Matchers.nullValue()));
 
 		doThrow(new BusinessException(ErrorCode.VALIDATION_FAILED))
 			.when(messageService).messages(1L, 100L, "bad", 30);

@@ -19,3 +19,7 @@ edupilot:
     refresh-token-ttl: 14d
   storage:
     root-directory: build/test-storage
+
+logging:
+  level:
+    root: INFO

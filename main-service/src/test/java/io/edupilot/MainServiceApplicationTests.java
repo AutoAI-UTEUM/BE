@@ -1,6 +1,7 @@
 package io.edupilot;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -23,6 +24,8 @@ import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.ai.AiClientProperties;
 import io.edupilot.auth.RefreshTokenRepository;
+import io.edupilot.global.config.ReadinessResponse;
+import io.edupilot.global.config.ReadinessService;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
@@ -74,6 +77,9 @@ class MainServiceApplicationTests {
 	@MockitoBean
 	private QuizSubmissionRepository quizSubmissionRepository;
 
+	@MockitoBean
+	private ReadinessService readinessService;
+
 	private MockMvc mockMvc;
 
 	@BeforeEach
@@ -94,6 +100,39 @@ class MainServiceApplicationTests {
 	}
 
 	@Test
+	void readinessIsPublicAndUsesTheDedicatedStatusContract() throws Exception {
+		when(readinessService.check()).thenReturn(
+			ReadinessResponse.of(true, true),
+			ReadinessResponse.of(true, false),
+			ReadinessResponse.of(false, false)
+		);
+
+		mockMvc.perform(get("/api/health/ready")
+				.header(TraceIdFilter.TRACE_ID_HEADER, "readiness-trace"))
+			.andExpect(status().isOk())
+			.andExpect(header().string(
+				TraceIdFilter.TRACE_ID_HEADER,
+				"readiness-trace"
+			))
+			.andExpect(jsonPath("$.status").value("UP"))
+			.andExpect(jsonPath("$.checks.db").value("UP"))
+			.andExpect(jsonPath("$.checks.aiService").value("UP"))
+			.andExpect(jsonPath("$.success").doesNotExist());
+
+		mockMvc.perform(get("/api/health/ready"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("DEGRADED"))
+			.andExpect(jsonPath("$.checks.db").value("UP"))
+			.andExpect(jsonPath("$.checks.aiService").value("DOWN"));
+
+		mockMvc.perform(get("/api/health/ready"))
+			.andExpect(status().isServiceUnavailable())
+			.andExpect(jsonPath("$.status").value("DOWN"))
+			.andExpect(jsonPath("$.checks.db").value("DOWN"))
+			.andExpect(jsonPath("$.checks.aiService").value("DOWN"));
+	}
+
+	@Test
 	void quizAndAiPipelineDefaultsMatchAcceptedContracts() {
 		assertThat(quizProperties.passRatio())
 			.isEqualByComparingTo(new BigDecimal("0.6"));
@@ -101,6 +140,10 @@ class MainServiceApplicationTests {
 			.isEqualTo(Duration.ofSeconds(90));
 		assertThat(aiClientProperties.pipelineReadTimeout())
 			.isEqualTo(Duration.ofSeconds(45));
+		assertThat(aiClientProperties.turnReadTimeout())
+			.isEqualTo(Duration.ofSeconds(180));
+		assertThat(aiClientProperties.healthTimeout())
+			.isEqualTo(Duration.ofSeconds(2));
 	}
 
 	@Test
@@ -183,7 +226,7 @@ class MainServiceApplicationTests {
 				.header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET")
 				.header(
 					HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS,
-					"Authorization, Content-Type"
+					"Authorization, Content-Type, X-Trace-Id"
 				))
 			.andExpect(status().isOk())
 			.andExpect(header().string(
@@ -193,6 +236,10 @@ class MainServiceApplicationTests {
 			.andExpect(header().string(
 				HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS,
 				"true"
+			))
+			.andExpect(header().string(
+				HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS,
+				TraceIdFilter.TRACE_ID_HEADER
 			));
 	}
 

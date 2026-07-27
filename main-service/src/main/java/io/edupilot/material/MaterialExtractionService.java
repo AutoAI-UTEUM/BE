@@ -55,27 +55,26 @@ public class MaterialExtractionService {
 			);
 			if (response.pageCount() > properties.maxPages()) {
 				persistenceService.fail(materialId);
-				log.warn(
-					"Material extraction rejected: materialId={}, reason=PAGE_LIMIT",
-					materialId
-				);
+				log.atWarn()
+					.addKeyValue("materialId", materialId)
+					.addKeyValue("reason", "PAGE_LIMIT")
+					.log("Material extraction rejected");
 				return;
 			}
 
 			boolean applied = persistenceService.complete(materialId, response.pages());
 			if (!applied) {
-				log.info(
-					"Material extraction result discarded: materialId={}, reason=STATE_CHANGED",
-					materialId
-				);
+				log.atInfo()
+					.addKeyValue("materialId", materialId)
+					.addKeyValue("reason", "STATE_CHANGED")
+					.log("Material extraction result discarded");
 			}
 		} catch (RuntimeException exception) {
 			persistenceService.fail(materialId);
-			log.warn(
-				"Material extraction failed: materialId={}, reason={}",
-				materialId,
-				safeReason(exception)
-			);
+			log.atWarn()
+				.addKeyValue("materialId", materialId)
+				.addKeyValue("reason", safeReason(exception))
+				.log("Material extraction failed");
 		} finally {
 			if (previousContext == null) {
 				MDC.clear();

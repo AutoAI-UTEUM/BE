@@ -25,6 +25,7 @@ EduPilot의 인증·권한·영속 상태와 Frontend용 외부 API를 담당하
 | `EDUPILOT_STORAGE_DIR` | `./storage` | 원본 PDF를 저장할 로컬 볼륨 루트. prod에서는 필수 |
 | `EDUPILOT_UPLOAD_MAX_MB` | `45` | PDF 업로드 최대 크기(MB) |
 | `EDUPILOT_AI_EXTRACT_READ_TIMEOUT` | `120s` | PDF 추출 내부 API read timeout |
+| `EDUPILOT_AI_TURN_READ_TIMEOUT` | `180s` | 동기 turn 내부 API read timeout(v0.4 §4) |
 | `EDUPILOT_AI_GRADE_READ_TIMEOUT` | `90s` | SHORT/ESSAY 채점 내부 API read timeout |
 | `EDUPILOT_AI_PIPELINE_READ_TIMEOUT` | `45s` | assessment·diagnosis 내부 API read timeout(v0.4 §4) |
 | `EDUPILOT_QUIZ_PASS_RATIO` | `0.6` | 퀴즈 통과 비율(0~1) |
@@ -85,11 +86,13 @@ live 테스트는 기본 테스트와 CI에서 비활성화됩니다. 활성화�
 
 READY 자료로 `POST /api/sessions`를 호출하면 ACTIVE 세션을 생성하거나 기존 세션을 재사용합니다. 페이지 이동은 LLM 없이 `StateReducer`가 처리하고, 상세·messages API로 현재 페이지와 대화를 복원합니다. 동일 turn `requestId`는 409로 거부하며 세션당 동시 turn은 하나만 허용합니다.
 
-turns API는 사용자·AI 메시지를 저장한 뒤 고정 stub 응답을 반환합니다. `DIAGNOSIS_ANSWER_SUBMITTED`는 진단·사용자·세션 소유권과 pending 상태를 검증하고 `PENDING → ANSWERED`로 저장합니다. 실제 RepairAgent 호출과 statePatch 처리는 Epic 5에서 연결합니다.
+turns API는 사용자 메시지를 짧은 선행 트랜잭션에 저장한 뒤 `/internal/ai/turn`을 호출합니다. AI 응답은 허용된 message type·UI action·statePatch만 반영하며, 최종 저장 직전에 세션을 다시 잠가 ACTIVE 상태와 claim을 재검증합니다. AI 호출 중 세션이 완료·삭제되면 결과를 저장하지 않습니다.
+
+원격 오류가 `retryable=true`인 `TIMEOUT` 또는 `INTERNAL`일 때만 최대 한 번 재시도합니다. v0.4에 따라 각 시도는 새 `turnId`를 사용하고 외부 `requestId`와 traceId는 유지합니다. 퀴즈 생성은 Spring이 저장한 ID만 `state.activeQuizId`에 반영하며, 진단 답변은 `ANSWERED → COMPLETED`, QA는 `START_NEW`/`FOLLOW_UP` thread로 영속화합니다.
 
 ## Quiz 처리 흐름
 
-퀴즈 생성 턴 연결 전까지 `QuizService#createFromGeneration`이 QuizAgent 생성 JSON의 문항 수·범위·유형별 필드와 ESSAY rubric weight를 검증하고 공개 문제와 비공개 정답을 분리 저장합니다. 공개 조회는 최신 세션 퀴즈 100건과 개별 공개 문항만 반환합니다.
+퀴즈 생성 턴은 `QuizService#createFromGeneration`으로 QuizAgent 생성 JSON의 문항 수·범위·유형별 필드와 ESSAY rubric weight를 검증하고 공개 문제와 비공개 정답을 분리 저장합니다. 공개 조회는 최신 세션 퀴즈 100건과 개별 공개 문항만 반환합니다.
 
 제출은 세션 소유권·ACTIVE 상태·1회 제한·답안 구조를 확인합니다. MCQ/OX는 Spring이 저장 정답으로 채점하고 SHORT/ESSAY는 `/internal/ai/grade` 결과를 재검증합니다. 제출·채점·기본 UI 액션을 커밋한 뒤 같은 HTTP 요청에서 assessment를 호출하고, 기준 미달일 때만 diagnosis를 호출합니다. AI 호출 중에는 DB 트랜잭션을 유지하지 않으며 결과 저장 시 세션을 다시 잠금 조회합니다. 그사이 세션이 `COMPLETED` 또는 `DELETED`가 되면 늦게 도착한 결과는 폐기합니다.
 

@@ -5,5 +5,6 @@ public enum MessageType {
 	EXPLANATION,
 	QA,
 	DIAGNOSIS,
-	REPAIR
+	REPAIR,
+	SYSTEM
 }

@@ -80,12 +80,17 @@ public class QuizSubmissionService {
 					)
 				);
 			} catch (RuntimeException exception) {
-				log.warn(
-					"Quiz learning-support pipeline failed: submissionId={}, quizId={}, failureType={}",
-					persisted.submissionId(),
-					prepared.quizId(),
-					exception.getClass().getSimpleName()
-				);
+				log.atWarn()
+					.addKeyValue(
+						"submissionId",
+						persisted.submissionId()
+					)
+					.addKeyValue("quizId", prepared.quizId())
+					.addKeyValue(
+						"failureType",
+						exception.getClass().getSimpleName()
+					)
+					.log("Quiz learning-support pipeline failed");
 				uiActions = List.of(UiAction.moveNextPage());
 			}
 			return persisted.withUiActions(uiActions);

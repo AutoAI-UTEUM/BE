@@ -59,12 +59,13 @@ public class ChatMessage {
 	private ChatMessage(
 		LearningSession session,
 		SenderType senderType,
+		MessageType messageType,
 		String content,
 		String requestId
 	) {
 		this.session = session;
 		this.senderType = senderType;
-		this.messageType = MessageType.TEXT;
+		this.messageType = messageType;
 		this.content = content;
 		this.pageNumber = session.getCurrentPage();
 		this.requestId = requestId;
@@ -76,11 +77,31 @@ public class ChatMessage {
 		String content,
 		String requestId
 	) {
-		return new ChatMessage(session, SenderType.USER, content, requestId);
+		return new ChatMessage(
+			session,
+			SenderType.USER,
+			MessageType.TEXT,
+			content,
+			requestId
+		);
 	}
 
 	public static ChatMessage ai(LearningSession session, String content) {
-		return new ChatMessage(session, SenderType.AI, content, null);
+		return ai(session, MessageType.TEXT, content);
+	}
+
+	public static ChatMessage ai(
+		LearningSession session,
+		MessageType messageType,
+		String content
+	) {
+		return new ChatMessage(
+			session,
+			SenderType.AI,
+			messageType,
+			content,
+			null
+		);
 	}
 
 	public Long getId() {
