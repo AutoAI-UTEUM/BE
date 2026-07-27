@@ -42,6 +42,7 @@
 - [데이터베이스](database.md)
 - [백엔드 실행 계획](backend-plan.md)
 - [백엔드 컨벤션](backend-convention.md)
+- [배포·롤백 운영 가이드](deploy.md)
 - [Definition of Done](definition-of-done.md)
 
 ### 협업과 AI
