@@ -41,6 +41,26 @@ public record UiAction(
 		);
 	}
 
+	public static UiAction quizProposal() {
+		return new UiAction(
+			"BINARY_DECISION",
+			"퀴즈를 진행할까요?",
+			"SHOW_QUIZ_TYPE_SELECT",
+			"MOVE_NEXT_PAGE",
+			null
+		);
+	}
+
+	public static UiAction completeSession() {
+		return new UiAction(
+			"BINARY_DECISION",
+			"학습을 완료할까요?",
+			"COMPLETE_SESSION",
+			"WAIT",
+			null
+		);
+	}
+
 	public static UiAction diagnosisQuestion(
 		String diagnosticPrompt,
 		Long diagnosisId

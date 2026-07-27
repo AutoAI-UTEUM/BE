@@ -12,6 +12,7 @@ import io.edupilot.session.LearningSession;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.session.SessionStatus;
 import io.edupilot.session.UiAction;
+import io.edupilot.session.UiActionResolver;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 
@@ -22,17 +23,20 @@ public class QuizSubmissionPersistenceService {
 	private final QuizRepository quizRepository;
 	private final QuizSubmissionRepository submissionRepository;
 	private final UserRepository userRepository;
+	private final UiActionResolver uiActionResolver;
 
 	public QuizSubmissionPersistenceService(
 		LearningSessionRepository sessionRepository,
 		QuizRepository quizRepository,
 		QuizSubmissionRepository submissionRepository,
-		UserRepository userRepository
+		UserRepository userRepository,
+		UiActionResolver uiActionResolver
 	) {
 		this.sessionRepository = sessionRepository;
 		this.quizRepository = quizRepository;
 		this.submissionRepository = submissionRepository;
 		this.userRepository = userRepository;
+		this.uiActionResolver = uiActionResolver;
 	}
 
 	@Transactional
@@ -73,7 +77,10 @@ public class QuizSubmissionPersistenceService {
 				passed
 			)
 		);
-		List<UiAction> uiActions = List.of(UiAction.moveNextPage());
+		List<UiAction> uiActions = uiActionResolver.nextLearning(
+			session.getCurrentPage(),
+			session.getMaterialPageCount()
+		);
 		session.completeQuizSubmission(quiz.getId(), uiActions);
 		sessionRepository.flush();
 
