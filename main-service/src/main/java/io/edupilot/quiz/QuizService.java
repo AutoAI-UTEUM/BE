@@ -109,7 +109,6 @@ public class QuizService {
 			privateQuestions,
 			schemaVersion
 		));
-		// TODO Epic5: QUIZ_TYPE_SELECTED 턴에서 호출하고 activeQuizId를 설정한다.
 		return quiz.getId();
 	}
 

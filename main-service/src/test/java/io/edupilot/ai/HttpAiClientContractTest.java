@@ -444,6 +444,7 @@ class HttpAiClientContractTest {
 			readTimeout,
 			readTimeout,
 			readTimeout,
+			readTimeout,
 			"/health"
 		);
 	}
@@ -477,6 +478,24 @@ class HttpAiClientContractTest {
 			new GradeRequest.PageContext(1, 1, "페이지 문맥"),
 			null
 		);
+	}
+
+	@Test
+	void turnExposesOnlyRemoteRetryableTimeoutToCaller() {
+		server.enqueue(jsonResponse(
+			504,
+			errorBody("TIMEOUT", true)
+		));
+
+		assertThatThrownBy(() ->
+			client(Duration.ofSeconds(1))
+				.executeTurn(turnRequest("turn-123")))
+			.isInstanceOfSatisfying(AiClientException.class, exception -> {
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT);
+				assertThat(exception.retryable()).isTrue();
+			});
+		assertThat(server.getRequestCount()).isEqualTo(1);
 	}
 
 	private QuizAssessmentRequest assessmentRequest() {

@@ -79,6 +79,10 @@ public class QuizAssessment {
 		return assessment;
 	}
 
+	public boolean isPassed() {
+		return submission.isPassed();
+	}
+
 	public Instant getCreatedAt() {
 		return createdAt;
 	}

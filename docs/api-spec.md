@@ -386,7 +386,8 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
   "uiActions": [],
   "state": {
     "currentPage": 3,
-    "pageStatus": "EXPLAINED"
+    "pageStatus": "EXPLAINED",
+    "activeQuizId": null
   }
 }
 ```
@@ -617,7 +618,7 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 }
 ```
 
-`learnerLevel`과 `learnerConfidence`는 별도 원천 컬럼 없이 Spring이 `learner_memories`(`target_difficulty`, 약점·강점)와 최근 `quiz_assessments`에서 파생해 전달하는 요약값입니다. 데이터가 없으면 `null`이며 에이전트는 기본 수준으로 동작합니다. 파생 규칙 초안은 [에이전트 시스템 명세](agent-system-spec.md) §4 입력 정의와 함께 확정합니다.
+`learnerLevel`은 `learner_memories.target_difficulty`이며 데이터가 없으면 `null`입니다. `learnerConfidence`는 같은 사용자×자료의 최근 assessment 5개 통과 비율로 파생합니다. 비율이 0.4 미만이면 `LOW`, 0.4 이상 0.7 이하면 `MEDIUM`, 0.7 초과면 `HIGH`이며 평가가 없으면 `null`입니다. `conversationSummary`는 MVP에서 생성하지 않고 `null`로 전달합니다.
 
 `quizAssessments`는 현재 세션 기준 최근 5개의 평가 요약입니다(DEC-011 — DB는 전량 보존, 스냅샷은 세션 스코프 윈도우. 메모리 승격 판단용 user×material 교차 세션 최근 20개 조회는 별도 경로).
 

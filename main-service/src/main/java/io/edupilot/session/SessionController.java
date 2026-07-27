@@ -123,11 +123,11 @@ public class SessionController {
 
 	@PostMapping("/{sessionId}/turns")
 	@Operation(
-		summary = "학습 turn 공통 경계 처리",
+		summary = "학습 turn AI 처리",
 		description = """
-			Epic 4에서는 AI를 호출하지 않고 고정 stub 메시지를 반환합니다.
-			QUIZ_TYPE_SELECTED와 DIAGNOSIS_ANSWER_SUBMITTED도 형식만 검증하며,
-			실제 퀴즈·진단 상태 검증과 처리는 Epic 6~7에서 연결합니다.
+			사용자 메시지를 먼저 저장하고 FastAPI /internal/ai/turn을 호출합니다.
+			응답의 메시지·UI action·statePatch를 검증한 뒤 원자적으로 저장하며,
+			퀴즈 생성·진단 교정·학습자 메모리 승격을 기존 도메인 서비스와 연결합니다.
 			"""
 	)
 	public ApiResponse<TurnResponse> turn(

@@ -52,6 +52,7 @@ public class HttpAiClient implements AiClient {
 	private static final String SCHEMA_VERSION = "1.0";
 
 	private final RestClient restClient;
+	private final RestClient healthRestClient;
 	private final RestClient extractRestClient;
 	private final RestClient gradeRestClient;
 	private final RestClient pipelineRestClient;
@@ -59,7 +60,14 @@ public class HttpAiClient implements AiClient {
 
 	public HttpAiClient(AiClientProperties properties) {
 		// TODO ai-integration-contract v0.3에서 예산 확정 전까지 비멱등 turn 호출은 재시도하지 않는다.
-		this.restClient = buildRestClient(properties, properties.readTimeout());
+		this.restClient = buildRestClient(
+			properties,
+			properties.turnReadTimeout()
+		);
+		this.healthRestClient = buildRestClient(
+			properties,
+			properties.readTimeout()
+		);
 		this.extractRestClient = buildRestClient(
 			properties,
 			properties.extractReadTimeout()
@@ -101,7 +109,7 @@ public class HttpAiClient implements AiClient {
 	@Override
 	public AiHealthResponse health() {
 		try {
-			AiHealthResponse response = restClient.get()
+			AiHealthResponse response = healthRestClient.get()
 				.uri(healthPath)
 				.retrieve()
 				.body(AiHealthResponse.class);

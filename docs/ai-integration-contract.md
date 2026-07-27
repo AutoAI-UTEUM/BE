@@ -101,12 +101,15 @@
   "statePatch": {},
   "uiActions": [],
   "memoryCandidates": [],
+  "memoryWrite": null,
   "usage": { "model": "grok-4.5-<date>", "inputTokens": 0, "outputTokens": 0, "reasoningTokens": 0 }
 }
 ```
 
 - `messageType`: `EXPLANATION | QA | DIAGNOSIS | REPAIR | SYSTEM` `[Epic5 ⓐ에서 확정]`
 - `usage`: **채택 확정** — 모든 내부 응답의 표준 선택 필드 (reasoningTokens 포함, 미제공 시 null). Spring은 로그로만 수집(DB 저장 없음) — DEC-002 비용 트리거(월 $150) 판단 데이터.
+- 퀴즈 생성 결과는 `actionsExecuted[].artifacts.quizGeneration`에 둡니다. Spring은 이를 검증·저장한 뒤 자체 발급한 quiz ID만 `state.activeQuizId`로 반환합니다.
+- `memoryWrite`는 최상위 nullable 필드입니다. Spring은 턴 핵심 저장 커밋 후 별도 트랜잭션에서 반복 근거·confidence 정책을 검증해 승격합니다.
 
 ### 3.4 statePatch 허용목록 (api-spec §10 표와 동일 — Spring이 이외 전부 거부)
 
@@ -132,7 +135,7 @@
 - Plan 스키마 실패 시 1회 재생성 fallback 후 category `SCHEMA`.
 - Policy 강제 규칙 (Epic7): 진단 답변 전 Repair 금지, 메모리 승격 = 독립 근거 ≥2회 + confidence ≥0.7 (DEC-012), 근거 없는 성격·능력 추론 금지.
 
-## 4. 멱등성 · 타임아웃 · 재시도 (v0.3 확정 제안 — DEC-002 §5 이관분)
+## 4. 멱등성 · 타임아웃 · 재시도 (v0.4 확정 — DEC-002 §5 이관분)
 
 - **멱등성 책임 분리**: 멱등의 원천은 Spring의 `requestId`(UK(session_id, request_id)) — FastAPI는 무상태이므로 자체 멱등 저장을 하지 않는다. `turnId`는 Spring이 턴마다 새로 발급하는 추적 ID이며, **재시도 시에도 새 turnId 발급**(같은 requestId → Spring이 저장 단계에서 중복 차단). 이로써 v2 패널 지적(재시도 vs DUPLICATE_TURN 충돌)은 구조적으로 해소.
 - **타임아웃 (확정 — env로 관리, extract는 #5 실측 후 조정 여지)**:

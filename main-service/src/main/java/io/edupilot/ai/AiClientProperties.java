@@ -16,6 +16,7 @@ public record AiClientProperties(
 	@NotBlank String internalToken,
 	@NotNull Duration connectTimeout,
 	@NotNull Duration readTimeout,
+	@NotNull Duration turnReadTimeout,
 	@NotNull Duration gradeReadTimeout,
 	@NotNull Duration pipelineReadTimeout,
 	@NotNull Duration extractReadTimeout,

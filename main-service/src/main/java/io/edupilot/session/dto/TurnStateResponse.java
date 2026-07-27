@@ -4,6 +4,7 @@ import io.edupilot.session.PageStatus;
 
 public record TurnStateResponse(
 	int currentPage,
-	PageStatus pageStatus
+	PageStatus pageStatus,
+	Long activeQuizId
 ) {
 }
