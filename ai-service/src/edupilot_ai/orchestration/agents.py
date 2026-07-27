@@ -47,8 +47,9 @@ class QaAgent:
         self,
         context: AgentContext,
         mode: QaThreadMode,
-        thread_ref: str,
+        thread_ref: str | None,
     ) -> AgentResult:
+        state_patch = self._thread_patch(mode, thread_ref)
         if not context.current_page_text.strip():
             return AgentResult(
                 agent="QaAgent",
@@ -59,7 +60,7 @@ class QaAgent:
                         "현재 페이지와 관련된 질문으로 다시 물어봐 주세요."
                     ),
                 ),
-                state_patch={"qaThread": {"mode": mode.value, "threadRef": thread_ref}},
+                state_patch=state_patch,
                 usage=LlmUsage(self._profile.model, 0, 0, None),
             )
         result = await self._llm.complete_json(
@@ -70,6 +71,17 @@ class QaAgent:
         return AgentResult(
             agent="QaAgent",
             message=Message(message_type="QA", content=result.output.markdown),
-            state_patch={"qaThread": {"mode": mode.value, "threadRef": thread_ref}},
+            state_patch=state_patch,
             usage=result.usage,
         )
+
+    @staticmethod
+    def _thread_patch(
+        mode: QaThreadMode,
+        thread_ref: str | None,
+    ) -> dict[str, Any]:
+        if mode is QaThreadMode.START_NEW:
+            return {"qaThread": {"mode": mode.value}}
+        if thread_ref is None:
+            raise ValueError("FOLLOW_UP requires threadRef")
+        return {"qaThread": {"mode": mode.value, "threadRef": thread_ref}}

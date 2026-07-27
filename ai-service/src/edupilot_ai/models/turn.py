@@ -3,7 +3,7 @@
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -95,10 +95,29 @@ class TurnRequest(ContractModel):
     context: ContextSnapshot
 
 
+class Adjustment(ContractModel):
+    field: str
+    from_: Any = Field(alias="from")
+    to: Any
+    reason: str
+    _action_id: str | None = PrivateAttr(default=None)
+
+    def bind_to_action(self, action_id: str) -> Adjustment:
+        self._action_id = action_id
+        return self
+
+    def belongs_to(self, action_id: str) -> bool:
+        return self._action_id == action_id
+
+
 class ActionExecuted(ContractModel):
     action_id: str
     agent: str
     status: Literal["SUCCESS", "FAILED", "SKIPPED"]
+    adjustments: list[Adjustment] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+    )
 
 
 class Message(ContractModel):

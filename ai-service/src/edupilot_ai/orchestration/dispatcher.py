@@ -7,6 +7,7 @@ from edupilot_ai.llm.bridge import LlmBridgeError, LlmUsage
 from edupilot_ai.models.plan import PlanAction, ToolName, TurnPlan
 from edupilot_ai.models.turn import (
     ActionExecuted,
+    Adjustment,
     DetailLevel,
     Message,
     QaThreadMode,
@@ -32,11 +33,17 @@ def merge_state_patch(current: dict[str, Any], incoming: dict[str, Any]) -> dict
         raise PolicyViolation("pageStatus value is not allowed")
     if "qaThread" in incoming:
         thread = incoming["qaThread"]
-        if not isinstance(thread, dict) or set(thread) != {"mode", "threadRef"}:
+        if not isinstance(thread, dict):
             raise PolicyViolation("qaThread patch is invalid")
-        if thread["mode"] not in {mode.value for mode in QaThreadMode}:
+        mode = thread.get("mode")
+        if mode not in {item.value for item in QaThreadMode}:
             raise PolicyViolation("qaThread mode is invalid")
-        if not isinstance(thread["threadRef"], str) or not thread["threadRef"]:
+        if mode == QaThreadMode.START_NEW:
+            if set(thread) != {"mode"}:
+                raise PolicyViolation("START_NEW qaThread patch is invalid")
+        elif set(thread) != {"mode", "threadRef"}:
+            raise PolicyViolation("FOLLOW_UP qaThread patch is invalid")
+        elif not isinstance(thread["threadRef"], str) or not thread["threadRef"]:
             raise PolicyViolation("qaThread reference is invalid")
     merged = dict(current)
     for key, value in incoming.items():
@@ -62,9 +69,20 @@ class ToolDispatcher:
         self._qa = qa
         self._model = model
 
-    async def dispatch(self, plan: TurnPlan, context: AgentContext) -> DispatchResult:
+    async def dispatch(
+        self,
+        plan: TurnPlan,
+        context: AgentContext,
+        adjustments: list[Adjustment] | None = None,
+    ) -> DispatchResult:
         result = DispatchResult()
+        verified_adjustments = adjustments or []
         for action in plan.actions:
+            action_adjustments = [
+                item
+                for item in verified_adjustments
+                if item.belongs_to(action.action_id)
+            ]
             try:
                 outcome = await self._execute(action, context)
                 result.state_patch = merge_state_patch(result.state_patch, outcome.state_patch)
@@ -73,6 +91,7 @@ class ToolDispatcher:
                         action_id=action.action_id,
                         agent=outcome.agent,
                         status="SUCCESS",
+                        adjustments=action_adjustments,
                     )
                 )
                 result.messages.append(outcome.message)
@@ -83,6 +102,7 @@ class ToolDispatcher:
                         action_id=action.action_id,
                         agent=action.tool.value,
                         status="FAILED",
+                        adjustments=action_adjustments,
                     )
                 )
                 result.failure = error
@@ -97,11 +117,9 @@ class ToolDispatcher:
             )
         if action.tool is ToolName.ANSWER_QUESTION:
             mode = QaThreadMode(str(action.args["qaThreadMode"]))
-            thread_ref = (
-                context.turn_id
-                if mode is QaThreadMode.START_NEW
-                else str(action.args["threadRef"])
-            )
+            thread_ref = None if mode is QaThreadMode.START_NEW else context.qa_thread_ref()
+            if mode is QaThreadMode.FOLLOW_UP and thread_ref is None:
+                raise PolicyViolation("FOLLOW_UP requires qaThreadDigest threadRef")
             return await self._qa.run(context, mode, thread_ref)
         if action.tool.value.startswith("GENERATE_QUIZ_"):
             return self._stub("QuizAgent", "퀴즈 생성 기능은 준비 중입니다. (이슈 #31)")

@@ -61,8 +61,8 @@ class TurnService:
         context = self._context_builder.build(turn)
         try:
             planned = await self._orchestrator.create_plan(context)
-            plan = self._policy.verify(planned.plan, context)
-            dispatched = await self._dispatcher.dispatch(plan, context)
+            plan, adjustments = self._policy.verify(planned.plan, context)
+            dispatched = await self._dispatcher.dispatch(plan, context, adjustments)
         except LlmBridgeError as error:
             raise _llm_error(error) from error
         except PolicyViolation as error:

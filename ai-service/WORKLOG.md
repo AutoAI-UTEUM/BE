@@ -73,7 +73,7 @@
 
 # Issue #5 Worklog
 
-기준 브랜치: `origin/develop` (`ddaecd9`)
+기준 브랜치: `origin/develop` (`4bf27d7`, #64 병합분으로 rebase)
 
 ## 작업 로그
 
@@ -204,9 +204,9 @@
 ## 검증 결과
 
 - `uv sync --locked`: 성공 (CPython 3.14.6, respx 0.23.1)
-- `uv run pytest -q`: 29개 통과
+- `uv run pytest -q`: 52개 통과
 - `uv run ruff check .`: 통과
-- `uv run mypy src tests`: 33개 소스 파일 검사 통과
+- `uv run mypy src tests`: 40개 소스 파일 검사 통과
 - 테스트 중 실제 Grok 및 외부 네트워크 호출: 0회
 
 ## 완료 범위와 이월
@@ -215,16 +215,49 @@
 - QUIZ_TYPE_SELECTED의 실제 생성은 #31, DIAGNOSIS_ANSWER_SUBMITTED의 실제
   repair는 #38로 이월했습니다.
 - 스트림 이벤트 전달은 #25 범위로 이월했습니다.
-- PR은 “계약 v0.4 기준 선구현 — #27 승인 후 리뷰”를 명시한 Draft로 유지합니다.
+- #27 서면 확정을 코드와 계약 문서에 반영한 뒤 PR #65를 Ready for review로
+  전환합니다.
 
-## 미결 질문
+## 2026-07-26 당시 미결 질문
 
 1. #27이 미승인인 상태에서 qaThread의 `threadRef` 생성 주체·형식과
-   `statePatch` 세부 JSON Schema가 확정되지 않았다.
+   `statePatch` 세부 JSON Schema가 확정되지 않았다. → 2026-07-27 해소.
 2. 이슈 #23은 LlmBridge “재시도”를 요구하지만 v0.4는 Spring이
    `retryable=true`만 최대 1회 재시도하고 SCHEMA는 Orchestrator 내부 1회
    재생성으로 소진한다고 규정한다. provider adapter 자체 HTTP 재시도를 둘지
    #27에서 명확히 해야 한다. 이번 어댑터는 중복 비용을 피하려고 분류만 하고
-   자동 재시도하지 않는다.
+   자동 재시도하지 않는다. → 2026-07-27 자동 재시도 없음으로 해소.
 3. Plan action `args`, `statePatch.activeQuizId`, `pendingDiagnosis`의 세부
    schema는 #27 승인 전까지 v0.4의 허용 키와 event별 검증만 적용했다.
+
+## #27 확정 반영 (2026-07-27)
+
+- `origin/develop`의 #64 병합분 위로 `feature/23-turn-core`를 rebase하고,
+  `uv.lock`을 재생성해 PDF extract와 turn 의존성을 모두 보존했습니다.
+- Policy 보정 범위를 `page`·`detailLevel`로 제한하고 보정 결과를
+  `actionsExecuted[].adjustments`에 기록했습니다. 여분 args 키는 조용히
+  제거하며 이벤트-도구 불일치, 파이프라인 도구, FOLLOW_UP 문맥 부재,
+  `threadRef` 위조는 계속 거부합니다.
+- QA `threadRef`는 Spring 소유로 확정했습니다. `START_NEW` patch는
+  `{mode}`만 반환하고, `FOLLOW_UP`은 스냅샷의 `threadRef`를 그대로
+  반환합니다.
+- AI `uiActions`는 항상 빈 배열이고 Spring이 W1~W7 규칙으로 마지막 상태
+  전이의 위젯 1개만 생성하도록 계약 문서에 반영했습니다.
+- QA 근거 부족·퀴즈 스텁·교정 스텁의 사용자 노출 문구가 제공된
+  프롬프트 자산 §5의 한국어 문구와 일치함을 다시 확인했습니다.
+- 검증: `uv run pytest -q` 52개, `uv run ruff check .`,
+  `uv run mypy src tests` 전체 통과. 테스트 중 실제 Grok/외부 네트워크 호출
+  0회.
+
+## #25·후속 이월
+
+- 현재 xAI 어댑터는 각 LLM 호출에 turn 전체 설정값 180초를 적용하므로
+  Plan+Agent 2회 호출의 합산 시간이 이론상 180초를 넘을 수 있습니다. #25에서
+  turn 시작 시각을 기준으로 남은 시간 예산을 각 호출에 전달해야 합니다.
+- Orchestrator 입력에 현재 AgentContext 전체가 직렬화됩니다. Plan에 필요한
+  요약 필드만 전달하는 토큰 비용 최적화는 별도 후속 작업입니다.
+- 현재 프롬프트는 동작 검증용 최소 골격입니다. 제공된 한국어 프롬프트 자산의
+  도입 인사 금지, LaTeX, 수준별 전략, 프롬프트 인젝션 방어 이식은 별도 이슈로
+  분리합니다.
+- `statePatch.activeQuizId`와 `pendingDiagnosis`의 상세 JSON Schema는 각각
+  #31·#38 실제 구현 전에 계약 문서에 먼저 확정해야 합니다.

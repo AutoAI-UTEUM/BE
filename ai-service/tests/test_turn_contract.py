@@ -74,8 +74,62 @@ async def test_explain_current_page_turn(
     assert turn.messages[0].message_type == "EXPLANATION"
     assert turn.state_patch == {"pageStatus": "EXPLAINED"}
     assert turn.actions_executed[0].agent == "ExplainerAgent"
+    assert "adjustments" not in response.json()["actionsExecuted"][0]
     assert len(fake_llm.calls) == 2
     assert "learnerMemoryDigest" in fake_llm.calls[1][0][1]["content"]
+
+
+@pytest.mark.parametrize(
+    ("plan_args", "field", "from_value", "to_value", "reason"),
+    [
+        (
+            {"page": 2, "detailLevel": "DETAILED"},
+            "page",
+            2,
+            3,
+            "PAGE_MISMATCH_CORRECTED",
+        ),
+        (
+            {"page": 3, "detailLevel": "NORMAL"},
+            "detailLevel",
+            "NORMAL",
+            "DETAILED",
+            "EVENT_PAYLOAD_MISMATCH_CORRECTED",
+        ),
+    ],
+)
+async def test_explain_policy_records_adjustment(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+    plan_args: dict[str, object],
+    field: str,
+    from_value: object,
+    to_value: object,
+    reason: str,
+) -> None:
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "EXPLAIN_CURRENT_PAGE",
+        "payload": {"detailLevel": "DETAILED"},
+    }
+    fake_llm.queue(
+        make_plan(ToolName.EXPLAIN_PAGE, plan_args, "EXPLAIN_CURRENT_PAGE"),
+        AgentOutput(markdown="보정된 현재 페이지 설명", thought_summary="페이지 설명"),
+    )
+
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 200
+    assert response.json()["actionsExecuted"][0]["adjustments"] == [
+        {
+            "field": field,
+            "from": from_value,
+            "to": to_value,
+            "reason": reason,
+        }
+    ]
 
 
 async def test_user_question_start_new(
@@ -98,9 +152,7 @@ async def test_user_question_start_new(
     assert response.status_code == 200
     turn = TurnResponse.model_validate(response.json())
     assert turn.messages[0].message_type == "QA"
-    assert turn.state_patch == {
-        "qaThread": {"mode": "START_NEW", "threadRef": "turn-123"}
-    }
+    assert turn.state_patch == {"qaThread": {"mode": "START_NEW"}}
     assert '"qaThreadDigest": null' in fake_llm.calls[1][0][1]["content"]
 
 
@@ -330,6 +382,29 @@ async def test_intervention_budget_violation_is_rejected(
     assert len(fake_llm.calls) == 1
 
 
+def test_policy_silently_removes_extra_action_args(
+    turn_payload: dict[str, object],
+) -> None:
+    context = ContextBuilder().build(TurnRequest.model_validate(turn_payload))
+    plan = make_plan(
+        ToolName.ANSWER_QUESTION,
+        {
+            "qaThreadMode": "START_NEW",
+            "threadRef": None,
+            "uncontracted": "discard me",
+        },
+        "ANSWER_USER_QUESTION",
+    )
+
+    corrected, adjustments = PolicyVerifier().verify(plan, context)
+
+    assert corrected.actions[0].args == {
+        "qaThreadMode": "START_NEW",
+        "threadRef": None,
+    }
+    assert adjustments == []
+
+
 async def test_event_payload_mismatch_returns_schema_envelope(
     client: httpx.AsyncClient,
     auth_headers: dict[str, str],
@@ -444,4 +519,19 @@ def test_state_patch_rejects_conflicting_values() -> None:
         merge_state_patch(
             {"pageStatus": "EXPLAINING"},
             {"pageStatus": "EXPLAINED"},
+        )
+
+
+def test_state_patch_accepts_start_new_without_thread_ref() -> None:
+    assert merge_state_patch(
+        {},
+        {"qaThread": {"mode": "START_NEW"}},
+    ) == {"qaThread": {"mode": "START_NEW"}}
+
+
+def test_state_patch_requires_follow_up_thread_ref() -> None:
+    with pytest.raises(PolicyViolation):
+        merge_state_patch(
+            {},
+            {"qaThread": {"mode": "FOLLOW_UP"}},
         )
