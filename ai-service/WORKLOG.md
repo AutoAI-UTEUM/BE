@@ -261,3 +261,43 @@
   분리합니다.
 - `statePatch.activeQuizId`와 `pendingDiagnosis`의 상세 JSON Schema는 각각
   #31·#38 실제 구현 전에 계약 문서에 먼저 확정해야 합니다.
+
+---
+
+# 프롬프트 자산 이식 Phase Worklog
+
+기준 브랜치: `origin/develop` (`ac09367`)
+
+## 결과
+
+- 2026-07-28 05:24 KST: `feature/prompt-assets-migration`을 최신 develop에서
+  생성하고 기준 파일을 확인했습니다.
+- `docs/prompt-assets.md`가 `origin/develop`에 없으므로 사용자 지시에 따라
+  프롬프트 코드·테스트 변경은 미착수 상태로 이 Phase를 건너뜁니다.
+- 재개 조건은 출처와 승인 상태가 확인된 `docs/prompt-assets.md`를 develop에
+  먼저 반영하는 것입니다. 첨부 문서나 다른 브랜치 내용을 승인 없이 계약
+  자산으로 간주하지 않습니다.
+
+## 이슈·PR 등록 대기
+
+- 로컬 환경에 `gh`가 없어 다음 이슈 생성을 대기합니다.
+  - 제목: `[AI] 프롬프트 자산 이식 — Explainer·QA 한국어 프롬프트 적용`
+  - 본문 요지: `docs/prompt-assets.md`를 기준으로 Explainer·QA 프롬프트,
+    structured/streaming 모드 분기, 인젝션 방어와 문맥 조건을 적용합니다.
+- 소스 자산 부재로 기능 PR은 만들 수 없습니다. 이 기록만 있는 브랜치는
+  push하며, `gh` 설치 후 develop 대상 기록 PR을 만들 경우 아래 본문을
+  사용합니다.
+
+```markdown
+## 결과
+
+- Phase 기준 파일인 `docs/prompt-assets.md`가 최신 develop에 없어 구현을
+  시작하지 않았습니다.
+- 프롬프트 코드와 테스트는 변경하지 않았습니다.
+- 기준 자산이 develop에 반영된 뒤 별도 기능 PR로 재개해야 합니다.
+
+## 검증
+
+- 변경 범위: `ai-service/WORKLOG.md`만
+- 실제 Grok/xAI 및 외부 AI 호출 0회
+```
