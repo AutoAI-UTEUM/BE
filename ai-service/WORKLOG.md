@@ -550,3 +550,64 @@ Closes #25
 
 Closes #38
 ```
+
+---
+
+# Planner 축약 컨텍스트 Phase Worklog
+
+기준 브랜치: `origin/develop` (`ac09367`)
+
+## 작업 결과
+
+- 2026-07-28 05:25 KST: 최신 develop에서
+  `feature/planner-slim-context`를 생성했습니다.
+- `PlanContext`를 추가하고 Orchestrator의 Plan 생성 프롬프트에만
+  직렬화하도록 변경했습니다. PolicyVerifier와 Explainer/QaAgent는 기존
+  전체 `AgentContext`를 계속 사용합니다.
+- Plan 입력은 다음과 같이 제한했습니다.
+  - session은 `currentPage`, `pageStatus`만 포함
+  - 현재 페이지는 앞 500자 `pageTextPreview`, 인접 페이지는 존재 여부만 포함
+  - 최근 메시지는 최근 3개의 `role`, 앞 120자 `content`만 포함
+  - QA 문맥은 `threadRef`, 요약 존재 여부만 포함
+  - 평가 요약은 최신 1개만 포함
+  - pending diagnosis는 존재 여부와 `diagnosisId`, latest repair는 존재
+    여부만 포함
+- 테스트에서 페이지 전문, 오래된·전체 메시지, QA 전문, 학생 진단 답안,
+  교정 원문이 Plan 직렬화에 포함되지 않음을 확인했습니다.
+- 기존 Plan 정책 검증·page/detailLevel 보정과 Agent 전체 문맥 전달 테스트는
+  그대로 통과했습니다.
+
+## 검증 결과
+
+- `uv run pytest -q`: 54개 통과
+- `uv run ruff check .`: 통과
+- `uv run mypy src tests`: 41개 소스 파일 검사 통과
+- 테스트 중 실제 Grok/xAI 및 외부 네트워크 호출: 0회
+
+## 이슈·PR 등록 대기
+
+- 로컬 환경에 `gh`가 없어 다음 이슈 생성을 대기합니다.
+  - 제목: `[AI] Planner 축약 컨텍스트 DTO — Plan 호출 토큰 비용 절감`
+  - 본문 요지: Plan 전용 bounded DTO를 도입해 전체 AgentContext 직렬화를
+    제거하고 Policy/Agent 전체 문맥 경계는 유지합니다.
+- 이슈 생성 후 아래 PR 본문의 `<issue-number>`를 실제 번호로 교체해야 합니다.
+
+```markdown
+## 변경 요약
+
+- Orchestrator Plan 호출 전용 `PlanContext`를 추가했습니다.
+- 페이지 전문·전체 메시지·교정/진단 원문 대신 bounded preview와 존재 여부만
+  플래너에 전달합니다.
+- Policy 검증과 Explainer·QA 실행은 기존 전체 `AgentContext`를 유지합니다.
+
+## 검증
+
+- Plan 직렬화 길이·민감 원문 부재 단위 테스트
+- 기존 Plan 검증·보정 및 turn 계약 회귀 테스트
+- `uv run pytest -q`
+- `uv run ruff check .`
+- `uv run mypy src tests`
+- 실제 Grok/xAI 및 테스트 외부 네트워크 호출 0회
+
+Closes #<issue-number>
+```
