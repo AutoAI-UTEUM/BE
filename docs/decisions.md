@@ -409,3 +409,34 @@
 - 대안과 trade-off: ...
 - 후속 변경 문서: ...
 ```
+
+## #27 서면 확정 (2026-07-27)
+
+- **A1 — 제한적 Plan 보정**: Policy는 `page`를 스냅샷
+  `currentPage`로, `detailLevel`을 이벤트 payload 값으로 교정할 수 있습니다.
+  도구별 여분 args 키는 통지 없이 제거합니다.
+- **A2 — 보정 불가·거부 범위**: 이벤트-도구 불일치, 결정적 파이프라인
+  전용 도구, `FOLLOW_UP`의 `qaThreadDigest` 부재, 스냅샷과 다른
+  `threadRef`는 보정하지 않고 거부합니다.
+- **A3 — 보정 감사 정보**: 실행 결과의 선택 필드
+  `adjustments[]{field, from, to, reason}`로 보정을 남깁니다. `reason`은
+  Spring이 enum 검증하지 않는 자유 문자열이며 초기값은
+  `PAGE_MISMATCH_CORRECTED`,
+  `EVENT_PAYLOAD_MISMATCH_CORRECTED`입니다.
+- **A4 — QA thread 소유권**: `threadRef`는 Spring이 `qa-{id}` 형식으로
+  발급합니다. `START_NEW` statePatch에는 `mode`만 포함하고,
+  `FOLLOW_UP`은 요청 스냅샷의 `qaThreadDigest.threadRef`를 그대로
+  반환합니다.
+- **B1 — uiActions 소유권**: AI Service의 `uiActions`는 예약 필드이며
+  항상 빈 배열입니다. 비어 있지 않은 값은 Spring이 무시하고 경고하며,
+  사용자 위젯은 Spring이 생성합니다.
+- **B2 — 위젯 복원 규칙**: Spring은 API 명세 §5의 W1~W7 중 마지막 상태
+  전이 1개에 대해서만 위젯을 생성합니다. 재진입은 서버 발급 위젯만
+  복원하고, FE 로컬 `QUIZ_TYPE_SELECT` 표시 중 재진입하면 W3으로
+  복원합니다. W5는 마지막 페이지에서 완료 API로 분기합니다.
+- **B3 — 재시도 소유권**: provider 어댑터 자동 재시도는 두지 않습니다.
+  SCHEMA는 Orchestrator의 1회 재생성으로 소진하고, Spring은
+  `retryable=true`인 오류만 최대 1회 재시도합니다.
+- **B4 — turn 시간 예산**: Plan과 Agent 호출을 합친 turn 총 시간을
+  180초 이하로 제한합니다. 호출별 남은 시간 전달과 예산 분배는
+  스트리밍 이슈 #25에서 구현합니다.
