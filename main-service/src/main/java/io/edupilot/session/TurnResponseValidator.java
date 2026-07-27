@@ -40,8 +40,15 @@ public class TurnResponseValidator {
 		"REPAIR",
 		"SYSTEM"
 	);
-
 	public void validate(TurnResponse response, String expectedTurnId) {
+		validate(response, expectedTurnId, null);
+	}
+
+	public void validate(
+		TurnResponse response,
+		String expectedTurnId,
+		String expectedQaThreadRef
+	) {
 		if (response == null
 			|| !expectedTurnId.equals(response.turnId())
 			|| response.messages() == null
@@ -51,7 +58,7 @@ public class TurnResponseValidator {
 			throw invalid();
 		}
 		validateMessages(response);
-		validateStatePatch(response.statePatch());
+		validateStatePatch(response.statePatch(), expectedQaThreadRef);
 		warnIgnoredUiActions(response);
 		validateMemoryCandidates(response);
 	}
@@ -66,7 +73,10 @@ public class TurnResponseValidator {
 		}
 	}
 
-	private void validateStatePatch(Map<String, Object> patch) {
+	private void validateStatePatch(
+		Map<String, Object> patch,
+		String expectedQaThreadRef
+	) {
 		if (!PATCH_FIELDS.containsAll(patch.keySet())) {
 			throw policy();
 		}
@@ -81,22 +91,26 @@ public class TurnResponseValidator {
 		}
 		Object raw = patch.get("qaThread");
 		if (!(raw instanceof Map<?, ?> qaThread)
-			|| !Set.of("mode", "threadRef").containsAll(
-				qaThread.keySet().stream().map(String::valueOf).toList()
-			)) {
+			|| qaThread.keySet().stream()
+				.anyMatch(key -> !(key instanceof String))) {
 			throw policy();
 		}
+		Set<String> keys = qaThread.keySet().stream()
+			.map(String.class::cast)
+			.collect(java.util.stream.Collectors.toSet());
 		String mode = valueText(qaThread.get("mode"));
 		String threadRef = valueText(qaThread.get("threadRef"));
 		if ("START_NEW".equals(mode)) {
-			if (threadRef != null && !threadRef.isBlank()) {
+			if (!keys.equals(Set.of("mode"))) {
 				throw policy();
 			}
 			return;
 		}
 		if (!"FOLLOW_UP".equals(mode)
+			|| !keys.equals(Set.of("mode", "threadRef"))
 			|| threadRef == null
-			|| !threadRef.matches("qa-[1-9][0-9]*")) {
+			|| !threadRef.matches("qa-[1-9][0-9]*")
+			|| !threadRef.equals(expectedQaThreadRef)) {
 			throw policy();
 		}
 	}

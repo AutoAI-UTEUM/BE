@@ -36,7 +36,7 @@ edupilot:
     connect-timeout: 3s
     health-timeout: 2s
     read-timeout: 30s
-    turn-read-timeout: ${EDUPILOT_AI_TURN_READ_TIMEOUT:180s}
+    turn-read-timeout: ${EDUPILOT_AI_TURN_READ_TIMEOUT:200s}
     grade-read-timeout: ${EDUPILOT_AI_GRADE_READ_TIMEOUT:90s}
     pipeline-read-timeout: ${EDUPILOT_AI_PIPELINE_READ_TIMEOUT:45s}
     extract-read-timeout: ${EDUPILOT_AI_EXTRACT_READ_TIMEOUT:120s}
