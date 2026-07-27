@@ -79,6 +79,18 @@ class Settings(BaseSettings):
         default=120,
         validation_alias="EXTRACT_TIMEOUT_SECONDS",
     )
+    edupilot_upload_max_mb: int = Field(
+        default=45,
+        ge=1,
+        le=45,
+        validation_alias="EDUPILOT_UPLOAD_MAX_MB",
+    )
+    edupilot_extract_max_pages: int = Field(
+        default=300,
+        ge=1,
+        le=300,
+        validation_alias="EDUPILOT_EXTRACT_MAX_PAGES",
+    )
 
     agent_reasoning_effort: ReasoningEffort = Field(
         default=ReasoningEffort.MEDIUM,
@@ -102,3 +114,8 @@ class Settings(BaseSettings):
             max_tokens=self.agent_max_tokens,
             temperature=self.agent_temperature,
         )
+
+    @property
+    def upload_max_bytes(self) -> int:
+        """Return the configured multipart limit in bytes."""
+        return self.edupilot_upload_max_mb * 1024 * 1024
