@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import io.edupilot.ai.dto.ActionExecuted;
 import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -302,12 +303,8 @@ public class TurnPersistenceService {
 	private JsonNode quizGeneration(
 		io.edupilot.ai.dto.TurnResponse response
 	) {
-		for (Map<String, Object> action : response.actionsExecuted()) {
-			Object rawArtifacts = action.get("artifacts");
-			if (!(rawArtifacts instanceof Map<?, ?> artifacts)) {
-				continue;
-			}
-			Object generation = artifacts.get("quizGeneration");
+		for (ActionExecuted action : response.actionsExecuted()) {
+			Object generation = action.artifacts().get("quizGeneration");
 			if (generation != null) {
 				return objectMapper.valueToTree(generation);
 			}

@@ -7,7 +7,7 @@ public record TurnResponse(
 	String schemaVersion,
 	String turnId,
 	String turnGoal,
-	List<Map<String, Object>> actionsExecuted,
+	List<ActionExecuted> actionsExecuted,
 	List<Map<String, Object>> messages,
 	Map<String, Object> statePatch,
 	List<Map<String, Object>> uiActions,

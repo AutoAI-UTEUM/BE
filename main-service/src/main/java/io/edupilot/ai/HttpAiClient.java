@@ -4,6 +4,11 @@ import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
@@ -27,6 +32,8 @@ import org.springframework.web.client.RestClientResponseException;
 
 import io.edupilot.ai.dto.AiErrorResponse;
 import io.edupilot.ai.dto.AiHealthResponse;
+import io.edupilot.ai.dto.ActionExecuted;
+import io.edupilot.ai.dto.Adjustment;
 import io.edupilot.ai.dto.DiagnosisRequest;
 import io.edupilot.ai.dto.DiagnosisResponse;
 import io.edupilot.ai.dto.ExtractResponse;
@@ -315,7 +322,7 @@ public class HttpAiClient implements AiClient {
 		long startedAt = System.nanoTime();
 		try {
 			T response = operation.get();
-			logSuccess(context, elapsedMillis(startedAt));
+			logSuccess(context, elapsedMillis(startedAt), response);
 			return response;
 		} catch (AiClientException exception) {
 			logFailure(context, elapsedMillis(startedAt), exception);
@@ -343,10 +350,41 @@ public class HttpAiClient implements AiClient {
 		}
 	}
 
-	private void logSuccess(AiCallContext context, long durationMs) {
-		withContext(log.atInfo(), context, durationMs)
-			.addKeyValue("status", "SUCCESS")
-			.log("AI service call completed");
+	private void logSuccess(
+		AiCallContext context,
+		long durationMs,
+		Object response
+	) {
+		LoggingEventBuilder builder = withContext(
+			log.atInfo(),
+			context,
+			durationMs
+		).addKeyValue("status", "SUCCESS");
+		if (response instanceof TurnResponse turnResponse) {
+			builder.addKeyValue(
+				"adjustments",
+				turnAdjustments(turnResponse)
+			);
+		}
+		builder.log("AI service call completed");
+	}
+
+	private List<Map<String, Object>> turnAdjustments(
+		TurnResponse response
+	) {
+		List<Map<String, Object>> values = new ArrayList<>();
+		for (ActionExecuted action : response.actionsExecuted()) {
+			for (Adjustment adjustment : action.adjustments()) {
+				Map<String, Object> value = new LinkedHashMap<>();
+				value.put("actionId", action.actionId());
+				value.put("field", adjustment.field());
+				value.put("from", adjustment.from());
+				value.put("to", adjustment.to());
+				value.put("reason", adjustment.reason());
+				values.add(value);
+			}
+		}
+		return List.copyOf(values);
 	}
 
 	private void logFailure(
@@ -411,6 +449,26 @@ public class HttpAiClient implements AiClient {
 			|| !response.schemaVersion().equals(request.schemaVersion())
 			|| !response.turnId().equals(request.turnId())) {
 			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+		}
+		for (ActionExecuted action : response.actionsExecuted()) {
+			if (action == null
+				|| !StringUtils.hasText(action.actionId())
+				|| !StringUtils.hasText(action.agent())
+				|| !Set.of("SUCCESS", "FAILED", "SKIPPED")
+					.contains(action.status())) {
+				throw new AiClientException(
+					ErrorCode.AI_RESPONSE_INVALID
+				);
+			}
+			for (Adjustment adjustment : action.adjustments()) {
+				if (adjustment == null
+					|| !StringUtils.hasText(adjustment.field())
+					|| !StringUtils.hasText(adjustment.reason())) {
+					throw new AiClientException(
+						ErrorCode.AI_RESPONSE_INVALID
+					);
+				}
+			}
 		}
 	}
 
