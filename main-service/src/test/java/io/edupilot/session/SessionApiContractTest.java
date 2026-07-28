@@ -6,6 +6,8 @@ import static org.springframework.security.test.web.servlet.setup.SecurityMockMv
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
@@ -23,6 +25,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import io.edupilot.auth.JwtTokenProvider;
 import io.edupilot.auth.RefreshTokenRepository;
@@ -65,6 +68,9 @@ class SessionApiContractTest {
 
 	@MockitoBean
 	private SessionMessageService messageService;
+
+	@MockitoBean
+	private SessionStreamService streamService;
 
 	@MockitoBean
 	private UserRepository userRepository;
@@ -140,6 +146,32 @@ class SessionApiContractTest {
 				.value("BINARY_DECISION"))
 			.andExpect(jsonPath("$.data.conversationSummary").doesNotExist())
 			.andExpect(jsonPath("$.data.learnerMemoryDigest").doesNotExist());
+	}
+
+	@Test
+	void streamRequiresBearerAndReturnsSseHeaders() throws Exception {
+		mockMvc.perform(get("/api/sessions/100/stream")
+				.accept(MediaType.TEXT_EVENT_STREAM))
+			.andExpect(status().isUnauthorized());
+
+		when(streamService.connect(1L, 100L))
+			.thenReturn(new SseEmitter(0L));
+		mockMvc.perform(get("/api/sessions/100/stream")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.accept(MediaType.TEXT_EVENT_STREAM))
+			.andExpect(status().isOk())
+			.andExpect(request().asyncStarted())
+			.andExpect(header().string(
+				HttpHeaders.CONTENT_TYPE,
+				org.hamcrest.Matchers.startsWith(
+					MediaType.TEXT_EVENT_STREAM_VALUE
+				)
+			))
+			.andExpect(header().string("X-Accel-Buffering", "no"))
+			.andExpect(header().string(
+				HttpHeaders.CACHE_CONTROL,
+				"no-cache"
+			));
 	}
 
 	@Test
