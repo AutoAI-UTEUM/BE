@@ -116,6 +116,14 @@ class Settings(BaseSettings):
         default=ReasoningEffort.MEDIUM,
         validation_alias="QA_REASONING_EFFORT",
     )
+    quiz_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.MEDIUM,
+        validation_alias="QUIZ_REASONING_EFFORT",
+    )
+    grader_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.HIGH,
+        validation_alias="GRADER_REASONING_EFFORT",
+    )
 
     @property
     def agent_llm_profile(self) -> AgentLlmProfile:
@@ -149,6 +157,16 @@ class Settings(BaseSettings):
     def qa_llm_profile(self) -> AgentLlmProfile:
         """Build the interactive question-answering profile."""
         return self._profile(self.qa_reasoning_effort)
+
+    @property
+    def quiz_llm_profile(self) -> AgentLlmProfile:
+        """Build the medium-reasoning quiz generation profile."""
+        return self._profile(self.quiz_reasoning_effort)
+
+    @property
+    def grader_llm_profile(self) -> AgentLlmProfile:
+        """Build the high-reasoning grading profile."""
+        return self._profile(self.grader_reasoning_effort)
 
     @property
     def upload_max_bytes(self) -> int:
