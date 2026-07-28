@@ -4,26 +4,34 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from edupilot_ai.core.errors import ErrorCategory
 from edupilot_ai.llm.bridge import (
     LlmBridge,
+    LlmBridgeError,
     LlmTextDelta,
     LlmTextStreamCompleted,
     LlmTextStreamItem,
     LlmUsage,
 )
 from edupilot_ai.models.plan import AgentOutput
+from edupilot_ai.models.quiz import QuizGeneration, QuizType
 from edupilot_ai.models.turn import DetailLevel, Message, QaThreadMode
 from edupilot_ai.orchestration.context import AgentContext
-from edupilot_ai.orchestration.prompts import explainer_messages, qa_messages
+from edupilot_ai.orchestration.prompts import (
+    explainer_messages,
+    qa_messages,
+    quiz_messages,
+)
 from edupilot_ai.settings import AgentLlmProfile
 
 
 @dataclass(frozen=True, slots=True)
 class AgentResult:
     agent: str
-    message: Message
+    message: Message | None
     state_patch: dict[str, Any]
     usage: LlmUsage
+    quiz: QuizGeneration | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,3 +186,44 @@ class QaAgent:
         if thread_ref is None:
             raise ValueError("FOLLOW_UP requires threadRef")
         return {"qaThread": {"mode": mode.value, "threadRef": thread_ref}}
+
+
+class QuizAgent:
+    def __init__(self, *, llm: LlmBridge, profile: AgentLlmProfile) -> None:
+        self._llm = llm
+        self._profile = profile
+
+    async def run(
+        self,
+        context: AgentContext,
+        quiz_type: QuizType,
+        *,
+        timeout_seconds: float,
+    ) -> AgentResult:
+        completion = await self._llm.complete_json(
+            messages=quiz_messages(context, quiz_type),
+            response_model=QuizGeneration,
+            profile=self._profile,
+            timeout_seconds=timeout_seconds,
+        )
+        quiz = completion.output
+        available_pages = {context.session.current_page}
+        if context.previous_page_text is not None and context.session.current_page > 1:
+            available_pages.add(context.session.current_page - 1)
+        if context.next_page_text is not None:
+            available_pages.add(context.session.current_page + 1)
+        covered_pages = set(
+            range(quiz.coverage.start_page, quiz.coverage.end_page + 1)
+        )
+        if quiz.quiz_type is not quiz_type or not covered_pages.issubset(available_pages):
+            raise LlmBridgeError(
+                category=ErrorCategory.SCHEMA,
+                retryable=False,
+            )
+        return AgentResult(
+            agent="QuizAgent",
+            message=None,
+            state_patch={},
+            usage=completion.usage,
+            quiz=quiz,
+        )

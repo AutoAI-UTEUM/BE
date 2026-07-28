@@ -457,13 +457,6 @@ async def test_learner_confidence_rejects_float_and_unknown_enum(
     ("event", "tool", "args", "agent", "content"),
     [
         (
-            {"eventType": "QUIZ_TYPE_SELECTED", "payload": {"quizType": "MCQ"}},
-            ToolName.GENERATE_QUIZ_MCQ,
-            {"quizType": "MCQ"},
-            "QuizAgent",
-            "퀴즈 생성 기능은 준비 중입니다. (이슈 #31)",
-        ),
-        (
             {
                 "eventType": "DIAGNOSIS_ANSWER_SUBMITTED",
                 "payload": {"diagnosisId": 30, "answer": "제 답입니다"},

@@ -4,8 +4,9 @@ from typing import Annotated, cast
 
 from fastapi import Depends, Request
 
+from edupilot_ai.grading.service import GraderAgent, GradeService
 from edupilot_ai.llm.bridge import LlmBridge
-from edupilot_ai.orchestration.agents import ExplainerAgent, QaAgent
+from edupilot_ai.orchestration.agents import ExplainerAgent, QaAgent, QuizAgent
 from edupilot_ai.orchestration.context import ContextBuilder
 from edupilot_ai.orchestration.dispatcher import ToolDispatcher
 from edupilot_ai.orchestration.orchestrator import Orchestrator
@@ -38,12 +39,32 @@ def get_turn_service(
     """Build one request-scoped turn pipeline from app-scoped dependencies."""
     explainer = ExplainerAgent(llm=llm, profile=settings.explainer_llm_profile)
     qa = QaAgent(llm=llm, profile=settings.qa_llm_profile)
+    quiz = QuizAgent(llm=llm, profile=settings.quiz_llm_profile)
     return TurnService(
         context_builder=ContextBuilder(),
         orchestrator=Orchestrator(llm=llm, profile=settings.orchestrator_llm_profile),
         policy=PolicyVerifier(),
-        dispatcher=ToolDispatcher(explainer=explainer, qa=qa, model=settings.model_name),
+        dispatcher=ToolDispatcher(
+            explainer=explainer,
+            qa=qa,
+            quiz=quiz,
+            model=settings.model_name,
+        ),
         model=settings.model_name,
         turn_timeout_seconds=settings.turn_timeout_seconds,
         first_event_timeout_seconds=settings.turn_first_event_timeout_seconds,
+    )
+
+
+def get_grade_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    llm: Annotated[LlmBridge, Depends(get_llm_bridge)],
+) -> GradeService:
+    """Build one request-scoped deterministic grading pipeline."""
+    return GradeService(
+        agent=GraderAgent(
+            llm=llm,
+            profile=settings.grader_llm_profile,
+            timeout_seconds=settings.grade_timeout_seconds,
+        )
     )

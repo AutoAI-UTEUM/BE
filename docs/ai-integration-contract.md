@@ -114,6 +114,7 @@
   "messages": [ { "messageType": "QA", "content": "..." } ],
   "statePatch": {},
   "uiActions": [],
+  "quiz": null,
   "memoryCandidates": [],
   "memoryWrite": null,
   "usage": { "model": "grok-4.5-<date>", "inputTokens": 0, "outputTokens": 0, "reasoningTokens": 0 }
@@ -127,7 +128,11 @@
   초기 reason 값은 `PAGE_MISMATCH_CORRECTED`,
   `EVENT_PAYLOAD_MISMATCH_CORRECTED`입니다.
 - `usage`: **채택 확정** — 모든 내부 응답의 표준 선택 필드 (reasoningTokens 포함, 미제공 시 null). Spring은 로그로만 수집(DB 저장 없음) — DEC-002 비용 트리거(월 $150) 판단 데이터.
-- 퀴즈 생성 결과는 `actionsExecuted[].artifacts.quizGeneration`에 둡니다. Spring은 이를 검증·저장한 뒤 자체 발급한 quiz ID만 `state.activeQuizId`로 반환합니다.
+- 퀴즈 생성 턴에서는 turn 응답 최상위의 nullable `quiz` 필드에 전체 퀴즈
+  JSON(§6.2 생성 스키마, 정답·비공개 필드 포함)을 반환합니다. 그 외 턴에서는
+  `null`입니다. Spring이 이를 검증·분리 저장(비공개 필드는 학생 노출 DTO에서
+  제거)하고 자체 발급한 quiz ID만 `state.activeQuizId`로 반환합니다. AI는
+  statePatch에 `activeQuizId`를 설정하지 않습니다.
 - `memoryWrite`는 최상위 nullable 필드입니다. Spring은 턴 핵심 저장 커밋 후 별도 트랜잭션에서 반복 근거·confidence 정책을 검증해 승격합니다.
 - `uiActions`: 예약 필드이며 AI Service는 항상 `[]`을 반환합니다. Spring은
   비어 있지 않은 값이 오면 무시하고 경고 로그를 남깁니다. 사용자 위젯은
@@ -138,7 +143,7 @@
 | 필드 | 허용 값 | 비고 |
 | --- | --- | --- |
 | `pageStatus` | `EXPLAINING, EXPLAINED, QUIZ_READY, DIAGNOSIS_PENDING, REPAIR_COMPLETED` | `NOT_EXPLAINED` 역전이는 페이지 이동(StateReducer)만 |
-| `activeQuizId` | 퀴즈 ID 또는 null | 생성 턴에서 설정, 제출 완료 시 Spring 해제 |
+| `activeQuizId` | 퀴즈 ID 또는 null | Spring이 발급·설정, 제출 완료 시 Spring 해제 — AI는 미설정 |
 | `pendingDiagnosis` | 진단 참조 또는 null | 해제는 교정 완료 턴에서만 |
 | `qaThread` | `START_NEW`: `{ "mode": "START_NEW" }`; `FOLLOW_UP`: `{ "mode": "FOLLOW_UP", "threadRef": "qa-{id}" }` | `threadRef`는 Spring이 `qa-{id}` 형식으로 발급. START_NEW에는 포함하지 않고, FOLLOW_UP은 스냅샷 `qaThreadDigest.threadRef`를 그대로 반환 |
 
@@ -276,9 +281,25 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 
 ### 6.2 POST /internal/ai/grade
 
+- QuizAgent 생성 결과는 내부 turn 응답의 `quiz` 전체 JSON으로 반환합니다.
+  Spring은 공개/비공개 필드를 분리 저장하고 자체 발급한 `activeQuizId`만 외부
+  상태에 반영합니다. AI Service는 `activeQuizId` statePatch를 만들지 않습니다.
+- 퀴즈 공통 스키마: `generationId`, `quizType(MCQ|OX|SHORT|ESSAY)`,
+  `coverage{startPage,endPage}`, `title`, `questionCount(5~10)`,
+  `questions[]`. 문항 공통 공개 필드는 `questionId`, `questionText`,
+  `points`입니다. `questionCount`는 `questions` 길이와 같아야 합니다.
+- 유형별 필드: MCQ는 공개 `choices[]{choiceId,text}`와 비공개
+  `answerChoiceId`·`explanation`, OX는 비공개 `answerValue`·`explanation`,
+  SHORT는 비공개 `referenceAnswer`·`gradingCriteria`, ESSAY는 비공개
+  `modelAnswer`·`rubric[]{criterion,weight}`를 사용하며 rubric weight 합은
+  1이어야 합니다.
+- MVP `coverage`는 turn snapshot에 실제 제공된 페이지로 제한합니다. 누적 범위
+  퀴즈는 후속 이슈에서 별도 설계합니다.
+- `generationId`는 AI Service가 생성하는 추적용 ID이며 멱등 키가 아닙니다.
+  멱등성의 원천은 Spring의 `requestId`입니다.
 - 요청: `quizId, quizType(SHORT|ESSAY), items[]{questionId, question, modelAnswer, rubric[]{criterion, weight}, maxScore}, studentAnswers[]{questionId, answer}, pageContext{coverageStartPage, coverageEndPage, text}, learnerMemoryDigest`
 - 응답: `quizId, quizType, score, maxScore, items[]{questionId, score, maxScore, verdict(CORRECT|PARTIAL|WRONG), feedback}` + `usage`
-- 규칙: **questionId 기반 매칭**(index 금지), rubric weight 합 검증, 항목별 점수 산출 후 **합산은 코드에서**(DEC-002 D4), 점수 불변식(0≤score≤maxScore) 자체 검증 → Spring 재검증(GRADING_RESULT_INVALID). reasoning_effort=high.
+- 규칙: **questionId 기반 매칭**(index 금지), rubric weight 합 검증, 항목별 점수 산출 후 **합산은 코드에서**(DEC-002 D4), 점수 불변식(0≤score≤maxScore) 자체 검증 → Spring 재검증(GRADING_RESULT_INVALID). verdict는 만점 비율 `CORRECT >= 0.8`, `WRONG <= 0.2`, 그 사이는 `PARTIAL`. reasoning_effort=high.
 
 ### 6.3 POST /internal/ai/quiz-assessment
 

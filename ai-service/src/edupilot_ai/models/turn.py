@@ -3,12 +3,10 @@
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
-from pydantic.alias_generators import to_camel
+from pydantic import Field, PrivateAttr, model_validator
 
-
-class ContractModel(BaseModel):
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
+from edupilot_ai.models.base import ContractModel
+from edupilot_ai.models.quiz import QuizGeneration, QuizType
 
 
 class EventType(StrEnum):
@@ -21,13 +19,6 @@ class EventType(StrEnum):
 class DetailLevel(StrEnum):
     NORMAL = "NORMAL"
     DETAILED = "DETAILED"
-
-
-class QuizType(StrEnum):
-    MCQ = "MCQ"
-    OX = "OX"
-    SHORT = "SHORT"
-    ESSAY = "ESSAY"
 
 
 class QaThreadMode(StrEnum):
@@ -141,4 +132,5 @@ class TurnResponse(ContractModel):
     state_patch: dict[str, Any]
     ui_actions: list[dict[str, Any]]
     memory_candidates: list[dict[str, Any]]
+    quiz: QuizGeneration | None = Field(default=None, exclude_if=lambda value: value is None)
     usage: Usage

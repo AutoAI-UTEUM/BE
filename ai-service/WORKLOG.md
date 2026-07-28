@@ -365,3 +365,105 @@
 
 Closes #25
 ```
+
+---
+
+# Issue #31 Worklog — QuizAgent·GraderAgent
+
+기준 브랜치: `origin/develop` (`20a5896`, #25·#83·#84 반영)
+
+## 작업 결과
+
+- 2026-07-28 16:35 KST: `feature/31-quiz-grader`에서 QuizAgent·GraderAgent
+  초안 구현.
+- 2026-07-28 19:03 KST: 최신 develop에 rebase하고 #25의 턴 deadline·스트림
+  인터페이스와 #83의 `learnerConfidence` enum 계약을 통합.
+- QuizAgent가 `GENERATE_QUIZ_MCQ|OX|SHORT|ESSAY` 스텁을 대체하며,
+  제공된 페이지 텍스트, 학습자 수준·confidence·memory digest를 반영하는
+  structured output을 생성합니다.
+- 퀴즈 생성 프로필은 `reasoning_effort=medium`, GraderAgent는 `high`로
+  분리했습니다.
+- turn 응답에 선택적 내부 `quiz`를 추가하고 `activeQuizId` patch는 생성하지
+  않습니다. 영속 ID 발급과 공개/비공개 필드 분리는 Spring 책임입니다.
+- `/internal/ai/grade`는 SHORT/ESSAY만 허용하고 questionId 집합이 다르면
+  LLM 호출 전 HTTP 400 `AI_REQUEST_INVALID`로 거부합니다.
+- 루브릭 항목별 `scoreRatio`를 코드에서 가중 합산하며, LLM이 함께 반환한
+  score·verdict와 불일치하면 정확히 1회 재생성 후 `SCHEMA`로 종료합니다.
+- `docs/prompt-assets.md`는 develop에 없어, 사용자가 제공한 프롬프트 자산
+  §4의 채점 규율과 `agent-system-spec` §4.4~4.5만 적용했습니다.
+
+## #30 확정(2026-07-28 서면 승인)
+
+### 퀴즈 생성 스키마
+
+- 공통: `generationId`, `quizType`, `coverage{startPage,endPage}`, `title`,
+  `questionCount(5~10)`, `questions[]`.
+- 문항 공통 공개 필드: `questionId`, `questionText`, `points`.
+- MCQ: 공개 `choices[]{choiceId,text}` / 비공개 `answerChoiceId`,
+  `explanation`.
+- OX: 비공개 `answerValue`, `explanation`.
+- SHORT: 비공개 `referenceAnswer`, `gradingCriteria`.
+- ESSAY: 비공개 `modelAnswer`, `rubric[]{criterion,weight}`이며 weight 합은 1.
+- 정답·해설·기준 답안·채점 기준·루브릭은 학생 비공개 필드입니다. Spring이
+  내부 전체 JSON을 분리 저장하고 외부 DTO에서 제거합니다.
+
+### 채점
+
+- 요청·응답은 계약 §6.2 필드를 유지합니다.
+- LLM 전용 draft item은 `questionId`, `rubricScores[]{criterion,scoreRatio}`,
+  `score`, `verdict`, `feedback`입니다. API 응답에는 rubricScores를 노출하지
+  않고 코드가 확정한 item score·verdict만 반환합니다.
+- verdict 경계는 만점 비율 `CORRECT >= 0.8`, `WRONG <= 0.2`, 그 사이는
+  `PARTIAL`입니다.
+
+### A1~A3 확정 결정
+
+1. A1: AI Service가 내부 turn의 `quiz` 전체 JSON을 반환하고 Spring이
+   공개/비공개 필드를 분리 저장합니다. `activeQuizId`는 Spring이 발급하며
+   AI의 statePatch에는 설정하지 않습니다.
+2. A2: MVP coverage는 turn snapshot에 실제 제공된 페이지만 허용합니다.
+   누적 범위 퀴즈는 후속 이슈에서 별도 설계합니다.
+3. A3: `generationId`는 AI가 생성하는 추적용 ID입니다. 멱등성의 원천은
+   Spring의 `requestId`이며 generationId를 멱등 키로 사용하지 않습니다.
+
+## 이슈 #31 체크리스트 매핑
+
+- [x] 유형별 QuizAgent structured output과 5~10개 문항 불변식.
+- [x] `GENERATE_QUIZ_*` turn 도구 연결.
+- [x] `/internal/ai/grade`와 questionId 기반 매칭.
+- [x] 루브릭 가중 합산·점수 범위·verdict 코드 검증.
+- [x] schema 불일치 1회 재생성.
+- [x] FakeLlm 기반 계약 테스트. 실제 Grok/외부 네트워크 0회.
+
+## 검증 결과
+
+- `uv run pytest -q`: 84개 통과
+- `uv run ruff check .`: 통과
+- `uv run mypy src tests`: 50개 소스 파일 검사 통과
+- 기존 설명·QA, JSON·NDJSON 스트림 회귀 테스트: 전부 통과
+- 실제 Grok/xAI 및 테스트 외부 네트워크 호출: 0회
+
+## PR 본문 초안
+
+```markdown
+## 변경 요약
+
+- 네 가지 유형의 QuizAgent structured output과 turn 도구 연결
+- 내부 turn 응답의 선택적 quiz 필드, Spring 소유 activeQuizId 미설정
+- SHORT/ESSAY GraderAgent와 POST /internal/ai/grade
+- questionId 매칭, 루브릭 코드 합산, verdict 검증, 1회 schema 재생성
+- Quiz=medium / Grader=high reasoning profile
+- #25 턴 deadline·streaming 및 learnerConfidence enum 계약 통합
+
+## 계약 상태
+
+#30 A1~A3 서면 확정 반영 완료.
+
+## 검증
+
+- pytest 84 passed
+- ruff/mypy passed
+- 실제 Grok/xAI 및 테스트 외부 네트워크 호출 0회
+
+Closes #31
+```
