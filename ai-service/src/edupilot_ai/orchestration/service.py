@@ -1,6 +1,7 @@
 """End-to-end JSON and NDJSON turn services."""
 
 import asyncio
+import logging
 import time
 from collections.abc import AsyncGenerator, AsyncIterator
 from http import HTTPStatus
@@ -29,6 +30,7 @@ from edupilot_ai.orchestration.policy import PolicyVerifier, PolicyViolation
 from edupilot_ai.orchestration.timing import MonotonicClock, TurnDeadline
 
 HEARTBEAT_INTERVAL_SECONDS = 10.0
+logger = logging.getLogger(__name__)
 
 
 def _llm_error(error: LlmBridgeError) -> InternalApiError:
@@ -175,6 +177,14 @@ class TurnService:
         except LlmBridgeError as error:
             raise _llm_error(error) from error
         except PolicyViolation as error:
+            logger.warning(
+                "Turn plan rejected by policy: reason=%s actions=%s",
+                error,
+                [
+                    {"tool": action.tool.value, "args": action.args}
+                    for action in planned.plan.actions
+                ],
+            )
             raise _policy_error(
                 "The generated Plan violated the turn policy."
             ) from error
@@ -268,7 +278,15 @@ class TurnService:
             yield CompletedStreamEvent(result=result)
         except LlmBridgeError as error:
             yield _stream_error(_llm_error(error))
-        except PolicyViolation:
+        except PolicyViolation as error:
+            logger.warning(
+                "Turn plan rejected by policy: reason=%s actions=%s",
+                error,
+                [
+                    {"tool": action.tool.value, "args": action.args}
+                    for action in planned.plan.actions
+                ],
+            )
             yield _stream_error(
                 _policy_error("The generated Plan violated the turn policy.")
             )

@@ -27,6 +27,15 @@ def plan_messages(
         "Return only TurnPlan JSON. Choose a turnGoal then allowed tools. "
         "Never write the learner answer in the Plan. Pipeline tools "
         "GRADE_OPEN_RESPONSE, ASSESS_QUIZ_RESULT, DIAGNOSE_MISCONCEPTION are forbidden. "
+        "Use these exact args keys and no additional keys: "
+        "EXPLAIN_PAGE={page,detailLevel} (use page, never pageNumber); "
+        "ANSWER_QUESTION={qaThreadMode,threadRef}; "
+        "GENERATE_QUIZ_MCQ={quizType}; GENERATE_QUIZ_OX={quizType}; "
+        "GENERATE_QUIZ_SHORT={quizType}; GENERATE_QUIZ_ESSAY={quizType}; "
+        "REPAIR_MISCONCEPTION={diagnosisId}; "
+        "BUILD_MEMORY_CANDIDATE={type,content,confidence,evidence}; "
+        "PROMOTE_MEMORY={type,content,confidence,evidence}. "
+        "PROMPT_BINARY_DECISION and PROMPT_QUIZ_TYPE_SELECTION are not allowed. "
         "memoryWrite must be null. FOLLOW_UP requires qaThreadDigest."
     )
     if retry:
