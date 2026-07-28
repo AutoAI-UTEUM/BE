@@ -212,7 +212,10 @@ async def test_explain_policy_still_rejects_missing_required_key(
     fake_llm.queue(
         make_plan(
             ToolName.EXPLAIN_PAGE,
-            {"detailLevel": "NORMAL"},
+            {
+                "detailLevel": "NORMAL",
+                "content": "PRIVATE-STUDENT-ANSWER",
+            },
             "EXPLAIN_CURRENT_PAGE",
         )
     )
@@ -254,6 +257,7 @@ async def test_policy_rejection_logs_reason_and_plan_actions(
     assert "tool args do not match policy" in caplog.text
     assert "EXPLAIN_PAGE" in caplog.text
     assert "detailLevel" in caplog.text
+    assert "PRIVATE-STUDENT-ANSWER" not in caplog.text
 
 
 async def test_user_question_start_new(
