@@ -1,18 +1,26 @@
 package io.edupilot.session;
 
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.LongSupplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
+import io.edupilot.ai.AiClientProperties;
+import io.edupilot.ai.AiStreamCancellation;
+import io.edupilot.ai.TurnStreamEvent;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
@@ -41,7 +49,11 @@ public class SessionTurnService {
 	private final TurnResponseValidator responseValidator;
 	private final TurnPersistenceService persistenceService;
 	private final LearnerMemoryPromotionService memoryPromotionService;
+	private final SessionStreamService streamService;
+	private final AiClientProperties aiClientProperties;
+	private final LongSupplier nanoTime;
 
+	@Autowired
 	public SessionTurnService(
 		TurnClaimService claimService,
 		TurnPreparationService preparationService,
@@ -49,7 +61,35 @@ public class SessionTurnService {
 		AiClient aiClient,
 		TurnResponseValidator responseValidator,
 		TurnPersistenceService persistenceService,
-		LearnerMemoryPromotionService memoryPromotionService
+		LearnerMemoryPromotionService memoryPromotionService,
+		SessionStreamService streamService,
+		AiClientProperties aiClientProperties
+	) {
+		this(
+			claimService,
+			preparationService,
+			snapshotService,
+			aiClient,
+			responseValidator,
+			persistenceService,
+			memoryPromotionService,
+			streamService,
+			aiClientProperties,
+			System::nanoTime
+		);
+	}
+
+	SessionTurnService(
+		TurnClaimService claimService,
+		TurnPreparationService preparationService,
+		TurnSnapshotService snapshotService,
+		AiClient aiClient,
+		TurnResponseValidator responseValidator,
+		TurnPersistenceService persistenceService,
+		LearnerMemoryPromotionService memoryPromotionService,
+		SessionStreamService streamService,
+		AiClientProperties aiClientProperties,
+		LongSupplier nanoTime
 	) {
 		this.claimService = claimService;
 		this.preparationService = preparationService;
@@ -58,6 +98,9 @@ public class SessionTurnService {
 		this.responseValidator = responseValidator;
 		this.persistenceService = persistenceService;
 		this.memoryPromotionService = memoryPromotionService;
+		this.streamService = streamService;
+		this.aiClientProperties = aiClientProperties;
+		this.nanoTime = nanoTime;
 	}
 
 	public TurnResponse execute(
@@ -71,6 +114,7 @@ public class SessionTurnService {
 			request.payload()
 		);
 		claimService.claim(userId, sessionId, request.requestId());
+		SessionStreamConnection streamConnection = null;
 		try {
 			PreparedTurn prepared;
 			try {
@@ -91,11 +135,31 @@ public class SessionTurnService {
 				sessionId,
 				prepared.userMessageId()
 			);
-			io.edupilot.ai.dto.TurnResponse aiResponse = executeAiTurn(
-				request,
-				eventType,
-				snapshot
-			);
+			AiStreamCancellation cancellation = new AiStreamCancellation();
+			Optional<SessionStreamConnection> activeStream =
+				streamService.beginTurn(
+					userId,
+					sessionId,
+					cancellation
+				);
+			streamConnection = activeStream.orElse(null);
+			io.edupilot.ai.dto.TurnResponse aiResponse =
+				streamConnection == null
+					? executeAiTurn(request, eventType, snapshot)
+					: executeAiTurnStream(
+						request,
+						eventType,
+						snapshot,
+						streamConnection,
+						cancellation
+					);
+			if (streamConnection != null && cancellation.isCancelled()) {
+				throw new AiClientException(
+					ErrorCode.AI_STREAM_INTERRUPTED,
+					true,
+					null
+				);
+			}
 			PersistedTurn persisted = persistenceService.persist(
 				userId,
 				sessionId,
@@ -106,10 +170,85 @@ public class SessionTurnService {
 				aiResponse
 			);
 			promoteMemory(userId, persisted);
-			return persisted.response();
+			TurnResponse response = persisted.response();
+			if (streamConnection != null) {
+				streamService.complete(streamConnection, response);
+			}
+			return response;
+		} catch (RuntimeException exception) {
+			if (streamConnection != null) {
+				streamService.fail(streamConnection, exception);
+			}
+			throw exception;
 		} finally {
 			claimService.release(sessionId, request.requestId());
 		}
+	}
+
+	private io.edupilot.ai.dto.TurnResponse executeAiTurnStream(
+		TurnRequest request,
+		TurnEventType eventType,
+		TurnSnapshot snapshot,
+		SessionStreamConnection streamConnection,
+		AiStreamCancellation cancellation
+	) {
+		long deadlineNanos = nanoTime.getAsLong()
+			+ aiClientProperties.turnReadTimeout().toNanos();
+		AtomicBoolean contentForwarded = new AtomicBoolean();
+		for (int attempt = 1; attempt <= 2; attempt++) {
+			String turnId = "turn-" + UUID.randomUUID();
+			io.edupilot.ai.dto.TurnRequest aiRequest = aiRequest(
+				turnId,
+				eventType,
+				request,
+				snapshot
+			);
+			try {
+				long remainingNanos = deadlineNanos - nanoTime.getAsLong();
+				if (remainingNanos <= 0) {
+					throw new AiClientException(
+						ErrorCode.AI_SERVICE_TIMEOUT,
+						true,
+						null
+					);
+				}
+				io.edupilot.ai.dto.TurnResponse response =
+					aiClient.executeTurnStream(
+						aiRequest,
+						event -> {
+							if (event.type()
+								== TurnStreamEvent.Type.CONTENT_DELTA) {
+								contentForwarded.set(true);
+							}
+							streamConnection.send(event);
+						},
+						cancellation,
+						Duration.ofNanos(remainingNanos)
+					);
+				responseValidator.validate(
+					response,
+					turnId,
+					qaThreadRef(snapshot)
+				);
+				return response;
+			} catch (AiClientException exception) {
+				logAttemptFailure(
+					request.requestId(),
+					turnId,
+					attempt,
+					exception
+				);
+				if (attempt == 1
+					&& exception.retryable()
+					&& !contentForwarded.get()
+					&& !cancellation.isCancelled()
+					&& deadlineNanos > nanoTime.getAsLong()) {
+					continue;
+				}
+				throw exception;
+			}
+		}
+		throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
 	}
 
 	private io.edupilot.ai.dto.TurnResponse executeAiTurn(
@@ -119,14 +258,12 @@ public class SessionTurnService {
 	) {
 		for (int attempt = 1; attempt <= 2; attempt++) {
 			String turnId = "turn-" + UUID.randomUUID();
-			io.edupilot.ai.dto.TurnRequest aiRequest =
-				new io.edupilot.ai.dto.TurnRequest(
-					SCHEMA_VERSION,
-					turnId,
-					snapshot.session(),
-					eventData(eventType, request.payload()),
-					snapshot.context()
-				);
+			io.edupilot.ai.dto.TurnRequest aiRequest = aiRequest(
+				turnId,
+				eventType,
+				request,
+				snapshot
+			);
 			try {
 				io.edupilot.ai.dto.TurnResponse response =
 					aiClient.executeTurn(aiRequest);
@@ -137,19 +274,12 @@ public class SessionTurnService {
 				);
 				return response;
 			} catch (AiClientException exception) {
-				log.atWarn()
-					.addKeyValue("requestId", request.requestId())
-					.addKeyValue(
-						"traceId",
-						MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY)
-					)
-					.addKeyValue("attempt", attempt)
-					.addKeyValue("retried", attempt > 1)
-					.addKeyValue("turnId", turnId)
-					.addKeyValue("category", exception.category())
-					.addKeyValue("errorCode", exception.errorCode().code())
-					.addKeyValue("retryable", exception.retryable())
-					.log("AI turn attempt failed");
+				logAttemptFailure(
+					request.requestId(),
+					turnId,
+					attempt,
+					exception
+				);
 				if (attempt == 1 && exception.retryable()) {
 					continue;
 				}
@@ -157,6 +287,42 @@ public class SessionTurnService {
 			}
 		}
 		throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+	}
+
+	private io.edupilot.ai.dto.TurnRequest aiRequest(
+		String turnId,
+		TurnEventType eventType,
+		TurnRequest request,
+		TurnSnapshot snapshot
+	) {
+		return new io.edupilot.ai.dto.TurnRequest(
+			SCHEMA_VERSION,
+			turnId,
+			snapshot.session(),
+			eventData(eventType, request.payload()),
+			snapshot.context()
+		);
+	}
+
+	private void logAttemptFailure(
+		String requestId,
+		String turnId,
+		int attempt,
+		AiClientException exception
+	) {
+		log.atWarn()
+			.addKeyValue("requestId", requestId)
+			.addKeyValue(
+				"traceId",
+				MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY)
+			)
+			.addKeyValue("attempt", attempt)
+			.addKeyValue("retried", attempt > 1)
+			.addKeyValue("turnId", turnId)
+			.addKeyValue("category", exception.category())
+			.addKeyValue("errorCode", exception.errorCode().code())
+			.addKeyValue("retryable", exception.retryable())
+			.log("AI turn attempt failed");
 	}
 
 	private Map<String, Object> eventData(

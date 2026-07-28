@@ -1,5 +1,8 @@
 package io.edupilot.ai;
 
+import java.time.Duration;
+import java.util.function.Consumer;
+
 import io.edupilot.ai.dto.AiHealthResponse;
 import io.edupilot.ai.dto.DiagnosisRequest;
 import io.edupilot.ai.dto.DiagnosisResponse;
@@ -17,6 +20,13 @@ public interface AiClient {
 	AiHealthResponse health();
 
 	TurnResponse executeTurn(TurnRequest request);
+
+	TurnResponse executeTurnStream(
+		TurnRequest request,
+		Consumer<TurnStreamEvent> listener,
+		AiStreamCancellation cancellation,
+		Duration totalTimeout
+	);
 
 	ExtractResponse extract(Resource pdfResource);
 

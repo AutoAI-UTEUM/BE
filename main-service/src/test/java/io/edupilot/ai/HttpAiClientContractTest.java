@@ -617,6 +617,7 @@ class HttpAiClientContractTest {
 			readTimeout,
 			readTimeout,
 			readTimeout,
+			readTimeout,
 			"/health"
 		);
 	}
