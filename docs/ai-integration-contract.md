@@ -248,7 +248,7 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
   `completed`, `error`를 같은 이름의 외부 SSE 이벤트로 변환합니다.
 - 내부 `{"type":"heartbeat"}`는 외부 SSE comment 라인으로 변환하며 FE는
   무시합니다.
-- **외부 `ui\_action` (확정)**: 외부 SSE에는 내부에 없는 `ui_action` 이벤트가
+- **외부 `ui_action` (확정)**: 외부 SSE에는 내부에 없는 `ui_action` 이벤트가
   추가됩니다(api-spec §9, DEC-013 — 외부 어휘 6종 유지). AI Service는 발행하지
   않으며, Spring이 내부 `completed`를 검증·저장한 뒤 api-spec §5의 위젯 규칙
   (W1~W7)으로 생성합니다. 발행 순서는 **[위젯이 있으면 `ui_action`] →

@@ -28,6 +28,7 @@
 | 학습 세션 | 삭제 버튼 | `DELETE /api/sessions/{sessionId}` | 목록으로 이동, 목록에서 제외 | 상태 충돌/소유권 |
 | 학습 세션 | 채팅 이력 복원 | `GET /api/sessions/{sessionId}/messages` | 이전 메시지 표시 | 페이지네이션 오류 |
 | PDF 뷰어 | 다음/이전/번호 입력 | `PATCH /api/sessions/{sessionId}/page` | 응답 페이지로 뷰어 동기화, 설명 여부 UI | 페이지 범위/상태 충돌 |
+| 채팅 | 스트림 선연결 | `GET /api/sessions/{sessionId}/stream` | fetch+Bearer로 SSE 연결 후 turns 호출 | 중복 연결/AI 스트림 중단 |
 | 채팅 | 설명 시작 선택 | `POST /api/sessions/{sessionId}/turns` | 설명 스트림/메시지 표시 | AI timeout/스키마 오류 |
 | 채팅 | 질문 전송 | 같은 turns API | QA 답변과 후속 질문 문맥 반영 | 빈 질문/AI 오류 |
 | 채팅 | 진단 답변 제출 | 같은 turns API | 오개념 교정 답변 표시 | 진단 상태 충돌 |
@@ -37,6 +38,13 @@
 | 학습 기록 | 퀴즈 탭 진입 | `GET /api/sessions/{sessionId}/quizzes` | 퀴즈/점수 요약 | 세션 권한 |
 | 학습 분석 | 메모리 화면 진입 | `GET /api/users/me/memory?materialId={materialId}` | 해당 자료의 공개 가능한 개인화 요약 | 데이터 없음 |
 | 학습 세션 | 종료 버튼 | `POST /api/sessions/{sessionId}/complete` | 완료 화면/목록 이동 | 이미 완료/상태 충돌 |
+
+스트리밍 턴은 `GET /stream`을 먼저 연결한 뒤 `POST /turns`를 전송합니다.
+SSE 연결이 없으면 turns API는 기존 동기 JSON 응답으로 동작합니다. 스트림 중단
+후에는 세션 상세·메시지를 다시 조회해 동기화하고, 수동 재시도에는 새
+`requestId`를 사용합니다. 같은 `requestId`는
+`TURN_ALREADY_PROCESSED(409)`로 거부하며 `Last-Event-ID` replay는 지원하지
+않습니다.
 
 ## 2. 학습 화면 상태 동기화
 

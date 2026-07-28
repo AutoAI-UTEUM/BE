@@ -26,6 +26,7 @@ EduPilot의 인증·권한·영속 상태와 Frontend용 외부 API를 담당하
 | `EDUPILOT_UPLOAD_MAX_MB` | `45` | PDF 업로드 최대 크기(MB) |
 | `EDUPILOT_AI_EXTRACT_READ_TIMEOUT` | `120s` | PDF 추출 내부 API read timeout |
 | `EDUPILOT_AI_TURN_READ_TIMEOUT` | `200s` | 동기 turn 내부 API read timeout(AI turn 총 예산 180s보다 20s 여유) |
+| `EDUPILOT_AI_STREAM_IDLE_TIMEOUT` | `30s` | NDJSON 최초 이벤트·이벤트 사이 최대 무응답 시간(heartbeat 포함) |
 | `EDUPILOT_AI_GRADE_READ_TIMEOUT` | `90s` | SHORT/ESSAY 채점 내부 API read timeout |
 | `EDUPILOT_AI_PIPELINE_READ_TIMEOUT` | `45s` | assessment·diagnosis 내부 API read timeout(v0.4 §4) |
 | `EDUPILOT_QUIZ_PASS_RATIO` | `0.6` | 퀴즈 통과 비율(0~1) |
