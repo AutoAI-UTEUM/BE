@@ -18,6 +18,7 @@ public record AiClientProperties(
 	@NotNull Duration healthTimeout,
 	@NotNull Duration readTimeout,
 	@NotNull Duration turnReadTimeout,
+	@NotNull Duration streamIdleTimeout,
 	@NotNull Duration gradeReadTimeout,
 	@NotNull Duration pipelineReadTimeout,
 	@NotNull Duration extractReadTimeout,

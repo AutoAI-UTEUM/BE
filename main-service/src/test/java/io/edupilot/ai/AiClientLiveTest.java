@@ -62,6 +62,7 @@ class AiClientLiveTest {
 			Duration.ofSeconds(2),
 			Duration.ofSeconds(30),
 			Duration.ofSeconds(180),
+			Duration.ofSeconds(30),
 			Duration.ofSeconds(90),
 			Duration.ofSeconds(45),
 			Duration.ofSeconds(120),

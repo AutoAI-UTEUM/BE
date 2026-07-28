@@ -1,6 +1,9 @@
 package io.edupilot.session;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import io.edupilot.auth.AuthenticatedUser;
 import io.edupilot.global.response.ApiResponse;
@@ -40,15 +44,38 @@ public class SessionController {
 	private final SessionService sessionService;
 	private final SessionTurnService turnService;
 	private final SessionMessageService messageService;
+	private final SessionStreamService streamService;
 
 	public SessionController(
 		SessionService sessionService,
 		SessionTurnService turnService,
-		SessionMessageService messageService
+		SessionMessageService messageService,
+		SessionStreamService streamService
 	) {
 		this.sessionService = sessionService;
 		this.turnService = turnService;
 		this.messageService = messageService;
+		this.streamService = streamService;
+	}
+
+	@GetMapping(
+		value = "/{sessionId}/stream",
+		produces = MediaType.TEXT_EVENT_STREAM_VALUE
+	)
+	@Operation(summary = "인증된 학습 turn SSE 연결")
+	public ResponseEntity<SseEmitter> stream(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long sessionId
+	) {
+		return ResponseEntity.ok()
+			.contentType(MediaType.TEXT_EVENT_STREAM)
+			.header(HttpHeaders.CACHE_CONTROL, "no-cache")
+			.header(HttpHeaders.CONNECTION, "keep-alive")
+			.header("X-Accel-Buffering", "no")
+			.body(streamService.connect(
+				authenticatedUser.userId(),
+				sessionId
+			));
 	}
 
 	@PostMapping

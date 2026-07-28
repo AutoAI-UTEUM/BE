@@ -119,10 +119,10 @@
 | code | HTTP | 의미 |
 | --- | ---: | --- |
 | `AI_SERVICE_UNAVAILABLE` | 503 | FastAPI/Grok 일시 불가 |
-| `AI_SERVICE_TIMEOUT` | 504 | AI 호출 시간 초과 |
+| `AI_SERVICE_TIMEOUT` | 504 | AI 호출 시간 초과 — 스트림 이벤트 30초 무응답 또는 턴 총 200초 초과 포함 |
 | `AI_RESPONSE_INVALID` | 502 | 스키마에 맞지 않는 응답 |
 | `AI_POLICY_REJECTED` | 502 또는 409 | Plan 정책 검증 실패 — 현재 세션 상태에서 허용되지 않는 요청이 원인이면 409, AI가 생성한 Plan 자체가 정책·스키마를 위반하면 502 |
-| `AI_STREAM_INTERRUPTED` | 502/504 | 스트림 비정상 종료 — 중계/응답 오류로 끊기면 502, 시간 초과로 끊기면 504 |
+| `AI_STREAM_INTERRUPTED` | 502 | timeout이 아닌 스트림 비정상 종료 — terminal 전 EOF, FE 연결 종료, 중계 I/O 중단 |
 
 FastAPI 내부 API가 직접 반환하는 현재 오류 code는 다음 3종입니다.
 

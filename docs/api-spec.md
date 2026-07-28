@@ -722,11 +722,98 @@ DTO 상세·타임아웃·재시도·`usage` 필드는 [docs/ai-integration-cont
 
 ## 9. SSE 스트리밍 계약 (확정)
 
-AI 응답 스트리밍은 SSE를 기본 전송 방식으로 사용합니다. 이벤트는 `status`, `thought_summary`, `content_delta`, `ui_action`, `completed`, `error`이며, `completed` 또는 `error`는 정확히 1회, 스트림의 마지막 이벤트입니다.
+AI 응답 스트리밍은 SSE를 기본 전송 방식으로 사용합니다. 이벤트는 `status`,
+`thought_summary`, `content_delta`, `ui_action`, `completed`, `error`이며,
+`completed` 또는 `error`는 정확히 1회, 스트림의 마지막 이벤트입니다.
 
-- 스트림 URL: `GET /api/sessions/{sessionId}/stream` (세션 단위 단일 스트림, 진행 중 턴의 이벤트를 전달)
-- 인증: fetch + `Authorization: Bearer` 헤더 + ReadableStream 파싱(DEC-021). 브라우저 `EventSource`는 `Authorization` 헤더를 지원하지 않으므로 사용하지 않습니다.
-- heartbeat: 10초 간격 SSE comment 라인(이벤트 아님, FE는 무시)
-- 취소: 별도 취소 API 없음 — FE fetch abort → Spring 연결 종료 감지 → FastAPI 상류 요청 취소
-- 재연결(MVP): `Last-Event-ID` 재전송 미지원 — 재연결 시 FE가 세션 상태/메시지 재조회로 재동기화하고, 진행 중 턴은 완료 후 확정 메시지로 수신합니다(중간 청크는 비확정이므로 유실 무해).
-- 최종 저장: `completed` 수신·검증 후 1회만 확정 저장합니다. 스트림 중단 시 불완전 메시지는 확정 메시지로 취급하지 않습니다.
+### 9.1 연결과 턴 호출 순서
+
+1. FE가 `GET /api/sessions/{sessionId}/stream`을 fetch로 먼저 연결합니다.
+2. 연결 성공 후 `POST /api/sessions/{sessionId}/turns`를 전송합니다.
+3. Spring은 활성 SSE 연결이 있으면 FastAPI의 내부 NDJSON 스트림을 중계하고,
+   없으면 기존 동기 JSON 턴 응답을 반환합니다.
+
+- 인증: `Authorization: Bearer` 헤더 + ReadableStream 파싱(DEC-021).
+  브라우저 `EventSource`는 Authorization 헤더를 지원하지 않으므로 사용하지
+  않습니다.
+- 응답 헤더: `Content-Type: text/event-stream`,
+  `Cache-Control: no-cache`, `X-Accel-Buffering: no`.
+- 세션당 활성 스트림은 하나입니다. 실행 중 중복 연결은
+  `TURN_IN_PROGRESS(409)`입니다.
+- heartbeat: 다른 이벤트가 없으면 10초마다 `:heartbeat` comment를
+  전송합니다. `event`와 `data`가 없으며 FE는 무시합니다.
+- `Last-Event-ID` replay와 SSE `id` 필드는 지원하지 않습니다. 재연결 시
+  세션 상세와 메시지를 다시 조회합니다.
+- fetch abort 또는 전송 단절을 감지하면 Spring이 FastAPI 상류 응답을 닫아
+  취소합니다.
+- 중단된 요청의 같은 `requestId`는 `TURN_ALREADY_PROCESSED(409)`입니다.
+  사용자가 다시 시도할 때는 새 requestId를 발급합니다.
+
+### 9.2 외부 SSE data 스키마
+
+`status`, `thought_summary`, `content_delta`는 내부 전용 `type` 필드를
+제거하고 다음 JSON만 data로 전달합니다.
+
+```text
+event: status
+data: {"stage":"PLANNING"}
+
+event: thought_summary
+data: {"text":"학습 계획을 세우는 중입니다"}
+
+event: content_delta
+data: {"text":"편차는 "}
+
+:heartbeat
+```
+
+사용자 위젯은 내부 AI 응답이 아니라 Spring이 §5 W1~W7 규칙으로 생성합니다.
+한 턴에는 마지막 상태 전이 위젯만 존재하므로 `ui_action`은 0회 또는
+1회입니다. `data.action`은 §5 `uiActions` 항목 하나와 완전히 동일합니다.
+
+```text
+event: ui_action
+data: {"action":{"type":"BINARY_DECISION","content":"퀴즈를 진행할까요?","yesEvent":"SHOW_QUIZ_TYPE_SELECT","noEvent":"MOVE_NEXT_PAGE"}}
+```
+
+진단 입력형 위젯은 yes/no 필드를 포함하지 않습니다.
+
+```text
+event: ui_action
+data: {"action":{"type":"DIAGNOSIS_QUESTION","content":"왜 역수를 곱하는지가 막혔나요?","diagnosisId":30}}
+```
+
+`completed.result`는 Spring 외부 턴 응답이며 내부 `statePatch`,
+`actionsExecuted`, `usage`, `memoryCandidates`를 포함하지 않습니다.
+
+```text
+event: completed
+data: {"result":{"turnId":"turn-123","sessionId":100,"messages":[{"messageId":501,"senderType":"AI","messageType":"EXPLANATION","content":"편차는 평균과 관측값의 차이입니다.","pageNumber":3,"createdAt":"2026-07-28T09:00:00Z"}],"uiActions":[{"type":"BINARY_DECISION","content":"퀴즈를 진행할까요?","yesEvent":"SHOW_QUIZ_TYPE_SELECT","noEvent":"MOVE_NEXT_PAGE"}],"state":{"currentPage":3,"pageStatus":"EXPLAINED","activeQuizId":null}}}
+```
+
+오류 data는 Spring의 안정된 외부 오류 코드와 공개 메시지만 포함합니다.
+
+```text
+event: error
+data: {"code":"AI_SERVICE_TIMEOUT","category":"TIMEOUT","message":"AI 서비스 응답 시간이 초과되었습니다.","retryable":true,"traceId":"01J..."}
+```
+
+### 9.3 검증·저장·timeout
+
+- Spring은 `status`, `thought_summary`, `content_delta`, `heartbeat`,
+  `completed`, `error` 외의 내부 이벤트를 거부합니다.
+- `content_delta` 누적 문자열은 내부
+  `completed.result.messages[].content`를 순서대로 이은 문자열과 같아야
+  합니다.
+- 내부 completed 전체 검증과 메시지·상태 저장 트랜잭션 커밋 후
+  `[ui_action] → completed → 종료` 순서로 외부 terminal을 전송합니다.
+- error, terminal 전 EOF, schema 오류, 저장 실패에는 completed를 보내지
+  않으며 중간 content는 확정 메시지로 저장하지 않습니다.
+- 완성된 내부 이벤트를 30초 동안 받지 못하면
+  `AI_SERVICE_TIMEOUT/TIMEOUT`으로 종료합니다. heartbeat도 이벤트 수신으로
+  인정합니다.
+- 스트림 턴 총 상한은 최초 FastAPI 호출부터 200초입니다. heartbeat가
+  계속 와도 연장하지 않으며 제한된 재시도도 같은 총 예산을 공유합니다.
+- retryable 오류는 content delta 전달 전까지만 최대 1회 자동 재시도합니다.
+  일부 content가 전달된 뒤에는 서로 다른 시도의 본문을 섞지 않도록
+  재시도하지 않습니다.
