@@ -1,6 +1,6 @@
 """Minimal context construction from the Spring snapshot."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -22,7 +22,7 @@ class AgentContext(BaseModel):
     quiz_assessments: list[dict[str, Any]]
     learner_memory_digest: dict[str, Any] | str | None
     learner_level: str | None
-    learner_confidence: float | None
+    learner_confidence: Literal["LOW", "MEDIUM", "HIGH"] | None
     pending_diagnosis: dict[str, Any] | str | None
     latest_repair: dict[str, Any] | str | None
 

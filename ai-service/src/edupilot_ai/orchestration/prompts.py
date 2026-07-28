@@ -39,6 +39,7 @@ def explainer_messages(
         "previousPageText": context.previous_page_text,
         "nextPageText": context.next_page_text,
         "learnerLevel": context.learner_level,
+        "learnerConfidence": context.learner_confidence,
         "learnerMemoryDigest": context.learner_memory_digest,
     }
     output_instruction = (
@@ -74,6 +75,7 @@ def qa_messages(
         "qaThreadMode": mode.value,
         "qaThreadDigest": context.qa_thread_digest if mode is QaThreadMode.FOLLOW_UP else None,
         "latestRepair": context.latest_repair,
+        "learnerConfidence": context.learner_confidence,
         "learnerMemoryDigest": context.learner_memory_digest,
     }
     output_instruction = (

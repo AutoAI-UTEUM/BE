@@ -81,7 +81,7 @@ class ContextSnapshot(ContractModel):
     quiz_assessments: list[dict[str, Any]]
     learner_memory_digest: dict[str, Any] | str | None
     learner_level: str | None
-    learner_confidence: float | None = Field(ge=0, le=1)
+    learner_confidence: Literal["LOW", "MEDIUM", "HIGH"] | None
     pending_diagnosis: dict[str, Any] | str | None
     latest_repair: dict[str, Any] | str | None
     memory: MemoryContext
