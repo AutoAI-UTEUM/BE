@@ -446,12 +446,15 @@ Closes #25
 
 # Issue #38 Worklog — 평가·진단·교정·메모리
 
-기준 브랜치: `origin/develop` (`4c4d330`)
+기준 브랜치: `origin/develop` (`7b18536`, #79·learnerConfidence enum 반영)
 
 ## 작업 결과
 
 - 2026-07-28 16:45 KST: 최신 develop에서
   `feature/38-assessment-diagnosis` 생성.
+- 2026-07-28 19:32 KST: #79가 포함된 최신 develop에 rebase하고
+  `learnerConfidence=LOW|MEDIUM|HIGH` 및 `models/base.py` 공통 계약 구조와
+  #38 미병합 코드를 정렬했습니다.
 - `/internal/ai/quiz-assessment`가 채점 결과를 근거 제한 평가·메모리 후보로
   변환하며, 단일 결과로 수준·성격·능력·장기 오개념을 확정하지 않도록
   한국어 프롬프트에서 제한합니다.
@@ -463,11 +466,12 @@ Closes #25
   `{pageStatus: REPAIR_COMPLETED, pendingDiagnosis: null}`을 제안합니다.
 - `BUILD_MEMORY_CANDIDATE`, `PROMOTE_MEMORY`를 결정적 도구로 연결했습니다.
   type·content·confidence·evidence를 검증하며 PROMOTE는 confidence 0.7 이상,
-  중복 없는 evidence 2개 이상을 요구합니다.
+  중복 없는 evidence reference 문자열 2개 이상을 요구합니다. 두 도구는
+  primary action이 있는 Plan의 보조 action으로만 허용합니다.
 - `docs/prompt-assets.md`가 develop에 없어 사용자 제공 자산 §3의 Repair
   규율과 `agent-system-spec` §4.6~4.9만 사용했습니다.
 
-## #36 승인 대상 스키마
+## #36 확정(2026-07-28 서면 승인)
 
 ### quiz-assessment
 
@@ -490,23 +494,22 @@ Closes #25
   `pendingDiagnosis.diagnosisId`가 모두 일치해야 합니다.
 - `BUILD_MEMORY_CANDIDATE`, `PROMOTE_MEMORY` args:
   `{type, content, confidence, evidence[]}`.
-- 허용 type 초안: `STRENGTH`, `WEAKNESS`, `MISCONCEPTION`, `PREFERENCE`.
+- 허용 type: `STRENGTH`, `WEAKNESS`, `MISCONCEPTION`, `PREFERENCE`.
 - turn `memoryCandidates[]`에는 위 필드와
   `promotionRequested:boolean`을 반환합니다. 실제 저장·승격은 Spring
   책임입니다.
 
-## #36 확정 필요
+### 확정 4건
 
-1. agent-system-spec §4.8 예시는 memory confidence가 `LOW` 문자열이지만
-   DEC-012 승격 기준은 `confidence >= 0.7` 숫자입니다. 결정적 Policy 검증을
-   위해 이번 Draft는 0~1 숫자로 구현했습니다.
-2. “독립 근거”의 기계 판독 메타데이터 schema가 없습니다. 이번 Draft는
-   중복 없는 evidence reference 문자열 2개를 최소 기준으로 사용합니다.
-   source type·sessionId·observedAt 구조를 추가할지 승인 필요합니다.
-3. `promotionRequested`와 허용 memory type 목록, PROMOTE의 Spring 저장
-   흐름을 계약에 확정해야 합니다.
-4. Memory 도구를 primary turn action 없이 단독 실행할 수 있는지, 아니면
-   설명·QA·Repair 이후 보조 action으로만 허용할지 확정이 필요합니다.
+1. 메모리 승격 `confidence`는 0~1 숫자이며 DEC-012의 `>=0.7` 기준을
+   적용합니다.
+2. 독립 근거는 중복 없는 evidence reference 문자열 최소 2개입니다.
+   `source`·`sessionId`·`observedAt` 구조화는 후속 이슈로 보류합니다.
+3. turn `memoryCandidates[]`는
+   `{type, content, confidence, evidence[], promotionRequested}`이며 실제
+   저장·승격은 Spring 책임입니다.
+4. `BUILD_MEMORY_CANDIDATE`와 `PROMOTE_MEMORY`는 보조 action 전용입니다.
+   primary action 없이 메모리 도구만 있는 Plan은 Policy가 거부합니다.
 
 ## 이슈 #38 체크리스트 매핑
 
@@ -515,14 +518,15 @@ Closes #25
 - [x] RepairAgent turn 도구와 pending diagnosis 정책.
 - [x] LearnerMemory candidate·promotion 도구.
 - [x] 진단 전 교정, 승격 근거·confidence, 금지 type 정책.
+- [x] 메모리 도구 단독 Plan 거부.
 - [x] FakeLlm 계약 테스트. 실제 Grok/외부 네트워크 0회.
 
 ## 검증 결과
 
-- `uv run pytest -q`: 58개 통과
+- `uv run pytest -q`: 92개 통과
 - `uv run ruff check .`: 통과
-- `uv run mypy src tests`: 45개 소스 파일 검사 통과
-- 기존 설명·QA·퀴즈 스텁 및 비스트리밍 계약 테스트: 전부 통과
+- `uv run mypy src tests`: 55개 소스 파일 검사 통과
+- 기존 설명·QA·Quiz/Grader 및 JSON·NDJSON 계약 테스트: 전부 통과
 
 ## PR 본문 초안
 
@@ -536,13 +540,11 @@ Closes #25
 
 ## 계약 상태
 
-Draft: #36 승인 후 리뷰
-
-WORKLOG의 "#36 승인 대상 스키마"와 "#36 확정 필요"를 협의 초안으로 사용합니다.
+#36 서면 확정 4건을 코드·계약 문서에 반영 완료.
 
 ## 검증
 
-- pytest 58 passed
+- pytest 92 passed
 - ruff/mypy passed
 - 실제 Grok/xAI 및 테스트 외부 네트워크 호출 0회
 

@@ -11,10 +11,33 @@ from edupilot_ai.models.learning_support import (
     MemoryCandidate,
     RepairOutput,
 )
-from edupilot_ai.models.plan import ToolName
+from edupilot_ai.models.plan import AgentOutput, PlanAction, ToolName, TurnPlan
 from edupilot_ai.settings import ReasoningEffort
 from tests.fakes import FakeLlm
 from tests.test_turn_contract import make_plan, post_turn
+
+
+def plan_with_memory_action(
+    tool: ToolName,
+    args: dict[str, object],
+    goal: str,
+) -> TurnPlan:
+    plan = make_plan(
+        ToolName.ANSWER_QUESTION,
+        {"qaThreadMode": "START_NEW", "threadRef": None},
+        goal,
+    )
+    return plan.model_copy(
+        update={
+            "pedagogy_policy": plan.pedagogy_policy.model_copy(
+                update={"intervention_budget": 2}
+            ),
+            "actions": [
+                *plan.actions,
+                PlanAction(action_id="action-2", tool=tool, args=args),
+            ],
+        }
+    )
 
 
 def quiz_result() -> dict[str, object]:
@@ -242,7 +265,7 @@ async def test_memory_promotion_requires_two_evidence_and_confidence(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue(
-        make_plan(
+        plan_with_memory_action(
             ToolName.PROMOTE_MEMORY,
             {
                 "type": "WEAKNESS",
@@ -261,7 +284,7 @@ async def test_memory_promotion_requires_two_evidence_and_confidence(
     assert error.error.category == "POLICY"
 
 
-async def test_memory_candidate_is_returned_without_agent_llm_call(
+async def test_memory_tool_only_plan_is_rejected(
     client: httpx.AsyncClient,
     fake_llm: FakeLlm,
     auth_headers: dict[str, str],
@@ -282,6 +305,37 @@ async def test_memory_candidate_is_returned_without_agent_llm_call(
 
     response = await post_turn(client, auth_headers, turn_payload)
 
+    assert response.status_code == 502
+    error = InternalErrorResponse.model_validate(response.json())
+    assert error.error.category == "POLICY"
+    assert len(fake_llm.calls) == 1
+
+
+async def test_memory_candidate_is_returned_after_primary_action(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    fake_llm.queue(
+        plan_with_memory_action(
+            ToolName.BUILD_MEMORY_CANDIDATE,
+            {
+                "type": "WEAKNESS",
+                "content": "편차 정의를 반복해서 혼동함",
+                "confidence": 0.65,
+                "evidence": ["assessment-1"],
+            },
+            "BUILD_MEMORY_CANDIDATE",
+        ),
+        AgentOutput(
+            markdown="편차는 관측값과 평균의 차이입니다.",
+            thought_summary="현재 질문에 답변",
+        ),
+    )
+
+    response = await post_turn(client, auth_headers, turn_payload)
+
     assert response.status_code == 200
     body = response.json()
     assert body["memoryCandidates"] == [
@@ -293,7 +347,44 @@ async def test_memory_candidate_is_returned_without_agent_llm_call(
             "promotionRequested": False,
         }
     ]
-    assert len(fake_llm.calls) == 1
+    assert len(fake_llm.calls) == 2
+
+
+async def test_memory_promotion_returns_confirmed_numeric_contract(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    fake_llm.queue(
+        plan_with_memory_action(
+            ToolName.PROMOTE_MEMORY,
+            {
+                "type": "MISCONCEPTION",
+                "content": "편차를 평균값 자체로 혼동함",
+                "confidence": 0.7,
+                "evidence": ["assessment-1", "qa-2"],
+            },
+            "PROMOTE_MEMORY",
+        ),
+        AgentOutput(
+            markdown="편차는 관측값과 평균의 차이입니다.",
+            thought_summary="현재 질문에 답변",
+        ),
+    )
+
+    response = await post_turn(client, auth_headers, turn_payload)
+
+    assert response.status_code == 200
+    assert response.json()["memoryCandidates"] == [
+        {
+            "type": "MISCONCEPTION",
+            "content": "편차를 평균값 자체로 혼동함",
+            "confidence": 0.7,
+            "evidence": ["assessment-1", "qa-2"],
+            "promotionRequested": True,
+        }
+    ]
 
 
 async def test_personality_memory_type_is_rejected(
@@ -303,7 +394,7 @@ async def test_personality_memory_type_is_rejected(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue(
-        make_plan(
+        plan_with_memory_action(
             ToolName.BUILD_MEMORY_CANDIDATE,
             {
                 "type": "PERSONALITY",

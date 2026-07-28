@@ -53,6 +53,8 @@ class PolicyVerifier:
     ) -> tuple[TurnPlan, list[Adjustment]]:
         if len(plan.actions) > plan.pedagogy_policy.intervention_budget:
             raise PolicyViolation("intervention budget exceeded")
+        if all(action.tool in MEMORY_TOOLS for action in plan.actions):
+            raise PolicyViolation("memory tools require a primary action")
         corrected_actions: list[PlanAction] = []
         adjustments: list[Adjustment] = []
         for action in plan.actions:
