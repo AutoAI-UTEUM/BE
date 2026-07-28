@@ -153,7 +153,11 @@ async def test_explain_ndjson_golden_sequence_and_content_invariant(
     assert fake_llm.stream_calls[0][2] <= fake_llm.timeouts[0]
     stream_system_prompt = fake_llm.stream_calls[0][0][0]["content"]
     assert "Return only the learner-facing Markdown explanation." in stream_system_prompt
-    assert "thoughtSummary" not in stream_system_prompt
+    assert (
+        "Return AgentOutput JSON with a short thoughtSummary."
+        not in stream_system_prompt
+    )
+    assert "모든 학습자 대상 텍스트" in stream_system_prompt
 
 
 async def test_qa_ndjson_golden_sequence_preserves_thread_ref(
@@ -198,6 +202,7 @@ async def test_qa_ndjson_golden_sequence_preserves_thread_ref(
     assert "".join(
         str(event["text"]) for event in events if event["type"] == "content_delta"
     ) == result.messages[0].content
+    assert "모든 학습자 대상 텍스트" in fake_llm.stream_calls[0][0][0]["content"]
 
 
 async def test_stream_error_is_terminal_and_excludes_completed(

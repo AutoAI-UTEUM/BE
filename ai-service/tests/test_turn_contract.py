@@ -20,6 +20,7 @@ from edupilot_ai.orchestration.agents import ExplainerAgent, QaAgent
 from edupilot_ai.orchestration.context import ContextBuilder
 from edupilot_ai.orchestration.dispatcher import ToolDispatcher, merge_state_patch
 from edupilot_ai.orchestration.policy import PolicyVerifier, PolicyViolation
+from edupilot_ai.orchestration.prompts import plan_messages
 from edupilot_ai.orchestration.timing import TurnDeadline
 from edupilot_ai.settings import Settings
 from tests.fakes import FakeLlm
@@ -84,6 +85,27 @@ async def test_explain_current_page_turn(
     assert '"learner_confidence":"HIGH"' in fake_llm.calls[0][0][1]["content"]
     assert '"learnerConfidence": "HIGH"' in fake_llm.calls[1][0][1]["content"]
     assert "learnerMemoryDigest" in fake_llm.calls[1][0][1]["content"]
+    assert "모든 학습자 대상 텍스트" in fake_llm.calls[1][0][0]["content"]
+
+
+def test_plan_prompt_declares_policy_value_contracts(
+    turn_payload: dict[str, object],
+) -> None:
+    context = ContextBuilder().build(TurnRequest.model_validate(turn_payload))
+
+    system_prompt = plan_messages(context, retry=False)[0]["content"]
+
+    assert "qaThreadMode must be exactly START_NEW or FOLLOW_UP" in system_prompt
+    assert "START_NEW requires threadRef=null" in system_prompt
+    assert "FOLLOW_UP requires the exact snapshot qaThreadDigest.threadRef" in system_prompt
+    assert "if qaThreadDigest is absent, choose START_NEW" in system_prompt
+    assert "quizType must equal the event payload value" in system_prompt
+    assert "one of MCQ, OX, SHORT, ESSAY" in system_prompt
+    assert "diagnosisId must equal snapshot pendingDiagnosis.diagnosisId" in system_prompt
+    assert "type must be one of STRENGTH, WEAKNESS, MISCONCEPTION, PREFERENCE" in (
+        system_prompt
+    )
+    assert "confidence must be a number from 0 to 1" in system_prompt
 
 
 @pytest.mark.parametrize(
@@ -257,6 +279,32 @@ async def test_user_question_start_new(
     assert turn.state_patch == {"qaThread": {"mode": "START_NEW"}}
     assert '"qaThreadDigest": null' in fake_llm.calls[1][0][1]["content"]
     assert '"learnerConfidence": "LOW"' in fake_llm.calls[1][0][1]["content"]
+    assert "모든 학습자 대상 텍스트" in fake_llm.calls[1][0][0]["content"]
+
+
+@pytest.mark.parametrize("mode_alias", ["NEW", "new"])
+async def test_user_question_new_alias_strips_invented_thread_ref(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+    mode_alias: str,
+) -> None:
+    fake_llm.queue(
+        make_plan(
+            ToolName.ANSWER_QUESTION,
+            {"qaThreadMode": mode_alias, "threadRef": "qa-invented"},
+            "ANSWER_USER_QUESTION",
+        ),
+        AgentOutput(markdown="편차는 평균과의 차이입니다.", thought_summary="근거 연결"),
+    )
+
+    response = await post_turn(client, auth_headers, turn_payload)
+
+    assert response.status_code == 200
+    turn = TurnResponse.model_validate(response.json())
+    assert turn.state_patch == {"qaThread": {"mode": "START_NEW"}}
+    assert len(fake_llm.calls) == 2
 
 
 async def test_user_question_follow_up_includes_thread_and_latest_repair(
@@ -450,6 +498,80 @@ async def test_follow_up_without_digest_is_rejected(
 
     assert response.status_code == 502
     assert response.json()["error"]["category"] == "POLICY"
+
+
+async def test_follow_up_forged_thread_ref_is_rejected(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["qaThreadDigest"] = {"threadRef": "qa-7", "summary": "편차 질문"}
+    fake_llm.queue(
+        make_plan(
+            ToolName.ANSWER_QUESTION,
+            {"qaThreadMode": "FOLLOW_UP", "threadRef": "qa-forged"},
+            "ANSWER_FOLLOW_UP",
+        )
+    )
+
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 502
+    assert response.json()["error"]["category"] == "POLICY"
+    assert len(fake_llm.calls) == 1
+
+
+@pytest.mark.parametrize("mode_alias", ["FOLLOWUP", "follow-up"])
+def test_policy_normalizes_follow_up_aliases(
+    turn_payload: dict[str, object],
+    mode_alias: str,
+) -> None:
+    payload = deepcopy(turn_payload)
+    context_payload = payload["context"]
+    assert isinstance(context_payload, dict)
+    context_payload["qaThreadDigest"] = {
+        "threadRef": "qa-7",
+        "summary": "편차 질문",
+    }
+    context = ContextBuilder().build(TurnRequest.model_validate(payload))
+    plan = make_plan(
+        ToolName.ANSWER_QUESTION,
+        {"qaThreadMode": mode_alias, "threadRef": "qa-7"},
+        "ANSWER_FOLLOW_UP",
+    )
+
+    corrected, adjustments = PolicyVerifier().verify(plan, context)
+
+    assert corrected.actions[0].args == {
+        "qaThreadMode": "FOLLOW_UP",
+        "threadRef": "qa-7",
+    }
+    assert adjustments == []
+
+
+async def test_unknown_qa_thread_mode_is_rejected(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    fake_llm.queue(
+        make_plan(
+            ToolName.ANSWER_QUESTION,
+            {"qaThreadMode": "CONTINUE", "threadRef": None},
+            "ANSWER_USER_QUESTION",
+        )
+    )
+
+    response = await post_turn(client, auth_headers, turn_payload)
+
+    assert response.status_code == 502
+    assert response.json()["error"]["category"] == "POLICY"
+    assert len(fake_llm.calls) == 1
 
 
 async def test_intervention_budget_violation_is_rejected(
