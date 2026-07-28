@@ -3,6 +3,7 @@ package io.edupilot.quiz;
 import java.util.List;
 
 import io.edupilot.ai.dto.GradeRequest;
+import io.edupilot.session.UiAction;
 
 public record QuizPostGradingContext(
 	Long submissionId,
@@ -17,11 +18,13 @@ public record QuizPostGradingContext(
 	List<SubmittedAnswer> answers,
 	GradingResult gradingResult,
 	boolean passed,
-	GradeRequest.PageContext pageContext
+	GradeRequest.PageContext pageContext,
+	List<UiAction> defaultUiActions
 ) {
 	public QuizPostGradingContext {
 		publicQuestions = List.copyOf(publicQuestions);
 		privateQuestions = List.copyOf(privateQuestions);
 		answers = List.copyOf(answers);
+		defaultUiActions = List.copyOf(defaultUiActions);
 	}
 }

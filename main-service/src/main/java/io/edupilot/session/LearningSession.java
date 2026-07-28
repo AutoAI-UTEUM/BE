@@ -130,12 +130,15 @@ public class LearningSession {
 
 	public void applyAiTurn(
 		PageStatus nextPageStatus,
-		List<UiAction> uiActions
+		List<UiAction> uiActions,
+		boolean pageStatusChanged
 	) {
 		if (nextPageStatus != null) {
 			this.pageStatus = nextPageStatus;
 		}
-		this.lastUiActions = List.copyOf(uiActions);
+		if (pageStatusChanged) {
+			this.lastUiActions = List.copyOf(uiActions);
+		}
 	}
 
 	public void activateQuiz(Long quizId, List<UiAction> uiActions) {

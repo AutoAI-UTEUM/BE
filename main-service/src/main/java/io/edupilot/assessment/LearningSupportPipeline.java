@@ -75,15 +75,15 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 					.log(
 						"Quiz assessment discarded after session state changed"
 					);
-				return defaultActions();
+				return defaultActions(context);
 			}
 		} catch (RuntimeException exception) {
 			logFailure("assessment", context, exception);
-			return defaultActions();
+			return defaultActions(context);
 		}
 
 		if (context.passed()) {
-			return defaultActions();
+			return defaultActions(context);
 		}
 
 		try {
@@ -97,10 +97,10 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 			);
 			return diagnosisPersistenceService.savePending(context, response)
 				.map(List::of)
-				.orElseGet(this::defaultActions);
+				.orElseGet(() -> defaultActions(context));
 		} catch (RuntimeException exception) {
 			logFailure("diagnosis", context, exception);
-			return defaultActions();
+			return defaultActions(context);
 		}
 	}
 
@@ -216,8 +216,8 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 		};
 	}
 
-	private List<UiAction> defaultActions() {
-		return List.of(UiAction.moveNextPage());
+	private List<UiAction> defaultActions(QuizPostGradingContext context) {
+		return context.defaultUiActions();
 	}
 
 	private void logFailure(

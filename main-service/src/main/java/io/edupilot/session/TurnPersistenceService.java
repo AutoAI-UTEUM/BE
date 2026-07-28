@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import io.edupilot.ai.dto.ActionExecuted;
 import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -37,6 +38,7 @@ public class TurnPersistenceService {
 	private final LearningMaterialRepository materialRepository;
 	private final QuizService quizService;
 	private final DiagnosisService diagnosisService;
+	private final UiActionResolver uiActionResolver;
 	private final ObjectMapper objectMapper;
 
 	public TurnPersistenceService(
@@ -49,6 +51,7 @@ public class TurnPersistenceService {
 		LearningMaterialRepository materialRepository,
 		QuizService quizService,
 		DiagnosisService diagnosisService,
+		UiActionResolver uiActionResolver,
 		ObjectMapper objectMapper
 	) {
 		this.sessionRepository = sessionRepository;
@@ -60,6 +63,7 @@ public class TurnPersistenceService {
 		this.materialRepository = materialRepository;
 		this.quizService = quizService;
 		this.diagnosisService = diagnosisService;
+		this.uiActionResolver = uiActionResolver;
 		this.objectMapper = objectMapper;
 	}
 
@@ -86,7 +90,7 @@ public class TurnPersistenceService {
 			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
 		}
 
-		List<UiAction> uiActions = parseUiActions(aiResponse.uiActions());
+		PageStatus previousPageStatus = session.getPageStatus();
 		List<ChatMessage> aiMessages = saveAiMessages(
 			session,
 			aiResponse.messages()
@@ -107,6 +111,7 @@ public class TurnPersistenceService {
 		);
 
 		Long activeQuizId = null;
+		List<UiAction> uiActions;
 		if (eventType == TurnEventType.QUIZ_TYPE_SELECTED) {
 			if (nextPageStatus != null
 				&& nextPageStatus != PageStatus.QUIZ_READY) {
@@ -116,6 +121,12 @@ public class TurnPersistenceService {
 			activeQuizId = quizService.createFromGeneration(
 				sessionId,
 				generation
+			);
+			uiActions = uiActionResolver.forPageTransition(
+				previousPageStatus,
+				PageStatus.QUIZ_READY,
+				session.getCurrentPage(),
+				session.getMaterialPageCount()
 			);
 			session.activateQuiz(activeQuizId, uiActions);
 		} else {
@@ -130,7 +141,22 @@ public class TurnPersistenceService {
 					aiResponse.statePatch()
 				);
 			}
-			session.applyAiTurn(nextPageStatus, uiActions);
+			PageStatus finalPageStatus = nextPageStatus == null
+				? session.getPageStatus()
+				: nextPageStatus;
+			boolean pageStatusChanged =
+				finalPageStatus != previousPageStatus;
+			uiActions = uiActionResolver.forPageTransition(
+				previousPageStatus,
+				finalPageStatus,
+				session.getCurrentPage(),
+				session.getMaterialPageCount()
+			);
+			session.applyAiTurn(
+				nextPageStatus,
+				uiActions,
+				pageStatusChanged
+			);
 		}
 
 		saveMemoryCandidates(
@@ -147,16 +173,14 @@ public class TurnPersistenceService {
 			.map(MessageResponse::from)
 			.toList();
 		return new PersistedTurn(
-			new io.edupilot.session.dto.TurnResponse(
-				aiResponse.turnId(),
-				sessionId,
-				messages,
-				uiActions,
-				new TurnStateResponse(
-					session.getCurrentPage(),
-					session.getPageStatus(),
-					session.getActiveQuizId()
-				)
+			aiResponse.turnId(),
+			sessionId,
+			messages,
+			uiActions,
+			new TurnStateResponse(
+				session.getCurrentPage(),
+				session.getPageStatus(),
+				session.getActiveQuizId()
 			),
 			parseMemoryWrite(aiResponse.memoryWrite()),
 			session.getMaterialId()
@@ -179,20 +203,6 @@ public class TurnPersistenceService {
 		}
 		messageRepository.flush();
 		return List.copyOf(messages);
-	}
-
-	private List<UiAction> parseUiActions(
-		List<Map<String, Object>> values
-	) {
-		return values.stream()
-			.map(value -> new UiAction(
-				(String) value.get("type"),
-				nullableText(value.get("content")),
-				nullableText(value.get("yesEvent")),
-				nullableText(value.get("noEvent")),
-				nullableLong(value.get("diagnosisId"))
-			))
-			.toList();
 	}
 
 	private void applyQaThread(
@@ -302,12 +312,8 @@ public class TurnPersistenceService {
 	private JsonNode quizGeneration(
 		io.edupilot.ai.dto.TurnResponse response
 	) {
-		for (Map<String, Object> action : response.actionsExecuted()) {
-			Object rawArtifacts = action.get("artifacts");
-			if (!(rawArtifacts instanceof Map<?, ?> artifacts)) {
-				continue;
-			}
-			Object generation = artifacts.get("quizGeneration");
+		for (ActionExecuted action : response.actionsExecuted()) {
+			Object generation = action.artifacts().get("quizGeneration");
 			if (generation != null) {
 				return objectMapper.valueToTree(generation);
 			}

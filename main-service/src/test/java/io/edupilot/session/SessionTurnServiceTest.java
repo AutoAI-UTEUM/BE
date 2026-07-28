@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,7 +60,10 @@ class SessionTurnServiceTest {
 		when(snapshotService.build(1L, 100L, 501L))
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L),
-				Map.of(),
+				Map.of(
+					"qaThreadDigest",
+					Map.of("threadRef", "qa-30")
+				),
 				10L
 			));
 		io.edupilot.ai.dto.TurnResponse aiResponse = aiResponse("ignored");
@@ -89,7 +93,15 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any()
-		)).thenReturn(new PersistedTurn(publicResponse, null, 10L));
+		)).thenReturn(new PersistedTurn(
+			publicResponse.turnId(),
+			publicResponse.sessionId(),
+			publicResponse.messages(),
+			publicResponse.uiActions(),
+			publicResponse.state(),
+			null,
+			10L
+		));
 
 		TurnResponse actual = service().execute(
 			1L,
@@ -101,7 +113,7 @@ class SessionTurnServiceTest {
 			)
 		);
 
-		assertThat(actual).isSameAs(publicResponse);
+		assertThat(actual).isEqualTo(publicResponse);
 		ArgumentCaptor<io.edupilot.ai.dto.TurnRequest> requests =
 			ArgumentCaptor.forClass(
 				io.edupilot.ai.dto.TurnRequest.class
@@ -111,6 +123,11 @@ class SessionTurnServiceTest {
 		assertThat(requests.getAllValues())
 			.extracting(io.edupilot.ai.dto.TurnRequest::turnId)
 			.doesNotHaveDuplicates();
+		verify(responseValidator).validate(
+			any(),
+			eq(requests.getAllValues().get(1).turnId()),
+			eq("qa-30")
+		);
 		verify(claimService).claim(1L, 100L, "request-1");
 		verify(claimService).release(100L, "request-1");
 	}

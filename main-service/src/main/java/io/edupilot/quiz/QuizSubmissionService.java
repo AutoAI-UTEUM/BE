@@ -76,7 +76,8 @@ public class QuizSubmissionService {
 						prepared.answers(),
 						gradingResult,
 						passed,
-						prepared.pageContext()
+						prepared.pageContext(),
+						persisted.uiActions()
 					)
 				);
 			} catch (RuntimeException exception) {
@@ -91,7 +92,7 @@ public class QuizSubmissionService {
 						exception.getClass().getSimpleName()
 					)
 					.log("Quiz learning-support pipeline failed");
-				uiActions = List.of(UiAction.moveNextPage());
+				uiActions = persisted.uiActions();
 			}
 			return persisted.withUiActions(uiActions);
 		} catch (DataIntegrityViolationException exception) {
