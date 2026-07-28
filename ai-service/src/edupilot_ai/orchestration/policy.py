@@ -9,6 +9,11 @@ PIPELINE_TOOLS = {
     ToolName.ASSESS_QUIZ_RESULT,
     ToolName.DIAGNOSE_MISCONCEPTION,
 }
+MEMORY_TOOLS = {
+    ToolName.BUILD_MEMORY_CANDIDATE,
+    ToolName.PROMOTE_MEMORY,
+}
+MEMORY_TYPES = {"STRENGTH", "WEAKNESS", "MISCONCEPTION", "PREFERENCE"}
 
 
 class PolicyViolation(Exception):
@@ -48,12 +53,18 @@ class PolicyVerifier:
     ) -> tuple[TurnPlan, list[Adjustment]]:
         if len(plan.actions) > plan.pedagogy_policy.intervention_budget:
             raise PolicyViolation("intervention budget exceeded")
+        if all(action.tool in MEMORY_TOOLS for action in plan.actions):
+            raise PolicyViolation("memory tools require a primary action")
         corrected_actions: list[PlanAction] = []
         adjustments: list[Adjustment] = []
         for action in plan.actions:
             if action.tool in PIPELINE_TOOLS:
                 raise PolicyViolation("pipeline-only tool rejected")
-            corrected, action_adjustments = self._verify_action(action, context)
+            if action.tool in MEMORY_TOOLS:
+                corrected = self._verify_memory_action(action)
+                action_adjustments: list[Adjustment] = []
+            else:
+                corrected, action_adjustments = self._verify_action(action, context)
             corrected_actions.append(corrected)
             adjustments.extend(action_adjustments)
         return (
@@ -127,7 +138,48 @@ class PolicyVerifier:
             return corrected, []
         if action.tool is not ToolName.REPAIR_MISCONCEPTION:
             raise PolicyViolation("repair tool mismatch")
+        if context.pending_diagnosis is None:
+            raise PolicyViolation("repair requires pendingDiagnosis")
         corrected = _normalized_action(action, {"diagnosisId"})
         if corrected.args["diagnosisId"] != context.event_payload.diagnosis_id:
             raise PolicyViolation("diagnosis mismatch")
+        if isinstance(context.pending_diagnosis, dict):
+            pending_id = context.pending_diagnosis.get("diagnosisId")
+            if pending_id is not None and pending_id != context.event_payload.diagnosis_id:
+                raise PolicyViolation("pending diagnosis mismatch")
         return corrected, []
+
+    @staticmethod
+    def _verify_memory_action(action: PlanAction) -> PlanAction:
+        corrected = _normalized_action(
+            action,
+            {"type", "content", "confidence", "evidence"},
+        )
+        memory_type = corrected.args["type"]
+        content = corrected.args["content"]
+        confidence = corrected.args["confidence"]
+        evidence = corrected.args["evidence"]
+        if memory_type not in MEMORY_TYPES:
+            raise PolicyViolation("memory type is not allowed")
+        if not isinstance(content, str) or not content.strip():
+            raise PolicyViolation("memory content is invalid")
+        if (
+            not isinstance(confidence, (int, float))
+            or isinstance(confidence, bool)
+            or not 0 <= float(confidence) <= 1
+        ):
+            raise PolicyViolation("memory confidence is invalid")
+        if (
+            not isinstance(evidence, list)
+            or not evidence
+            or any(not isinstance(item, str) or not item.strip() for item in evidence)
+        ):
+            raise PolicyViolation("memory evidence is invalid")
+        unique_evidence = set(evidence)
+        if len(unique_evidence) != len(evidence):
+            raise PolicyViolation("memory evidence must be unique")
+        if action.tool is ToolName.PROMOTE_MEMORY and (
+            len(unique_evidence) < 2 or float(confidence) < 0.7
+        ):
+            raise PolicyViolation("memory promotion threshold not met")
+        return corrected

@@ -473,7 +473,7 @@ Spring은 문항 ID, 점수 범위, 합계, 만점 일치를 다시 검증합니
     {
       "type": "WEAKNESS",
       "content": "...",
-      "confidence": "LOW"
+      "confidence": 0.6
     }
   ],
   "evidence": ["..."]

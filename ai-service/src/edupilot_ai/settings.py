@@ -124,6 +124,18 @@ class Settings(BaseSettings):
         default=ReasoningEffort.HIGH,
         validation_alias="GRADER_REASONING_EFFORT",
     )
+    assessment_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.HIGH,
+        validation_alias="ASSESSMENT_REASONING_EFFORT",
+    )
+    diagnosis_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.HIGH,
+        validation_alias="DIAGNOSIS_REASONING_EFFORT",
+    )
+    repair_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.MEDIUM,
+        validation_alias="REPAIR_REASONING_EFFORT",
+    )
 
     @property
     def agent_llm_profile(self) -> AgentLlmProfile:
@@ -167,6 +179,21 @@ class Settings(BaseSettings):
     def grader_llm_profile(self) -> AgentLlmProfile:
         """Build the high-reasoning grading profile."""
         return self._profile(self.grader_reasoning_effort)
+
+    @property
+    def assessment_llm_profile(self) -> AgentLlmProfile:
+        """Build the high-reasoning quiz assessment profile."""
+        return self._profile(self.assessment_reasoning_effort)
+
+    @property
+    def diagnosis_llm_profile(self) -> AgentLlmProfile:
+        """Build the high-reasoning diagnosis profile."""
+        return self._profile(self.diagnosis_reasoning_effort)
+
+    @property
+    def repair_llm_profile(self) -> AgentLlmProfile:
+        """Build the focused misconception repair profile."""
+        return self._profile(self.repair_reasoning_effort)
 
     @property
     def upload_max_bytes(self) -> int:

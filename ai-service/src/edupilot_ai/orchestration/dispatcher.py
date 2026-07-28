@@ -25,6 +25,7 @@ from edupilot_ai.orchestration.agents import (
     ExplainerAgent,
     QaAgent,
     QuizAgent,
+    RepairAgent,
 )
 from edupilot_ai.orchestration.context import AgentContext
 from edupilot_ai.orchestration.policy import PolicyViolation
@@ -75,6 +76,7 @@ class DispatchResult:
     ui_actions: list[dict[str, Any]] = field(default_factory=list)
     usages: list[LlmUsage] = field(default_factory=list)
     quiz: QuizGeneration | None = None
+    memory_candidates: list[dict[str, Any]] = field(default_factory=list)
     failure: LlmBridgeError | PolicyViolation | None = None
 
 
@@ -99,11 +101,13 @@ class ToolDispatcher:
         qa: QaAgent,
         model: str,
         quiz: QuizAgent | None = None,
+        repair: RepairAgent | None = None,
     ) -> None:
         self._explainer = explainer
         self._qa = qa
         self._model = model
         self._quiz = quiz
+        self._repair = repair
 
     async def dispatch(
         self,
@@ -137,6 +141,7 @@ class ToolDispatcher:
                     if result.quiz is not None:
                         raise PolicyViolation("multiple quiz results are not allowed")
                     result.quiz = outcome.quiz
+                result.memory_candidates.extend(outcome.memory_candidates)
                 result.usages.append(outcome.usage)
             except (LlmBridgeError, PolicyViolation) as error:
                 result.actions.append(
@@ -218,6 +223,7 @@ class ToolDispatcher:
                     if result.quiz is not None:
                         raise PolicyViolation("multiple quiz results are not allowed")
                     result.quiz = outcome.quiz
+                result.memory_candidates.extend(outcome.memory_candidates)
                 result.usages.append(outcome.usage)
             except (LlmBridgeError, PolicyViolation) as error:
                 result.actions.append(
@@ -265,7 +271,30 @@ class ToolDispatcher:
                 timeout_seconds=deadline.remaining_seconds(),
             )
         if action.tool is ToolName.REPAIR_MISCONCEPTION:
-            return self._stub("RepairAgent", "오개념 교정 기능은 준비 중입니다. (이슈 #38)")
+            if self._repair is None:
+                raise PolicyViolation("RepairAgent is not configured")
+            return await self._repair.run(
+                context,
+                timeout_seconds=deadline.remaining_seconds(),
+            )
+        if action.tool in {
+            ToolName.BUILD_MEMORY_CANDIDATE,
+            ToolName.PROMOTE_MEMORY,
+        }:
+            candidate = {
+                "type": action.args["type"],
+                "content": action.args["content"],
+                "confidence": action.args["confidence"],
+                "evidence": action.args["evidence"],
+                "promotionRequested": action.tool is ToolName.PROMOTE_MEMORY,
+            }
+            return AgentResult(
+                agent="LearnerMemoryService",
+                message=None,
+                state_patch={},
+                usage=LlmUsage(self._model, 0, 0, None),
+                memory_candidates=[candidate],
+            )
         raise PolicyViolation("tool is not implemented in issue #23")
 
     def _agent_stream(

@@ -452,45 +452,6 @@ async def test_learner_confidence_rejects_float_and_unknown_enum(
     assert response.json()["error"]["category"] == "SCHEMA"
     assert fake_llm.calls == []
 
-
-@pytest.mark.parametrize(
-    ("event", "tool", "args", "agent", "content"),
-    [
-        (
-            {
-                "eventType": "DIAGNOSIS_ANSWER_SUBMITTED",
-                "payload": {"diagnosisId": 30, "answer": "제 답입니다"},
-            },
-            ToolName.REPAIR_MISCONCEPTION,
-            {"diagnosisId": 30},
-            "RepairAgent",
-            "오개념 교정 기능은 준비 중입니다. (이슈 #38)",
-        ),
-    ],
-)
-async def test_deferred_turns_remain_stubs(
-    client: httpx.AsyncClient,
-    fake_llm: FakeLlm,
-    auth_headers: dict[str, str],
-    turn_payload: dict[str, object],
-    event: dict[str, object],
-    tool: ToolName,
-    args: dict[str, object],
-    agent: str,
-    content: str,
-) -> None:
-    payload = deepcopy(turn_payload)
-    payload["event"] = event
-    fake_llm.queue(make_plan(tool, args, "DEFERRED_AGENT_STUB"))
-
-    response = await post_turn(client, auth_headers, payload)
-
-    assert response.status_code == 200
-    assert response.json()["actionsExecuted"][0]["agent"] == agent
-    assert response.json()["messages"][0]["content"] == content
-    assert len(fake_llm.calls) == 1
-
-
 async def test_dispatcher_marks_partial_failure(
     fake_llm: FakeLlm,
     settings: Settings,

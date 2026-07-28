@@ -133,6 +133,10 @@
   `null`입니다. Spring이 이를 검증·분리 저장(비공개 필드는 학생 노출 DTO에서
   제거)하고 자체 발급한 quiz ID만 `state.activeQuizId`로 반환합니다. AI는
   statePatch에 `activeQuizId`를 설정하지 않습니다.
+- `memoryCandidates[]`: 각 후보는
+  `{type, content, confidence, evidence[], promotionRequested}`이며 `type`은
+  `STRENGTH | WEAKNESS | MISCONCEPTION | PREFERENCE`, `confidence`는 0~1
+  숫자입니다. 실제 저장·승격은 Spring 책임입니다.
 - `memoryWrite`는 최상위 nullable 필드입니다. Spring은 턴 핵심 저장 커밋 후 별도 트랜잭션에서 반복 근거·confidence 정책을 검증해 승격합니다.
 - `uiActions`: 예약 필드이며 AI Service는 항상 `[]`을 반환합니다. Spring은
   비어 있지 않은 값이 오면 무시하고 경고 로그를 남깁니다. 사용자 위젯은
@@ -160,6 +164,7 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 | 보정 허용 | 도구별 허용 args 외의 여분 키는 통지 없이 제거 |
 | 반드시 거부 | 이벤트와 도구의 불일치 |
 | 반드시 거부 | 결정적 파이프라인 전용 도구 사용 |
+| 반드시 거부 | primary action 없이 `BUILD_MEMORY_CANDIDATE`/`PROMOTE_MEMORY`만 있는 Plan |
 | 반드시 거부 | `FOLLOW_UP`인데 `qaThreadDigest`가 없음 |
 | 반드시 거부 | Plan의 `threadRef`가 스냅샷 값과 다른 위조 |
 
@@ -177,7 +182,9 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 - 허용 도구 목록·Plan 검증 기준은 agent-system-spec §6~§7 기준으로 Epic5 ⓐ에서 확정.
 - 파이프라인 전용 도구(grade/assessment/diagnosis)가 Plan에 나오면 Policy가 거부.
 - Plan 스키마 실패 시 1회 재생성 fallback 후 category `SCHEMA`.
-- Policy 강제 규칙 (Epic7): 진단 답변 전 Repair 금지, 메모리 승격 = 독립 근거 ≥2회 + confidence ≥0.7 (DEC-012), 근거 없는 성격·능력 추론 금지.
+- Policy 강제 규칙 (Epic7): 진단 답변 전 Repair 금지, 메모리 승격 =
+  중복 없는 evidence reference 문자열 2개 이상 + 0~1 숫자 confidence ≥0.7
+  (DEC-012), 근거 없는 성격·능력 추론 금지.
 
 ## 4. 멱등성 · 타임아웃 · 재시도 (v0.4 확정 — DEC-002 §5 이관분)
 

@@ -442,28 +442,111 @@ Closes #25
 - `uv run mypy src tests`: 50개 소스 파일 검사 통과
 - 기존 설명·QA, JSON·NDJSON 스트림 회귀 테스트: 전부 통과
 - 실제 Grok/xAI 및 테스트 외부 네트워크 호출: 0회
+---
+
+# Issue #38 Worklog — 평가·진단·교정·메모리
+
+기준 브랜치: `origin/develop` (`7b18536`, #79·learnerConfidence enum 반영)
+
+## 작업 결과
+
+- 2026-07-28 16:45 KST: 최신 develop에서
+  `feature/38-assessment-diagnosis` 생성.
+- 2026-07-28 19:32 KST: #79가 포함된 최신 develop에 rebase하고
+  `learnerConfidence=LOW|MEDIUM|HIGH` 및 `models/base.py` 공통 계약 구조와
+  #38 미병합 코드를 정렬했습니다.
+- `/internal/ai/quiz-assessment`가 채점 결과를 근거 제한 평가·메모리 후보로
+  변환하며, 단일 결과로 수준·성격·능력·장기 오개념을 확정하지 않도록
+  한국어 프롬프트에서 제한합니다.
+- `/internal/ai/diagnosis`가 오답·평가·페이지 근거로 짧은 진단 질문을
+  생성하며 정답·modelAnswer·전체 해설 선공개를 금지합니다.
+- 두 파이프라인은 `reasoning_effort=high`와 각 45초 timeout을 사용합니다.
+- RepairAgent가 `DIAGNOSIS_ANSWER_SUBMITTED` 스텁을 대체합니다. pending
+  diagnosis가 없거나 ID가 다르면 Policy가 거부하고, 성공하면
+  `{pageStatus: REPAIR_COMPLETED, pendingDiagnosis: null}`을 제안합니다.
+- `BUILD_MEMORY_CANDIDATE`, `PROMOTE_MEMORY`를 결정적 도구로 연결했습니다.
+  type·content·confidence·evidence를 검증하며 PROMOTE는 confidence 0.7 이상,
+  중복 없는 evidence reference 문자열 2개 이상을 요구합니다. 두 도구는
+  primary action이 있는 Plan의 보조 action으로만 허용합니다.
+- `docs/prompt-assets.md`가 develop에 없어 사용자 제공 자산 §3의 Repair
+  규율과 `agent-system-spec` §4.6~4.9만 사용했습니다.
+
+## #36 확정(2026-07-28 서면 승인)
+
+### quiz-assessment
+
+- 요청: 계약 §6.3의 `quizResult`, `quizItems`, `studentAnswers`,
+  `pageContext`, `learnerMemoryDigest`.
+- 응답: `understandingSummary`, `strengths[]`, `weaknesses[]`,
+  `suspectedMisconceptions[]`, `recommendedNextDirection`,
+  `memoryCandidates[]{type,content,confidence}`, `evidence[]`, `usage`.
+
+### diagnosis
+
+- 요청: 계약 §6.4의 `quizAssessment`, `quizResult`, `wrongItems[]`,
+  `pageContext`, `learnerMemoryDigest`.
+- 응답: `focusConcepts[]`, `suspectedMisconceptions[]`,
+  `diagnosticPrompt`, `evidence[]`, `repairHint`, `usage`.
+
+### Repair·메모리 turn 도구
+
+- `REPAIR_MISCONCEPTION` args: `{diagnosisId}`. 이벤트 payload와 snapshot
+  `pendingDiagnosis.diagnosisId`가 모두 일치해야 합니다.
+- `BUILD_MEMORY_CANDIDATE`, `PROMOTE_MEMORY` args:
+  `{type, content, confidence, evidence[]}`.
+- 허용 type: `STRENGTH`, `WEAKNESS`, `MISCONCEPTION`, `PREFERENCE`.
+- turn `memoryCandidates[]`에는 위 필드와
+  `promotionRequested:boolean`을 반환합니다. 실제 저장·승격은 Spring
+  책임입니다.
+
+### 확정 4건
+
+1. 메모리 승격 `confidence`는 0~1 숫자이며 DEC-012의 `>=0.7` 기준을
+   적용합니다.
+2. 독립 근거는 중복 없는 evidence reference 문자열 최소 2개입니다.
+   `source`·`sessionId`·`observedAt` 구조화는 후속 이슈로 보류합니다.
+3. turn `memoryCandidates[]`는
+   `{type, content, confidence, evidence[], promotionRequested}`이며 실제
+   저장·승격은 Spring 책임입니다.
+4. `BUILD_MEMORY_CANDIDATE`와 `PROMOTE_MEMORY`는 보조 action 전용입니다.
+   primary action 없이 메모리 도구만 있는 Plan은 Policy가 거부합니다.
+
+## 이슈 #38 체크리스트 매핑
+
+- [x] quiz-assessment structured endpoint.
+- [x] diagnosis structured endpoint.
+- [x] RepairAgent turn 도구와 pending diagnosis 정책.
+- [x] LearnerMemory candidate·promotion 도구.
+- [x] 진단 전 교정, 승격 근거·confidence, 금지 type 정책.
+- [x] 메모리 도구 단독 Plan 거부.
+- [x] FakeLlm 계약 테스트. 실제 Grok/외부 네트워크 0회.
+
+## 검증 결과
+
+- `uv run pytest -q`: 92개 통과
+- `uv run ruff check .`: 통과
+- `uv run mypy src tests`: 55개 소스 파일 검사 통과
+- 기존 설명·QA·Quiz/Grader 및 JSON·NDJSON 계약 테스트: 전부 통과
 
 ## PR 본문 초안
 
 ```markdown
 ## 변경 요약
 
-- 네 가지 유형의 QuizAgent structured output과 turn 도구 연결
-- 내부 turn 응답의 선택적 quiz 필드, Spring 소유 activeQuizId 미설정
-- SHORT/ESSAY GraderAgent와 POST /internal/ai/grade
-- questionId 매칭, 루브릭 코드 합산, verdict 검증, 1회 schema 재생성
-- Quiz=medium / Grader=high reasoning profile
-- #25 턴 deadline·streaming 및 learnerConfidence enum 계약 통합
+- POST /internal/ai/quiz-assessment와 POST /internal/ai/diagnosis
+- RepairAgent turn 도구와 REPAIR_COMPLETED statePatch
+- 메모리 후보·승격 도구와 DEC-012 Policy gate
+- Assessment/Diagnosis high reasoning profile
 
 ## 계약 상태
 
-#30 A1~A3 서면 확정 반영 완료.
+#36 서면 확정 4건을 코드·계약 문서에 반영 완료.
 
 ## 검증
 
-- pytest 84 passed
+- pytest 92 passed
 - ruff/mypy passed
 - 실제 Grok/xAI 및 테스트 외부 네트워크 호출 0회
 
-Closes #31
+Closes #38
 ```
