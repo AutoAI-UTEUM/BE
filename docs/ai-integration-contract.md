@@ -193,24 +193,78 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 - **turn 총 시간**: Plan·Agent 호출을 모두 포함해 180초 이내입니다. 호출별
   남은 시간 예산 분배는 스트리밍 이슈 #25에서 구현합니다.
 
-## 5. 스트림 이벤트 (표준 5+1종 — DEC-013 세부는 Epic5 ⓐ에서 마감)
+## 5. 스트림 이벤트와 내부 NDJSON 전송 (#25 확정)
 
-내부 turn 스트림(FastAPI→Spring)과 외부 SSE(`GET /api/sessions/{id}/stream`, DEC-021 fetch 스트림)가 같은 이벤트 어휘를 쓴다:
+### 5.1 FastAPI → Spring 내부 전송
+
+`POST /internal/ai/turn`은 요청의 `Accept` 헤더로 응답 방식을 선택합니다.
+
+| 요청 `Accept` | 응답 |
+| --- | --- |
+| `application/x-ndjson` 포함 | HTTP 200 `application/x-ndjson`, 한 줄에 JSON 이벤트 1개 |
+| 미지정 또는 그 외 | 기존 §3.3 `TurnResponse` JSON — Spring #24 비스트리밍 경로 유지 |
+
+내부 NDJSON 이벤트는 다음 6종입니다.
 
 | type | 필드 | 설명 |
 | --- | --- | --- |
-| `status` | `stage` | 진행 단계 (PLANNING / EXPLAINING / GENERATING 등) |
-| `thought_summary` | `text` | 짧은 진행 요약 (내부 추론 원문 금지, 비저장) |
-| `content_delta` | `text` | 본문 청크 (Markdown) |
-| `ui_action` | `action` | 위젯 제안 |
-| `completed` | `result` | 최종 turn 응답 (§3.3 구조) — **정확히 1회, 마지막** |
-| `error` | `code, category, message` | 실패 종료 — completed와 상호 배타 |
+| `status` | `stage` | `PLANNING`, `EXPLAINING`, `ANSWERING`, `FINALIZING` |
+| `thought_summary` | `text` | 파이프라인이 만드는 결정적 한국어 진행 문구. 모델 원시 추론이 아니며 저장하지 않음 |
+| `content_delta` | `text` | 학습자에게 보여 줄 Markdown 본문 청크 |
+| `heartbeat` | 없음 | 10초 동안 다른 이벤트가 없을 때 연결 유지용으로 발행 |
+| `completed` | `result` | 최종 `TurnResponse` 전체 — 정확히 1회, 마지막 |
+| `error` | `code, category, message, retryable` | 실패 종료 — `completed`와 상호 배타이며 정확히 1회, 마지막 |
 
-- 불변식: `content_delta` 누적 == `completed.result.messages[].content`. 중단 시 Spring은 미확정 처리(청크 저장 금지).
-- **heartbeat: 10초 (확정)** — SSE comment 라인(이벤트 아님), FE 무시.
-- **취소 (확정, MVP)**: 별도 취소 API 없음 — FE fetch abort → Spring 연결 종료 감지 → FastAPI 상류 요청 취소.
-- **재연결 (확정, MVP)**: `Last-Event-ID` 재전송 미지원 — 재연결 시 FE가 `GET /api/sessions/{id}` + `GET messages`로 재동기화, 진행 중 턴은 완료 후 확정 메시지로 수신. 중간 청크는 비확정이라 유실 무해. (서버측 버퍼·재전송은 이후 개선 항목 — DEC-013 잔여 마감)
-- 스트리밍 경로는 Explainer·QA 우선, 그 외 도구는 비스트리밍 (#25 확정).
+- 첫 이벤트는 `status`를 포함해
+  `TURN_FIRST_EVENT_TIMEOUT_SECONDS`(기본 30초) 안에 발행합니다.
+- `content_delta` 누적은
+  `completed.result.messages[].content`의 순서대로 이은 문자열과 정확히
+  일치해야 합니다.
+- 중단·오류 시 일부 `content_delta`는 미확정이며 `error` 뒤 스트림을
+  종료합니다. 부분 메시지나 statePatch를 확정 결과로 반환하지 않습니다.
+- AI Service는 `ui_action` 내부 이벤트를 발행하지 않습니다. §3.3의
+  `uiActions=[]` 원칙대로 사용자 위젯은 Spring이 생성합니다.
+
+### 5.2 LLM 호출과 시간 예산
+
+- Orchestrator Plan은 기존 `response_format=json_schema` 비스트리밍 호출을
+  유지합니다.
+- ExplainerAgent·QaAgent만 스트리밍 모드에서 `response_format` 없이 순수
+  Markdown을 요청하고 xAI Chat Completions SSE(`stream=true`)의 본문 delta를
+  `content_delta`로 변환합니다.
+- 스트리밍 모드에서는 모델에 `thoughtSummary`를 요구하지 않습니다.
+  `thought_summary` 이벤트는 `PLANNING`·페이지 설명·질문 답변 단계에 맞춰
+  파이프라인이 고정 문구로 만듭니다.
+- 퀴즈·교정 스텁은 LLM 본문 스트림을 사용하지 않고 `completed` 또는
+  `error`로 종료합니다.
+- turn 시작 시각에 `TURN_TIMEOUT_SECONDS`(기본 180초) deadline을 한 번
+  만들고, Plan 재생성과 Agent를 포함한 매 LLM 호출에 남은 시간만 timeout으로
+  전달합니다. 남은 시간이 0 이하이면 provider를 호출하지 않고 즉시
+  `TIMEOUT` error로 종료합니다.
+
+### 5.3 Spring → FE 외부 SSE 매핑
+
+- Spring은 내부 NDJSON의 `status`, `thought_summary`, `content_delta`,
+  `completed`, `error`를 같은 이름의 외부 SSE 이벤트로 변환합니다.
+- 내부 `{"type":"heartbeat"}`는 외부 SSE comment 라인으로 변환하며 FE는
+  무시합니다.
+- **외부 `ui\_action` (확정)**: 외부 SSE에는 내부에 없는 `ui_action` 이벤트가
+  추가됩니다(api-spec §9, DEC-013 — 외부 어휘 6종 유지). AI Service는 발행하지
+  않으며, Spring이 내부 `completed`를 검증·저장한 뒤 api-spec §5의 위젯 규칙
+  (W1~W7)으로 생성합니다. 발행 순서는 **[위젯이 있으면 `ui_action`] →
+  `completed` → 스트림 종료**이며, `completed`는 외부에서도 정확히 1회·마지막
+  이벤트입니다.
+- **외부 `completed.result` (확정)**: 내부 TurnResponse DTO 원문이 아니라
+  Spring의 외부 턴 응답(`turnId`, `sessionId`, `messages`, `uiActions`,
+  `state`)입니다. 내부 전용 필드(`statePatch`, `actionsExecuted`, `usage`,
+  `memoryCandidates` 등)는 외부로 전달하지 않습니다.
+- **취소 (확정, MVP)**: 별도 취소 API 없음 — FE fetch abort → Spring 연결
+  종료 감지 → FastAPI 상류 요청 취소.
+- **재연결 (확정, MVP)**: `Last-Event-ID` 재전송 미지원 — 재연결 시 FE가
+  `GET /api/sessions/{id}` + `GET messages`로 재동기화합니다. 중간 청크는
+  비확정이라 유실되어도 저장 상태를 손상시키지 않습니다.
+- Spring은 `completed.result`를 검증한 뒤 메시지와 상태를 정확히 1회 확정
+  저장하며, `error` 또는 연결 중단 시 저장하지 않습니다.
 
 ## 6. 파이프라인 엔드포인트 DTO (api-spec §10 기준 + usage 추가)
 

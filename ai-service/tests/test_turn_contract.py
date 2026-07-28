@@ -19,6 +19,7 @@ from edupilot_ai.orchestration.agents import ExplainerAgent, QaAgent
 from edupilot_ai.orchestration.context import ContextBuilder
 from edupilot_ai.orchestration.dispatcher import ToolDispatcher, merge_state_patch
 from edupilot_ai.orchestration.policy import PolicyVerifier, PolicyViolation
+from edupilot_ai.orchestration.timing import TurnDeadline
 from edupilot_ai.settings import Settings
 from tests.fakes import FakeLlm
 
@@ -502,7 +503,11 @@ async def test_dispatcher_marks_partial_failure(
         model=settings.model_name,
     )
 
-    result = await dispatcher.dispatch(plan, context)
+    result = await dispatcher.dispatch(
+        plan,
+        context,
+        TurnDeadline.start(180),
+    )
 
     assert [action.status for action in result.actions] == ["SUCCESS", "FAILED"]
     assert result.messages[0].content == "first answer"

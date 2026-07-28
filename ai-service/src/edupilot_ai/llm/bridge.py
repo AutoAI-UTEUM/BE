@@ -1,6 +1,6 @@
 """Provider-neutral structured-output LLM protocol."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol, TypeVar
 
@@ -30,6 +30,23 @@ class LlmCompletion[OutputT: BaseModel]:
     usage: LlmUsage
 
 
+@dataclass(frozen=True, slots=True)
+class LlmTextDelta:
+    """One provider text delta safe to expose as learner-facing Markdown."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class LlmTextStreamCompleted:
+    """Terminal provider metadata for one text stream."""
+
+    usage: LlmUsage
+
+
+type LlmTextStreamItem = LlmTextDelta | LlmTextStreamCompleted
+
+
 class LlmBridgeError(Exception):
     """Provider-neutral classified LLM failure."""
 
@@ -53,6 +70,17 @@ class LlmBridge(Protocol):
         messages: Sequence[Mapping[str, str]],
         response_model: type[ModelT],
         profile: AgentLlmProfile,
+        timeout_seconds: float,
     ) -> LlmCompletion[ModelT]:
         """Return validated structured output plus provider usage."""
+        ...
+
+    def complete_text_stream(
+        self,
+        *,
+        messages: Sequence[Mapping[str, str]],
+        profile: AgentLlmProfile,
+        timeout_seconds: float,
+    ) -> AsyncIterator[LlmTextStreamItem]:
+        """Yield Markdown deltas followed by exactly one usage item."""
         ...

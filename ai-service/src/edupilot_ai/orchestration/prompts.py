@@ -29,6 +29,8 @@ def plan_messages(
 def explainer_messages(
     context: AgentContext,
     detail_level: DetailLevel,
+    *,
+    structured: bool = True,
 ) -> Sequence[Mapping[str, str]]:
     payload = {
         "page": context.session.current_page,
@@ -39,13 +41,18 @@ def explainer_messages(
         "learnerLevel": context.learner_level,
         "learnerMemoryDigest": context.learner_memory_digest,
     }
+    output_instruction = (
+        "Return AgentOutput JSON with a short thoughtSummary."
+        if structured
+        else "Return only the learner-facing Markdown explanation."
+    )
     return [
         {
             "role": "system",
             "content": (
                 "Explain the current page as primary evidence in Markdown. Adjacent pages "
                 "are context only. Respect detailLevel and learnerMemoryDigest. Do not "
-                "invent facts. Return AgentOutput JSON with a short thoughtSummary."
+                f"invent facts. {output_instruction}"
             ),
         },
         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
@@ -55,6 +62,8 @@ def explainer_messages(
 def qa_messages(
     context: AgentContext,
     mode: QaThreadMode,
+    *,
+    structured: bool = True,
 ) -> Sequence[Mapping[str, str]]:
     payload = {
         "question": context.event_payload.message,
@@ -67,6 +76,11 @@ def qa_messages(
         "latestRepair": context.latest_repair,
         "learnerMemoryDigest": context.learner_memory_digest,
     }
+    output_instruction = (
+        "Return AgentOutput JSON with a short thoughtSummary."
+        if structured
+        else "Return only the learner-facing Markdown answer."
+    )
     return [
         {
             "role": "system",
@@ -74,7 +88,7 @@ def qa_messages(
                 "Answer from supplied page evidence in Markdown. START_NEW ignores old QA "
                 "context; FOLLOW_UP must connect it. Use latestRepair only as follow-up "
                 "context. If evidence is insufficient, clearly state the limitation. "
-                "Return AgentOutput JSON with a short thoughtSummary."
+                f"{output_instruction}"
             ),
         },
         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},

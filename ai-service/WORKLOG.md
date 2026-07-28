@@ -66,7 +66,8 @@
 
 ## 이월 메모
 
-- BaseHTTPMiddleware는 SSE 스트리밍과 궁합 이슈 알려짐 — #25 구현 시 pure ASGI 미들웨어 전환 검토
+- BaseHTTPMiddleware는 SSE 스트리밍과 궁합 이슈 알려짐 — 2026-07-27 #25에서
+  pure ASGI 미들웨어로 전환 완료
 - 응답 model 필드 대조 assertion은 LlmBridge 실구현이 없어 #23으로 이월
 
 ---
@@ -254,6 +255,7 @@
 - 현재 xAI 어댑터는 각 LLM 호출에 turn 전체 설정값 180초를 적용하므로
   Plan+Agent 2회 호출의 합산 시간이 이론상 180초를 넘을 수 있습니다. #25에서
   turn 시작 시각을 기준으로 남은 시간 예산을 각 호출에 전달해야 합니다.
+  → 2026-07-27 `TurnDeadline`으로 해소.
 - Orchestrator 입력에 현재 AgentContext 전체가 직렬화됩니다. Plan에 필요한
   요약 필드만 전달하는 토큰 비용 최적화는 별도 후속 작업입니다.
 - 현재 프롬프트는 동작 검증용 최소 골격입니다. 제공된 한국어 프롬프트 자산의
@@ -261,3 +263,105 @@
   분리합니다.
 - `statePatch.activeQuizId`와 `pendingDiagnosis`의 상세 JSON Schema는 각각
   #31·#38 실제 구현 전에 계약 문서에 먼저 확정해야 합니다.
+
+---
+
+# Issue #25 Worklog
+
+기준 브랜치: `origin/develop` (`3ed1c3e`, PR #65 병합 포함)
+
+## 작업 로그
+
+- 2026-07-27 14:38 KST: 최신 develop에서
+  `feature/25-turn-streaming` 생성. `orchestration/`과 #25 timeout 이월을
+  확인했습니다.
+- 2026-07-28 05:28 KST: 작업 중 갱신된 `origin/develop`(`ac09367`)을
+  비파괴 merge로 반영한 뒤 pytest 64개, ruff, mypy를 다시 통과했습니다.
+- 사용자 요청의 마감이 `<YYYY-MM-DD HH:00>` 자리표시자로 남아 있어
+  절대 마감·30분 전 구현 중단 시각은 계산하지 못했습니다.
+- xAI 공식 Streaming 문서의 Chat Completions `stream=true`,
+  `data: {...}`·`data: [DONE]` framing과 공식 Cost Tracking 문서의
+  `stream_options.include_usage=true` 최종 usage 방식을 기준으로 adapter를
+  구현했습니다.
+- provider-neutral `complete_text_stream`과 xAI SSE parser를 추가하고,
+  streaming 요청에서는 `response_format`과 모델 `thoughtSummary`를
+  제거했습니다.
+- turn 시작 시각의 단일 deadline에서 Plan·SCHEMA 재생성·Agent 호출마다
+  남은 timeout을 계산하도록 변경했습니다. 남은 시간이 0 이하이면 provider를
+  호출하지 않고 `TIMEOUT`으로 종료합니다.
+- 내부 토큰/trace middleware를 `BaseHTTPMiddleware`에서 pure ASGI로
+  전환해 streaming body를 버퍼링하지 않도록 했습니다.
+- `Accept: application/x-ndjson`일 때만 NDJSON을 반환하고, Accept 미지정은
+  기존 JSON 응답을 유지했습니다.
+- 10초 무이벤트 heartbeat와 30초 첫 이벤트 상한을 공통 stream wrapper에
+  반영했습니다.
+- 2026-07-27 17:12 KST: FakeLlm 주입 uvicorn(`127.0.0.1:8025`)에서 실제
+  curl 실행. `PLANNING → ANSWERING → content_delta 2개 → FINALIZING →
+  completed` 순서와 delta 누적/완료 메시지 일치를 확인했습니다. 실제
+  Grok/xAI 및 외부 네트워크 호출은 0회입니다.
+
+## 이슈 #25 체크리스트 매핑
+
+- [x] Grok Chat Completions SSE 수신·frame 파싱·`[DONE]`·최종 usage 처리.
+- [x] 설명·QA turn의 표준 NDJSON 이벤트 발행.
+- [x] 모델 원시 추론 대신 stage 기반 결정적 한국어 `thought_summary` 생성.
+- [x] stream timeout·provider/SCHEMA/INTERNAL 오류를 terminal `error`로
+  변환하고 completed와 상호 배타 보장.
+- [x] `content_delta` 누적과 `completed.result.messages[].content` 일치 검증.
+- [x] `TurnDeadline`으로 Plan+Agent 전체 180초 예산 분배.
+- [x] 10초 heartbeat와 첫 이벤트 30초 상한.
+- [x] pure ASGI 내부 토큰·trace middleware 전환 및 회귀 검증.
+- [x] Accept 미지정 기존 JSON 경로 유지.
+- [x] respx SSE wire test와 FakeLlm 정상 설명/QA·중단·예산 소진 golden test.
+- [x] 통합 계약 §5와 #26 HANDOFF 갱신.
+
+## 검증 결과
+
+- `uv sync --locked`: 성공 (CPython 3.14.6)
+- `uv run pytest -q`: 64개 통과
+- `uv run ruff check .`: 통과
+- `uv run mypy src tests`: 43개 소스 파일 검사 통과
+- 기존 비스트리밍 테스트: 전부 통과
+- 실제 Grok/xAI 및 테스트 외부 네트워크 호출: 0회
+
+## 완료 범위와 이월
+
+- AI Service 내부 NDJSON과 xAI SSE 변환은 완료했습니다.
+- Spring의 NDJSON 소비·외부 SSE 변환·completed 후 1회 저장은 이슈 #26
+  범위입니다.
+- FE 연결 종료가 Spring을 거쳐 FastAPI와 provider까지 취소되는 end-to-end
+  검증은 #26 통합 테스트에서 수행해야 합니다. AI Service generator와
+  `httpx.AsyncClient.stream`은 취소 시 context를 닫도록 구성했습니다.
+- 퀴즈·교정 스텁은 provider 본문 stream 없이 terminal 이벤트만 반환합니다.
+- 실제 xAI live 테스트는 절대 규칙에 따라 수행하지 않았습니다.
+
+## GitHub 게시 대기
+
+- 2026-07-28 확인 결과 로컬 환경에 `gh`가 없어 이슈 #25 체크리스트 갱신과
+  develop 대상 PR 생성은 대기합니다. 완료 항목은 위 체크리스트 매핑과 같으며,
+  `gh` 설치·인증 후 GitHub 이슈 본문에 완료 항목만 반영해야 합니다.
+
+### PR 본문 초안
+
+```markdown
+## 변경 요약
+
+- `Accept: application/x-ndjson` 요청에 내부 turn NDJSON 스트림을 제공합니다.
+- Explainer·QA의 xAI SSE를 `content_delta`로 변환하고, Plan의 기존 structured
+  output 경로와 Accept 미지정 JSON 응답은 유지합니다.
+- turn 단일 deadline, 첫 이벤트 제한, 10초 heartbeat, terminal 이벤트 불변식을
+  적용했습니다.
+- 내부 토큰·trace 미들웨어를 pure ASGI 방식으로 전환했습니다.
+- 통합 계약 §5와 Spring #26용 HANDOFF를 실제 FakeLlm curl 결과에 맞춰
+  갱신했습니다.
+
+## 검증
+
+- `uv run pytest -q` — 64 passed
+- `uv run ruff check .` — passed
+- `uv run mypy src tests` — passed
+- FakeLlm uvicorn + NDJSON curl 수동 확인
+- 실제 Grok/xAI 및 테스트 외부 네트워크 호출 0회
+
+Closes #25
+```

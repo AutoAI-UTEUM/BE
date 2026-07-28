@@ -9,7 +9,12 @@ import respx
 from pydantic import BaseModel, SecretStr
 
 from edupilot_ai.core.errors import ErrorCategory
-from edupilot_ai.llm.bridge import LlmBridgeError
+from edupilot_ai.llm.bridge import (
+    LlmBridgeError,
+    LlmTextDelta,
+    LlmTextStreamCompleted,
+    LlmUsage,
+)
 from edupilot_ai.llm.xai import XAI_CHAT_COMPLETIONS_URL, XaiLlmBridge
 from edupilot_ai.settings import AgentLlmProfile, ReasoningEffort
 
@@ -65,7 +70,6 @@ async def test_xai_bridge_sends_strict_structured_output_wire_format(
         bridge = XaiLlmBridge(
             client=client,
             api_key=SecretStr("xai-test-not-real"),
-            timeout_seconds=180,
         )
         result = await bridge.complete_json(
             messages=[
@@ -74,6 +78,7 @@ async def test_xai_bridge_sends_strict_structured_output_wire_format(
             ],
             response_model=ExampleStructuredOutput,
             profile=profile(),
+            timeout_seconds=180,
         )
 
     request = route.calls[0].request
@@ -113,13 +118,13 @@ async def test_xai_bridge_warns_when_provider_model_differs(
         bridge = XaiLlmBridge(
             client=client,
             api_key=SecretStr("xai-test-not-real"),
-            timeout_seconds=180,
         )
         with caplog.at_level(logging.WARNING):
             result = await bridge.complete_json(
                 messages=[{"role": "user", "content": "test"}],
                 response_model=ExampleStructuredOutput,
                 profile=profile(),
+                timeout_seconds=180,
             )
 
     assert result.usage.model == "grok-redirected"
@@ -136,13 +141,13 @@ async def test_xai_bridge_classifies_timeout(
         bridge = XaiLlmBridge(
             client=client,
             api_key=SecretStr("xai-test-not-real"),
-            timeout_seconds=1,
         )
         with pytest.raises(LlmBridgeError) as caught:
             await bridge.complete_json(
                 messages=[{"role": "user", "content": "test"}],
                 response_model=ExampleStructuredOutput,
                 profile=profile(),
+                timeout_seconds=1,
             )
 
     assert caught.value.category is ErrorCategory.TIMEOUT
@@ -162,13 +167,13 @@ async def test_xai_bridge_classifies_invalid_structured_output(
         bridge = XaiLlmBridge(
             client=client,
             api_key=SecretStr("xai-test-not-real"),
-            timeout_seconds=180,
         )
         with pytest.raises(LlmBridgeError) as caught:
             await bridge.complete_json(
                 messages=[{"role": "user", "content": "test"}],
                 response_model=ExampleStructuredOutput,
                 profile=profile(),
+                timeout_seconds=180,
             )
 
     assert caught.value.category is ErrorCategory.SCHEMA
@@ -185,14 +190,157 @@ async def test_xai_bridge_classifies_retryable_provider_failure(
         bridge = XaiLlmBridge(
             client=client,
             api_key=SecretStr("xai-test-not-real"),
-            timeout_seconds=180,
         )
         with pytest.raises(LlmBridgeError) as caught:
             await bridge.complete_json(
                 messages=[{"role": "user", "content": "test"}],
                 response_model=ExampleStructuredOutput,
                 profile=profile(),
+                timeout_seconds=180,
             )
+
+    assert caught.value.category is ErrorCategory.INTERNAL
+    assert caught.value.retryable is True
+
+
+def stream_response() -> str:
+    chunks = [
+        {
+            "id": "stream-test",
+            "object": "chat.completion.chunk",
+            "model": "grok-4.5",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": "편차는 "},
+                }
+            ],
+        },
+        {
+            "id": "stream-test",
+            "object": "chat.completion.chunk",
+            "model": "grok-4.5",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"content": "평균과의 차이입니다."},
+                }
+            ],
+        },
+        {
+            "id": "stream-test",
+            "object": "chat.completion.chunk",
+            "model": "grok-4.5",
+            "choices": [],
+            "usage": {
+                "prompt_tokens": 13,
+                "completion_tokens": 9,
+                "completion_tokens_details": {"reasoning_tokens": 2},
+            },
+        },
+    ]
+    frames = [f"data: {json.dumps(chunk, ensure_ascii=False)}" for chunk in chunks]
+    frames.append("data: [DONE]")
+    return "\n\n".join(frames) + "\n\n"
+
+
+async def test_xai_bridge_streams_markdown_without_response_format(
+    respx_mock: respx.MockRouter,
+) -> None:
+    route = respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
+        return_value=httpx.Response(
+            200,
+            text=stream_response(),
+            headers={"Content-Type": "text/event-stream"},
+        )
+    )
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(
+            client=client,
+            api_key=SecretStr("xai-test-not-real"),
+        )
+        items = [
+            item
+            async for item in bridge.complete_text_stream(
+                messages=[{"role": "user", "content": "편차를 설명해 줘"}],
+                profile=profile(),
+                timeout_seconds=42.5,
+            )
+        ]
+
+    request = route.calls[0].request
+    payload = json.loads(request.content)
+    assert request.headers["Accept"] == "text/event-stream"
+    assert payload["stream"] is True
+    assert payload["stream_options"] == {"include_usage": True}
+    assert "response_format" not in payload
+    assert [
+        item.text for item in items if isinstance(item, LlmTextDelta)
+    ] == ["편차는 ", "평균과의 차이입니다."]
+    terminal = items[-1]
+    assert isinstance(terminal, LlmTextStreamCompleted)
+    assert terminal.usage == LlmUsage(
+        model="grok-4.5",
+        input_tokens=13,
+        output_tokens=9,
+        reasoning_tokens=2,
+    )
+
+
+async def test_xai_bridge_classifies_malformed_stream_chunk(
+    respx_mock: respx.MockRouter,
+) -> None:
+    respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
+        return_value=httpx.Response(
+            200,
+            text="data: not-json\n\ndata: [DONE]\n\n",
+            headers={"Content-Type": "text/event-stream"},
+        )
+    )
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(
+            client=client,
+            api_key=SecretStr("xai-test-not-real"),
+        )
+        with pytest.raises(LlmBridgeError) as caught:
+            _ = [
+                item
+                async for item in bridge.complete_text_stream(
+                    messages=[{"role": "user", "content": "test"}],
+                    profile=profile(),
+                    timeout_seconds=30,
+                )
+            ]
+
+    assert caught.value.category is ErrorCategory.SCHEMA
+    assert caught.value.retryable is False
+
+
+async def test_xai_bridge_rejects_stream_without_done(
+    respx_mock: respx.MockRouter,
+) -> None:
+    response_without_done = stream_response().replace("data: [DONE]\n\n", "")
+    respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
+        return_value=httpx.Response(
+            200,
+            text=response_without_done,
+            headers={"Content-Type": "text/event-stream"},
+        )
+    )
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(
+            client=client,
+            api_key=SecretStr("xai-test-not-real"),
+        )
+        with pytest.raises(LlmBridgeError) as caught:
+            _ = [
+                item
+                async for item in bridge.complete_text_stream(
+                    messages=[{"role": "user", "content": "test"}],
+                    profile=profile(),
+                    timeout_seconds=30,
+                )
+            ]
 
     assert caught.value.category is ErrorCategory.INTERNAL
     assert caught.value.retryable is True

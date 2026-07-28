@@ -25,10 +25,12 @@ async def test_fake_llm_satisfies_protocol_and_uses_profile(settings: Settings) 
         messages=[{"role": "user", "content": "test"}],
         response_model=ExampleResponse,
         profile=profile,
+        timeout_seconds=12.5,
     )
 
     assert result.output is expected
     assert result.usage.model == "grok-4.5"
+    assert fake.timeouts == [12.5]
     assert profile == AgentLlmProfile(
         model="grok-4.5",
         reasoning_effort=ReasoningEffort.MEDIUM,
