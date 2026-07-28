@@ -8,6 +8,12 @@ from pydantic.alias_generators import to_camel
 
 from edupilot_ai.models.turn import EventPayload, EventType, SessionSnapshot, TurnRequest
 
+_PLAN_ASSESSMENT_FIELDS = {
+    "understandingSummary",
+    "recommendedNextDirection",
+    "weaknesses",
+}
+
 
 class AgentContext(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -108,11 +114,23 @@ class PlanContext(PlanContextModel):
             if isinstance(value, int) and not isinstance(value, bool):
                 pending_diagnosis_id = value
 
-        quiz_assessments = (
-            [deepcopy(context.quiz_assessments[-1])]
-            if context.quiz_assessments
-            else []
+        event_payload = context.event_payload.model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_none=True,
         )
+        event_payload.pop("answer", None)
+
+        quiz_assessments: list[dict[str, Any]] = []
+        if context.quiz_assessments:
+            latest_assessment = context.quiz_assessments[-1]
+            quiz_assessments.append(
+                {
+                    key: deepcopy(latest_assessment[key])
+                    for key in _PLAN_ASSESSMENT_FIELDS
+                    if key in latest_assessment
+                }
+            )
         return cls(
             turn_id=context.turn_id,
             session=PlanSession(
@@ -120,11 +138,7 @@ class PlanContext(PlanContextModel):
                 page_status=context.session.page_status,
             ),
             event_type=context.event_type,
-            event_payload=context.event_payload.model_dump(
-                mode="json",
-                by_alias=True,
-                exclude_none=True,
-            ),
+            event_payload=event_payload,
             page_text_preview=context.current_page_text[:500],
             has_previous_page_text=context.previous_page_text is not None,
             has_next_page_text=context.next_page_text is not None,

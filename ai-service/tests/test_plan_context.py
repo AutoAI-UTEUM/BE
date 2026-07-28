@@ -35,8 +35,18 @@ def test_plan_context_contains_only_bounded_planner_fields(
                 "privateTranscript": "포함하면 안 되는 전문",
             },
             "quizAssessments": [
-                {"assessmentId": 1, "summary": "이전 평가"},
-                {"assessmentId": 2, "summary": "최신 평가"},
+                {
+                    "understandingSummary": "이전 평가",
+                    "recommendedNextDirection": "복습",
+                    "weaknesses": ["평균"],
+                    "privateEvidence": "이전 비공개 근거",
+                },
+                {
+                    "understandingSummary": "최신 평가",
+                    "recommendedNextDirection": "응용 문제",
+                    "weaknesses": ["편차"],
+                    "privateEvidence": "최신 비공개 근거",
+                },
             ],
             "learnerLevel": "INTERMEDIATE",
             "learnerConfidence": "HIGH",
@@ -77,7 +87,11 @@ def test_plan_context_contains_only_bounded_planner_fields(
         "hasSummary": True,
     }
     assert serialized["quizAssessments"] == [
-        {"assessmentId": 2, "summary": "최신 평가"}
+        {
+            "understandingSummary": "최신 평가",
+            "recommendedNextDirection": "응용 문제",
+            "weaknesses": ["편차"],
+        }
     ]
     assert serialized["learnerLevel"] == "INTERMEDIATE"
     assert serialized["learnerConfidence"] == "HIGH"
@@ -88,6 +102,30 @@ def test_plan_context_contains_only_bounded_planner_fields(
     assert "포함하면 안 되는 전문" not in serialized_text
     assert "플래너에 전달하면 안 되는 학생 답안" not in serialized_text
     assert "플래너에 전달하면 안 되는 교정 원문" not in serialized_text
+    assert "최신 비공개 근거" not in serialized_text
+
+
+def test_diagnosis_answer_is_not_serialized_into_plan_context(
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "DIAGNOSIS_ANSWER_SUBMITTED",
+        "payload": {
+            "diagnosisId": 44,
+            "answer": "학생이 작성한 민감한 진단 답변 원문",
+        },
+    }
+    turn = TurnRequest.model_validate(payload)
+
+    plan_context = PlanContext.from_agent_context(ContextBuilder().build(turn))
+    serialized = plan_context.model_dump(mode="json", by_alias=True)
+
+    assert serialized["eventPayload"] == {"diagnosisId": 44}
+    assert "학생이 작성한 민감한 진단 답변 원문" not in json.dumps(
+        serialized,
+        ensure_ascii=False,
+    )
 
 
 async def test_only_planner_receives_slim_context(

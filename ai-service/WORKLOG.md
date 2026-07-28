@@ -555,7 +555,7 @@ Closes #38
 
 # Planner 축약 컨텍스트 Phase Worklog
 
-기준 브랜치: `origin/develop` (`ac09367`)
+기준 브랜치: `origin/develop` (`4c4d330`, 2026-07-28 rebase)
 
 ## 작업 결과
 
@@ -584,13 +584,18 @@ Closes #38
 - `uv run mypy src tests`: 41개 소스 파일 검사 통과
 - 테스트 중 실제 Grok/xAI 및 외부 네트워크 호출: 0회
 
-## 이슈·PR 등록 대기
+## 블로커 보완 (2026-07-28)
 
-- 로컬 환경에 `gh`가 없어 다음 이슈 생성을 대기합니다.
-  - 제목: `[AI] Planner 축약 컨텍스트 DTO — Plan 호출 토큰 비용 절감`
-  - 본문 요지: Plan 전용 bounded DTO를 도입해 전체 AgentContext 직렬화를
-    제거하고 Policy/Agent 전체 문맥 경계는 유지합니다.
-- 이슈 생성 후 아래 PR 본문의 `<issue-number>`를 실제 번호로 교체해야 합니다.
+- PR #77(#25)은 아직 미병합이므로 streaming `deadline`·`structured`
+  시그니처 통합은 수행하지 않았습니다.
+- `DIAGNOSIS_ANSWER_SUBMITTED`의 `eventPayload.answer`를 Plan 입력에서
+  제거했습니다. 라우팅에 필요한 `diagnosisId`만 유지합니다.
+- 최신 `quizAssessments`는 dict 전체 대신 `understandingSummary`,
+  `recommendedNextDirection`, `weaknesses`만 선별합니다.
+- 보완 후 `uv run pytest -q` 55개, ruff, mypy가 통과했습니다.
+- 테스트 중 실제 Grok/xAI 및 외부 네트워크 호출은 0회입니다.
+
+## PR 본문
 
 ```markdown
 ## 변경 요약
@@ -598,16 +603,16 @@ Closes #38
 - Orchestrator Plan 호출 전용 `PlanContext`를 추가했습니다.
 - 페이지 전문·전체 메시지·교정/진단 원문 대신 bounded preview와 존재 여부만
   플래너에 전달합니다.
+- 진단 답변 원문을 Plan payload에서 제거하고 최신 평가도 승인된 요약 필드
+  3종만 전달합니다.
 - Policy 검증과 Explainer·QA 실행은 기존 전체 `AgentContext`를 유지합니다.
 
 ## 검증
 
-- Plan 직렬화 길이·민감 원문 부재 단위 테스트
+- Plan 직렬화 길이·진단 답변·평가 상세 원문 부재 단위 테스트
 - 기존 Plan 검증·보정 및 turn 계약 회귀 테스트
-- `uv run pytest -q`
-- `uv run ruff check .`
-- `uv run mypy src tests`
+- `uv run pytest -q` — 55 passed
+- `uv run ruff check .` — passed
+- `uv run mypy src tests` — passed
 - 실제 Grok/xAI 및 테스트 외부 네트워크 호출 0회
-
-Closes #<issue-number>
 ```
