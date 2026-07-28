@@ -122,7 +122,64 @@ class TurnSnapshotServiceTest {
 			.contains("이전 답변")
 			.doesNotContain("현재 질문");
 		assertThat(snapshot.context().get("learnerConfidence")).isNull();
-		assertThat(snapshot.context().get("conversationSummary")).isNull();
+		assertThat(snapshot.context())
+			.doesNotContainKey("conversationSummary");
+	}
+
+	@Test
+	void contextUsesExactlyV04ContractKeys() {
+		LearningSession session = session();
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(messageRepository
+			.findBySession_IdOrderByCreatedAtDescIdDesc(
+				org.mockito.ArgumentMatchers.eq(100L),
+				org.mockito.ArgumentMatchers.any(Pageable.class)
+			))
+			.thenReturn(List.of());
+		when(qaThreadRepository
+			.findTopBySession_IdAndStatusOrderByUpdatedAtDescIdDesc(
+				100L,
+				QaThreadStatus.ACTIVE
+			))
+			.thenReturn(Optional.empty());
+		when(assessmentRepository
+			.findTop5BySession_IdOrderByCreatedAtDescIdDesc(100L))
+			.thenReturn(List.of());
+		when(assessmentRepository.findRecentByUserAndMaterial(
+			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(10L),
+			org.mockito.ArgumentMatchers.any(Pageable.class)
+		)).thenReturn(List.of());
+		when(memoryRepository.findByUser_IdAndMaterial_Id(1L, 10L))
+			.thenReturn(Optional.empty());
+		when(candidateRepository
+			.findByUser_IdAndMaterial_IdAndStatusOrderByCreatedAtDescIdDesc(
+				1L,
+				10L,
+				MemoryCandidateStatus.CANDIDATE
+			))
+			.thenReturn(List.of());
+		when(repairRepository
+			.findTopBySession_IdOrderByCreatedAtDescIdDesc(100L))
+			.thenReturn(Optional.empty());
+
+		TurnSnapshot snapshot = service().build(1L, 100L, 501L);
+
+		assertThat(snapshot.context()).containsOnlyKeys(
+			"currentPageText",
+			"previousPageText",
+			"nextPageText",
+			"recentMessages",
+			"qaThreadDigest",
+			"quizAssessments",
+			"learnerMemoryDigest",
+			"learnerLevel",
+			"learnerConfidence",
+			"pendingDiagnosis",
+			"latestRepair",
+			"memory"
+		);
 	}
 
 	private TurnSnapshotService service() {
