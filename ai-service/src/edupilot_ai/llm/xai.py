@@ -142,11 +142,26 @@ class XaiLlmBridge:
         try:
             provider_response = _CompletionResponse.model_validate(response.json())
             content = provider_response.choices[0].message.content
-            output = response_model.model_validate_json(content)
         except (json.JSONDecodeError, ValidationError, IndexError) as exception:
             raise LlmBridgeError(
                 category=ErrorCategory.SCHEMA,
                 retryable=False,
+            ) from exception
+
+        details = provider_response.usage.completion_tokens_details
+        usage = LlmUsage(
+            model=provider_response.model,
+            input_tokens=provider_response.usage.prompt_tokens,
+            output_tokens=provider_response.usage.completion_tokens,
+            reasoning_tokens=details.reasoning_tokens if details is not None else None,
+        )
+        try:
+            output = response_model.model_validate_json(content)
+        except (json.JSONDecodeError, ValidationError) as exception:
+            raise LlmBridgeError(
+                category=ErrorCategory.SCHEMA,
+                retryable=False,
+                usage=usage,
             ) from exception
 
         if provider_response.model != profile.model:
@@ -156,15 +171,9 @@ class XaiLlmBridge:
                 provider_response.model,
             )
 
-        details = provider_response.usage.completion_tokens_details
         return LlmCompletion(
             output=output,
-            usage=LlmUsage(
-                model=provider_response.model,
-                input_tokens=provider_response.usage.prompt_tokens,
-                output_tokens=provider_response.usage.completion_tokens,
-                reasoning_tokens=details.reasoning_tokens if details is not None else None,
-            ),
+            usage=usage,
         )
 
     async def complete_text_stream(

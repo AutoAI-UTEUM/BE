@@ -4,7 +4,8 @@ from copy import deepcopy
 
 import httpx
 
-from edupilot_ai.core.errors import InternalErrorResponse
+from edupilot_ai.core.errors import ErrorCategory, InternalErrorResponse
+from edupilot_ai.llm.bridge import LlmBridgeError, LlmUsage
 from edupilot_ai.models.learning_support import (
     AssessmentOutput,
     DiagnosisOutput,
@@ -106,28 +107,40 @@ def diagnosis_payload() -> dict[str, object]:
     }
 
 
+def assessment_output() -> AssessmentOutput:
+    return AssessmentOutput(
+        understanding_summary="편차 정의를 부분적으로 이해했습니다.",
+        strengths=["평균 개념을 언급함"],
+        weaknesses=["편차와 평균을 구분하지 못함"],
+        suspected_misconceptions=["편차를 평균값 자체로 보는 경향 가능성"],
+        recommended_next_direction="편차 정의를 짧게 복습",
+        memory_candidates=[
+            MemoryCandidate(
+                type="WEAKNESS",
+                content="편차와 평균 구분",
+                confidence=0.6,
+            )
+        ],
+        evidence=["q-1 답안에서 평균 자체라고 표현"],
+    )
+
+
+def diagnosis_output() -> DiagnosisOutput:
+    return DiagnosisOutput(
+        focus_concepts=["편차의 정의"],
+        suspected_misconceptions=["평균과 편차를 같은 값으로 이해할 가능성"],
+        diagnostic_prompt="편차는 평균 자체인가요, 평균과의 차이인가요?",
+        evidence=["q-1에서 평균 자체라고 답함"],
+        repair_hint="관측값과 평균의 차이를 예로 연결",
+    )
+
+
 async def test_quiz_assessment_endpoint_uses_high_reasoning(
     client: httpx.AsyncClient,
     fake_llm: FakeLlm,
     auth_headers: dict[str, str],
 ) -> None:
-    fake_llm.queue(
-        AssessmentOutput(
-            understanding_summary="편차 정의를 부분적으로 이해했습니다.",
-            strengths=["평균 개념을 언급함"],
-            weaknesses=["편차와 평균을 구분하지 못함"],
-            suspected_misconceptions=["편차를 평균값 자체로 보는 경향 가능성"],
-            recommended_next_direction="편차 정의를 짧게 복습",
-            memory_candidates=[
-                MemoryCandidate(
-                    type="WEAKNESS",
-                    content="편차와 평균 구분",
-                    confidence=0.6,
-                )
-            ],
-            evidence=["q-1 답안에서 평균 자체라고 표현"],
-        )
-    )
+    fake_llm.queue(assessment_output())
 
     response = await client.post(
         "/internal/ai/quiz-assessment",
@@ -152,15 +165,7 @@ async def test_diagnosis_endpoint_does_not_instruct_answer_disclosure(
     fake_llm: FakeLlm,
     auth_headers: dict[str, str],
 ) -> None:
-    fake_llm.queue(
-        DiagnosisOutput(
-            focus_concepts=["편차의 정의"],
-            suspected_misconceptions=["평균과 편차를 같은 값으로 이해할 가능성"],
-            diagnostic_prompt="편차는 평균 자체인가요, 평균과의 차이인가요?",
-            evidence=["q-1에서 평균 자체라고 답함"],
-            repair_hint="관측값과 평균의 차이를 예로 연결",
-        )
-    )
+    fake_llm.queue(diagnosis_output())
 
     response = await client.post(
         "/internal/ai/diagnosis",
@@ -177,6 +182,124 @@ async def test_diagnosis_endpoint_does_not_instruct_answer_disclosure(
     assert "정답, modelAnswer 또는 전체 해설을 먼저 제공하지 마라" in (
         fake_llm.calls[0][0][0]["content"]
     )
+
+
+async def test_quiz_assessment_schema_failure_regenerates_once(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+) -> None:
+    fake_llm.queue(
+        LlmBridgeError(
+            category=ErrorCategory.SCHEMA,
+            retryable=False,
+            usage=LlmUsage("grok-4.5", 3, 2, 1),
+        )
+    )
+    fake_llm.queue_completion(
+        assessment_output(),
+        LlmUsage("grok-4.5", 7, 4, 2),
+    )
+
+    response = await client.post(
+        "/internal/ai/quiz-assessment",
+        headers=auth_headers,
+        json=assessment_payload(),
+    )
+
+    assert response.status_code == 200
+    assert len(fake_llm.calls) == 2
+    assert "정확히 한 번 재생성하세요" in fake_llm.calls[1][0][0]["content"]
+    assert response.json()["usage"] == {
+        "model": "grok-4.5",
+        "inputTokens": 10,
+        "outputTokens": 6,
+        "reasoningTokens": 3,
+    }
+
+
+async def test_quiz_assessment_schema_failure_twice_returns_502(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+) -> None:
+    fake_llm.queue(
+        LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False),
+        LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False),
+    )
+
+    response = await client.post(
+        "/internal/ai/quiz-assessment",
+        headers=auth_headers,
+        json=assessment_payload(),
+    )
+
+    assert response.status_code == 502
+    error = InternalErrorResponse.model_validate(response.json())
+    assert error.error.code == "AI_RESPONSE_INVALID"
+    assert error.error.category == "SCHEMA"
+    assert error.error.retryable is False
+    assert len(fake_llm.calls) == 2
+    assert "정확히 한 번 재생성하세요" in fake_llm.calls[1][0][0]["content"]
+
+
+async def test_diagnosis_schema_failure_regenerates_once(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+) -> None:
+    fake_llm.queue(
+        LlmBridgeError(
+            category=ErrorCategory.SCHEMA,
+            retryable=False,
+            usage=LlmUsage("grok-4.5", 5, 3, 2),
+        )
+    )
+    fake_llm.queue_completion(
+        diagnosis_output(),
+        LlmUsage("grok-4.5", 8, 5, 3),
+    )
+
+    response = await client.post(
+        "/internal/ai/diagnosis",
+        headers=auth_headers,
+        json=diagnosis_payload(),
+    )
+
+    assert response.status_code == 200
+    assert len(fake_llm.calls) == 2
+    assert "정확히 한 번 재생성하세요" in fake_llm.calls[1][0][0]["content"]
+    assert response.json()["usage"] == {
+        "model": "grok-4.5",
+        "inputTokens": 13,
+        "outputTokens": 8,
+        "reasoningTokens": 5,
+    }
+
+
+async def test_diagnosis_schema_failure_twice_returns_502(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+) -> None:
+    fake_llm.queue(
+        LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False),
+        LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False),
+    )
+
+    response = await client.post(
+        "/internal/ai/diagnosis",
+        headers=auth_headers,
+        json=diagnosis_payload(),
+    )
+
+    assert response.status_code == 502
+    error = InternalErrorResponse.model_validate(response.json())
+    assert error.error.code == "AI_RESPONSE_INVALID"
+    assert error.error.category == "SCHEMA"
+    assert error.error.retryable is False
+    assert len(fake_llm.calls) == 2
+    assert "정확히 한 번 재생성하세요" in fake_llm.calls[1][0][0]["content"]
 
 
 def repair_turn_payload(turn_payload: dict[str, object]) -> dict[str, object]:

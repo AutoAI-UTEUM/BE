@@ -178,6 +178,12 @@ async def test_xai_bridge_classifies_invalid_structured_output(
 
     assert caught.value.category is ErrorCategory.SCHEMA
     assert caught.value.retryable is False
+    assert caught.value.usage == LlmUsage(
+        model="grok-4.5",
+        input_tokens=11,
+        output_tokens=7,
+        reasoning_tokens=3,
+    )
 
 
 async def test_xai_bridge_classifies_retryable_provider_failure(

@@ -55,10 +55,12 @@ class LlmBridgeError(Exception):
         *,
         category: ErrorCategory,
         retryable: bool,
+        usage: LlmUsage | None = None,
     ) -> None:
         super().__init__(category.value)
         self.category = category
         self.retryable = retryable
+        self.usage = usage
 
 
 class LlmBridge(Protocol):

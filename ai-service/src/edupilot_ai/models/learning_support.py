@@ -37,7 +37,7 @@ class QuizResult(ContractModel):
 
 
 class MemoryCandidate(ContractModel):
-    type: str = Field(min_length=1)
+    type: Literal["STRENGTH", "WEAKNESS", "MISCONCEPTION", "PREFERENCE"]
     content: str = Field(min_length=1)
     confidence: float = Field(ge=0, le=1)
 
