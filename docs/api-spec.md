@@ -307,7 +307,7 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 `uiActions`는 마지막 턴/페이지 이동/퀴즈 제출 응답에서 내려간 최신 UI 액션을 그대로 반환해, 새로고침·재진입 후에도 진행 중이던 선택 UI를 복원할 수 있게 합니다. `activeQuizId`가 있으면 FE는 `GET /api/quizzes/{quizId}`로 풀이 화면을 복원합니다.
 
-`conversationSummary`·`learnerMemoryDigest`는 **내부 AI 스냅샷 전용이며 세션 상세 응답에 포함하지 않습니다**(확정 — DEC-025의 내부 텍스트 비노출 원칙, 메모리 API의 "공개 가능한 요약만" 원칙과 정합). 서버는 내부 턴 스냅샷 구성에만 사용하고, 학습자에게 보여줄 개인화 요약은 `GET /api/users/me/memory`가 담당합니다.
+`conversationSummary`는 MVP에서 생성하거나 내부 AI 스냅샷으로 전송하지 않으며 세션 상세 응답에도 포함하지 않습니다. `learnerMemoryDigest`는 **내부 AI 스냅샷 전용이며 세션 상세 응답에 포함하지 않습니다**(확정 — DEC-025의 내부 텍스트 비노출 원칙, 메모리 API의 "공개 가능한 요약만" 원칙과 정합). 학습자에게 보여줄 개인화 요약은 `GET /api/users/me/memory`가 담당합니다.
 
 #### uiActions 위젯
 
@@ -667,7 +667,7 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 }
 ```
 
-`learnerLevel`은 `learner_memories.target_difficulty`이며 데이터가 없으면 `null`입니다. `learnerConfidence`는 같은 사용자×자료의 최근 assessment 5개 통과 비율로 파생합니다. 비율이 0.4 미만이면 `LOW`, 0.4 이상 0.7 이하면 `MEDIUM`, 0.7 초과면 `HIGH`이며 평가가 없으면 `null`입니다. `conversationSummary`는 MVP에서 생성하지 않고 `null`로 전달합니다.
+`learnerLevel`은 `learner_memories.target_difficulty`이며 데이터가 없으면 `null`입니다. `learnerConfidence`는 같은 사용자×자료의 최근 assessment 5개 통과 비율로 파생합니다. 비율이 0.4 미만이면 `LOW`, 0.4 이상 0.7 이하면 `MEDIUM`, 0.7 초과면 `HIGH`이며 평가가 없으면 `null`입니다. `conversationSummary`는 MVP에서 생성하지 않으며 내부 턴 스냅샷에 포함하지 않습니다(`ai-integration-contract.md` v0.4 §3.1).
 
 `quizAssessments`는 현재 세션 기준 최근 5개의 평가 요약입니다(DEC-011 — DB는 전량 보존, 스냅샷은 세션 스코프 윈도우. 메모리 승격 판단용 user×material 교차 세션 최근 20개 조회는 별도 경로).
 
