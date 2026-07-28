@@ -130,7 +130,11 @@ public class SessionTurnService {
 			try {
 				io.edupilot.ai.dto.TurnResponse response =
 					aiClient.executeTurn(aiRequest);
-				responseValidator.validate(response, turnId);
+				responseValidator.validate(
+					response,
+					turnId,
+					qaThreadRef(snapshot)
+				);
 				return response;
 			} catch (AiClientException exception) {
 				log.atWarn()
@@ -163,6 +167,15 @@ public class SessionTurnService {
 		event.put("eventType", eventType.name());
 		event.put("payload", payload);
 		return event;
+	}
+
+	private String qaThreadRef(TurnSnapshot snapshot) {
+		Object rawDigest = snapshot.context().get("qaThreadDigest");
+		if (!(rawDigest instanceof Map<?, ?> digest)) {
+			return null;
+		}
+		Object threadRef = digest.get("threadRef");
+		return threadRef instanceof String value ? value : null;
 	}
 
 	private void promoteMemory(Long userId, PersistedTurn persisted) {

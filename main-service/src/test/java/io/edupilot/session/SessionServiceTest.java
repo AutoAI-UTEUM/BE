@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -124,6 +125,46 @@ class SessionServiceTest {
 		assertThat(response.pendingDiagnosis().diagnosisId()).isEqualTo(30L);
 		assertThat(response.pendingDiagnosis().prompt())
 			.isEqualTo("진단 질문");
+		assertThat(response.uiActions())
+			.containsExactly(UiAction.diagnosisQuestion("진단 질문", 30L));
+		assertThat(response.uiActions().getFirst().yesEvent()).isNull();
+		assertThat(response.uiActions().getFirst().noEvent()).isNull();
+		assertThat(response.uiActions().getFirst().diagnosisId())
+			.isEqualTo(response.pendingDiagnosis().diagnosisId());
+	}
+
+	@Test
+	void detailRestoresW3DuringLocalW4AndRestoresW5OrW7() {
+		material.markReady(3);
+		LearningSession session = LearningSession.create(owner, material);
+		ReflectionTestUtils.setField(session, "id", 100L);
+		session.applyAiTurn(
+			PageStatus.EXPLAINED,
+			List.of(UiAction.quizProposal()),
+			true
+		);
+		session.applyAiTurn(PageStatus.EXPLAINED, List.of(), false);
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+
+		assertThat(sessionService.detail(1L, 100L).uiActions())
+			.containsExactly(UiAction.quizProposal());
+
+		session.applyAiTurn(
+			PageStatus.REPAIR_COMPLETED,
+			List.of(UiAction.moveNextPage()),
+			true
+		);
+		assertThat(sessionService.detail(1L, 100L).uiActions())
+			.containsExactly(UiAction.moveNextPage());
+
+		session.applyAiTurn(
+			PageStatus.REPAIR_COMPLETED,
+			List.of(UiAction.completeSession()),
+			true
+		);
+		assertThat(sessionService.detail(1L, 100L).uiActions())
+			.containsExactly(UiAction.completeSession());
 	}
 
 	@Test

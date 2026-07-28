@@ -85,6 +85,87 @@ class HttpAiClientContractTest {
 	}
 
 	@Test
+	void turnAcceptsAndLogsOptionalAdjustmentsWithoutReasonEnumValidation() {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "turnId": "turn-adjusted",
+			  "turnGoal": "EXPLAIN_CURRENT_PAGE",
+			  "actionsExecuted": [
+			    {
+			      "actionId": "action-1",
+			      "agent": "Orchestrator",
+			      "status": "SUCCESS",
+			      "adjustments": [
+			        {
+			          "field": "page",
+			          "from": 5,
+			          "to": 3,
+			          "reason": "UNKNOWN_REASON_IS_PRESERVED"
+			        }
+			      ],
+			      "artifacts": {}
+			    },
+			    {
+			      "actionId": "action-2",
+			      "agent": "ExplainerAgent",
+			      "status": "SUCCESS"
+			    }
+			  ],
+			  "messages": [],
+			  "statePatch": {},
+			  "uiActions": [],
+			  "memoryCandidates": []
+			}
+			"""));
+		Logger logger = (Logger) LoggerFactory.getLogger(HttpAiClient.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			var response = client(Duration.ofSeconds(1))
+				.executeTurn(turnRequest("turn-adjusted"));
+
+			assertThat(response.actionsExecuted().getFirst().adjustments())
+				.singleElement()
+				.satisfies(adjustment -> {
+					assertThat(adjustment.field()).isEqualTo("page");
+					assertThat(adjustment.from()).isEqualTo(5);
+					assertThat(adjustment.to()).isEqualTo(3);
+					assertThat(adjustment.reason())
+						.isEqualTo("UNKNOWN_REASON_IS_PRESERVED");
+				});
+			assertThat(response.actionsExecuted().get(1).adjustments())
+				.isEmpty();
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+
+		assertThat(appender.list)
+			.filteredOn(event -> event.getFormattedMessage().equals(
+				"AI service call completed"
+			))
+			.singleElement()
+			.satisfies(event -> {
+				Map<String, Object> fields = event.getKeyValuePairs().stream()
+					.collect(Collectors.toMap(
+						pair -> pair.key,
+						pair -> pair.value
+					));
+				assertThat(fields.get("turnId")).isEqualTo("turn-adjusted");
+				assertThat(fields.get("adjustments").toString())
+					.contains(
+						"actionId=action-1",
+						"field=page",
+						"from=5",
+						"to=3",
+						"reason=UNKNOWN_REASON_IS_PRESERVED"
+					);
+			});
+	}
+
+	@Test
 	void gradeUsesDedicatedContractAndPropagatesInternalHeaders() throws Exception {
 		server.enqueue(jsonResponse(200, gradeSuccessBody()));
 

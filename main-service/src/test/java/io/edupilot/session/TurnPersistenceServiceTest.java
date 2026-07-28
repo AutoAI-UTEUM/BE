@@ -2,10 +2,12 @@ package io.edupilot.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -89,6 +91,142 @@ class TurnPersistenceServiceTest {
 		);
 	}
 
+	@Test
+	void createsOnlyW3ForTheFinalExplainedTransition() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINING,
+			PageStatus.EXPLAINED,
+			1,
+			3
+		);
+
+		PersistedTurn persisted = service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.EXPLAIN_CURRENT_PAGE,
+			null,
+			501L,
+			response(Map.of("pageStatus", "EXPLAINED"), List.of())
+		);
+
+		assertThat(persisted.uiActions())
+			.containsExactly(UiAction.quizProposal());
+		verify(session).applyAiTurn(
+			PageStatus.EXPLAINED,
+			List.of(UiAction.quizProposal()),
+			true
+		);
+	}
+
+	@Test
+	void returnsNoWidgetAndPreservesStoredWidgetWithoutTransition() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINED,
+			PageStatus.EXPLAINED,
+			1,
+			3
+		);
+
+		PersistedTurn persisted = service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.EXPLAIN_CURRENT_PAGE,
+			null,
+			501L,
+			response(Map.of("pageStatus", "EXPLAINED"), List.of())
+		);
+
+		assertThat(persisted.uiActions()).isEmpty();
+		verify(session).applyAiTurn(
+			PageStatus.EXPLAINED,
+			List.of(),
+			false
+		);
+	}
+
+	@Test
+	void diagnosisCompletionCreatesOnlyFinalW7Widget() {
+		LearningSession session = activeSession(
+			PageStatus.DIAGNOSIS_PENDING,
+			PageStatus.REPAIR_COMPLETED,
+			3,
+			3
+		);
+		when(messageRepository.save(any())).thenAnswer(invocation ->
+			invocation.getArgument(0)
+		);
+		Map<String, Object> patch = new LinkedHashMap<>();
+		patch.put("pageStatus", "REPAIR_COMPLETED");
+		patch.put("pendingDiagnosis", null);
+
+		PersistedTurn persisted = service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.DIAGNOSIS_ANSWER_SUBMITTED,
+			30L,
+			501L,
+			response(
+				patch,
+				List.of(Map.of(
+					"messageType",
+					"REPAIR",
+					"content",
+					"교정 설명"
+				))
+			)
+		);
+
+		assertThat(persisted.uiActions())
+			.containsExactly(UiAction.completeSession());
+		verify(diagnosisService).completeDiagnosis(30L, "교정 설명");
+		verify(session).applyAiTurn(
+			PageStatus.REPAIR_COMPLETED,
+			List.of(UiAction.completeSession()),
+			true
+		);
+	}
+
+	private LearningSession activeSession(
+		PageStatus previousStatus,
+		PageStatus persistedStatus,
+		int currentPage,
+		Integer pageCount
+	) {
+		LearningSession session =
+			org.mockito.Mockito.mock(LearningSession.class);
+		when(session.getStatus()).thenReturn(SessionStatus.ACTIVE);
+		when(session.getActiveTurnRequestId()).thenReturn("request-1");
+		when(session.getPageStatus())
+			.thenReturn(previousStatus, persistedStatus);
+		when(session.getCurrentPage()).thenReturn(currentPage);
+		when(session.getMaterialPageCount()).thenReturn(pageCount);
+		when(session.getMaterialId()).thenReturn(10L);
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(session));
+		return session;
+	}
+
+	private io.edupilot.ai.dto.TurnResponse response(
+		Map<String, Object> patch,
+		List<Map<String, Object>> messages
+	) {
+		return new io.edupilot.ai.dto.TurnResponse(
+			"1.0",
+			"turn-1",
+			"EXPLAIN",
+			List.of(),
+			messages,
+			patch,
+			List.of(),
+			List.of(),
+			null,
+			null
+		);
+	}
+
 	private TurnPersistenceService service() {
 		return new TurnPersistenceService(
 			sessionRepository,
@@ -100,6 +238,7 @@ class TurnPersistenceServiceTest {
 			materialRepository,
 			quizService,
 			diagnosisService,
+			new UiActionResolver(),
 			new ObjectMapper()
 		);
 	}

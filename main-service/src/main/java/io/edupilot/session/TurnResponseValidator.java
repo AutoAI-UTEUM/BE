@@ -4,16 +4,22 @@ import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Set;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import io.edupilot.ai.dto.TurnResponse;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.global.security.TraceIdFilter;
 
 @Component
 public class TurnResponseValidator {
 
+	private static final Logger log =
+		LoggerFactory.getLogger(TurnResponseValidator.class);
 	private static final Set<String> PATCH_FIELDS = Set.of(
 		"pageStatus",
 		"activeQuizId",
@@ -34,13 +40,15 @@ public class TurnResponseValidator {
 		"REPAIR",
 		"SYSTEM"
 	);
-	private static final Set<String> UI_ACTION_TYPES = Set.of(
-		"BINARY_DECISION",
-		"QUIZ_TYPE_SELECTION",
-		"DIAGNOSIS_QUESTION"
-	);
-
 	public void validate(TurnResponse response, String expectedTurnId) {
+		validate(response, expectedTurnId, null);
+	}
+
+	public void validate(
+		TurnResponse response,
+		String expectedTurnId,
+		String expectedQaThreadRef
+	) {
 		if (response == null
 			|| !expectedTurnId.equals(response.turnId())
 			|| response.messages() == null
@@ -50,8 +58,8 @@ public class TurnResponseValidator {
 			throw invalid();
 		}
 		validateMessages(response);
-		validateStatePatch(response.statePatch());
-		validateUiActions(response);
+		validateStatePatch(response.statePatch(), expectedQaThreadRef);
+		warnIgnoredUiActions(response);
 		validateMemoryCandidates(response);
 	}
 
@@ -65,7 +73,10 @@ public class TurnResponseValidator {
 		}
 	}
 
-	private void validateStatePatch(Map<String, Object> patch) {
+	private void validateStatePatch(
+		Map<String, Object> patch,
+		String expectedQaThreadRef
+	) {
 		if (!PATCH_FIELDS.containsAll(patch.keySet())) {
 			throw policy();
 		}
@@ -80,33 +91,42 @@ public class TurnResponseValidator {
 		}
 		Object raw = patch.get("qaThread");
 		if (!(raw instanceof Map<?, ?> qaThread)
-			|| !Set.of("mode", "threadRef").containsAll(
-				qaThread.keySet().stream().map(String::valueOf).toList()
-			)) {
+			|| qaThread.keySet().stream()
+				.anyMatch(key -> !(key instanceof String))) {
 			throw policy();
 		}
+		Set<String> keys = qaThread.keySet().stream()
+			.map(String.class::cast)
+			.collect(java.util.stream.Collectors.toSet());
 		String mode = valueText(qaThread.get("mode"));
 		String threadRef = valueText(qaThread.get("threadRef"));
 		if ("START_NEW".equals(mode)) {
-			if (threadRef != null && !threadRef.isBlank()) {
+			if (!keys.equals(Set.of("mode"))) {
 				throw policy();
 			}
 			return;
 		}
 		if (!"FOLLOW_UP".equals(mode)
+			|| !keys.equals(Set.of("mode", "threadRef"))
 			|| threadRef == null
-			|| !threadRef.matches("qa-[1-9][0-9]*")) {
+			|| !threadRef.matches("qa-[1-9][0-9]*")
+			|| !threadRef.equals(expectedQaThreadRef)) {
 			throw policy();
 		}
 	}
 
-	private void validateUiActions(TurnResponse response) {
-		for (Map<String, Object> action : response.uiActions()) {
-			if (action == null
-				|| !UI_ACTION_TYPES.contains(text(action, "type"))) {
-				throw policy();
-			}
+	private void warnIgnoredUiActions(TurnResponse response) {
+		if (response.uiActions().isEmpty()) {
+			return;
 		}
+		log.atWarn()
+			.addKeyValue(
+				"traceId",
+				MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY)
+			)
+			.addKeyValue("turnId", response.turnId())
+			.addKeyValue("uiActionCount", response.uiActions().size())
+			.log("Ignored non-empty AI uiActions");
 	}
 
 	private void validateMemoryCandidates(TurnResponse response) {

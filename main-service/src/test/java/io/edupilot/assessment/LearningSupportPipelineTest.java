@@ -220,7 +220,8 @@ class LearningSupportPipelineTest {
 				))
 			),
 			passed,
-			new GradeRequest.PageContext(1, 1, "페이지 문맥")
+			new GradeRequest.PageContext(1, 1, "페이지 문맥"),
+			List.of(UiAction.moveNextPage())
 		);
 	}
 
