@@ -21,10 +21,13 @@ class PolicyViolation(Exception):
 
 
 def _normalized_action(action: PlanAction, expected: set[str]) -> PlanAction:
-    if not expected.issubset(action.args):
+    args = dict(action.args)
+    if "page" in expected and "pageNumber" in args and "page" not in args:
+        args["page"] = args.pop("pageNumber")
+    if not expected.issubset(args):
         raise PolicyViolation("tool args do not match policy")
     return action.model_copy(
-        update={"args": {key: action.args[key] for key in expected}},
+        update={"args": {key: args[key] for key in expected}},
         deep=True,
     )
 

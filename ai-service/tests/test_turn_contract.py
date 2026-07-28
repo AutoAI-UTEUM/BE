@@ -1,5 +1,6 @@
 """POST /internal/ai/turn orchestration contract."""
 
+import logging
 from copy import deepcopy
 
 import httpx
@@ -136,6 +137,97 @@ async def test_explain_policy_records_adjustment(
             "reason": reason,
         }
     ]
+
+
+async def test_explain_policy_normalizes_page_number_alias(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "EXPLAIN_CURRENT_PAGE",
+        "payload": {"detailLevel": "NORMAL"},
+    }
+    fake_llm.queue(
+        make_plan(
+            ToolName.EXPLAIN_PAGE,
+            {"pageNumber": 1, "detailLevel": "NORMAL"},
+            "EXPLAIN_CURRENT_PAGE",
+        ),
+        AgentOutput(markdown="별칭 보정 후 설명", thought_summary="페이지 설명"),
+    )
+
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 200
+    assert response.json()["actionsExecuted"][0]["adjustments"] == [
+        {
+            "field": "page",
+            "from": 1,
+            "to": 3,
+            "reason": "PAGE_MISMATCH_CORRECTED",
+        }
+    ]
+
+
+async def test_explain_policy_still_rejects_missing_required_key(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "EXPLAIN_CURRENT_PAGE",
+        "payload": {"detailLevel": "NORMAL"},
+    }
+    fake_llm.queue(
+        make_plan(
+            ToolName.EXPLAIN_PAGE,
+            {"detailLevel": "NORMAL"},
+            "EXPLAIN_CURRENT_PAGE",
+        )
+    )
+
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 502
+    assert response.json()["error"]["category"] == "POLICY"
+    assert len(fake_llm.calls) == 1
+
+
+async def test_policy_rejection_logs_reason_and_plan_actions(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "EXPLAIN_CURRENT_PAGE",
+        "payload": {"detailLevel": "NORMAL"},
+    }
+    fake_llm.queue(
+        make_plan(
+            ToolName.EXPLAIN_PAGE,
+            {"detailLevel": "NORMAL"},
+            "EXPLAIN_CURRENT_PAGE",
+        )
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="edupilot_ai.orchestration.service",
+    ):
+        response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 502
+    assert "tool args do not match policy" in caplog.text
+    assert "EXPLAIN_PAGE" in caplog.text
+    assert "detailLevel" in caplog.text
 
 
 async def test_user_question_start_new(
