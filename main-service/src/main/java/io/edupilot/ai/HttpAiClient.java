@@ -1,21 +1,34 @@
 package io.edupilot.ai;
 
+import java.io.BufferedReader;
+import java.io.Closeable;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.spi.LoggingEventBuilder;
 import org.slf4j.MDC;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -46,6 +59,8 @@ import io.edupilot.ai.dto.TurnRequest;
 import io.edupilot.ai.dto.TurnResponse;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @Component
 public class HttpAiClient implements AiClient {
@@ -59,6 +74,14 @@ public class HttpAiClient implements AiClient {
 		"/internal/ai/quiz-assessment";
 	private static final String DIAGNOSIS_PATH = "/internal/ai/diagnosis";
 	private static final String SCHEMA_VERSION = "1.0";
+	private static final MediaType NDJSON =
+		MediaType.parseMediaType("application/x-ndjson");
+	private static final Set<String> STREAM_STAGES = Set.of(
+		"PLANNING",
+		"EXPLAINING",
+		"ANSWERING",
+		"FINALIZING"
+	);
 
 	private final RestClient restClient;
 	private final RestClient healthRestClient;
@@ -66,6 +89,8 @@ public class HttpAiClient implements AiClient {
 	private final RestClient gradeRestClient;
 	private final RestClient pipelineRestClient;
 	private final String healthPath;
+	private final Duration streamIdleTimeout;
+	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	public HttpAiClient(AiClientProperties properties) {
 		// TODO ai-integration-contract v0.3에서 예산 확정 전까지 비멱등 turn 호출은 재시도하지 않는다.
@@ -91,6 +116,7 @@ public class HttpAiClient implements AiClient {
 			properties.pipelineReadTimeout()
 		);
 		this.healthPath = properties.healthPath();
+		this.streamIdleTimeout = properties.streamIdleTimeout();
 	}
 
 	private RestClient buildRestClient(
@@ -170,6 +196,407 @@ public class HttpAiClient implements AiClient {
 			return response;
 			}
 		);
+	}
+
+	@Override
+	public TurnResponse executeTurnStream(
+		TurnRequest request,
+		Consumer<TurnStreamEvent> listener,
+		AiStreamCancellation cancellation,
+		Duration totalTimeout
+	) {
+		if (totalTimeout == null
+			|| totalTimeout.isZero()
+			|| totalTimeout.isNegative()) {
+			throw streamTimeout(null);
+		}
+		return executeAttempt(
+			new AiCallContext(
+				TURN_PATH,
+				1,
+				false,
+				request.turnId(),
+				sessionId(request),
+				null
+			),
+			() -> restClient.post()
+				.uri(TURN_PATH)
+				.contentType(MediaType.APPLICATION_JSON)
+				.accept(NDJSON)
+				.body(request)
+				.exchange((httpRequest, response) ->
+					readTurnStream(
+						response.getStatusCode(),
+						response.getHeaders().getContentType(),
+						response.getBody(),
+						request,
+						listener,
+						cancellation,
+						totalTimeout
+					)
+				)
+		);
+	}
+
+	private TurnResponse readTurnStream(
+		HttpStatusCode status,
+		MediaType contentType,
+		InputStream body,
+		TurnRequest request,
+		Consumer<TurnStreamEvent> listener,
+		AiStreamCancellation cancellation,
+		Duration totalTimeout
+	) throws IOException {
+		if (!status.is2xxSuccessful()) {
+			throw mapStreamErrorResponse(status, body);
+		}
+		if (contentType == null || !NDJSON.isCompatibleWith(contentType)) {
+			throw invalidStream(null);
+		}
+
+		AtomicReference<StreamTimeout> timeout = new AtomicReference<>();
+		AtomicReference<ScheduledFuture<?>> idleTask = new AtomicReference<>();
+		ScheduledExecutorService scheduler =
+			Executors.newSingleThreadScheduledExecutor(
+				Thread.ofPlatform()
+					.daemon()
+					.name("ai-stream-timeout")
+					.factory()
+			);
+		cancellation.bind(body);
+		ScheduledFuture<?> totalTask = scheduleTimeout(
+			scheduler,
+			totalTimeout,
+			StreamTimeout.TOTAL,
+			timeout,
+			body
+		);
+		resetIdleTimeout(scheduler, idleTask, timeout, body);
+		try (BufferedReader reader = new BufferedReader(
+			new InputStreamReader(body, StandardCharsets.UTF_8)
+		)) {
+			TurnResponse completed = null;
+			AiClientException terminalError = null;
+			StringBuilder deltas = new StringBuilder();
+			boolean terminalSeen = false;
+			String line;
+			while ((line = reader.readLine()) != null) {
+				if (timeout.get() != null) {
+					throw streamTimeout(null);
+				}
+				if (cancellation.isCancelled()) {
+					throw streamInterrupted(null);
+				}
+				if (line.isBlank() || terminalSeen) {
+					throw invalidStream(null);
+				}
+
+				JsonNode event = parseStreamLine(line);
+				String type = requiredText(event, "type");
+				resetIdleTimeout(scheduler, idleTask, timeout, body);
+				switch (type) {
+					case "status" -> {
+						requireFields(event, Set.of("type", "stage"));
+						String stage = requiredText(event, "stage");
+						if (!STREAM_STAGES.contains(stage)) {
+							throw invalidStream(null);
+						}
+						listener.accept(TurnStreamEvent.status(stage));
+					}
+					case "thought_summary" -> {
+						requireFields(event, Set.of("type", "text"));
+						listener.accept(TurnStreamEvent.thoughtSummary(
+							requiredText(event, "text")
+						));
+					}
+					case "content_delta" -> {
+						requireFields(event, Set.of("type", "text"));
+						String text = textual(event, "text");
+						deltas.append(text);
+						listener.accept(TurnStreamEvent.contentDelta(text));
+					}
+					case "heartbeat" -> {
+						requireFields(event, Set.of("type"));
+						listener.accept(TurnStreamEvent.heartbeat());
+					}
+					case "completed" -> {
+						requireFields(event, Set.of("type", "result"));
+						completed = parseCompleted(event.get("result"));
+						terminalSeen = true;
+					}
+					case "error" -> {
+						requireFields(event, Set.of(
+							"type",
+							"code",
+							"category",
+							"message",
+							"retryable"
+						));
+						terminalError = parseStreamError(event);
+						terminalSeen = true;
+					}
+					default -> throw invalidStream(null);
+				}
+			}
+			if (timeout.get() != null) {
+				throw streamTimeout(null);
+			}
+			if (cancellation.isCancelled()) {
+				throw streamInterrupted(null);
+			}
+			if (terminalError != null) {
+				throw terminalError;
+			}
+			if (completed == null) {
+				throw streamInterrupted(null);
+			}
+			validateTurnResponse(completed, request);
+			String completedContent = completedContent(completed);
+			if (!deltas.toString().equals(completedContent)) {
+				throw invalidStream(null);
+			}
+			return completed;
+		} catch (IOException exception) {
+			if (timeout.get() != null) {
+				throw streamTimeout(exception);
+			}
+			if (cancellation.isCancelled()) {
+				throw streamInterrupted(exception);
+			}
+			throw streamInterrupted(exception);
+		} finally {
+			ScheduledFuture<?> currentIdle = idleTask.getAndSet(null);
+			if (currentIdle != null) {
+				currentIdle.cancel(false);
+			}
+			totalTask.cancel(false);
+			scheduler.shutdownNow();
+			cancellation.unbind(body);
+		}
+	}
+
+	private String completedContent(TurnResponse response) {
+		StringBuilder value = new StringBuilder();
+		for (Map<String, Object> message : response.messages()) {
+			if (message == null
+				|| !(message.get("content") instanceof String content)) {
+				throw invalidStream(null);
+			}
+			value.append(content);
+		}
+		return value.toString();
+	}
+
+	private ScheduledFuture<?> scheduleTimeout(
+		ScheduledExecutorService scheduler,
+		Duration delay,
+		StreamTimeout kind,
+		AtomicReference<StreamTimeout> timeout,
+		Closeable body
+	) {
+		return scheduler.schedule(() -> {
+			if (timeout.compareAndSet(null, kind)) {
+				closeQuietly(body);
+			}
+		}, delay.toNanos(), TimeUnit.NANOSECONDS);
+	}
+
+	private void resetIdleTimeout(
+		ScheduledExecutorService scheduler,
+		AtomicReference<ScheduledFuture<?>> idleTask,
+		AtomicReference<StreamTimeout> timeout,
+		Closeable body
+	) {
+		ScheduledFuture<?> next = scheduleTimeout(
+			scheduler,
+			streamIdleTimeout,
+			StreamTimeout.IDLE,
+			timeout,
+			body
+		);
+		ScheduledFuture<?> previous = idleTask.getAndSet(next);
+		if (previous != null) {
+			previous.cancel(false);
+		}
+	}
+
+	private JsonNode parseStreamLine(String line) {
+		try {
+			JsonNode event = objectMapper.readTree(line);
+			if (event == null || !event.isObject()) {
+				throw invalidStream(null);
+			}
+			return event;
+		} catch (AiClientException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw invalidStream(exception);
+		}
+	}
+
+	private TurnResponse parseCompleted(JsonNode result) {
+		if (result == null || !result.isObject()) {
+			throw invalidStream(null);
+		}
+		try {
+			return objectMapper.treeToValue(result, TurnResponse.class);
+		} catch (RuntimeException exception) {
+			throw invalidStream(exception);
+		}
+	}
+
+	private AiClientException parseStreamError(JsonNode event) {
+		requiredText(event, "code");
+		requiredText(event, "message");
+		AiFailureCategory category;
+		try {
+			category = AiFailureCategory.valueOf(
+				requiredText(event, "category")
+			);
+		} catch (IllegalArgumentException exception) {
+			throw invalidStream(exception);
+		}
+		JsonNode retryableNode = event.get("retryable");
+		if (retryableNode == null || !retryableNode.isBoolean()) {
+			throw invalidStream(null);
+		}
+		boolean retryable = retryableNode.booleanValue()
+			&& (category == AiFailureCategory.TIMEOUT
+				|| category == AiFailureCategory.INTERNAL);
+		return new AiClientException(
+			errorCode(category),
+			category,
+			retryable,
+			null
+		);
+	}
+
+	private AiClientException mapStreamErrorResponse(
+		HttpStatusCode status,
+		InputStream body
+	) {
+		try {
+			AiErrorResponse response = objectMapper.readValue(
+				body,
+				AiErrorResponse.class
+			);
+			if (response == null
+				|| response.error() == null
+				|| response.error().category() == null) {
+				return streamStatusFallback(status, null);
+			}
+			AiFailureCategory category = AiFailureCategory.valueOf(
+				response.error().category().name()
+			);
+			boolean retryable = response.error().retryable()
+				&& (category == AiFailureCategory.TIMEOUT
+					|| category == AiFailureCategory.INTERNAL);
+			return new AiClientException(
+				errorCode(category),
+				category,
+				retryable,
+				null
+			);
+		} catch (RuntimeException exception) {
+			return streamStatusFallback(status, exception);
+		}
+	}
+
+	private AiClientException streamStatusFallback(
+		HttpStatusCode status,
+		Throwable cause
+	) {
+		if (status.value() == 401 || status.value() == 403) {
+			return new AiClientException(
+				ErrorCode.INTERNAL_SERVER_ERROR,
+				AiFailureCategory.AUTH,
+				false,
+				cause
+			);
+		}
+		return new AiClientException(
+			ErrorCode.AI_SERVICE_UNAVAILABLE,
+			AiFailureCategory.INTERNAL,
+			status.is5xxServerError(),
+			cause
+		);
+	}
+
+	private ErrorCode errorCode(AiFailureCategory category) {
+		return switch (category) {
+			case TIMEOUT -> ErrorCode.AI_SERVICE_TIMEOUT;
+			case SCHEMA -> ErrorCode.AI_RESPONSE_INVALID;
+			case POLICY -> ErrorCode.AI_POLICY_REJECTED;
+			case INTERNAL -> ErrorCode.AI_SERVICE_UNAVAILABLE;
+			case AUTH -> ErrorCode.INTERNAL_SERVER_ERROR;
+		};
+	}
+
+	private void requireFields(JsonNode event, Set<String> expected) {
+		@SuppressWarnings("unchecked")
+		Map<String, Object> values = objectMapper.convertValue(
+			event,
+			Map.class
+		);
+		if (!values.keySet().equals(expected)) {
+			throw invalidStream(null);
+		}
+	}
+
+	private String requiredText(JsonNode event, String field) {
+		String value = textual(event, field);
+		if (value.isBlank()) {
+			throw invalidStream(null);
+		}
+		return value;
+	}
+
+	private String textual(JsonNode event, String field) {
+		JsonNode value = event.get(field);
+		if (value == null || !value.isTextual()) {
+			throw invalidStream(null);
+		}
+		return value.textValue();
+	}
+
+	private AiClientException invalidStream(Throwable cause) {
+		return new AiClientException(
+			ErrorCode.AI_RESPONSE_INVALID,
+			AiFailureCategory.SCHEMA,
+			false,
+			cause
+		);
+	}
+
+	private AiClientException streamInterrupted(Throwable cause) {
+		return new AiClientException(
+			ErrorCode.AI_STREAM_INTERRUPTED,
+			AiFailureCategory.INTERNAL,
+			true,
+			cause
+		);
+	}
+
+	private AiClientException streamTimeout(Throwable cause) {
+		return new AiClientException(
+			ErrorCode.AI_SERVICE_TIMEOUT,
+			AiFailureCategory.TIMEOUT,
+			true,
+			cause
+		);
+	}
+
+	private void closeQuietly(Closeable body) {
+		try {
+			body.close();
+		} catch (IOException ignored) {
+			// Timeout cancellation only needs to unblock the current read.
+		}
+	}
+
+	private enum StreamTimeout {
+		IDLE,
+		TOTAL
 	}
 
 	@Override
