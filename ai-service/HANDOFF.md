@@ -288,12 +288,15 @@ curl --fail --silent --show-error --no-buffer \
 | `thought_summary` | `event: thought_summary` + JSON `data` |
 | `content_delta` | `event: content_delta` + JSON `data` |
 | `heartbeat` | SSE comment `: heartbeat` — `event`/`data` 없음 |
-| `completed` | `event: completed` + 전체 `result` JSON |
+| `completed` | 내부 `result` 검증·저장 후 `event: completed` + Spring 외부 턴 응답(`turnId`/`sessionId`/`messages`/`uiActions`/`state`) — 내부 DTO 원문 전달 금지 |
 | `error` | `event: error` + `code/category/message/retryable` JSON |
 
 - NDJSON은 임의 HTTP 청크 경계가 아니라 줄바꿈 기준으로 파싱합니다. 한 줄을
   완성하기 전에는 JSON 파싱을 시도하지 않습니다.
 - `completed`와 `error`는 상호 배타이며 정확히 1회, 마지막입니다.
+- 외부 SSE에는 내부에 없는 `ui_action`이 추가됩니다(api-spec §9, DEC-013).
+  Spring이 api-spec §5 위젯 규칙(W1~W7)으로 생성하며, 순서는 내부 `completed`
+  검증·저장 → [위젯 있으면 `ui_action`] → 외부 `completed` → 종료입니다.
 - `content_delta` 누적 문자열과
   `completed.result.messages[].content`를 순서대로 이은 문자열이 같은지
   검증합니다.
