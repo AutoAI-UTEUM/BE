@@ -1,4 +1,4 @@
-"""Draft #30 schemas for generated quizzes.
+"""Confirmed #30 schemas for generated quizzes.
 
 Public learner fields are ``generationId``, ``quizType``, ``coverage``, ``title``,
 ``questionCount``, and each question's ``questionId``, ``questionText``, ``points``,

@@ -3,7 +3,8 @@
 from typing import Literal
 
 from edupilot_ai.core.errors import ErrorCategory
-from edupilot_ai.models.turn import ContractModel, TurnResponse
+from edupilot_ai.models.base import ContractModel
+from edupilot_ai.models.turn import TurnResponse
 
 
 class StatusStreamEvent(ContractModel):

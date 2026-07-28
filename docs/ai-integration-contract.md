@@ -276,9 +276,25 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 
 ### 6.2 POST /internal/ai/grade
 
+- QuizAgent 생성 결과는 내부 turn 응답의 `quiz` 전체 JSON으로 반환합니다.
+  Spring은 공개/비공개 필드를 분리 저장하고 자체 발급한 `activeQuizId`만 외부
+  상태에 반영합니다. AI Service는 `activeQuizId` statePatch를 만들지 않습니다.
+- 퀴즈 공통 스키마: `generationId`, `quizType(MCQ|OX|SHORT|ESSAY)`,
+  `coverage{startPage,endPage}`, `title`, `questionCount(5~10)`,
+  `questions[]`. 문항 공통 공개 필드는 `questionId`, `questionText`,
+  `points`입니다. `questionCount`는 `questions` 길이와 같아야 합니다.
+- 유형별 필드: MCQ는 공개 `choices[]{choiceId,text}`와 비공개
+  `answerChoiceId`·`explanation`, OX는 비공개 `answerValue`·`explanation`,
+  SHORT는 비공개 `referenceAnswer`·`gradingCriteria`, ESSAY는 비공개
+  `modelAnswer`·`rubric[]{criterion,weight}`를 사용하며 rubric weight 합은
+  1이어야 합니다.
+- MVP `coverage`는 turn snapshot에 실제 제공된 페이지로 제한합니다. 누적 범위
+  퀴즈는 후속 이슈에서 별도 설계합니다.
+- `generationId`는 AI Service가 생성하는 추적용 ID이며 멱등 키가 아닙니다.
+  멱등성의 원천은 Spring의 `requestId`입니다.
 - 요청: `quizId, quizType(SHORT|ESSAY), items[]{questionId, question, modelAnswer, rubric[]{criterion, weight}, maxScore}, studentAnswers[]{questionId, answer}, pageContext{coverageStartPage, coverageEndPage, text}, learnerMemoryDigest`
 - 응답: `quizId, quizType, score, maxScore, items[]{questionId, score, maxScore, verdict(CORRECT|PARTIAL|WRONG), feedback}` + `usage`
-- 규칙: **questionId 기반 매칭**(index 금지), rubric weight 합 검증, 항목별 점수 산출 후 **합산은 코드에서**(DEC-002 D4), 점수 불변식(0≤score≤maxScore) 자체 검증 → Spring 재검증(GRADING_RESULT_INVALID). reasoning_effort=high.
+- 규칙: **questionId 기반 매칭**(index 금지), rubric weight 합 검증, 항목별 점수 산출 후 **합산은 코드에서**(DEC-002 D4), 점수 불변식(0≤score≤maxScore) 자체 검증 → Spring 재검증(GRADING_RESULT_INVALID). verdict는 만점 비율 `CORRECT >= 0.8`, `WRONG <= 0.2`, 그 사이는 `PARTIAL`. reasoning_effort=high.
 
 ### 6.3 POST /internal/ai/quiz-assessment
 

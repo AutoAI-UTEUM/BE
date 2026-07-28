@@ -437,7 +437,11 @@ Closes #25
 
 ## 검증 결과
 
-- rebase 후 전체 검증 결과는 이번 변경 커밋에서 갱신합니다.
+- `uv run pytest -q`: 84개 통과
+- `uv run ruff check .`: 통과
+- `uv run mypy src tests`: 50개 소스 파일 검사 통과
+- 기존 설명·QA, JSON·NDJSON 스트림 회귀 테스트: 전부 통과
+- 실제 Grok/xAI 및 테스트 외부 네트워크 호출: 0회
 
 ## PR 본문 초안
 
@@ -457,7 +461,8 @@ Closes #25
 
 ## 검증
 
-- pytest/ruff/mypy 통과
+- pytest 84 passed
+- ruff/mypy passed
 - 실제 Grok/xAI 및 테스트 외부 네트워크 호출 0회
 
 Closes #31

@@ -1,4 +1,4 @@
-"""Draft #30 quiz generation and grading contracts."""
+"""Confirmed #30 quiz generation and grading contracts."""
 
 from copy import deepcopy
 from typing import Literal
@@ -25,6 +25,9 @@ from edupilot_ai.models.quiz import (
     RubricCriterion,
     ShortQuestion,
 )
+from edupilot_ai.models.turn import TurnRequest
+from edupilot_ai.orchestration.context import ContextBuilder
+from edupilot_ai.orchestration.prompts import quiz_messages
 from edupilot_ai.settings import ReasoningEffort
 from tests.fakes import FakeLlm
 from tests.test_turn_contract import make_plan, post_turn
@@ -130,6 +133,34 @@ def test_essay_rubric_weights_must_sum_to_one() -> None:
                 RubricCriterion(criterion="논리성", weight=0.4),
             ],
         )
+
+
+@pytest.mark.parametrize(
+    ("confidence", "instruction"),
+    [
+        ("LOW", "learnerConfidence=LOW이므로 기초 개념 점검 문항 비중을 높여라."),
+        (
+            "MEDIUM",
+            "learnerConfidence=MEDIUM이므로 기초와 응용 문항을 균형 있게 구성하라.",
+        ),
+        ("HIGH", "learnerConfidence=HIGH이므로 응용 문항을 포함하라."),
+        (None, "learnerConfidence가 없으므로 기본 난이도로 구성하라."),
+    ],
+)
+def test_quiz_prompt_branches_on_learner_confidence_enum(
+    turn_payload: dict[str, object],
+    confidence: str | None,
+    instruction: str,
+) -> None:
+    payload = deepcopy(turn_payload)
+    context_payload = payload["context"]
+    assert isinstance(context_payload, dict)
+    context_payload["learnerConfidence"] = confidence
+    context = ContextBuilder().build(TurnRequest.model_validate(payload))
+
+    messages = quiz_messages(context, QuizType.MCQ)
+
+    assert instruction in messages[0]["content"]
 
 
 @pytest.mark.parametrize(

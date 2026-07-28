@@ -17,7 +17,9 @@ from edupilot_ai.models.plan import (
     ToolName,
     TurnPlan,
 )
+from edupilot_ai.models.quiz import QuizType
 from edupilot_ai.models.stream import (
+    CompletedStreamEvent,
     ErrorStreamEvent,
     StatusStreamEvent,
     TurnStreamEvent,
@@ -32,6 +34,7 @@ from edupilot_ai.orchestration.service import TurnService, events_with_heartbeat
 from edupilot_ai.orchestration.timing import MonotonicClock
 from edupilot_ai.settings import Settings
 from tests.fakes import FakeLlm
+from tests.test_quiz_grading import make_quiz
 
 
 def make_plan(tool: ToolName, args: dict[str, object], goal: str) -> TurnPlan:
@@ -330,7 +333,7 @@ async def test_accept_omitted_keeps_json_path(
     assert fake_llm.stream_calls == []
 
 
-async def test_deferred_tool_uses_terminal_event_without_provider_stream(
+async def test_quiz_tool_uses_terminal_event_without_provider_stream(
     client: httpx.AsyncClient,
     fake_llm: FakeLlm,
     auth_headers: dict[str, str],
@@ -345,8 +348,9 @@ async def test_deferred_tool_uses_terminal_event_without_provider_stream(
         make_plan(
             ToolName.GENERATE_QUIZ_MCQ,
             {"quizType": "MCQ"},
-            "DEFERRED_QUIZ_STUB",
-        )
+            "GENERATE_QUIZ",
+        ),
+        make_quiz(QuizType.MCQ),
     )
 
     response = await client.post(
@@ -357,6 +361,10 @@ async def test_deferred_tool_uses_terminal_event_without_provider_stream(
 
     events = parse_events(response)
     assert [event["type"] for event in events] == ["completed"]
+    completed = CompletedStreamEvent.model_validate(events[0])
+    assert completed.result.quiz is not None
+    assert completed.result.quiz.quiz_type is QuizType.MCQ
+    assert len(fake_llm.calls) == 2
     assert fake_llm.stream_calls == []
 
 
