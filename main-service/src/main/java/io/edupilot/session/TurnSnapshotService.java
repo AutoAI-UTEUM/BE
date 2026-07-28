@@ -138,7 +138,6 @@ public class TurnSnapshotService {
 			pendingDiagnosis(sessionId, session.getPendingDiagnosisId())
 		);
 		context.put("latestRepair", latestRepair(sessionId));
-		context.put("conversationSummary", null);
 		context.put(
 			"memory",
 			Map.of(
