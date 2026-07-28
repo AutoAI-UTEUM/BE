@@ -11,6 +11,12 @@ services:
     ports: !reset []
     restart: unless-stopped
 
+  ai-service:
+    profiles: !reset []
+    build: !reset null
+    image: ghcr.io/autoai-edupilot/ai-service:${TAG}
+    restart: unless-stopped
+
   nginx:
     image: nginx:stable
     environment:

@@ -66,6 +66,16 @@ jobs:
             ghcr.io/autoai-edupilot/main-service:${{ github.sha }}
             ghcr.io/autoai-edupilot/main-service:latest
 
+      - name: Build and push ai-service image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./ai-service
+          file: ./ai-service/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/autoai-edupilot/ai-service:${{ github.sha }}
+            ghcr.io/autoai-edupilot/ai-service:latest
+
       - name: Copy deployment configuration
         uses: appleboy/scp-action@v1
         with:
@@ -104,13 +114,30 @@ jobs:
         shell: bash
         env:
           HEALTH_URL: https://${{ vars.DEV_DOMAIN }}/api/health
+          READINESS_URL: https://${{ vars.DEV_DOMAIN }}/api/health/ready
         run: |
           set -euo pipefail
           for attempt in $(seq 1 12); do
             if curl --fail --silent --show-error "$HEALTH_URL"; then
-              exit 0
+              break
             fi
             echo "Health check attempt $attempt/12 failed"
+            if [ "$attempt" -eq 12 ]; then
+              exit 1
+            fi
+            sleep 5
+          done
+
+          for attempt in $(seq 1 12); do
+            readiness_response="$(
+              curl --fail --silent --show-error "$READINESS_URL" || true
+            )"
+            if printf '%s' "$readiness_response" |
+              grep --extended-regexp --quiet '"aiService"[[:space:]]*:[[:space:]]*"UP"'; then
+              printf '%s\n' "$readiness_response"
+              exit 0
+            fi
+            echo "Readiness check attempt $attempt/12 failed"
             sleep 5
           done
           exit 1
