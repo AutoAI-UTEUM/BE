@@ -6,13 +6,19 @@ from fastapi import Depends, Request
 
 from edupilot_ai.grading.service import GraderAgent, GradeService
 from edupilot_ai.llm.bridge import LlmBridge
-from edupilot_ai.orchestration.agents import ExplainerAgent, QaAgent, QuizAgent
+from edupilot_ai.orchestration.agents import (
+    ExplainerAgent,
+    QaAgent,
+    QuizAgent,
+    RepairAgent,
+)
 from edupilot_ai.orchestration.context import ContextBuilder
 from edupilot_ai.orchestration.dispatcher import ToolDispatcher
 from edupilot_ai.orchestration.orchestrator import Orchestrator
 from edupilot_ai.orchestration.policy import PolicyVerifier
 from edupilot_ai.orchestration.service import TurnService
 from edupilot_ai.settings import Settings
+from edupilot_ai.support.service import QuizAssessmentService, QuizDiagnosisService
 
 
 def get_settings(request: Request) -> Settings:
@@ -40,6 +46,7 @@ def get_turn_service(
     explainer = ExplainerAgent(llm=llm, profile=settings.explainer_llm_profile)
     qa = QaAgent(llm=llm, profile=settings.qa_llm_profile)
     quiz = QuizAgent(llm=llm, profile=settings.quiz_llm_profile)
+    repair = RepairAgent(llm=llm, profile=settings.repair_llm_profile)
     return TurnService(
         context_builder=ContextBuilder(),
         orchestrator=Orchestrator(llm=llm, profile=settings.orchestrator_llm_profile),
@@ -48,6 +55,7 @@ def get_turn_service(
             explainer=explainer,
             qa=qa,
             quiz=quiz,
+            repair=repair,
             model=settings.model_name,
         ),
         model=settings.model_name,
@@ -67,4 +75,26 @@ def get_grade_service(
             profile=settings.grader_llm_profile,
             timeout_seconds=settings.grade_timeout_seconds,
         )
+    )
+
+
+def get_quiz_assessment_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    llm: Annotated[LlmBridge, Depends(get_llm_bridge)],
+) -> QuizAssessmentService:
+    return QuizAssessmentService(
+        llm=llm,
+        profile=settings.assessment_llm_profile,
+        timeout_seconds=settings.quiz_assessment_timeout_seconds,
+    )
+
+
+def get_quiz_diagnosis_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    llm: Annotated[LlmBridge, Depends(get_llm_bridge)],
+) -> QuizDiagnosisService:
+    return QuizDiagnosisService(
+        llm=llm,
+        profile=settings.diagnosis_llm_profile,
+        timeout_seconds=settings.diagnosis_timeout_seconds,
     )

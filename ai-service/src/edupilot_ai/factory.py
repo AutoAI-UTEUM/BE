@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from edupilot_ai.api.extract import router as extract_router
 from edupilot_ai.api.grade import router as grade_router
 from edupilot_ai.api.health import router as health_router
+from edupilot_ai.api.learning_support import router as learning_support_router
 from edupilot_ai.api.turn import router as turn_router
 from edupilot_ai.core.errors import register_exception_handlers
 from edupilot_ai.core.middleware import InternalTokenMiddleware
@@ -66,5 +67,6 @@ def create_app(
     app.include_router(health_router)
     app.include_router(extract_router)
     app.include_router(grade_router)
+    app.include_router(learning_support_router)
     app.include_router(turn_router)
     return app

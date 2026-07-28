@@ -1,7 +1,7 @@
-"""Explainer and QA agents using injected structured-output LLM."""
+"""Turn agents using injected structured-output LLM."""
 
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from edupilot_ai.core.errors import ErrorCategory
@@ -13,6 +13,7 @@ from edupilot_ai.llm.bridge import (
     LlmTextStreamItem,
     LlmUsage,
 )
+from edupilot_ai.models.learning_support import RepairOutput
 from edupilot_ai.models.plan import AgentOutput
 from edupilot_ai.models.quiz import QuizGeneration, QuizType
 from edupilot_ai.models.turn import DetailLevel, Message, QaThreadMode
@@ -21,6 +22,7 @@ from edupilot_ai.orchestration.prompts import (
     explainer_messages,
     qa_messages,
     quiz_messages,
+    repair_messages,
 )
 from edupilot_ai.settings import AgentLlmProfile
 
@@ -32,6 +34,7 @@ class AgentResult:
     state_patch: dict[str, Any]
     usage: LlmUsage
     quiz: QuizGeneration | None = None
+    memory_candidates: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,4 +229,35 @@ class QuizAgent:
             state_patch={},
             usage=completion.usage,
             quiz=quiz,
+        )
+
+
+class RepairAgent:
+    def __init__(self, *, llm: LlmBridge, profile: AgentLlmProfile) -> None:
+        self._llm = llm
+        self._profile = profile
+
+    async def run(
+        self,
+        context: AgentContext,
+        *,
+        timeout_seconds: float,
+    ) -> AgentResult:
+        completion = await self._llm.complete_json(
+            messages=repair_messages(context),
+            response_model=RepairOutput,
+            profile=self._profile,
+            timeout_seconds=timeout_seconds,
+        )
+        return AgentResult(
+            agent="RepairAgent",
+            message=Message(
+                message_type="REPAIR",
+                content=completion.output.markdown,
+            ),
+            state_patch={
+                "pageStatus": "REPAIR_COMPLETED",
+                "pendingDiagnosis": None,
+            },
+            usage=completion.usage,
         )
