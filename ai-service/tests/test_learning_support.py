@@ -353,6 +353,7 @@ async def test_repair_turn_replaces_stub_and_clears_pending_diagnosis(
     }
     assert fake_llm.calls[1][1].reasoning_effort is ReasoningEffort.MEDIUM
     assert "현재 페이지 전체를 다시 설명하거나" in fake_llm.calls[1][0][0]["content"]
+    assert "모든 학습자 대상 텍스트" in fake_llm.calls[1][0][0]["content"]
 
 
 async def test_repair_without_pending_diagnosis_is_rejected(

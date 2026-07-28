@@ -14,6 +14,13 @@ MEMORY_TOOLS = {
     ToolName.PROMOTE_MEMORY,
 }
 MEMORY_TYPES = {"STRENGTH", "WEAKNESS", "MISCONCEPTION", "PREFERENCE"}
+_QA_THREAD_MODE_ALIASES = {
+    "NEW": QaThreadMode.START_NEW.value,
+    "START_NEW": QaThreadMode.START_NEW.value,
+    "FOLLOWUP": QaThreadMode.FOLLOW_UP.value,
+    "FOLLOW-UP": QaThreadMode.FOLLOW_UP.value,
+    "FOLLOW_UP": QaThreadMode.FOLLOW_UP.value,
+}
 
 
 class PolicyViolation(Exception):
@@ -115,6 +122,16 @@ class PolicyVerifier:
             if action.tool is not ToolName.ANSWER_QUESTION:
                 raise PolicyViolation("tool does not match event")
             corrected = _normalized_action(action, {"qaThreadMode", "threadRef"})
+            args = dict(corrected.args)
+            raw_mode = args["qaThreadMode"]
+            if isinstance(raw_mode, str):
+                args["qaThreadMode"] = _QA_THREAD_MODE_ALIASES.get(
+                    raw_mode.upper(),
+                    raw_mode,
+                )
+            if args["qaThreadMode"] == QaThreadMode.START_NEW.value:
+                args["threadRef"] = None
+            corrected = corrected.model_copy(update={"args": args}, deep=True)
             try:
                 mode = QaThreadMode(str(corrected.args["qaThreadMode"]))
             except ValueError as error:
@@ -128,8 +145,6 @@ class PolicyVerifier:
                     raise PolicyViolation("threadRef mismatch")
                 if not isinstance(thread_ref, str) or not thread_ref:
                     raise PolicyViolation("FOLLOW_UP requires threadRef")
-            elif thread_ref is not None:
-                raise PolicyViolation("START_NEW cannot invent threadRef")
             return corrected, []
         if event is EventType.QUIZ_TYPE_SELECTED:
             expected = ToolName(f"GENERATE_QUIZ_{context.event_payload.quiz_type}")
