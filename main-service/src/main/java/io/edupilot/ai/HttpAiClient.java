@@ -84,6 +84,7 @@ public class HttpAiClient implements AiClient {
 	);
 
 	private final RestClient restClient;
+	private final RestClient streamRestClient;
 	private final RestClient healthRestClient;
 	private final RestClient extractRestClient;
 	private final RestClient gradeRestClient;
@@ -97,6 +98,10 @@ public class HttpAiClient implements AiClient {
 		this.restClient = buildRestClient(
 			properties,
 			properties.turnReadTimeout()
+		);
+		this.streamRestClient = buildRestClient(
+			properties,
+			properties.streamIdleTimeout()
 		);
 		this.healthRestClient = buildRestClient(
 			properties,
@@ -210,6 +215,7 @@ public class HttpAiClient implements AiClient {
 			|| totalTimeout.isNegative()) {
 			throw streamTimeout(null);
 		}
+		long streamStartedNanos = System.nanoTime();
 		return executeAttempt(
 			new AiCallContext(
 				TURN_PATH,
@@ -219,7 +225,7 @@ public class HttpAiClient implements AiClient {
 				sessionId(request),
 				null
 			),
-			() -> restClient.post()
+			() -> streamRestClient.post()
 				.uri(TURN_PATH)
 				.contentType(MediaType.APPLICATION_JSON)
 				.accept(NDJSON)
@@ -232,10 +238,25 @@ public class HttpAiClient implements AiClient {
 						request,
 						listener,
 						cancellation,
-						totalTimeout
+						remainingTimeout(
+							totalTimeout,
+							streamStartedNanos
+						)
 					)
 				)
 		);
+	}
+
+	private Duration remainingTimeout(
+		Duration totalTimeout,
+		long streamStartedNanos
+	) {
+		long remainingNanos = totalTimeout.toNanos()
+			- (System.nanoTime() - streamStartedNanos);
+		if (remainingNanos <= 0) {
+			throw streamTimeout(null);
+		}
+		return Duration.ofNanos(remainingNanos);
 	}
 
 	private TurnResponse readTurnStream(

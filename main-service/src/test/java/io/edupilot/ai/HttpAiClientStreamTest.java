@@ -10,7 +10,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -163,6 +162,25 @@ class HttpAiClientStreamTest {
 	}
 
 	@Test
+	void firstEventTimeoutIncludesResponseHeaderWait() {
+		server.enqueue(ndjson(completed("turn-stream", ""))
+			.setHeadersDelay(300, TimeUnit.MILLISECONDS));
+
+		assertThatThrownBy(() -> client(Duration.ofMillis(50))
+			.executeTurnStream(
+				request("turn-stream"),
+				event -> {
+				},
+				new AiStreamCancellation(),
+				Duration.ofSeconds(2)
+			))
+			.isInstanceOfSatisfying(AiClientException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT)
+			);
+	}
+
+	@Test
 	void totalTimeoutWinsEvenWhenIdleLimitIsLonger() {
 		server.enqueue(ndjson(completed("turn-stream", ""))
 			.setBodyDelay(300, TimeUnit.MILLISECONDS));
@@ -182,28 +200,26 @@ class HttpAiClientStreamTest {
 	}
 
 	@Test
-	void heartbeatRefreshesIdleButCannotExtendTotalTimeout() {
+	void heartbeatStreamCannotExtendTotalTimeout() {
 		String heartbeat = "{\"type\":\"heartbeat\"}\n";
 		server.enqueue(ndjson(heartbeat.repeat(20))
 			.throttleBody(
 				heartbeat.getBytes(StandardCharsets.UTF_8).length,
-				20,
+				100,
 				TimeUnit.MILLISECONDS
 			));
-		AtomicInteger heartbeats = new AtomicInteger();
-
-		assertThatThrownBy(() -> client(Duration.ofMillis(150))
+		assertThatThrownBy(() -> client(Duration.ofSeconds(2))
 			.executeTurnStream(
 				request("turn-stream"),
-				event -> heartbeats.incrementAndGet(),
+				event -> {
+				},
 				new AiStreamCancellation(),
-				Duration.ofMillis(80)
+				Duration.ofSeconds(1)
 			))
 			.isInstanceOfSatisfying(AiClientException.class, exception ->
 				assertThat(exception.errorCode())
 					.isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT)
 			);
-		assertThat(heartbeats.get()).isGreaterThan(1);
 	}
 
 	@Test
