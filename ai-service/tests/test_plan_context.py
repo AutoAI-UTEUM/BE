@@ -5,6 +5,7 @@ from copy import deepcopy
 
 import httpx
 
+from edupilot_ai.models.learning_support import RepairOutput
 from edupilot_ai.models.plan import AgentOutput, ToolName
 from edupilot_ai.models.turn import TurnRequest
 from edupilot_ai.orchestration.context import ContextBuilder, PlanContext
@@ -128,6 +129,31 @@ def test_diagnosis_answer_is_not_serialized_into_plan_context(
     )
 
 
+def test_quiz_type_selected_keeps_bounded_plan_context(
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "QUIZ_TYPE_SELECTED",
+        "payload": {"quizType": "ESSAY"},
+    }
+    context = payload["context"]
+    assert isinstance(context, dict)
+    page_text = "퀴즈 근거 " + "Q" * 700
+    context["currentPageText"] = page_text
+    turn = TurnRequest.model_validate(payload)
+
+    plan_context = PlanContext.from_agent_context(ContextBuilder().build(turn))
+    serialized = plan_context.model_dump(mode="json", by_alias=True)
+
+    assert serialized["eventPayload"] == {"quizType": "ESSAY"}
+    assert len(serialized["pageTextPreview"]) == 500
+    assert page_text not in json.dumps(
+        serialized,
+        ensure_ascii=False,
+    )
+
+
 async def test_only_planner_receives_slim_context(
     client: httpx.AsyncClient,
     fake_llm: FakeLlm,
@@ -160,3 +186,50 @@ async def test_only_planner_receives_slim_context(
     assert page_text not in fake_llm.calls[0][0][1]["content"]
     assert len(planner_payload["recentMessages"][0]["content"]) == 120
     assert agent_payload["currentPageText"] == page_text
+
+
+async def test_repair_agent_keeps_full_context_outside_planner(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    answer = "편차를 평균값 자체라고 생각했습니다."
+    page_text = "편차는 관측값과 평균의 차이입니다. " + "R" * 700
+    payload["event"] = {
+        "eventType": "DIAGNOSIS_ANSWER_SUBMITTED",
+        "payload": {"diagnosisId": 44, "answer": answer},
+    }
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["currentPageText"] = page_text
+    context["pendingDiagnosis"] = {
+        "diagnosisId": 44,
+        "focusConcepts": ["편차의 정의"],
+        "repairHint": "평균과의 차이를 연결",
+    }
+    fake_llm.queue(
+        make_plan(
+            ToolName.REPAIR_MISCONCEPTION,
+            {"diagnosisId": 44},
+            "REPAIR_MISCONCEPTION",
+        ),
+        RepairOutput(
+            markdown="## 오개념 교정\n\n편차는 평균과의 차이입니다.",
+            focus_concepts=["편차의 정의"],
+            thought_summary="평균과 편차를 구분",
+        ),
+    )
+
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 200
+    planner_payload = json.loads(fake_llm.calls[0][0][1]["content"])
+    repair_payload = json.loads(fake_llm.calls[1][0][1]["content"])
+    assert planner_payload["eventPayload"] == {"diagnosisId": 44}
+    assert answer not in fake_llm.calls[0][0][1]["content"]
+    assert planner_payload["pageTextPreview"] == page_text[:500]
+    assert repair_payload["studentAnswer"] == answer
+    assert repair_payload["pageText"] == page_text
+    assert repair_payload["diagnosis"] == context["pendingDiagnosis"]
