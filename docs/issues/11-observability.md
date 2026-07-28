@@ -36,7 +36,7 @@ type: chore
 - traceId/requestId/turnId 전달
 - Main Service 구조화 요청·오류 로그
 - AI Service 구조화 호출·오류 로그
-- Gemini 호출 시간·성공/실패 분류
+- Grok 호출 시간·성공/실패 분류
 - 환경별 로그 레벨
 - 민감정보 마스킹
 - health/readiness 기본 상태
@@ -53,7 +53,7 @@ type: chore
 
 - `[Contract]` 공통 추적 ID와 로그 필드 기준
 - `[Main]` 요청·오류·외부 AI 호출 구조화 로그
-- `[AI]` agent/tool/Gemini 호출 구조화 로그
+- `[AI]` agent/tool/Grok 호출 구조화 로그
 - `[Security]` 민감정보 마스킹·로그 접근 정책
 - `[Infra]` 로그 수집·보관·메트릭·알림 도구 결정
 - `[Integration]` 단일 요청의 end-to-end trace 검증
@@ -101,9 +101,54 @@ errorCode
 - 로그 보관 기간과 접근 권한 미정
 - health는 성공하지만 핵심 의존성은 사용 불가
 
+## 확정 계약 (Epic 8 ⓐ) — 추적 ID·로그 필드·마스킹·health
+
+> 아래 내용이 ⓐ [Contract]의 확정안입니다. BE(한승준)·AI(고영빈)·FE(이감) 승인 후 ⓑ·ⓒ 구현의 기준이 됩니다.
+
+### 1. 추적 ID 체계
+
+| ID | 생성 주체 | 전달 | 로그 표기 |
+| --- | --- | --- | --- |
+| `traceId` | Spring 진입 필터 — 요청에 `X-Trace-Id` 헤더가 있으면 재사용, 없으면 UUID 생성 | Spring→FastAPI 호출 시 `X-Trace-Id` 헤더로 전파, 모든 응답 헤더에 `X-Trace-Id` 포함 | 모든 로그 라인 필수 |
+| `requestId` | 클라이언트 (턴 요청 멱등 키 — api-spec §5) | 요청 body | 턴 처리 로그에 포함 |
+| `turnId` / `actionId` | Spring / AI Service (ai-integration-contract) | 내부 API body | AI 호출 로그에 포함 |
+
+- 공통 오류 응답의 `traceId` 필드는 로그의 `traceId`와 동일한 값이다 (error-code.md 정합). FE는 오류 화면에서 이 값을 노출해 문의 시 전달할 수 있다.
+
+### 2. 공통 로그 필드 (JSON 구조화)
+
+- 필수: `timestamp`(ISO-8601, 타임존 포함), `level`, `service`(`main-service`/`ai-service`), `environment`(`local`/`dev`/`prod`), `traceId`, `message`
+- 해당 시: `requestId`, `turnId`, `actionId`, `sessionId`, `endpoint`(또는 `tool`/`agent`), `status`(HTTP 상태 또는 성공/실패), `durationMs`, `errorCode`
+- 형식: 한 줄 JSON. Spring은 logback + JSON encoder, FastAPI는 표준 logging + JSON formatter. **local 프로파일만 사람이 읽는 콘솔 패턴 허용**, dev/prod는 JSON 고정.
+
+### 3. 로그 금지 목록·마스킹 규칙
+
+- 금지 목록(본 문서 "로그 금지 정보" 7종 그대로): 비밀번호·해시 / JWT·refresh token·API key / `.env` 실값 / PDF 전체 텍스트 / 학생 답안·대화 원문 / 비공개 정답·루브릭 / 내부 chain-of-thought
+- 원칙: **치환(`***`)보다 비로깅 우선** — 금지 필드는 로그 객체에 아예 넣지 않는다.
+- 요청/응답 body는 기본 미로깅. 디버깅 필요 시에도 금지 목록 필드는 제외한 요약만 로깅.
+- `Authorization` 헤더·`Cookie` 값 로깅 금지. 예외 stack trace는 그대로 남기되, 예외 메시지에 토큰을 포함시키지 않는 것을 코드 규칙으로 한다(마스킹 테스트로 검증).
+- 외부 LLM(Grok) 호출 로그(AI Service): 모델명·소요 시간·성공/실패 분류·재시도 횟수만. 프롬프트·응답 원문은 기본 미로깅(디버그 옵션에서도 금지 목록 준수).
+
+### 4. health / readiness
+
+| 서비스 | 엔드포인트 | 의미 | 응답 |
+| --- | --- | --- | --- |
+| Main | `GET /api/health` (기구현 유지) | liveness — 프로세스 생존 | 200 고정 |
+| Main | `GET /api/health/ready` (신설) | readiness — 의존성 확인 | 아래 참조 |
+| AI | `GET /health` | liveness — 프로세스 생존 | 200 고정 (외부 LLM 연결성 체크는 비용 문제로 미포함) |
+
+- `/api/health/ready` 응답: `{"status": "UP"|"DEGRADED"|"DOWN", "checks": {"db": "UP"|"DOWN", "aiService": "UP"|"DOWN"}}`
+  - DB DOWN → 전체 `DOWN` + **503** (핵심 의존성)
+  - DB UP + AI Service DOWN → `DEGRADED` + **200** (인증·자료 등 비-AI 기능은 동작하므로 트래픽 수용, 상태만 표기)
+- 인증 불필요(공개 엔드포인트), 배포 healthcheck·smoke test가 사용.
+
+### 5. 환경별 로그 레벨
+
+- local=DEBUG, dev=INFO, prod=INFO (오류 알림 도구는 MVP 이후 — dev 단계는 서버 로그 파일 + `docker compose logs`로 운영)
+
 ## 완료 조건
 
-- [ ] 추적 ID와 공통 로그 필드가 승인됐다.
+- [x] 추적 ID와 공통 로그 필드가 승인됐다.
 - [ ] 한 요청을 Main과 AI 로그에서 연결할 수 있다.
 - [ ] AI 호출 시간과 오류 유형을 확인할 수 있다.
 - [ ] 민감정보 마스킹 테스트가 통과한다.

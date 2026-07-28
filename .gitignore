@@ -1,0 +1,6 @@
+.env
+.env.*
+!.env.example
+
+infra/certbot/
+infra/frontend-dist/

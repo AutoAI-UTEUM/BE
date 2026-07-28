@@ -1,0 +1,2 @@
+-- EduPilot foundation baseline.
+-- Domain tables are added by feature-specific migrations.

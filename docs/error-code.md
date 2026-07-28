@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-07-20 |
+| 마지막 갱신 | 2026-07-21 |
 | 코드 형식 | `UPPER_SNAKE_CASE` |
 
 ## 1. 응답 형식
@@ -46,7 +46,7 @@
 | 422 | 문법은 맞지만 처리할 수 없는 도메인 입력을 쓸지 TBD |
 | 429 | 요청/AI 사용량 제한 |
 | 500 | 예상하지 못한 서버 오류 |
-| 502 | FastAPI/Gemini의 잘못된 응답 |
+| 502 | FastAPI/Grok의 잘못된 응답 |
 | 503 | 의존 서비스 일시 불가 |
 | 504 | AI 또는 내부 서비스 시간 초과 |
 
@@ -86,6 +86,7 @@
 | `FILE_TOO_LARGE` | 413 | 파일 제한 초과 |
 | `MATERIAL_PROCESSING` | 409 | 아직 처리 중 |
 | `MATERIAL_PROCESSING_FAILED` | 409 | 텍스트 추출 등 처리 실패 |
+| `MATERIAL_HAS_ACTIVE_SESSION` | 409 | 활성 세션이 있어 자료 삭제 불가 (DEC-028) |
 | `PAGE_OUT_OF_RANGE` | 400 | 페이지 번호 범위 초과 |
 
 ### 세션·턴
@@ -97,8 +98,8 @@
 | `SESSION_NOT_ACTIVE` | 409 | 완료/삭제된 세션 |
 | `SESSION_STATE_CONFLICT` | 409 | 현재 상태에서 실행 불가 |
 | `UNSUPPORTED_EVENT_TYPE` | 400 | 알 수 없는 학습 이벤트 |
-| `TURN_ALREADY_PROCESSED` | 409 또는 기존 결과 반환 | 동일 요청 중복 |
-| `TURN_IN_PROGRESS` | 409 | 같은 세션에서 충돌하는 턴 진행 중 |
+| `TURN_ALREADY_PROCESSED` | 409 | 동일 `requestId` 재전송 — 확정: 거부 후 FE가 세션 상세·메시지 재조회로 복원 (replay 미제공) |
+| `TURN_IN_PROGRESS` | 409 | 같은 세션에서 충돌하는 턴 진행 중 — 세션당 동시 턴 1개 원칙, 판정 방식(플래그/낙관적 잠금)은 구현에서 선택 |
 
 ### 퀴즈·진단
 
@@ -117,11 +118,21 @@
 
 | code | HTTP | 의미 |
 | --- | ---: | --- |
-| `AI_SERVICE_UNAVAILABLE` | 503 | FastAPI/Gemini 일시 불가 |
+| `AI_SERVICE_UNAVAILABLE` | 503 | FastAPI/Grok 일시 불가 |
 | `AI_SERVICE_TIMEOUT` | 504 | AI 호출 시간 초과 |
 | `AI_RESPONSE_INVALID` | 502 | 스키마에 맞지 않는 응답 |
 | `AI_POLICY_REJECTED` | 502 또는 409 | Plan 정책 검증 실패 — 현재 세션 상태에서 허용되지 않는 요청이 원인이면 409, AI가 생성한 Plan 자체가 정책·스키마를 위반하면 502 |
 | `AI_STREAM_INTERRUPTED` | 502/504 | 스트림 비정상 종료 — 중계/응답 오류로 끊기면 502, 시간 초과로 끊기면 504 |
+
+FastAPI 내부 API가 직접 반환하는 현재 오류 code는 다음 3종입니다.
+
+| code | HTTP | category | 의미 |
+| --- | ---: | --- | --- |
+| `AI_INTERNAL_AUTH_FAILED` | 401 | `AUTH` | `X-Internal-Token` 누락 또는 불일치 |
+| `AI_REQUEST_INVALID` | 422 | `SCHEMA` | 내부 요청 body·DTO 검증 실패 |
+| `AI_INTERNAL_ERROR` | 500 | `INTERNAL` | 분류되지 않은 AI Service 내부 오류 |
+
+새 오류 code는 구현보다 먼저 이 문서에 추가합니다.
 
 ## 4. FE 처리 기준
 
@@ -138,6 +149,5 @@ FE는 `message` 문자열을 파싱하지 않고 `code`로 분기합니다.
 ## 5. 로깅 기준
 
 - 서버 로그에는 `traceId`, 사용자/세션의 안전한 식별자, 에러 코드, 처리 구간을 남깁니다.
-- 비밀번호, JWT, Gemini API Key, 전체 PDF 텍스트, 학생 답안 원문은 기본 오류 로그에 남기지 않습니다.
+- 비밀번호, JWT, Grok(xAI) API Key, 전체 PDF 텍스트, 학생 답안 원문은 기본 오류 로그에 남기지 않습니다.
 - AI 원문 로깅이 꼭 필요하면 마스킹, 접근 통제, 보관 기간을 먼저 결정합니다.
-

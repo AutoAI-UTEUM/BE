@@ -5,8 +5,8 @@
 | 항목 | 내용 |
 | --- | --- |
 | 문서 상태 | 설계 초안 — 구현 시작 전 |
-| 마지막 갱신 | 2026-07-20 |
-| 기준 아키텍처 | Frontend → Spring Backend → FastAPI AI Server → Gemini API |
+| 마지막 갱신 | 2026-07-21 |
+| 기준 아키텍처 | Frontend → Spring Backend → FastAPI AI Server → Grok API |
 | 현재 저장소 상태 | 문서화 단계이며 애플리케이션 코드는 아직 생성하지 않음 |
 
 ## 1. 프로젝트 소개
@@ -23,8 +23,8 @@ EduPilot은 학습자가 PDF 강의 자료를 보면서 AI 튜터와 상호작�
 
 ## 2. MVP 기능
 
-- 회원가입, 로그인, 내 정보 조회
-- PDF 학습 자료 업로드 및 조회
+- 회원가입, 로그인, 내 정보 조회, 회원 탈퇴
+- PDF 학습 자료 업로드, 조회 및 삭제
 - PDF 기반 학습 세션 생성, 조회, 종료
 - 현재 페이지 이동 및 세션 상태 동기화
 - 현재 페이지 기반 AI 설명
@@ -44,7 +44,7 @@ flowchart LR
   FE["Frontend<br/>React + TypeScript"]
   BE["Spring Backend<br/>인증·상태·저장·채점"]
   AI["FastAPI AI Server<br/>오케스트레이션·에이전트"]
-  LLM["Gemini API"]
+  LLM["Grok API (xAI)"]
   DB[("MySQL")]
 
   FE -->|외부 API| BE
@@ -59,7 +59,7 @@ flowchart LR
 | --- | --- |
 | Frontend | 로그인, PDF 뷰어, 채팅/퀴즈/진단 UI, 스트리밍 표시 |
 | Spring Backend | 인증·인가, 사용자/자료/세션 관리, 상태와 기록의 기준 저장소, MCQ/OX 채점, FastAPI 호출, 외부 API 제공 |
-| FastAPI AI Server | ContextBuilder, Orchestrator, Policy/Verifier, ToolDispatcher, 전문 에이전트 실행, Gemini 연동 |
+| FastAPI AI Server | ContextBuilder, Orchestrator, Policy/Verifier, ToolDispatcher, 전문 에이전트 실행, Grok 연동 |
 | MySQL | 사용자, 자료, 세션, 메시지, 퀴즈, 진단, 교정, 학습자 메모리 영속화 |
 
 핵심 원칙은 다음과 같습니다.
@@ -79,8 +79,8 @@ flowchart LR
 | 영역 | 기술 |
 | --- | --- |
 | Frontend | React, TypeScript, Vite |
-| Backend | Java 21, Spring Boot, Spring Security, Spring Data JPA, JWT |
-| AI Server | Python, FastAPI, Gemini API |
+| Backend | Java 21, Spring Boot 4.1.x, Spring Security, Spring Data JPA, JWT, Flyway |
+| AI Server | Python 3.14.x, FastAPI, Grok API (전 에이전트 공통 grok-4.5 고정 — DEC-002) |
 | Database | MySQL |
 | Infra | Docker, Docker Compose, GitHub Actions, AWS |
 | Backend Test | JUnit 5, MockMvc, `@SpringBootTest` |
@@ -88,15 +88,10 @@ flowchart LR
 
 ### 구현 전 확정 필요
 
-- Spring Boot 세부 버전
-- Python 버전과 Gemini 모델
 - Frontend 상태 관리/UI 라이브러리
-- JWT refresh token 정책과 저장·폐기 방식
-- PDF 파일 저장소와 페이지 텍스트 추출 책임
-- Flyway 또는 Liquibase
-- AWS 세부 서비스, 배포 토폴로지, 도메인/HTTPS 구성
 - 테스트 보조 도구와 Testcontainers 도입 여부
-- 라이선스
+
+확정된 항목: Python 3.14.x·grok-4.5 고정(DEC-002 v2), PDF 저장소·추출 책임(DEC-005·006), AWS 구성 — 단일 EC2 + Docker Compose + Nginx HTTPS(DEC-019), 라이선스 — 비공개 유지(DEC-020).
 
 결정 대기 항목은 [결정 대기 목록](docs/decisions.md)에서 관리합니다.
 
@@ -136,9 +131,18 @@ EDUPILOT_DB_USERNAME
 EDUPILOT_DB_PASSWORD
 EDUPILOT_AI_BASE_URL
 EDUPILOT_JWT_SECRET
+EDUPILOT_INTERNAL_TOKEN
+EDUPILOT_CORS_ALLOWED_ORIGINS
+EDUPILOT_STORAGE_DIR
+EDUPILOT_UPLOAD_MAX_MB
+EDUPILOT_AI_EXTRACT_READ_TIMEOUT
+EDUPILOT_AI_TURN_READ_TIMEOUT
+EDUPILOT_AI_GRADE_READ_TIMEOUT
+EDUPILOT_QUIZ_PASS_RATIO
 
 # FastAPI AI Server
-GEMINI_API_KEY
+XAI_API_KEY
+MODEL_NAME
 ```
 
 예제 파일에는 가짜 값만 두며 `.env`, 실제 자격 증명, 운영 접속 정보는 커밋하지 않습니다.
@@ -149,10 +153,13 @@ GEMINI_API_KEY
 POST   /api/auth/signup
 POST   /api/auth/login
 GET    /api/users/me
+DELETE /api/users/me
 
 POST   /api/materials
 GET    /api/materials
 GET    /api/materials/{materialId}
+GET    /api/materials/{materialId}/file
+DELETE /api/materials/{materialId}
 GET    /api/materials/{materialId}/pages/{pageNumber}
 
 POST   /api/sessions
@@ -194,6 +201,8 @@ GET    /api/users/me/memory?materialId={materialId}
 | [상세 작업 분해 계획](docs/issue-plan.md) | 기능별 흐름·예외·구현 작업 참고 | 참고 |
 | [Definition of Done](docs/definition-of-done.md) | 기능 완료 기준 | O |
 | [에이전트 시스템 명세](docs/agent-system-spec.md) | FastAPI 팀 구현 참고 계약 | 참고 |
+| [AI 연동 계약](docs/ai-integration-contract.md) | Spring–FastAPI 내부 계약 세부 (작성 중 — AI 담당) | 참고 |
+| [AI 테스트 전략](docs/test-strategy.md) | golden 세트·표류 감지·TTFT 검증 (작성 중 — AI 담당) | 참고 |
 | [협업 가이드](CONTRIBUTING.md) | 팀 공통 기여 규칙 | O |
 
 권장 합의·개발 순서는 `requirements → feature-spec → screen-api-map → api-spec/OpenAPI → 구현`입니다.

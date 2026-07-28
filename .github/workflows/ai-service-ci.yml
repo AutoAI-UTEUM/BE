@@ -1,0 +1,70 @@
+# TODO(issue #9): ai-service가 pyproject.toml/uv를 채택하면 의존성 설치와 캐시 단계만 교체한다.
+name: AI Service CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-service-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ai-service-build:
+    name: ai-service-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect ai-service changes
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [[ ! -f ai-service/requirements.txt ]]; then
+            echo "service=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ai-service/requirements.txt가 없어 AI Service 검증을 건너뜁니다."
+          elif [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            echo "service=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- \
+            ai-service .github/workflows/ai-service-ci.yml; then
+            echo "service=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "service=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Python 3.14
+        if: steps.changes.outputs.service == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: ai-service/requirements.txt
+
+      - name: Install ai-service dependencies
+        if: steps.changes.outputs.service == 'true'
+        working-directory: ai-service
+        run: python -m pip install -r requirements.txt
+
+      - name: Lint ai-service
+        if: steps.changes.outputs.service == 'true'
+        working-directory: ai-service
+        run: python -m ruff check .
+
+      - name: Test ai-service
+        if: steps.changes.outputs.service == 'true'
+        working-directory: ai-service
+        run: python -m pytest

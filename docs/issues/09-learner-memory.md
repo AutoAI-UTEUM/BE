@@ -83,8 +83,8 @@ POST /internal/ai/turn
 
 - [QA 근거](05-question-answer.md)
 - [평가·진단·교정 근거](08-diagnosis-repair.md)
-- `DEC-011` 평가 큐
-- `DEC-012` 메모리 승격 규칙
+- `DEC-011` 평가 큐 (Accepted — 전량 보존 + 조회 윈도우)
+- `DEC-012` 메모리 승격 규칙 (Accepted — 독립 근거 2회 + confidence 0.7)
 
 ## 주요 예외
 

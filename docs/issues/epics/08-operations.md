@@ -29,7 +29,7 @@ Main Service와 AI Service를 재현 가능하게 배포하고, 요청·오류·
 ## 완료 조건
 
 - [ ] 두 서비스가 로컬과 dev 환경에서 재현 가능하게 실행된다.
-- [ ] 요청에서 Spring–FastAPI–Gemini 호출까지 trace ID로 추적된다.
+- [ ] 요청에서 Spring–FastAPI–Grok 호출까지 trace ID로 추적된다.
 - [ ] 토큰·비밀번호·API key·PDF 원문이 로그에 남지 않는다.
 - [ ] health/readiness가 실제 의존성 상태를 구분한다.
 - [ ] 배포·migration·rollback 절차가 문서화되고 검증됐다.

@@ -28,7 +28,7 @@ type: feature
 - `LEARN-001` 저득점 진단 질문
 - `LEARN-002` 진단 답변 기반 교정
 - `LEARN-003` 교정 후 추가 질문을 QaAgent로 연결
-- `LEARN-004` 최근 평가 큐 — 큐 상세는 `DEC-011`
+- `LEARN-004` 최근 평가 큐 — 상세는 `DEC-011`(Accepted: 전량 보존 + 세션 5 / 승격용 교차 세션 20 조회 윈도우)
 
 ## 사용자 흐름
 
@@ -98,8 +98,8 @@ POST /api/sessions/{sessionId}/turns
 
 - [검증된 채점 결과](07-quiz-grading.md)
 - [교정 후 QA handoff](05-question-answer.md)
-- `DEC-010` 통과 기준
-- `DEC-011` 평가 큐
+- `DEC-010` 통과 기준 (Accepted — 60%)
+- `DEC-011` 평가 큐 (Accepted)
 
 ## 주요 예외
 

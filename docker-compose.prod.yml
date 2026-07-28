@@ -1,0 +1,40 @@
+services:
+  mysql:
+    restart: unless-stopped
+
+  main-service:
+    build: !reset null
+    image: ghcr.io/autoai-edupilot/main-service:${TAG}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      EDUPILOT_STORAGE_DIR: /var/lib/edupilot/storage
+    ports: !reset []
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:stable
+    environment:
+      EDUPILOT_DOMAIN: ${EDUPILOT_DOMAIN}
+      TZ: Asia/Seoul
+    depends_on:
+      main-service:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/nginx/edupilot.conf:/etc/nginx/templates/default.conf.template:ro
+      - certbot-certs:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
+      - frontend-static:/usr/share/nginx/html:ro
+    restart: unless-stopped
+    networks:
+      - edupilot-net
+
+volumes:
+  certbot-certs:
+    name: edupilot-certbot-certs
+  certbot-www:
+    name: edupilot-certbot-www
+  frontend-static:
+    name: edupilot-frontend-static

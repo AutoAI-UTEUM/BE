@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-07-20 |
+| 마지막 갱신 | 2026-07-21 |
 | 범위 | Spring 소유 영속 도메인 |
 
 ## 1. 도메인 경계
@@ -50,14 +50,16 @@ erDiagram
 
 - 이메일은 중복될 수 없습니다.
 - 비밀번호 원문을 저장하지 않습니다.
-- 역할은 MVP에서 `USER`, `ADMIN`입니다.
-- 상태는 `ACTIVE`, `DELETED` 초안이며 정지/탈퇴 복구 정책은 TBD입니다.
+- 역할은 MVP에서 `USER`, `ADMIN`입니다(`ADMIN`은 기능 미구현·예약 — DEC-017, `TEACHER`는 제외 확정 — DEC-018).
+- 상태는 `ACTIVE`, `DELETED`입니다. 탈퇴(DEC-028)는 논리 삭제 + 즉시 익명화(email → `deleted_{id}`, name 고정 문구, password_hash 무효화)이며 복구는 MVP 미지원입니다. 유예 기간·물리 삭제 배치는 이후 개선안입니다.
 
 ### LearningMaterial
 
 - PDF 파일과 학습용 메타데이터를 나타냅니다.
-- 파일 처리 상태가 학습 가능해야 세션을 생성할 수 있습니다.
-- 원본 파일 경로와 접근 URL을 구분할지 저장소 선택 시 결정합니다.
+- 처리 상태는 `PROCESSING → READY | FAILED`이며 `READY`만 학습 가능합니다.
+- 소유자만 조회·다운로드·삭제할 수 있고 삭제는 `ACTIVE → DELETED` 논리 전이입니다.
+- 원본 물리 경로 대신 저장소 독립적인 `storageKey`를 저장하며, 삭제 시 파일과 페이지 문맥은 보존합니다.
+- 비동기 추출 결과는 적용 직전에 상태를 다시 확인하고, 그 사이 삭제됐다면 폐기합니다.
 
 ### MaterialPage
 
@@ -81,8 +83,9 @@ erDiagram
 ### QaThread / QaMessage
 
 - 같은 페이지/설명/교정 문맥의 이어지는 질문을 묶습니다.
-- 한 세션에서 활성 스레드를 하나로 제한할지 여부는 TBD입니다.
-- `START_NEW` 이벤트 시 기존 활성 스레드를 닫는 정책을 기본으로 합니다.
+- 한 세션의 활성 스레드는 하나로 운영합니다. `START_NEW`는 기존 ACTIVE 스레드를 `CLOSED`로 바꾸고 새 스레드를 생성합니다.
+- `FOLLOW_UP`은 같은 세션의 ACTIVE `qa-{id}`만 허용하며 타 세션·종료 스레드 참조는 정책 위반으로 거부합니다.
+- AI 호출 전에 저장된 사용자 메시지와 최종 저장된 QA 메시지를 `qa_messages.chat_message_id`로 연결합니다.
 
 ### Quiz
 
@@ -94,7 +97,7 @@ erDiagram
 
 - 한 번의 사용자 답안과 채점 결과를 나타냅니다.
 - 총점은 문항별 점수 합과 일치해야 하며 `0 <= score <= maxScore`입니다.
-- 퀴즈 재제출 정책에 따라 `(quizId, userId)` 유일성 또는 attempt 번호를 결정합니다.
+- MVP는 1회 제출 제한(DEC-009)이며 `attempt_no`는 1로 고정합니다. 재제출 확장 시 attempt 관리와 정답 보호 규칙을 함께 도입합니다.
 
 ### QuizAssessment
 
@@ -121,7 +124,7 @@ erDiagram
 | 상태 | 의미 | 허용 전이 |
 | --- | --- | --- |
 | ACTIVE | 학습 중 | COMPLETED, DELETED |
-| COMPLETED | 학습 완료 | TBD: ACTIVE 재개 또는 불가 |
+| COMPLETED | 학습 완료 | 없음 — MVP에서 재개 불가, 재학습은 새 세션 생성(DEC-024) |
 | DELETED | 논리 삭제 | 없음 |
 
 ### pageStatus
@@ -135,7 +138,7 @@ erDiagram
 | DIAGNOSIS_PENDING | 진단 답변 대기 |
 | REPAIR_COMPLETED | 오개념 교정 완료 |
 
-현재 `pageStatus`가 여러 관심사를 함께 표현합니다. 구현 전 상태 폭증을 피하기 위해 설명 상태, 퀴즈 상태, 진단 상태를 분리할지 결정해야 합니다.
+MVP는 세션 단일 `pageStatus`를 유지하고 페이지 이동 시 초기화합니다(DEC-008 Accepted). 페이지별 이력 모델(`SessionPageProgress`) 분리는 MVP 이후 확장으로 미룹니다.
 
 ### QuizType
 

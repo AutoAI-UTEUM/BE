@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 구현 전 설계 초안 |
-| 마지막 갱신 | 2026-07-10 |
+| 마지막 갱신 | 2026-07-23 |
 | 기준 | Spring 백엔드 중심 시스템 설계 |
 
 ## 문서 사용 원칙
@@ -17,7 +17,7 @@
 내용이 충돌하면 다음 순서로 판단합니다.
 
 1. 팀에서 승인해 기록한 결정과 실제 OpenAPI/마이그레이션
-2. [시스템 아키텍처](architecture.md)와 [API 명세](api-spec.md)
+2. [시스템 아키텍처](architecture.md)와 [API 명세](api-spec.md) — 단, Spring↔FastAPI 내부 API 관련 내용은 [Spring↔AI 통합 계약](ai-integration-contract.md) v0.4가 API 명세와 동급 이상의 기준이며 충돌 시 통합 계약이 우선합니다
 3. [Spring 백엔드 실행 계획](backend-plan.md)
 4. [에이전트 시스템 명세](agent-system-spec.md) — FastAPI 내부 구현 및 Spring-FastAPI 계약 범위
 
@@ -32,6 +32,7 @@
 - [기능 명세](feature-spec.md)
 - [화면-API 매핑](screen-api-map.md)
 - [API 명세](api-spec.md)
+- [Spring↔AI 통합 계약](ai-integration-contract.md) — Spring↔FastAPI 내부 계약 v0.4. 내부 API 관련 내용이 충돌하면 API 명세와 동급 이상 기준
 - [에러 코드](error-code.md)
 
 ### 백엔드 설계
@@ -41,6 +42,7 @@
 - [데이터베이스](database.md)
 - [백엔드 실행 계획](backend-plan.md)
 - [백엔드 컨벤션](backend-convention.md)
+- [배포·롤백 운영 가이드](deploy.md)
 - [Definition of Done](definition-of-done.md)
 
 ### 협업과 AI
@@ -50,12 +52,14 @@
 - [GitHub Epic 초안](issues/README.md)
 - [상세 작업 분해 계획](issue-plan.md)
 - [에이전트 시스템 명세](agent-system-spec.md)
+- [AI 서비스 테스트 전략](test-strategy.md)
 - [결정 대기 목록](decisions.md)
+- [DEC-002 Python·Grok 모델 결정](DEC-002-python-grok-model.md) — DEC-002 v2 전문
 - [CONTRIBUTING](../CONTRIBUTING.md)
 
 ## 변경 규칙
 
 - API 요청/응답이 바뀌면 `api-spec.md`, `screen-api-map.md`, OpenAPI를 같은 변경 단위로 갱신합니다.
 - 도메인 규칙이나 상태가 바뀌면 `domain-model.md`, `database.md`, 관련 테스트를 함께 갱신합니다.
-- FastAPI 계약이 바뀌면 `agent-system-spec.md`와 Spring 내부 API 계약을 함께 갱신합니다.
+- FastAPI 계약이 바뀌면 `ai-integration-contract.md`, `agent-system-spec.md`와 Spring 내부 API 계약을 함께 갱신합니다.
 - 확정되지 않은 항목에는 날짜와 소유자를 포함한 TBD를 남깁니다.
