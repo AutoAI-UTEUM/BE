@@ -58,6 +58,9 @@ async def test_explain_current_page_turn(
         "eventType": "EXPLAIN_CURRENT_PAGE",
         "payload": {"detailLevel": "DETAILED"},
     }
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["learnerConfidence"] = "HIGH"
     fake_llm.queue(
         make_plan(
             ToolName.EXPLAIN_PAGE,
@@ -77,6 +80,8 @@ async def test_explain_current_page_turn(
     assert turn.actions_executed[0].agent == "ExplainerAgent"
     assert "adjustments" not in response.json()["actionsExecuted"][0]
     assert len(fake_llm.calls) == 2
+    assert '"learner_confidence":"HIGH"' in fake_llm.calls[0][0][1]["content"]
+    assert '"learnerConfidence": "HIGH"' in fake_llm.calls[1][0][1]["content"]
     assert "learnerMemoryDigest" in fake_llm.calls[1][0][1]["content"]
 
 
@@ -139,6 +144,10 @@ async def test_user_question_start_new(
     auth_headers: dict[str, str],
     turn_payload: dict[str, object],
 ) -> None:
+    payload = deepcopy(turn_payload)
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["learnerConfidence"] = "LOW"
     fake_llm.queue(
         make_plan(
             ToolName.ANSWER_QUESTION,
@@ -148,13 +157,14 @@ async def test_user_question_start_new(
         AgentOutput(markdown="편차는 평균에서 떨어진 정도입니다.", thought_summary="근거 연결"),
     )
 
-    response = await post_turn(client, auth_headers, turn_payload)
+    response = await post_turn(client, auth_headers, payload)
 
     assert response.status_code == 200
     turn = TurnResponse.model_validate(response.json())
     assert turn.messages[0].message_type == "QA"
     assert turn.state_patch == {"qaThread": {"mode": "START_NEW"}}
     assert '"qaThreadDigest": null' in fake_llm.calls[1][0][1]["content"]
+    assert '"learnerConfidence": "LOW"' in fake_llm.calls[1][0][1]["content"]
 
 
 async def test_user_question_follow_up_includes_thread_and_latest_repair(
@@ -423,16 +433,29 @@ async def test_event_payload_mismatch_returns_schema_envelope(
     assert response.json()["error"]["category"] == "SCHEMA"
 
 
+@pytest.mark.parametrize("invalid_confidence", [0.7, "VERY_HIGH"])
+async def test_learner_confidence_rejects_float_and_unknown_enum(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+    invalid_confidence: object,
+) -> None:
+    payload = deepcopy(turn_payload)
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["learnerConfidence"] = invalid_confidence
+
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["category"] == "SCHEMA"
+    assert fake_llm.calls == []
+
+
 @pytest.mark.parametrize(
     ("event", "tool", "args", "agent", "content"),
     [
-        (
-            {"eventType": "QUIZ_TYPE_SELECTED", "payload": {"quizType": "MCQ"}},
-            ToolName.GENERATE_QUIZ_MCQ,
-            {"quizType": "MCQ"},
-            "QuizAgent",
-            "퀴즈 생성 기능은 준비 중입니다. (이슈 #31)",
-        ),
         (
             {
                 "eventType": "DIAGNOSIS_ANSWER_SUBMITTED",

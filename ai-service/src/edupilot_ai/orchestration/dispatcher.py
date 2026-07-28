@@ -11,6 +11,7 @@ from edupilot_ai.llm.bridge import (
     LlmUsage,
 )
 from edupilot_ai.models.plan import PlanAction, ToolName, TurnPlan
+from edupilot_ai.models.quiz import QuizGeneration, QuizType
 from edupilot_ai.models.turn import (
     ActionExecuted,
     Adjustment,
@@ -23,6 +24,7 @@ from edupilot_ai.orchestration.agents import (
     AgentTextStream,
     ExplainerAgent,
     QaAgent,
+    QuizAgent,
 )
 from edupilot_ai.orchestration.context import AgentContext
 from edupilot_ai.orchestration.policy import PolicyViolation
@@ -72,6 +74,7 @@ class DispatchResult:
     state_patch: dict[str, Any] = field(default_factory=dict)
     ui_actions: list[dict[str, Any]] = field(default_factory=list)
     usages: list[LlmUsage] = field(default_factory=list)
+    quiz: QuizGeneration | None = None
     failure: LlmBridgeError | PolicyViolation | None = None
 
 
@@ -89,10 +92,18 @@ type DispatchStreamItem = DispatchTextDelta | DispatchStreamCompleted
 
 
 class ToolDispatcher:
-    def __init__(self, *, explainer: ExplainerAgent, qa: QaAgent, model: str) -> None:
+    def __init__(
+        self,
+        *,
+        explainer: ExplainerAgent,
+        qa: QaAgent,
+        model: str,
+        quiz: QuizAgent | None = None,
+    ) -> None:
         self._explainer = explainer
         self._qa = qa
         self._model = model
+        self._quiz = quiz
 
     async def dispatch(
         self,
@@ -120,7 +131,12 @@ class ToolDispatcher:
                         adjustments=action_adjustments,
                     )
                 )
-                result.messages.append(outcome.message)
+                if outcome.message is not None:
+                    result.messages.append(outcome.message)
+                if outcome.quiz is not None:
+                    if result.quiz is not None:
+                        raise PolicyViolation("multiple quiz results are not allowed")
+                    result.quiz = outcome.quiz
                 result.usages.append(outcome.usage)
             except (LlmBridgeError, PolicyViolation) as error:
                 result.actions.append(
@@ -196,7 +212,12 @@ class ToolDispatcher:
                         adjustments=action_adjustments,
                     )
                 )
-                result.messages.append(outcome.message)
+                if outcome.message is not None:
+                    result.messages.append(outcome.message)
+                if outcome.quiz is not None:
+                    if result.quiz is not None:
+                        raise PolicyViolation("multiple quiz results are not allowed")
+                    result.quiz = outcome.quiz
                 result.usages.append(outcome.usage)
             except (LlmBridgeError, PolicyViolation) as error:
                 result.actions.append(
@@ -235,7 +256,14 @@ class ToolDispatcher:
                 timeout_seconds=deadline.remaining_seconds(),
             )
         if action.tool.value.startswith("GENERATE_QUIZ_"):
-            return self._stub("QuizAgent", "퀴즈 생성 기능은 준비 중입니다. (이슈 #31)")
+            if self._quiz is None:
+                raise PolicyViolation("QuizAgent is not configured")
+            quiz_type = QuizType(str(action.args["quizType"]))
+            return await self._quiz.run(
+                context,
+                quiz_type,
+                timeout_seconds=deadline.remaining_seconds(),
+            )
         if action.tool is ToolName.REPAIR_MISCONCEPTION:
             return self._stub("RepairAgent", "오개념 교정 기능은 준비 중입니다. (이슈 #38)")
         raise PolicyViolation("tool is not implemented in issue #23")
