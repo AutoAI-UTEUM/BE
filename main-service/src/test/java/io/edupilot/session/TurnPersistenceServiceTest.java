@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import io.edupilot.ai.dto.QuizGeneration;
 import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -24,7 +26,6 @@ import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
 import io.edupilot.quiz.QuizService;
 import io.edupilot.user.UserRepository;
-import tools.jackson.databind.ObjectMapper;
 
 @ExtendWith(MockitoExtension.class)
 class TurnPersistenceServiceTest {
@@ -77,6 +78,7 @@ class TurnPersistenceServiceTest {
 				)),
 				Map.of("pageStatus", "EXPLAINED"),
 				List.of(),
+				null,
 				List.of(),
 				null,
 				null
@@ -189,6 +191,55 @@ class TurnPersistenceServiceTest {
 		);
 	}
 
+	@Test
+	void storesTopLevelQuizAndActivatesOnlySpringQuizId() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINED,
+			PageStatus.QUIZ_READY,
+			3,
+			5
+		);
+		when(session.getActiveQuizId()).thenReturn(50L);
+		QuizGeneration generation = mcqGeneration();
+		when(quizService.createFromGeneration(
+			100L,
+			"1.0",
+			generation
+		)).thenReturn(50L);
+		Map<String, Object> patch = new LinkedHashMap<>();
+		patch.put("pageStatus", "QUIZ_READY");
+		patch.put("activeQuizId", 999L);
+
+		PersistedTurn persisted = service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.QUIZ_TYPE_SELECTED,
+			null,
+			501L,
+			new io.edupilot.ai.dto.TurnResponse(
+				"1.0",
+				"turn-1",
+				"GENERATE_QUIZ",
+				List.of(),
+				List.of(),
+				patch,
+				List.of(),
+				generation,
+				List.of(),
+				null,
+				null
+			)
+		);
+
+		verify(quizService).createFromGeneration(100L, "1.0", generation);
+		verify(session).activateQuiz(50L, List.of());
+		assertThat(persisted.state().activeQuizId()).isEqualTo(50L);
+		assertThat(persisted.state().pageStatus())
+			.isEqualTo(PageStatus.QUIZ_READY);
+		assertThat(persisted.uiActions()).isEmpty();
+	}
+
 	private LearningSession activeSession(
 		PageStatus previousStatus,
 		PageStatus persistedStatus,
@@ -221,9 +272,39 @@ class TurnPersistenceServiceTest {
 			messages,
 			patch,
 			List.of(),
+			null,
 			List.of(),
 			null,
 			null
+		);
+	}
+
+	private QuizGeneration mcqGeneration() {
+		return new QuizGeneration(
+			"1.0",
+			"generation-1",
+			"MCQ",
+			new QuizGeneration.Coverage(2, 4),
+			"퀴즈",
+			5,
+			java.util.stream.IntStream.rangeClosed(1, 5)
+				.mapToObj(index -> new QuizGeneration.Question(
+					"q" + index,
+					"문항 " + index,
+					new BigDecimal("10.00"),
+					List.of(
+						new QuizGeneration.Choice("a", "A"),
+						new QuizGeneration.Choice("b", "B")
+					),
+					"a",
+					"해설",
+					null,
+					null,
+					null,
+					null,
+					null
+				))
+				.toList()
 		);
 	}
 
@@ -238,8 +319,7 @@ class TurnPersistenceServiceTest {
 			materialRepository,
 			quizService,
 			diagnosisService,
-			new UiActionResolver(),
-			new ObjectMapper()
+			new UiActionResolver()
 		);
 	}
 }

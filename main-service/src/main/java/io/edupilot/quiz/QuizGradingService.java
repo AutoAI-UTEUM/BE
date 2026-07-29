@@ -60,15 +60,15 @@ public class QuizGradingService {
 			}
 			String answer = answersById.get(question.questionId());
 			boolean correct = switch (prepared.quizType()) {
-				case MCQ -> privateQuestion.correctOptionId().equals(answer);
-				case OX -> Boolean.toString(privateQuestion.correctAnswer())
+				case MCQ -> privateQuestion.answerChoiceId().equals(answer);
+				case OX -> Boolean.toString(privateQuestion.answerValue())
 					.equals(answer);
 				case SHORT, ESSAY -> throw invalidResult();
 			};
 			items.add(new GradingItem(
 				question.questionId(),
-				correct ? question.maxScore() : BigDecimal.ZERO,
-				question.maxScore(),
+				correct ? question.points() : BigDecimal.ZERO,
+				question.points(),
 				correct ? GradingVerdict.CORRECT : GradingVerdict.WRONG,
 				privateQuestion.explanation()
 			));
@@ -93,19 +93,16 @@ public class QuizGradingService {
 				String modelAnswer = prepared.quizType() == QuizType.SHORT
 					? privateQuestion.referenceAnswer()
 					: privateQuestion.modelAnswer();
-				List<GradeRequest.Rubric> rubric =
-					privateQuestion.rubric().stream()
-						.map(criterion -> new GradeRequest.Rubric(
-							criterion.criterion(),
-							criterion.weight()
-						))
-						.toList();
+				List<GradeRequest.Rubric> rubric = gradeRubric(
+					prepared.quizType(),
+					privateQuestion
+				);
 				return new GradeRequest.Item(
 					question.questionId(),
 					question.questionText(),
 					modelAnswer,
 					rubric,
-					question.maxScore()
+					question.points()
 				);
 			})
 			.toList();
@@ -125,6 +122,39 @@ public class QuizGradingService {
 			prepared.pageContext(),
 			null
 		);
+	}
+
+	private List<GradeRequest.Rubric> gradeRubric(
+		QuizType quizType,
+		PrivateQuizQuestion question
+	) {
+		if (quizType == QuizType.ESSAY) {
+			return question.rubric().stream()
+				.map(criterion -> new GradeRequest.Rubric(
+					criterion.criterion(),
+					criterion.weight()
+				))
+				.toList();
+		}
+		List<String> criteria = question.gradingCriteria();
+		if (criteria == null || criteria.isEmpty()) {
+			throw invalidResult();
+		}
+		BigDecimal unitWeight = BigDecimal.ONE.divide(
+			BigDecimal.valueOf(criteria.size()),
+			8,
+			java.math.RoundingMode.HALF_UP
+		);
+		List<GradeRequest.Rubric> rubric = new ArrayList<>();
+		BigDecimal assignedWeight = BigDecimal.ZERO;
+		for (int index = 0; index < criteria.size(); index++) {
+			BigDecimal weight = index == criteria.size() - 1
+				? BigDecimal.ONE.subtract(assignedWeight)
+				: unitWeight;
+			rubric.add(new GradeRequest.Rubric(criteria.get(index), weight));
+			assignedWeight = assignedWeight.add(weight);
+		}
+		return List.copyOf(rubric);
 	}
 
 	private GradingResult validateAiResult(
@@ -161,7 +191,7 @@ public class QuizGradingService {
 			}
 			PublicQuizQuestion question = questionsById.get(item.questionId());
 			if (question == null
-				|| item.maxScore().compareTo(question.maxScore()) != 0
+				|| item.maxScore().compareTo(question.points()) != 0
 				|| item.score().compareTo(BigDecimal.ZERO) < 0
 				|| item.score().compareTo(item.maxScore()) > 0
 				|| hasMoreThanTwoDecimals(item.score())

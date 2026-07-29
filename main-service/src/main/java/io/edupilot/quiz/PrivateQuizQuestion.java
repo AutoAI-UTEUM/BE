@@ -4,11 +4,11 @@ import java.util.List;
 
 public record PrivateQuizQuestion(
 	String questionId,
-	String correctOptionId,
-	Boolean correctAnswer,
+	String answerChoiceId,
+	Boolean answerValue,
 	String explanation,
 	String referenceAnswer,
-	List<String> acceptableKeywords,
+	List<String> gradingCriteria,
 	List<RubricCriterion> rubric,
 	String modelAnswer
 ) {

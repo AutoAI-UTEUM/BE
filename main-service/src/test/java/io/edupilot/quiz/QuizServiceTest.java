@@ -8,6 +8,9 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
@@ -20,15 +23,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.edupilot.ai.dto.QuizGeneration;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.session.LearningSession;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.User;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.node.ObjectNode;
 
 @ExtendWith(MockitoExtension.class)
 class QuizServiceTest {
@@ -52,7 +54,8 @@ class QuizServiceTest {
 		quizService = new QuizService(
 			quizRepository,
 			submissionRepository,
-			sessionRepository
+			sessionRepository,
+			new QuizGenerationValidator()
 		);
 		User owner = User.create("owner@example.com", "hash", "소유자");
 		ReflectionTestUtils.setField(owner, "id", 1L);
@@ -65,42 +68,13 @@ class QuizServiceTest {
 		material.markReady(10);
 		session = LearningSession.create(owner, material);
 		ReflectionTestUtils.setField(session, "id", 100L);
+		ReflectionTestUtils.setField(session, "currentPage", 3);
 		lenient().when(sessionRepository.findById(100L))
 			.thenReturn(Optional.of(session));
 	}
 
 	@Test
-	void createFromGenerationSeparatesPublicAndPrivateFields() throws Exception {
-		when(quizRepository.saveAndFlush(any(Quiz.class))).thenAnswer(invocation -> {
-			Quiz quiz = invocation.getArgument(0);
-			ReflectionTestUtils.setField(quiz, "id", 50L);
-			return quiz;
-		});
-		Long quizId = quizService.createFromGeneration(100L, mcqGeneration(5, 5));
-
-		assertThat(quizId).isEqualTo(50L);
-		ArgumentCaptor<Quiz> captor = ArgumentCaptor.forClass(Quiz.class);
-		org.mockito.Mockito.verify(quizRepository).saveAndFlush(captor.capture());
-		Quiz saved = captor.getValue();
-		assertThat(saved.getPublicQuestions()).hasSize(5);
-		assertThat(saved.getPublicQuestions().getFirst().options()).hasSize(2);
-		assertThat(saved.getPrivateQuestions().getFirst().correctOptionId())
-			.isEqualTo("a");
-
-		String publicJson = objectMapper.writeValueAsString(
-			saved.getPublicQuestions()
-		);
-		assertThat(publicJson)
-			.doesNotContain("correctOptionId")
-			.doesNotContain("correctAnswer")
-			.doesNotContain("referenceAnswer")
-			.doesNotContain("modelAnswer")
-			.doesNotContain("rubric")
-			.doesNotContain("unknownSecret");
-	}
-
-	@Test
-	void createsAllFourSupportedQuizTypes() throws Exception {
+	void createsAllFourTypesAndSeparatesPrivateFields() throws Exception {
 		when(quizRepository.saveAndFlush(any(Quiz.class))).thenAnswer(invocation -> {
 			Quiz quiz = invocation.getArgument(0);
 			ReflectionTestUtils.setField(quiz, "id", 50L);
@@ -110,7 +84,8 @@ class QuizServiceTest {
 		for (QuizType quizType : QuizType.values()) {
 			assertThat(quizService.createFromGeneration(
 				100L,
-				generation(quizType)
+				"1.0",
+				generation(quizType, 5, 5)
 			)).isEqualTo(50L);
 		}
 
@@ -125,93 +100,153 @@ class QuizServiceTest {
 				QuizType.SHORT,
 				QuizType.ESSAY
 			);
-		assertThat(captor.getAllValues())
-			.allSatisfy(quiz -> {
-				assertThat(quiz.getPublicQuestions()).hasSize(5);
-				assertThat(quiz.getPrivateQuestions()).hasSize(5);
-			});
-	}
+		for (Quiz quiz : captor.getAllValues()) {
+			assertThat(quiz.getPublicQuestions()).hasSize(5);
+			assertThat(quiz.getPrivateQuestions()).hasSize(5);
+			String publicJson = objectMapper.writeValueAsString(
+				quiz.getPublicQuestions()
+			);
+			assertThat(publicJson)
+				.contains("\"points\"")
+				.doesNotContain("\"maxScore\"")
+				.doesNotContain("answerChoiceId")
+				.doesNotContain("correctOptionId")
+				.doesNotContain("answerValue")
+				.doesNotContain("correctAnswer")
+				.doesNotContain("explanation")
+				.doesNotContain("referenceAnswer")
+				.doesNotContain("gradingCriteria")
+				.doesNotContain("modelAnswer")
+				.doesNotContain("rubric");
+			if (quiz.getQuizType() == QuizType.MCQ) {
+				assertThat(publicJson)
+					.contains("\"choices\"")
+					.doesNotContain("\"options\"");
+			}
+		}
 
-	@Test
-	void rejectsQuestionCountMismatchAndUnsupportedType() throws Exception {
-		assertError(
-			mcqGeneration(5, 4),
-			ErrorCode.AI_RESPONSE_INVALID
+		String privateMcqJson = objectMapper.writeValueAsString(
+			captor.getAllValues().getFirst().getPrivateQuestions()
 		);
-		JsonNode unsupported = objectMapper.readTree("""
-			{
-			  "schemaVersion": "1.0",
-			  "generationId": "generation-1",
-			  "quizType": "UNKNOWN",
-			  "page": 3,
-			  "coverageStartPage": 1,
-			  "coverageEndPage": 3,
-			  "title": "퀴즈",
-			  "questionCount": 5,
-			  "questions": []
-			}
-			""");
-		assertError(unsupported, ErrorCode.UNSUPPORTED_QUIZ_TYPE);
+		String privateOxJson = objectMapper.writeValueAsString(
+			captor.getAllValues().get(1).getPrivateQuestions()
+		);
+		assertThat(privateMcqJson)
+			.contains("\"answerChoiceId\"")
+			.doesNotContain("\"correctOptionId\"");
+		assertThat(privateOxJson)
+			.contains("\"answerValue\"")
+			.doesNotContain("\"correctAnswer\"");
+		assertThat(captor.getAllValues().get(0)
+			.getPrivateQuestions().getFirst().answerChoiceId()).isEqualTo("a");
+		assertThat(captor.getAllValues().get(1)
+			.getPrivateQuestions().getFirst().answerValue()).isTrue();
+		assertThat(captor.getAllValues().get(2)
+			.getPrivateQuestions().getFirst().gradingCriteria())
+			.containsExactly("정확성", "핵심 개념");
+		assertThat(captor.getAllValues().get(3)
+			.getPrivateQuestions().getFirst().rubric()).hasSize(2);
+
+		Quiz savedMcq = captor.getAllValues().getFirst();
+		when(quizRepository.findOwned(50L, 1L))
+			.thenReturn(Optional.of(savedMcq));
+		when(submissionRepository.existsByQuiz_IdAndUser_Id(50L, 1L))
+			.thenReturn(false);
+		String detailJson = objectMapper.writeValueAsString(
+			quizService.detail(1L, 50L)
+		);
+		assertThat(detailJson)
+			.contains("\"quizId\":50")
+			.contains("\"submitted\":false")
+			.contains("\"questionId\":\"q1\"")
+			.contains("\"maxScore\":20.00")
+			.contains("\"options\"")
+			.doesNotContain("\"points\"")
+			.doesNotContain("\"choices\"")
+			.doesNotContain("answerChoiceId")
+			.doesNotContain("correctOptionId")
+			.doesNotContain("answerValue")
+			.doesNotContain("correctAnswer")
+			.doesNotContain("explanation")
+			.doesNotContain("referenceAnswer")
+			.doesNotContain("gradingCriteria")
+			.doesNotContain("modelAnswer")
+			.doesNotContain("rubric");
 	}
 
 	@Test
-	void rejectsInvalidRangeDuplicateIdScoreAndMcqOption() throws Exception {
-		ObjectNode invalidRange = (ObjectNode)mcqGeneration(5, 5);
-		invalidRange.put("coverageEndPage", 11);
-		assertError(invalidRange, ErrorCode.AI_RESPONSE_INVALID);
+	void rejectsCountCoverageDuplicateAndMcqAnswerViolations() {
+		assertInvalid(generation(QuizType.MCQ, 5, 4));
 
-		ObjectNode duplicateId = (ObjectNode)mcqGeneration(5, 5);
-		((ObjectNode)duplicateId.get("questions").get(1))
-			.put("questionId", "q1");
-		assertError(duplicateId, ErrorCode.AI_RESPONSE_INVALID);
+		QuizGeneration outsideSnapshot = generation(QuizType.MCQ, 5, 5);
+		outsideSnapshot = copy(
+			outsideSnapshot,
+			new QuizGeneration.Coverage(1, 3),
+			outsideSnapshot.questions()
+		);
+		assertInvalid(outsideSnapshot);
 
-		ObjectNode invalidScore = (ObjectNode)mcqGeneration(5, 5);
-		((ObjectNode)invalidScore.get("questions").get(0))
-			.put("maxScore", 0);
-		assertError(invalidScore, ErrorCode.AI_RESPONSE_INVALID);
+		QuizGeneration duplicate = generation(QuizType.MCQ, 5, 5);
+		List<QuizGeneration.Question> duplicateQuestions =
+			new ArrayList<>(duplicate.questions());
+		QuizGeneration.Question second = duplicateQuestions.get(1);
+		duplicateQuestions.set(1, copyQuestion(second, "q1", second.choices()));
+		assertInvalid(copy(duplicate, duplicate.coverage(), duplicateQuestions));
 
-		ObjectNode unknownCorrectOption = (ObjectNode)mcqGeneration(5, 5);
-		((ObjectNode)unknownCorrectOption.get("questions").get(0))
-			.put("correctOptionId", "missing");
-		assertError(unknownCorrectOption, ErrorCode.AI_RESPONSE_INVALID);
+		QuizGeneration unknownAnswer = generation(QuizType.MCQ, 5, 5);
+		List<QuizGeneration.Question> answerQuestions =
+			new ArrayList<>(unknownAnswer.questions());
+		QuizGeneration.Question first = answerQuestions.getFirst();
+		answerQuestions.set(0, new QuizGeneration.Question(
+			first.questionId(),
+			first.questionText(),
+			first.points(),
+			first.choices(),
+			"missing",
+			first.explanation(),
+			first.answerValue(),
+			first.referenceAnswer(),
+			first.gradingCriteria(),
+			first.modelAnswer(),
+			first.rubric()
+		));
+		assertInvalid(copy(
+			unknownAnswer,
+			unknownAnswer.coverage(),
+			answerQuestions
+		));
 	}
 
 	@Test
-	void rejectsEssayRubricWeightOutsideTolerance() throws Exception {
-		String questions = IntStream.rangeClosed(1, 5)
-			.mapToObj(index -> """
-				{
-				  "questionId": "q%d",
-				  "questionText": "서술형 %d",
-				  "maxScore": 20,
-				  "modelAnswer": "모범 답안",
-				  "rubric": [
-				    {"criterion": "정확성", "weight": 0.7},
-				    {"criterion": "논리성", "weight": 0.2}
-				  ]
-				}
-				""".formatted(index, index))
-			.collect(java.util.stream.Collectors.joining(","));
-		JsonNode generation = objectMapper.readTree("""
-			{
-			  "schemaVersion": "1.0",
-			  "generationId": "generation-1",
-			  "quizType": "ESSAY",
-			  "page": 3,
-			  "coverageStartPage": 1,
-			  "coverageEndPage": 3,
-			  "title": "서술형",
-			  "questionCount": 5,
-			  "questions": [%s]
-			}
-			""".formatted(questions));
+	void rejectsEssayRubricWeightOutsideTolerance() {
+		QuizGeneration generation = generation(QuizType.ESSAY, 5, 5);
+		List<QuizGeneration.Question> questions =
+			new ArrayList<>(generation.questions());
+		QuizGeneration.Question first = questions.getFirst();
+		questions.set(0, new QuizGeneration.Question(
+			first.questionId(),
+			first.questionText(),
+			first.points(),
+			first.choices(),
+			first.answerChoiceId(),
+			first.explanation(),
+			first.answerValue(),
+			first.referenceAnswer(),
+			first.gradingCriteria(),
+			first.modelAnswer(),
+			List.of(
+				new QuizGeneration.Rubric(
+					"정확성",
+					new BigDecimal("0.7")
+				),
+				new QuizGeneration.Rubric(
+					"논리성",
+					new BigDecimal("0.2")
+				)
+			)
+		));
 
-		assertError(generation, ErrorCode.AI_RESPONSE_INVALID);
-
-		ObjectNode negativeWeight = (ObjectNode)generation(QuizType.ESSAY);
-		((ObjectNode)negativeWeight.get("questions").get(0)
-			.get("rubric").get(0)).put("weight", -0.2);
-		assertError(negativeWeight, ErrorCode.AI_RESPONSE_INVALID);
+		assertInvalid(copy(generation, generation.coverage(), questions));
 	}
 
 	@Test
@@ -221,7 +256,7 @@ class QuizServiceTest {
 		when(quizRepository.findBySession_IdOrderByCreatedAtDescIdDesc(
 			eq(100L),
 			any(Pageable.class)
-		)).thenReturn(java.util.List.of());
+		)).thenReturn(List.of());
 
 		quizService.list(1L, 100L);
 
@@ -234,93 +269,140 @@ class QuizServiceTest {
 		assertThat(pageable.getValue().getPageSize()).isEqualTo(100);
 	}
 
-	private JsonNode mcqGeneration(int questionCount, int arraySize)
-		throws Exception {
-		String questions = IntStream.rangeClosed(1, arraySize)
-			.mapToObj(index -> """
-				{
-				  "questionId": "q%d",
-				  "questionText": "문항 %d",
-				  "maxScore": 20,
-				  "options": [
-				    {"optionId": "a", "text": "정답"},
-				    {"optionId": "b", "text": "오답"}
-				  ],
-				  "correctOptionId": "a",
-				  "explanation": "핵심 설명",
-				  "unknownSecret": "버려야 함"
-				}
-				""".formatted(index, index))
-			.collect(java.util.stream.Collectors.joining(","));
-		return objectMapper.readTree("""
-			{
-			  "schemaVersion": "1.0",
-			  "generationId": "generation-1",
-			  "quizType": "MCQ",
-			  "page": 3,
-			  "coverageStartPage": 1,
-			  "coverageEndPage": 3,
-			  "title": "MCQ",
-			  "questionCount": %d,
-			  "questions": [%s]
-			}
-			""".formatted(questionCount, questions));
+	private QuizGeneration generation(
+		QuizType quizType,
+		int questionCount,
+		int arraySize
+	) {
+		List<QuizGeneration.Question> questions = IntStream
+			.rangeClosed(1, arraySize)
+			.mapToObj(index -> question(quizType, index))
+			.toList();
+		return new QuizGeneration(
+			"1.0",
+			"generation-1",
+			quizType.name(),
+			new QuizGeneration.Coverage(2, 4),
+			quizType + " 퀴즈",
+			questionCount,
+			questions
+		);
 	}
 
-	private JsonNode generation(QuizType quizType) throws Exception {
-		String typeFields = switch (quizType) {
-			case MCQ -> """
-				  "options": [
-				    {"optionId": "a", "text": "정답"},
-				    {"optionId": "b", "text": "오답"}
-				  ],
-				  "correctOptionId": "a",
-				  "explanation": "핵심 설명"
-				""";
-			case OX -> """
-				  "correctAnswer": true,
-				  "explanation": "핵심 설명"
-				""";
-			case SHORT -> """
-				  "referenceAnswer": "기준 답안",
-				  "acceptableKeywords": ["핵심"],
-				  "rubric": [{"criterion": "정확성", "weight": 1.0}]
-				""";
-			case ESSAY -> """
-				  "modelAnswer": "모범 답안",
-				  "rubric": [{"criterion": "논리성", "weight": 1.0}]
-				""";
+	private QuizGeneration.Question question(QuizType quizType, int index) {
+		String questionId = "q" + index;
+		String questionText = "문항 " + index;
+		BigDecimal points = new BigDecimal("20.00");
+		return switch (quizType) {
+			case MCQ -> new QuizGeneration.Question(
+				questionId,
+				questionText,
+				points,
+				List.of(
+					new QuizGeneration.Choice("a", "정답"),
+					new QuizGeneration.Choice("b", "오답")
+				),
+				"a",
+				"핵심 설명",
+				null,
+				null,
+				null,
+				null,
+				null
+			);
+			case OX -> new QuizGeneration.Question(
+				questionId,
+				questionText,
+				points,
+				null,
+				null,
+				"핵심 설명",
+				true,
+				null,
+				null,
+				null,
+				null
+			);
+			case SHORT -> new QuizGeneration.Question(
+				questionId,
+				questionText,
+				points,
+				null,
+				null,
+				null,
+				null,
+				"기준 답안",
+				List.of("정확성", "핵심 개념"),
+				null,
+				null
+			);
+			case ESSAY -> new QuizGeneration.Question(
+				questionId,
+				questionText,
+				points,
+				null,
+				null,
+				null,
+				null,
+				null,
+				null,
+				"모범 답안",
+				List.of(
+					new QuizGeneration.Rubric(
+						"정확성",
+						new BigDecimal("0.6")
+					),
+					new QuizGeneration.Rubric(
+						"논리성",
+						new BigDecimal("0.4")
+					)
+				)
+			);
 		};
-		String questions = IntStream.rangeClosed(1, 5)
-			.mapToObj(index -> """
-				{
-				  "questionId": "q%d",
-				  "questionText": "문항 %d",
-				  "maxScore": 20,
-				%s
-				}
-				""".formatted(index, index, typeFields))
-			.collect(java.util.stream.Collectors.joining(","));
-		return objectMapper.readTree("""
-			{
-			  "schemaVersion": "1.0",
-			  "generationId": "generation-1",
-			  "quizType": "%s",
-			  "page": 3,
-			  "coverageStartPage": 1,
-			  "coverageEndPage": 3,
-			  "title": "%s",
-			  "questionCount": 5,
-			  "questions": [%s]
-			}
-			""".formatted(quizType, quizType, questions));
 	}
 
-	private void assertError(JsonNode generation, ErrorCode expected) {
+	private QuizGeneration copy(
+		QuizGeneration source,
+		QuizGeneration.Coverage coverage,
+		List<QuizGeneration.Question> questions
+	) {
+		return new QuizGeneration(
+			source.schemaVersion(),
+			source.generationId(),
+			source.quizType(),
+			coverage,
+			source.title(),
+			source.questionCount(),
+			List.copyOf(questions)
+		);
+	}
+
+	private QuizGeneration.Question copyQuestion(
+		QuizGeneration.Question source,
+		String questionId,
+		List<QuizGeneration.Choice> choices
+	) {
+		return new QuizGeneration.Question(
+			questionId,
+			source.questionText(),
+			source.points(),
+			choices,
+			source.answerChoiceId(),
+			source.explanation(),
+			source.answerValue(),
+			source.referenceAnswer(),
+			source.gradingCriteria(),
+			source.modelAnswer(),
+			source.rubric()
+		);
+	}
+
+	private void assertInvalid(QuizGeneration generation) {
 		assertThatThrownBy(() ->
-			quizService.createFromGeneration(100L, generation))
+			quizService.createFromGeneration(100L, "1.0", generation))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(expected)
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.AI_RESPONSE_INVALID)
 			);
 	}
 }

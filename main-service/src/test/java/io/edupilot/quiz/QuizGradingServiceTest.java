@@ -237,8 +237,8 @@ class QuizGradingServiceTest {
 			null,
 			null,
 			"기준 답안",
-			List.of(),
-			List.of(new RubricCriterion("정확성", BigDecimal.ONE)),
+			List.of("정확성"),
+			null,
 			null
 		);
 	}

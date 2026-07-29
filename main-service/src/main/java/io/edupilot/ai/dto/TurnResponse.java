@@ -11,6 +11,7 @@ public record TurnResponse(
 	List<Map<String, Object>> messages,
 	Map<String, Object> statePatch,
 	List<Map<String, Object>> uiActions,
+	QuizGeneration quiz,
 	List<Map<String, Object>> memoryCandidates,
 	Map<String, Object> memoryWrite,
 	AiUsage usage

@@ -228,7 +228,10 @@ public class SessionTurnService {
 				responseValidator.validate(
 					response,
 					turnId,
-					qaThreadRef(snapshot)
+					qaThreadRef(snapshot),
+					eventType,
+					expectedQuizType(eventType, request.payload()),
+					availableQuizPages(eventType, snapshot)
 				);
 				return response;
 			} catch (AiClientException exception) {
@@ -270,7 +273,10 @@ public class SessionTurnService {
 				responseValidator.validate(
 					response,
 					turnId,
-					qaThreadRef(snapshot)
+					qaThreadRef(snapshot),
+					eventType,
+					expectedQuizType(eventType, request.payload()),
+					availableQuizPages(eventType, snapshot)
 				);
 				return response;
 			} catch (AiClientException exception) {
@@ -342,6 +348,40 @@ public class SessionTurnService {
 		}
 		Object threadRef = digest.get("threadRef");
 		return threadRef instanceof String value ? value : null;
+	}
+
+	private String expectedQuizType(
+		TurnEventType eventType,
+		JsonNode payload
+	) {
+		return eventType == TurnEventType.QUIZ_TYPE_SELECTED
+			? payload.get("quizType").stringValue()
+			: null;
+	}
+
+	private Set<Integer> availableQuizPages(
+		TurnEventType eventType,
+		TurnSnapshot snapshot
+	) {
+		if (eventType != TurnEventType.QUIZ_TYPE_SELECTED) {
+			return Set.of();
+		}
+		Object rawCurrentPage = snapshot.session().get("currentPage");
+		if (!(rawCurrentPage instanceof Number number)) {
+			throw new BusinessException(ErrorCode.AI_RESPONSE_INVALID);
+		}
+		int currentPage = number.intValue();
+		Set<Integer> pages = new java.util.LinkedHashSet<>();
+		if (snapshot.context().get("previousPageText") instanceof String) {
+			pages.add(currentPage - 1);
+		}
+		if (snapshot.context().get("currentPageText") instanceof String) {
+			pages.add(currentPage);
+		}
+		if (snapshot.context().get("nextPageText") instanceof String) {
+			pages.add(currentPage + 1);
+		}
+		return Set.copyOf(pages);
 	}
 
 	private void promoteMemory(Long userId, PersistedTurn persisted) {

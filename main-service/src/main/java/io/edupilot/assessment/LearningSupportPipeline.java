@@ -120,7 +120,7 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 				question.questionId(),
 				question.questionText(),
 				modelAnswer(context, privateQuestion),
-				question.maxScore()
+				question.points()
 			));
 		}
 		return new QuizAssessmentRequest(
@@ -209,8 +209,8 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 		PrivateQuizQuestion question
 	) {
 		return switch (context.quizType()) {
-			case MCQ -> question.correctOptionId();
-			case OX -> String.valueOf(question.correctAnswer());
+			case MCQ -> question.answerChoiceId();
+			case OX -> String.valueOf(question.answerValue());
 			case SHORT -> question.referenceAnswer();
 			case ESSAY -> question.modelAnswer();
 		};

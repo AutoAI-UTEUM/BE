@@ -9,7 +9,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 public record PublicQuizQuestion(
 	String questionId,
 	String questionText,
-	BigDecimal maxScore,
-	List<QuizOption> options
+	BigDecimal points,
+	List<QuizOption> choices
 ) {
 }
