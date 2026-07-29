@@ -77,6 +77,25 @@ class HttpAiClientStreamTest {
 	}
 
 	@Test
+	void quizTurnCompletesWithoutContentDeltaAndKeepsTopLevelQuiz() {
+		server.enqueue(ndjson(completedQuiz("turn-quiz")));
+		List<TurnStreamEvent> events = new ArrayList<>();
+
+		var response = client(Duration.ofSeconds(1))
+			.executeTurnStream(
+				request("turn-quiz"),
+				events::add,
+				new AiStreamCancellation(),
+				Duration.ofSeconds(2)
+			);
+
+		assertThat(events).isEmpty();
+		assertThat(response.quiz()).isNotNull();
+		assertThat(response.quiz().quizType()).isEqualTo("MCQ");
+		assertThat(response.quiz().questions()).hasSize(5);
+	}
+
+	@Test
 	void rejectsUnknownMalformedAndPostTerminalEvents() {
 		assertInvalid("""
 			{"type":"unknown"}
@@ -300,5 +319,11 @@ class HttpAiClientStreamTest {
 		return """
 			{"type":"completed","result":{"schemaVersion":"1.0","turnId":"%s","turnGoal":"ANSWER_USER_QUESTION","actionsExecuted":[],"messages":[{"messageType":"QA","content":"%s"}],"statePatch":{},"uiActions":[],"memoryCandidates":[]}}
 			""".formatted(turnId, content).strip();
+	}
+
+	private String completedQuiz(String turnId) {
+		return """
+			{"type":"completed","result":{"schemaVersion":"1.0","turnId":"%s","turnGoal":"GENERATE_QUIZ","actionsExecuted":[],"messages":[],"statePatch":{"pageStatus":"QUIZ_READY"},"uiActions":[],"quiz":{"schemaVersion":"1.0","generationId":"generation-1","quizType":"MCQ","coverage":{"startPage":2,"endPage":4},"title":"퀴즈","questionCount":5,"questions":[{"questionId":"q1","questionText":"문항 1","points":10,"choices":[{"choiceId":"a","text":"A"},{"choiceId":"b","text":"B"}],"answerChoiceId":"a","explanation":"해설"},{"questionId":"q2","questionText":"문항 2","points":10,"choices":[{"choiceId":"a","text":"A"},{"choiceId":"b","text":"B"}],"answerChoiceId":"a","explanation":"해설"},{"questionId":"q3","questionText":"문항 3","points":10,"choices":[{"choiceId":"a","text":"A"},{"choiceId":"b","text":"B"}],"answerChoiceId":"a","explanation":"해설"},{"questionId":"q4","questionText":"문항 4","points":10,"choices":[{"choiceId":"a","text":"A"},{"choiceId":"b","text":"B"}],"answerChoiceId":"a","explanation":"해설"},{"questionId":"q5","questionText":"문항 5","points":10,"choices":[{"choiceId":"a","text":"A"},{"choiceId":"b","text":"B"}],"answerChoiceId":"a","explanation":"해설"}]},"memoryCandidates":[]}}
+			""".formatted(turnId).strip();
 	}
 }

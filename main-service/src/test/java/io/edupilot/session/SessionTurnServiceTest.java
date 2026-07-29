@@ -10,6 +10,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,7 @@ import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.AiClientProperties;
 import io.edupilot.ai.AiStreamCancellation;
 import io.edupilot.ai.TurnStreamEvent;
+import io.edupilot.ai.dto.QuizGeneration;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.memory.LearnerMemoryPromotionService;
@@ -141,7 +143,10 @@ class SessionTurnServiceTest {
 		verify(responseValidator).validate(
 			any(),
 			eq(requests.getAllValues().get(1).turnId()),
-			eq("qa-30")
+			eq("qa-30"),
+			eq(TurnEventType.USER_QUESTION),
+			eq((String) null),
+			eq(java.util.Set.of())
 		);
 		verify(claimService).claim(1L, 100L, "request-1");
 		verify(claimService).release(100L, "request-1");
@@ -240,6 +245,82 @@ class SessionTurnServiceTest {
 			publicResponse
 		);
 		verify(aiClient, never()).executeTurn(any());
+	}
+
+	@Test
+	void quizStreamCompletesWithOnlyPersistedActiveQuizId() throws Exception {
+		when(preparationService.prepare(
+			1L,
+			100L,
+			"request-quiz",
+			"퀴즈 유형 선택: MCQ",
+			null
+		)).thenReturn(new PreparedTurn(501L));
+		when(snapshotService.build(1L, 100L, 501L))
+			.thenReturn(new TurnSnapshot(
+				Map.of("sessionId", 100L, "currentPage", 3),
+				Map.of(
+					"previousPageText", "이전",
+					"currentPageText", "현재",
+					"nextPageText", "다음"
+				),
+				10L
+			));
+		when(aiClientProperties.turnReadTimeout())
+			.thenReturn(Duration.ofSeconds(200));
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.of(streamConnection));
+		when(aiClient.executeTurnStream(
+			any(),
+			any(),
+			any(),
+			any()
+		)).thenAnswer(invocation -> {
+			io.edupilot.ai.dto.TurnRequest aiRequest =
+				invocation.getArgument(0);
+			return quizAiResponse(aiRequest.turnId());
+		});
+		TurnResponse publicResponse = new TurnResponse(
+			"successful-quiz-turn",
+			100L,
+			List.of(),
+			List.of(),
+			new TurnStateResponse(3, PageStatus.QUIZ_READY, 50L)
+		);
+		when(persistenceService.persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		)).thenReturn(persisted(publicResponse));
+
+		TurnResponse actual = service().execute(
+			1L,
+			100L,
+			quizRequest()
+		);
+
+		assertThat(actual.state().activeQuizId()).isEqualTo(50L);
+		assertThat(objectMapper.writeValueAsString(actual))
+			.doesNotContain("answerChoiceId")
+			.doesNotContain("explanation")
+			.doesNotContain("\"quiz\"");
+		verify(streamConnection, never()).send(any());
+		verify(responseValidator).validate(
+			any(),
+			anyString(),
+			eq((String) null),
+			eq(TurnEventType.QUIZ_TYPE_SELECTED),
+			eq("MCQ"),
+			eq(java.util.Set.of(2, 3, 4))
+		);
+		verify(streamService).complete(streamConnection, publicResponse);
 	}
 
 	@Test
@@ -374,6 +455,48 @@ class SessionTurnServiceTest {
 			List.of(),
 			Map.of(),
 			List.of(),
+			null,
+			List.of(),
+			null,
+			null
+		);
+	}
+
+	private io.edupilot.ai.dto.TurnResponse quizAiResponse(String turnId) {
+		return new io.edupilot.ai.dto.TurnResponse(
+			"1.0",
+			turnId,
+			"GENERATE_QUIZ",
+			List.of(),
+			List.of(),
+			Map.of("pageStatus", "QUIZ_READY"),
+			List.of(),
+			new QuizGeneration(
+				"1.0",
+				"generation-1",
+				"MCQ",
+				new QuizGeneration.Coverage(2, 4),
+				"퀴즈",
+				5,
+				java.util.stream.IntStream.rangeClosed(1, 5)
+					.mapToObj(index -> new QuizGeneration.Question(
+						"q" + index,
+						"문항 " + index,
+						new BigDecimal("10.00"),
+						List.of(
+							new QuizGeneration.Choice("a", "A"),
+							new QuizGeneration.Choice("b", "B")
+						),
+						"a",
+						"해설",
+						null,
+						null,
+						null,
+						null,
+						null
+					))
+					.toList()
+			),
 			List.of(),
 			null,
 			null
@@ -401,6 +524,14 @@ class SessionTurnServiceTest {
 			"request-1",
 			"USER_QUESTION",
 			objectMapper.readTree("{\"message\":\"질문\"}")
+		);
+	}
+
+	private TurnRequest quizRequest() throws Exception {
+		return new TurnRequest(
+			"request-quiz",
+			"QUIZ_TYPE_SELECTED",
+			objectMapper.readTree("{\"quizType\":\"MCQ\"}")
 		);
 	}
 

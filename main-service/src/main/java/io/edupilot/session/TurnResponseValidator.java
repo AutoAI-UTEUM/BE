@@ -14,6 +14,7 @@ import io.edupilot.ai.dto.TurnResponse;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
+import io.edupilot.quiz.QuizGenerationValidator;
 
 @Component
 public class TurnResponseValidator {
@@ -40,14 +41,47 @@ public class TurnResponseValidator {
 		"REPAIR",
 		"SYSTEM"
 	);
+	private final QuizGenerationValidator quizGenerationValidator;
+
+	public TurnResponseValidator(
+		QuizGenerationValidator quizGenerationValidator
+	) {
+		this.quizGenerationValidator = quizGenerationValidator;
+	}
+
 	public void validate(TurnResponse response, String expectedTurnId) {
-		validate(response, expectedTurnId, null);
+		validate(
+			response,
+			expectedTurnId,
+			null,
+			null,
+			null,
+			Set.of()
+		);
 	}
 
 	public void validate(
 		TurnResponse response,
 		String expectedTurnId,
 		String expectedQaThreadRef
+	) {
+		validate(
+			response,
+			expectedTurnId,
+			expectedQaThreadRef,
+			null,
+			null,
+			Set.of()
+		);
+	}
+
+	public void validate(
+		TurnResponse response,
+		String expectedTurnId,
+		String expectedQaThreadRef,
+		TurnEventType eventType,
+		String expectedQuizType,
+		Set<Integer> availableQuizPages
 	) {
 		if (response == null
 			|| !expectedTurnId.equals(response.turnId())
@@ -59,7 +93,14 @@ public class TurnResponseValidator {
 		}
 		validateMessages(response);
 		validateStatePatch(response.statePatch(), expectedQaThreadRef);
+		validateQuiz(
+			response,
+			eventType,
+			expectedQuizType,
+			availableQuizPages
+		);
 		warnIgnoredUiActions(response);
+		warnIgnoredActiveQuizId(response);
 		validateMemoryCandidates(response);
 	}
 
@@ -84,7 +125,6 @@ public class TurnResponseValidator {
 			&& !PAGE_STATUSES.contains(text(patch, "pageStatus"))) {
 			throw policy();
 		}
-		validateNullablePositiveLong(patch, "activeQuizId");
 		validateNullablePositiveLong(patch, "pendingDiagnosis");
 		if (!patch.containsKey("qaThread")) {
 			return;
@@ -127,6 +167,40 @@ public class TurnResponseValidator {
 			.addKeyValue("turnId", response.turnId())
 			.addKeyValue("uiActionCount", response.uiActions().size())
 			.log("Ignored non-empty AI uiActions");
+	}
+
+	private void validateQuiz(
+		TurnResponse response,
+		TurnEventType eventType,
+		String expectedQuizType,
+		Set<Integer> availableQuizPages
+	) {
+		boolean quizTurn = eventType == TurnEventType.QUIZ_TYPE_SELECTED;
+		if (quizTurn != (response.quiz() != null)) {
+			throw invalid();
+		}
+		if (!quizTurn) {
+			return;
+		}
+		quizGenerationValidator.validate(
+			response.quiz(),
+			response.schemaVersion(),
+			expectedQuizType,
+			availableQuizPages
+		);
+	}
+
+	private void warnIgnoredActiveQuizId(TurnResponse response) {
+		if (!response.statePatch().containsKey("activeQuizId")) {
+			return;
+		}
+		log.atWarn()
+			.addKeyValue(
+				"traceId",
+				MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY)
+			)
+			.addKeyValue("turnId", response.turnId())
+			.log("Ignored AI activeQuizId statePatch");
 	}
 
 	private void validateMemoryCandidates(TurnResponse response) {

@@ -39,6 +39,7 @@ import io.edupilot.quiz.dto.QuizListResponse;
 import io.edupilot.quiz.dto.QuizGradingResultResponse;
 import io.edupilot.quiz.dto.QuizSubmitResponse;
 import io.edupilot.quiz.dto.QuizSummaryResponse;
+import io.edupilot.quiz.dto.QuizQuestionResponse;
 import io.edupilot.session.ChatMessageRepository;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.session.UiAction;
@@ -132,7 +133,7 @@ class QuizApiContractTest {
 			1,
 			3,
 			1,
-			List.of(question),
+			List.of(QuizQuestionResponse.from(question)),
 			false
 		));
 		when(quizService.list(1L, 100L)).thenReturn(new QuizListResponse(

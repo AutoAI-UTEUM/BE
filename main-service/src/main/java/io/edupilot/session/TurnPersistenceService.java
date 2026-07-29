@@ -10,7 +10,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import io.edupilot.ai.dto.ActionExecuted;
 import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -23,8 +22,6 @@ import io.edupilot.quiz.QuizService;
 import io.edupilot.session.dto.MessageResponse;
 import io.edupilot.session.dto.TurnStateResponse;
 import io.edupilot.user.UserRepository;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class TurnPersistenceService {
@@ -39,7 +36,6 @@ public class TurnPersistenceService {
 	private final QuizService quizService;
 	private final DiagnosisService diagnosisService;
 	private final UiActionResolver uiActionResolver;
-	private final ObjectMapper objectMapper;
 
 	public TurnPersistenceService(
 		LearningSessionRepository sessionRepository,
@@ -51,8 +47,7 @@ public class TurnPersistenceService {
 		LearningMaterialRepository materialRepository,
 		QuizService quizService,
 		DiagnosisService diagnosisService,
-		UiActionResolver uiActionResolver,
-		ObjectMapper objectMapper
+		UiActionResolver uiActionResolver
 	) {
 		this.sessionRepository = sessionRepository;
 		this.messageRepository = messageRepository;
@@ -64,7 +59,6 @@ public class TurnPersistenceService {
 		this.quizService = quizService;
 		this.diagnosisService = diagnosisService;
 		this.uiActionResolver = uiActionResolver;
-		this.objectMapper = objectMapper;
 	}
 
 	@Transactional
@@ -117,10 +111,10 @@ public class TurnPersistenceService {
 				&& nextPageStatus != PageStatus.QUIZ_READY) {
 				throw policy();
 			}
-			JsonNode generation = quizGeneration(aiResponse);
 			activeQuizId = quizService.createFromGeneration(
 				sessionId,
-				generation
+				aiResponse.schemaVersion(),
+				aiResponse.quiz()
 			);
 			uiActions = uiActionResolver.forPageTransition(
 				previousPageStatus,
@@ -130,9 +124,6 @@ public class TurnPersistenceService {
 			);
 			session.activateQuiz(activeQuizId, uiActions);
 		} else {
-			if (aiResponse.statePatch().containsKey("activeQuizId")) {
-				throw policy();
-			}
 			if (eventType == TurnEventType.DIAGNOSIS_ANSWER_SUBMITTED) {
 				completeDiagnosis(
 					diagnosisId,
@@ -307,18 +298,6 @@ public class TurnPersistenceService {
 	private PageStatus pageStatus(Map<String, Object> patch) {
 		Object value = patch.get("pageStatus");
 		return value == null ? null : PageStatus.valueOf((String) value);
-	}
-
-	private JsonNode quizGeneration(
-		io.edupilot.ai.dto.TurnResponse response
-	) {
-		for (ActionExecuted action : response.actionsExecuted()) {
-			Object generation = action.artifacts().get("quizGeneration");
-			if (generation != null) {
-				return objectMapper.valueToTree(generation);
-			}
-		}
-		throw new BusinessException(ErrorCode.AI_RESPONSE_INVALID);
 	}
 
 	private void saveMemoryCandidates(

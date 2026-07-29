@@ -3,8 +3,10 @@ package io.edupilot.session;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
@@ -14,14 +16,16 @@ import org.slf4j.MDC;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.edupilot.ai.dto.QuizGeneration;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
+import io.edupilot.quiz.QuizGenerationValidator;
 
 class TurnResponseValidatorTest {
 
 	private final TurnResponseValidator validator =
-		new TurnResponseValidator();
+		new TurnResponseValidator(new QuizGenerationValidator());
 
 	@Test
 	void acceptsSystemMessageAndFollowUpThreadReference() {
@@ -133,6 +137,172 @@ class TurnResponseValidatorTest {
 		assertPolicy(Map.of("pageStatus", "NOT_EXPLAINED"));
 	}
 
+	@Test
+	void validatesAllQuizTypesAgainstEventAndSnapshotPages() {
+		for (String quizType : List.of("MCQ", "OX", "SHORT", "ESSAY")) {
+			validator.validate(
+				response(
+					List.of(),
+					Map.of("pageStatus", "QUIZ_READY"),
+					List.of(),
+					quiz(quizType, 5, new QuizGeneration.Coverage(2, 4))
+				),
+				"turn-1",
+				null,
+				TurnEventType.QUIZ_TYPE_SELECTED,
+				quizType,
+				Set.of(2, 3, 4)
+			);
+		}
+	}
+
+	@Test
+	void rejectsQuizPresenceTypeCountCoverageAndSchemaViolations() {
+		assertInvalidQuiz(
+			response(List.of(), Map.of()),
+			TurnEventType.QUIZ_TYPE_SELECTED,
+			"MCQ"
+		);
+		assertInvalidQuiz(
+			response(
+				List.of(),
+				Map.of(),
+				List.of(),
+				quiz("MCQ", 5, new QuizGeneration.Coverage(2, 4))
+			),
+			TurnEventType.USER_QUESTION,
+			null
+		);
+		assertInvalidQuiz(
+			response(
+				List.of(),
+				Map.of(),
+				List.of(),
+				quiz("MCQ", 5, new QuizGeneration.Coverage(2, 4))
+			),
+			TurnEventType.QUIZ_TYPE_SELECTED,
+			"OX"
+		);
+		assertInvalidQuiz(
+			response(
+				List.of(),
+				Map.of(),
+				List.of(),
+				quiz("MCQ", 4, new QuizGeneration.Coverage(2, 4))
+			),
+			TurnEventType.QUIZ_TYPE_SELECTED,
+			"MCQ"
+		);
+		assertInvalidQuiz(
+			response(
+				List.of(),
+				Map.of(),
+				List.of(),
+				quiz("MCQ", 5, new QuizGeneration.Coverage(1, 3))
+			),
+			TurnEventType.QUIZ_TYPE_SELECTED,
+			"MCQ"
+		);
+
+		QuizGeneration invalidAnswer = quiz(
+			"MCQ",
+			5,
+			new QuizGeneration.Coverage(2, 4)
+		);
+		List<QuizGeneration.Question> answerQuestions =
+			new java.util.ArrayList<>(invalidAnswer.questions());
+		QuizGeneration.Question first = answerQuestions.getFirst();
+		answerQuestions.set(0, new QuizGeneration.Question(
+			first.questionId(),
+			first.questionText(),
+			first.points(),
+			first.choices(),
+			"missing",
+			first.explanation(),
+			null,
+			null,
+			null,
+			null,
+			null
+		));
+		assertInvalidQuiz(
+			response(
+				List.of(),
+				Map.of(),
+				List.of(),
+				copy(invalidAnswer, answerQuestions)
+			),
+			TurnEventType.QUIZ_TYPE_SELECTED,
+			"MCQ"
+		);
+
+		QuizGeneration invalidRubric = quiz(
+			"ESSAY",
+			5,
+			new QuizGeneration.Coverage(2, 4)
+		);
+		List<QuizGeneration.Question> essayQuestions =
+			new java.util.ArrayList<>(invalidRubric.questions());
+		QuizGeneration.Question essay = essayQuestions.getFirst();
+		essayQuestions.set(0, new QuizGeneration.Question(
+			essay.questionId(),
+			essay.questionText(),
+			essay.points(),
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			essay.modelAnswer(),
+			List.of(
+				new QuizGeneration.Rubric("정확성", new BigDecimal("0.7")),
+				new QuizGeneration.Rubric("논리성", new BigDecimal("0.2"))
+			)
+		));
+		assertInvalidQuiz(
+			response(
+				List.of(),
+				Map.of(),
+				List.of(),
+				copy(invalidRubric, essayQuestions)
+			),
+			TurnEventType.QUIZ_TYPE_SELECTED,
+			"ESSAY"
+		);
+	}
+
+	@Test
+	void ignoresAiActiveQuizIdAndWarnsWithoutLoggingItsValue() {
+		String sentinel = "SENTINEL_AI_QUIZ_ID";
+		Logger logger =
+			(Logger) LoggerFactory.getLogger(TurnResponseValidator.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			validator.validate(
+				response(List.of(), Map.of("activeQuizId", sentinel)),
+				"turn-1"
+			);
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+
+		assertThat(appender.list)
+			.filteredOn(event -> event.getFormattedMessage().equals(
+				"Ignored AI activeQuizId statePatch"
+			))
+			.singleElement()
+			.satisfies(event -> {
+				assertThat(event.getKeyValuePairs().toString())
+					.doesNotContain(sentinel);
+				assertThat(event.getFormattedMessage())
+					.doesNotContain(sentinel);
+			});
+	}
+
 	private void assertPolicy(Map<String, Object> patch) {
 		assertThatThrownBy(() ->
 			validator.validate(response(List.of(), patch), "turn-1"))
@@ -154,6 +324,15 @@ class TurnResponseValidatorTest {
 		Map<String, Object> patch,
 		List<Map<String, Object>> uiActions
 	) {
+		return response(messages, patch, uiActions, null);
+	}
+
+	private io.edupilot.ai.dto.TurnResponse response(
+		List<Map<String, Object>> messages,
+		Map<String, Object> patch,
+		List<Map<String, Object>> uiActions,
+		QuizGeneration quiz
+	) {
 		return new io.edupilot.ai.dto.TurnResponse(
 			"1.0",
 			"turn-1",
@@ -162,9 +341,105 @@ class TurnResponseValidatorTest {
 			messages,
 			patch,
 			uiActions,
+			quiz,
 			List.of(),
 			null,
 			null
+		);
+	}
+
+	private void assertInvalidQuiz(
+		io.edupilot.ai.dto.TurnResponse response,
+		TurnEventType eventType,
+		String expectedQuizType
+	) {
+		assertThatThrownBy(() -> validator.validate(
+			response,
+			"turn-1",
+			null,
+			eventType,
+			expectedQuizType,
+			Set.of(2, 3, 4)
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode())
+				.isEqualTo(ErrorCode.AI_RESPONSE_INVALID)
+		);
+	}
+
+	private QuizGeneration quiz(
+		String quizType,
+		int questionCount,
+		QuizGeneration.Coverage coverage
+	) {
+		List<QuizGeneration.Question> questions = java.util.stream.IntStream
+			.rangeClosed(1, 5)
+			.mapToObj(index -> question(quizType, index))
+			.toList();
+		return new QuizGeneration(
+			"1.0",
+			"generation-1",
+			quizType,
+			coverage,
+			"퀴즈",
+			questionCount,
+			questions
+		);
+	}
+
+	private QuizGeneration.Question question(String quizType, int index) {
+		String id = "q" + index;
+		BigDecimal points = new BigDecimal("20.00");
+		return switch (quizType) {
+			case "MCQ" -> new QuizGeneration.Question(
+				id,
+				"문항",
+				points,
+				List.of(
+					new QuizGeneration.Choice("a", "A"),
+					new QuizGeneration.Choice("b", "B")
+				),
+				"a",
+				"설명",
+				null,
+				null,
+				null,
+				null,
+				null
+			);
+			case "OX" -> new QuizGeneration.Question(
+				id, "문항", points, null, null, "설명", true,
+				null, null, null, null
+			);
+			case "SHORT" -> new QuizGeneration.Question(
+				id, "문항", points, null, null, null, null,
+				"기준 답안", List.of("정확성"), null, null
+			);
+			case "ESSAY" -> new QuizGeneration.Question(
+				id, "문항", points, null, null, null, null,
+				null, null, "모범 답안",
+				List.of(
+					new QuizGeneration.Rubric(
+						"정확성",
+						BigDecimal.ONE
+					)
+				)
+			);
+			default -> throw new IllegalArgumentException();
+		};
+	}
+
+	private QuizGeneration copy(
+		QuizGeneration source,
+		List<QuizGeneration.Question> questions
+	) {
+		return new QuizGeneration(
+			source.schemaVersion(),
+			source.generationId(),
+			source.quizType(),
+			source.coverage(),
+			source.title(),
+			source.questionCount(),
+			List.copyOf(questions)
 		);
 	}
 }

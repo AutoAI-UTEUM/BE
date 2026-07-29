@@ -126,10 +126,10 @@ public class QuizSubmissionPreparationService {
 	) {
 		switch (quizType) {
 			case MCQ -> {
-				Set<String> optionIds = question.options() == null
+				Set<String> optionIds = question.choices() == null
 					? Set.of()
-					: question.options().stream()
-						.map(QuizOption::optionId)
+					: question.choices().stream()
+						.map(QuizOption::choiceId)
 						.collect(Collectors.toCollection(HashSet::new));
 				if (!optionIds.contains(answer)) {
 					throw invalidAnswer();

@@ -515,16 +515,23 @@ Query:
 
 ### 유형별 문항 스키마 (공개/비공개 분리 확정안)
 
-문항 공통 필드(공개): `questionId`(퀴즈 내 유일, 예: "q1"), `questionText`, `maxScore`.
+외부 `questions[]`의 문항 공통 필드(공개)는 `questionId`(퀴즈 내 유일,
+예: "q1"), `questionText`, `maxScore`입니다. 내부 turn 응답과
+`public_question_json`의 정본 필드 `points`는 이 DTO 경계에서 `maxScore`로
+매핑합니다.
 
-| 유형 | 공개 필드 (public_question_json → questions[]) | 비공개 필드 (private_answer_json — 채점·해설 전용) |
+| 유형 | 외부 공개 필드 (`public_question_json`에서 DTO 변환) | 비공개 저장 필드 (`private_answer_json` — 채점·해설 전용) |
 | --- | --- | --- |
-| MCQ | 공통 + `options: [{ "optionId": "a", "text": "..." }]` (4지 기본) | `correctOptionId`, `explanation` |
-| OX | 공통 (questionText가 진위 판별 문장) | `correctAnswer: boolean`, `explanation` |
-| SHORT | 공통 | `referenceAnswer`, `acceptableKeywords: []`, `rubric` |
+| MCQ | 공통 + `options: [{ "optionId": "a", "text": "..." }]` (`public_question_json`의 `choices[].choiceId`를 매핑, 4지 기본) | `answerChoiceId`, `explanation` |
+| OX | 공통 (questionText가 진위 판별 문장) | `answerValue: boolean`, `explanation` |
+| SHORT | 공통 | `referenceAnswer`, `gradingCriteria: []` |
 | ESSAY | 공통 | `modelAnswer`, `rubric: [{ "criterion": "...", "weight": 0.5 }]` — **weight 합계 = 1.0 검증**(DEC-002 D4, 위반 시 생성 실패 처리) |
 
-- 필드명은 [에이전트 시스템 명세](agent-system-spec.md) §4.4 유형별 최소 필드와 일치시킵니다. AI가 생성한 JSON에서 Spring이 위 기준으로 공개/비공개를 분리 저장하며, 비공개 필드가 공개 측에 남아 있으면 저장을 거부합니다.
+- 내부 생성·저장 필드명은 [AI 연동 계약](ai-integration-contract.md) v0.4
+  §6.2를 따릅니다. Spring은 AI가 생성한 JSON을 공개/비공개로 분리 저장하고,
+  외부 GET DTO에서만 `points/choices/choiceId`를
+  `maxScore/options/optionId`로 변환합니다. 비공개 필드는 외부 DTO에 매핑하지
+  않습니다.
 - 유형별 답안 형식(submit의 `answers[].answer`): MCQ = `optionId` 문자열, OX = `"true"`/`"false"`, SHORT/ESSAY = 자유 텍스트. 문항 누락·알 수 없는 questionId는 `INVALID_QUIZ_ANSWER`(400).
 - 이 확정안은 BE·AI·FE 3자 리뷰 대상이며, 승인 후 AI 생성 JSON Schema(구조 검증용)의 기준이 됩니다.
 
