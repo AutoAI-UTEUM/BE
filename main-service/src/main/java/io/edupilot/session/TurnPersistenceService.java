@@ -314,15 +314,33 @@ public class TurnPersistenceService {
 				(String) value.get("type"),
 				(String) value.get("content"),
 				decimal(value.get("confidence")),
-				List.of(new MemoryEvidenceRef(
-					"TURN",
+				turnEvidenceRefs(
+					value.get("evidence"),
 					userMessageId,
 					sessionId
-				)),
+				),
 				"1.0"
 			));
 		}
 		candidateRepository.flush();
+	}
+
+	private List<MemoryEvidenceRef> turnEvidenceRefs(
+		Object value,
+		Long userMessageId,
+		Long sessionId
+	) {
+		@SuppressWarnings("unchecked")
+		List<String> evidence = (List<String>) value;
+		return evidence.stream()
+			.map(String::trim)
+			.map(reference -> new MemoryEvidenceRef(
+				"TURN",
+				userMessageId,
+				sessionId,
+				reference
+			))
+			.toList();
 	}
 
 	private MemoryWrite parseMemoryWrite(Map<String, Object> value) {

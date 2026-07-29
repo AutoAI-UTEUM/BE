@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,9 +22,13 @@ import io.edupilot.diagnosis.RepairResultRepository;
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.MaterialPage;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.memory.LearnerMemory;
+import io.edupilot.memory.LearnerMemoryCandidate;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
 import io.edupilot.memory.LearnerMemoryRepository;
 import io.edupilot.memory.MemoryCandidateStatus;
+import io.edupilot.memory.MemoryEvidenceRef;
+import io.edupilot.memory.MemoryWrite;
 import io.edupilot.user.User;
 
 @ExtendWith(MockitoExtension.class)
@@ -152,7 +158,7 @@ class TurnSnapshotServiceTest {
 			org.mockito.ArgumentMatchers.any(Pageable.class)
 		)).thenReturn(List.of());
 		when(memoryRepository.findByUser_IdAndMaterial_Id(1L, 10L))
-			.thenReturn(Optional.empty());
+			.thenReturn(Optional.of(memory(session)));
 		when(candidateRepository
 			.findByUser_IdAndMaterial_IdAndStatusOrderByCreatedAtDescIdDesc(
 				1L,
@@ -180,6 +186,82 @@ class TurnSnapshotServiceTest {
 			"latestRepair",
 			"memory"
 		);
+		assertThat(snapshot.context().get("learnerMemoryDigest"))
+			.isEqualTo("promoted digest");
+	}
+
+	@Test
+	void includesOnlyLatestTenCandidatesForCurrentSession() {
+		LearningSession session = session();
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(messageRepository
+			.findBySession_IdOrderByCreatedAtDescIdDesc(
+				org.mockito.ArgumentMatchers.eq(100L),
+				org.mockito.ArgumentMatchers.any(Pageable.class)
+			))
+			.thenReturn(List.of());
+		when(qaThreadRepository
+			.findTopBySession_IdAndStatusOrderByUpdatedAtDescIdDesc(
+				100L,
+				QaThreadStatus.ACTIVE
+			))
+			.thenReturn(Optional.empty());
+		when(assessmentRepository
+			.findTop5BySession_IdOrderByCreatedAtDescIdDesc(100L))
+			.thenReturn(List.of());
+		when(assessmentRepository.findRecentByUserAndMaterial(
+			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(10L),
+			org.mockito.ArgumentMatchers.any(Pageable.class)
+		)).thenReturn(List.of());
+		when(memoryRepository.findByUser_IdAndMaterial_Id(1L, 10L))
+			.thenReturn(Optional.empty());
+		List<LearnerMemoryCandidate> candidates =
+			IntStream.rangeClosed(1, 12)
+				.mapToObj(index -> candidate(
+					session,
+					(long) index,
+					index == 1 ? 200L : 100L
+				))
+				.toList();
+		when(candidateRepository
+			.findByUser_IdAndMaterial_IdAndStatusOrderByCreatedAtDescIdDesc(
+				1L,
+				10L,
+				MemoryCandidateStatus.CANDIDATE
+			))
+			.thenReturn(candidates);
+		when(repairRepository
+			.findTopBySession_IdOrderByCreatedAtDescIdDesc(100L))
+			.thenReturn(Optional.empty());
+
+		TurnSnapshot snapshot = service().build(1L, 100L, 501L);
+
+		@SuppressWarnings("unchecked")
+		List<java.util.Map<String, Object>> temporaryCandidates =
+			(List<java.util.Map<String, Object>>) (
+				(java.util.Map<String, Object>) snapshot.context()
+					.get("memory")
+			).get("temporaryCandidates");
+		assertThat(temporaryCandidates)
+			.hasSize(10)
+			.extracting(candidate -> candidate.get("candidateId"))
+			.containsExactlyElementsOf(
+				IntStream.rangeClosed(2, 11)
+					.mapToObj(Long::valueOf)
+					.toList()
+			);
+		assertThat(temporaryCandidates)
+			.allSatisfy(candidate -> assertThat(candidate)
+				.containsOnlyKeys(
+					"candidateId",
+					"type",
+					"content",
+					"confidence",
+					"evidenceRefs"
+				));
+		assertThat(snapshot.context()).hasSize(12);
 	}
 
 	private TurnSnapshotService service() {
@@ -210,5 +292,48 @@ class TurnSnapshotServiceTest {
 		LearningSession session = LearningSession.create(user, material);
 		ReflectionTestUtils.setField(session, "id", 100L);
 		return session;
+	}
+
+	private LearnerMemoryCandidate candidate(
+		LearningSession session,
+		Long id,
+		Long evidenceSessionId
+	) {
+		User user = (User) ReflectionTestUtils.getField(session, "user");
+		LearningMaterial material = (LearningMaterial)
+			ReflectionTestUtils.getField(session, "material");
+		LearnerMemoryCandidate candidate = LearnerMemoryCandidate.create(
+			user,
+			material,
+			"WEAKNESS",
+			"candidate-" + id,
+			new BigDecimal("0.80"),
+			List.of(new MemoryEvidenceRef(
+				"TURN",
+				500L + id,
+				evidenceSessionId,
+				"evidence-" + id
+			)),
+			"1.0"
+		);
+		ReflectionTestUtils.setField(candidate, "id", id);
+		return candidate;
+	}
+
+	private LearnerMemory memory(LearningSession session) {
+		User user = (User) ReflectionTestUtils.getField(session, "user");
+		LearningMaterial material = (LearningMaterial)
+			ReflectionTestUtils.getField(session, "material");
+		return LearnerMemory.create(user, material, new MemoryWrite(
+			List.of("strength"),
+			List.of("weakness"),
+			List.of("misconception"),
+			List.of("preference"),
+			List.of("MCQ"),
+			"BALANCED",
+			List.of("goal"),
+			"promoted digest",
+			List.of(1L)
+		));
 	}
 }
