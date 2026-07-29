@@ -33,7 +33,7 @@ public class LearnerMemoryPromotionService {
 					write
 				);
 				if (!promoted) {
-					log.atInfo()
+					log.atWarn()
 						.addKeyValue("userId", userId)
 						.addKeyValue("materialId", materialId)
 						.addKeyValue(
