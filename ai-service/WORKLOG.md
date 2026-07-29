@@ -368,6 +368,45 @@ Closes #25
 
 ---
 
+# Issue #44 구조화 로깅 (2026-07-29 develop 정렬)
+
+기준 브랜치: `origin/develop` (`95e2a7e`)
+
+## 구현 결과
+
+- [x] `X-Trace-Id`를 요청 contextvars에 바인딩하고 Spring이 전달한 값을
+  응답 헤더와 AI Service 로그에 그대로 사용하도록 연결.
+- [x] 승인된 필드만 직렬화하는 한 줄 JSON formatter 구현:
+  `timestamp`, `level`, `service`, `environment`, `traceId`, `message`와
+  선택 필드 `turnId`, `actionId`, `sessionId`, `endpoint`, `agent`, `tool`,
+  `status`, `durationMs`, `errorCode`, `model`, `attempt`, `failureKind`.
+- [x] pure ASGI 미들웨어를 유지하면서 JSON·NDJSON 요청 종료 시점까지
+  traceId·상태·처리 시간을 기록.
+- [x] 최신 설명·QA·Quiz·Repair·메모리 dispatch 경로에 action 성공/실패
+  로깅을 적용하고, xAI structured·stream 호출에 모델·처리 시간·실패 분류·
+  시도 횟수만 기록.
+- [x] #86 PolicyViolation WARN은 한 번만 유지하고 action args 값 대신
+  도구명과 인자 키만 기록해 학생 답안·메모리 원문 노출을 차단.
+- [x] `ENVIRONMENT=local|dev|prod` 설정 추가. local은 DEBUG,
+  dev/prod는 INFO.
+
+## 검증
+
+- `uv run pytest -q`: 117개 통과.
+- `uv run ruff check .`: 통과.
+- `uv run mypy src tests`: 58개 소스 파일 검사 통과.
+- respx/FakeLlm만 사용했고 실제 Grok·외부 네트워크 호출은 0회.
+- 프롬프트·응답·provider 오류 body·PDF·학생 답안 표식이 로그에 포함되지
+  않음을 테스트.
+
+## 미결 사항
+
+- uvicorn 자체 access/startup 로그는 uvicorn 소유의 콘솔 형식입니다.
+  애플리케이션 로그는 JSON으로 고정했으며, uvicorn 로그까지 JSON으로
+  통합할지는 후속 배포 설정에서 결정해야 합니다.
+
+---
+
 # Issue #31 Worklog — QuizAgent·GraderAgent
 
 기준 브랜치: `origin/develop` (`20a5896`, #25·#83·#84 반영)

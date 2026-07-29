@@ -13,6 +13,7 @@ from edupilot_ai.api.health import router as health_router
 from edupilot_ai.api.learning_support import router as learning_support_router
 from edupilot_ai.api.turn import router as turn_router
 from edupilot_ai.core.errors import register_exception_handlers
+from edupilot_ai.core.logging import LoggingRuntime
 from edupilot_ai.core.middleware import InternalTokenMiddleware
 from edupilot_ai.llm.bridge import LlmBridge
 from edupilot_ai.llm.xai import XaiLlmBridge
@@ -36,6 +37,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        logging_runtime = LoggingRuntime(environment=resolved_settings.environment)
         owned_http_client: httpx.AsyncClient | None = None
         bridge = resolved_dependencies.llm_bridge
         if bridge is None:
@@ -51,6 +53,7 @@ def create_app(
         finally:
             if owned_http_client is not None:
                 await owned_http_client.aclose()
+            logging_runtime.close()
             del app.state.llm_bridge
             del app.state.settings
 

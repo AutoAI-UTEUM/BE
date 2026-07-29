@@ -3,6 +3,7 @@
 import json
 import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
+from time import perf_counter
 from typing import Any
 
 import httpx
@@ -24,6 +25,30 @@ XAI_BASE_URL = "https://api.x.ai/v1"
 XAI_CHAT_COMPLETIONS_URL = f"{XAI_BASE_URL}/chat/completions"
 
 logger = logging.getLogger(__name__)
+
+
+def _log_call(
+    *,
+    model: str,
+    started_at: float,
+    status: str,
+    error_code: str | None = None,
+    failure_kind: str | None = None,
+) -> None:
+    logger.log(
+        logging.INFO if status == "SUCCESS" else logging.WARNING,
+        "xAI chat completion finished",
+        extra={
+            "agent": "Grok",
+            "tool": "chat.completions",
+            "model": model,
+            "status": status,
+            "durationMs": round((perf_counter() - started_at) * 1000, 3),
+            "errorCode": error_code,
+            "failureKind": failure_kind,
+            "attempt": 1,
+        },
+    )
 
 
 class _XaiModel(BaseModel):
@@ -105,6 +130,19 @@ class XaiLlmBridge:
         profile: AgentLlmProfile,
         timeout_seconds: float,
     ) -> LlmCompletion[ModelT]:
+        started_at = perf_counter()
+        if timeout_seconds <= 0:
+            _log_call(
+                model=profile.model,
+                started_at=started_at,
+                status="FAILED",
+                error_code=ErrorCategory.TIMEOUT.value,
+                failure_kind="timeout",
+            )
+            raise LlmBridgeError(
+                category=ErrorCategory.TIMEOUT,
+                retryable=True,
+            )
         payload = self._base_payload(messages=messages, profile=profile)
         payload["response_format"] = {
             "type": "json_schema",
@@ -123,17 +161,40 @@ class XaiLlmBridge:
                 timeout=self._timeout(timeout_seconds),
             )
         except httpx.TimeoutException as exception:
+            _log_call(
+                model=profile.model,
+                started_at=started_at,
+                status="FAILED",
+                error_code=ErrorCategory.TIMEOUT.value,
+                failure_kind="timeout",
+            )
             raise LlmBridgeError(
                 category=ErrorCategory.TIMEOUT,
                 retryable=True,
             ) from exception
         except httpx.RequestError as exception:
+            _log_call(
+                model=profile.model,
+                started_at=started_at,
+                status="FAILED",
+                error_code=ErrorCategory.INTERNAL.value,
+                failure_kind="network",
+            )
             raise LlmBridgeError(
                 category=ErrorCategory.INTERNAL,
                 retryable=True,
             ) from exception
 
         if response.is_error:
+            _log_call(
+                model=profile.model,
+                started_at=started_at,
+                status="FAILED",
+                error_code=ErrorCategory.INTERNAL.value,
+                failure_kind=(
+                    "rate_limit" if response.status_code == 429 else "provider"
+                ),
+            )
             raise LlmBridgeError(
                 category=ErrorCategory.INTERNAL,
                 retryable=response.status_code == 429 or response.status_code >= 500,
@@ -143,6 +204,13 @@ class XaiLlmBridge:
             provider_response = _CompletionResponse.model_validate(response.json())
             content = provider_response.choices[0].message.content
         except (json.JSONDecodeError, ValidationError, IndexError) as exception:
+            _log_call(
+                model=profile.model,
+                started_at=started_at,
+                status="FAILED",
+                error_code=ErrorCategory.SCHEMA.value,
+                failure_kind="schema",
+            )
             raise LlmBridgeError(
                 category=ErrorCategory.SCHEMA,
                 retryable=False,
@@ -158,6 +226,13 @@ class XaiLlmBridge:
         try:
             output = response_model.model_validate_json(content)
         except (json.JSONDecodeError, ValidationError) as exception:
+            _log_call(
+                model=provider_response.model,
+                started_at=started_at,
+                status="FAILED",
+                error_code=ErrorCategory.SCHEMA.value,
+                failure_kind="schema",
+            )
             raise LlmBridgeError(
                 category=ErrorCategory.SCHEMA,
                 retryable=False,
@@ -171,6 +246,11 @@ class XaiLlmBridge:
                 provider_response.model,
             )
 
+        _log_call(
+            model=provider_response.model,
+            started_at=started_at,
+            status="SUCCESS",
+        )
         return LlmCompletion(
             output=output,
             usage=usage,
@@ -183,6 +263,19 @@ class XaiLlmBridge:
         profile: AgentLlmProfile,
         timeout_seconds: float,
     ) -> AsyncIterator[LlmTextStreamItem]:
+        started_at = perf_counter()
+        if timeout_seconds <= 0:
+            _log_call(
+                model=profile.model,
+                started_at=started_at,
+                status="FAILED",
+                error_code=ErrorCategory.TIMEOUT.value,
+                failure_kind="timeout",
+            )
+            raise LlmBridgeError(
+                category=ErrorCategory.TIMEOUT,
+                retryable=True,
+            )
         payload = self._base_payload(messages=messages, profile=profile)
         payload["stream"] = True
         payload["stream_options"] = {"include_usage": True}
@@ -199,6 +292,17 @@ class XaiLlmBridge:
                 timeout=self._timeout(timeout_seconds),
             ) as response:
                 if response.is_error:
+                    _log_call(
+                        model=profile.model,
+                        started_at=started_at,
+                        status="FAILED",
+                        error_code=ErrorCategory.INTERNAL.value,
+                        failure_kind=(
+                            "rate_limit"
+                            if response.status_code == 429
+                            else "provider"
+                        ),
+                    )
                     raise LlmBridgeError(
                         category=ErrorCategory.INTERNAL,
                         retryable=response.status_code == 429
@@ -212,6 +316,13 @@ class XaiLlmBridge:
                     try:
                         chunk = _StreamChunk.model_validate_json(data)
                     except (json.JSONDecodeError, ValidationError) as exception:
+                        _log_call(
+                            model=provider_model or profile.model,
+                            started_at=started_at,
+                            status="FAILED",
+                            error_code=ErrorCategory.SCHEMA.value,
+                            failure_kind="schema",
+                        )
                         raise LlmBridgeError(
                             category=ErrorCategory.SCHEMA,
                             retryable=False,
@@ -224,22 +335,50 @@ class XaiLlmBridge:
                         if text:
                             yield LlmTextDelta(text=text)
         except httpx.TimeoutException as exception:
+            _log_call(
+                model=provider_model or profile.model,
+                started_at=started_at,
+                status="FAILED",
+                error_code=ErrorCategory.TIMEOUT.value,
+                failure_kind="timeout",
+            )
             raise LlmBridgeError(
                 category=ErrorCategory.TIMEOUT,
                 retryable=True,
             ) from exception
         except httpx.RequestError as exception:
+            _log_call(
+                model=provider_model or profile.model,
+                started_at=started_at,
+                status="FAILED",
+                error_code=ErrorCategory.INTERNAL.value,
+                failure_kind="network",
+            )
             raise LlmBridgeError(
                 category=ErrorCategory.INTERNAL,
                 retryable=True,
             ) from exception
 
         if not completed:
+            _log_call(
+                model=provider_model or profile.model,
+                started_at=started_at,
+                status="FAILED",
+                error_code=ErrorCategory.INTERNAL.value,
+                failure_kind="provider",
+            )
             raise LlmBridgeError(
                 category=ErrorCategory.INTERNAL,
                 retryable=True,
             )
         if provider_usage is None or provider_model is None:
+            _log_call(
+                model=provider_model or profile.model,
+                started_at=started_at,
+                status="FAILED",
+                error_code=ErrorCategory.SCHEMA.value,
+                failure_kind="schema",
+            )
             raise LlmBridgeError(
                 category=ErrorCategory.SCHEMA,
                 retryable=False,
@@ -251,6 +390,11 @@ class XaiLlmBridge:
                 provider_model,
             )
         details = provider_usage.completion_tokens_details
+        _log_call(
+            model=provider_model,
+            started_at=started_at,
+            status="SUCCESS",
+        )
         yield LlmTextStreamCompleted(
             usage=LlmUsage(
                 model=provider_model,
