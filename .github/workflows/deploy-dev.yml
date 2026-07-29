@@ -108,6 +108,8 @@ jobs:
             TAG="$DEPLOY_TAG" docker compose --env-file .env \
               -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
             TAG="$DEPLOY_TAG" docker compose --env-file .env \
+              -f docker-compose.yml -f docker-compose.prod.yml restart nginx
+            TAG="$DEPLOY_TAG" docker compose --env-file .env \
               -f docker-compose.yml -f docker-compose.prod.yml ps
 
       - name: Smoke test
