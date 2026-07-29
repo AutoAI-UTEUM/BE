@@ -1,0 +1,13 @@
+.venv/
+tests/
+**/__pycache__/
+**/*.py[cod]
+.env*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.log
+*.md
+!README.md
