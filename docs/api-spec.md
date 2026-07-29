@@ -669,7 +669,10 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
     "learnerLevel": null,
     "learnerConfidence": null,
     "pendingDiagnosis": null,
-    "latestRepair": null
+    "latestRepair": null,
+    "memory": {
+      "temporaryCandidates": []
+    }
   }
 }
 ```
@@ -677,6 +680,8 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 `learnerLevel`은 `learner_memories.target_difficulty`이며 데이터가 없으면 `null`입니다. `learnerConfidence`는 같은 사용자×자료의 최근 assessment 5개 통과 비율로 파생합니다. 비율이 0.4 미만이면 `LOW`, 0.4 이상 0.7 이하면 `MEDIUM`, 0.7 초과면 `HIGH`이며 평가가 없으면 `null`입니다. `conversationSummary`는 MVP에서 생성하지 않으며 내부 턴 스냅샷에 포함하지 않습니다(`ai-integration-contract.md` v0.4 §3.1).
 
 `quizAssessments`는 현재 세션 기준 최근 5개의 평가 요약입니다(DEC-011 — DB는 전량 보존, 스냅샷은 세션 스코프 윈도우. 메모리 승격 판단용 user×material 교차 세션 최근 20개 조회는 별도 경로).
+
+`memory.temporaryCandidates`는 현재 세션에서 저장된 `CANDIDATE` 상태 후보를 최신순 최대 10개 전달합니다. 각 항목은 `candidateId`, `type`, `content`, `confidence`, `evidenceRefs`를 포함하며, 세션 구분은 `evidenceRefs.sessionId`로 검증합니다. 최상위 `memoryWrite`가 반환되면 Spring은 선택 후보 전체에서 중복 없는 근거 2개 이상과 모든 후보의 confidence 0.70 이상을 다시 확인한 뒤 별도 트랜잭션으로 승격합니다.
 
 `pendingDiagnosis`와 `latestRepair`는 진단·교정 흐름이 진행 중일 때 Spring이 채워 전달합니다. `latestRepair`에는 직전 교정 답변 원문(또는 원문을 보존한 요약)을 포함해, 교정 후 추가 질문(`USER_QUESTION`)에서 Orchestrator가 QaAgent에 교정 문맥을 넘길 수 있게 합니다.
 

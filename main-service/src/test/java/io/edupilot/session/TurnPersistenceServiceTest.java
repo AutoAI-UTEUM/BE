@@ -15,6 +15,7 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -24,6 +25,8 @@ import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
+import io.edupilot.memory.LearnerMemoryCandidate;
+import io.edupilot.memory.MemoryCandidateStatus;
 import io.edupilot.quiz.QuizService;
 import io.edupilot.user.UserRepository;
 
@@ -240,6 +243,63 @@ class TurnPersistenceServiceTest {
 		assertThat(persisted.uiActions()).isEmpty();
 	}
 
+	@Test
+	void storesTurnMemoryCandidateWithRawEvidenceAndTraceReferences() {
+		activeSession(
+			PageStatus.EXPLAINED,
+			PageStatus.EXPLAINED,
+			1,
+			3
+		);
+		Map<String, Object> candidate = new LinkedHashMap<>();
+		candidate.put("type", "WEAKNESS");
+		candidate.put("content", "분수 나눗셈 개념 보완 필요");
+		candidate.put("confidence", new BigDecimal("0.80"));
+		candidate.put("evidence", List.of("assessment-1", "qa-2"));
+		candidate.put("promotionRequested", true);
+
+		service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.EXPLAIN_CURRENT_PAGE,
+			null,
+			501L,
+			response(
+				Map.of(),
+				List.of(),
+				List.of(candidate)
+			)
+		);
+
+		ArgumentCaptor<LearnerMemoryCandidate> captor =
+			ArgumentCaptor.forClass(LearnerMemoryCandidate.class);
+		verify(candidateRepository).save(captor.capture());
+		LearnerMemoryCandidate saved = captor.getValue();
+		assertThat(saved.getStatus())
+			.isEqualTo(MemoryCandidateStatus.CANDIDATE);
+		assertThat(saved.getCandidateType()).isEqualTo("WEAKNESS");
+		assertThat(saved.getContent())
+			.isEqualTo("분수 나눗셈 개념 보완 필요");
+		assertThat(saved.getConfidence())
+			.isEqualByComparingTo("0.80");
+		assertThat(saved.getEvidenceRefs())
+			.extracting(
+				ref -> ref.sourceType(),
+				ref -> ref.sourceId(),
+				ref -> ref.sessionId(),
+				ref -> ref.reference()
+			)
+			.containsExactly(
+				org.assertj.core.groups.Tuple.tuple(
+					"TURN", 501L, 100L, "assessment-1"
+				),
+				org.assertj.core.groups.Tuple.tuple(
+					"TURN", 501L, 100L, "qa-2"
+				)
+			);
+	}
+
 	private LearningSession activeSession(
 		PageStatus previousStatus,
 		PageStatus persistedStatus,
@@ -264,6 +324,14 @@ class TurnPersistenceServiceTest {
 		Map<String, Object> patch,
 		List<Map<String, Object>> messages
 	) {
+		return response(patch, messages, List.of());
+	}
+
+	private io.edupilot.ai.dto.TurnResponse response(
+		Map<String, Object> patch,
+		List<Map<String, Object>> messages,
+		List<Map<String, Object>> memoryCandidates
+	) {
 		return new io.edupilot.ai.dto.TurnResponse(
 			"1.0",
 			"turn-1",
@@ -273,7 +341,7 @@ class TurnPersistenceServiceTest {
 			patch,
 			List.of(),
 			null,
-			List.of(),
+			memoryCandidates,
 			null,
 			null
 		);

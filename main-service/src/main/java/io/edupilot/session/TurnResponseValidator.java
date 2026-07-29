@@ -1,6 +1,8 @@
 package io.edupilot.session;
 
 import java.math.BigDecimal;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -40,6 +42,19 @@ public class TurnResponseValidator {
 		"DIAGNOSIS",
 		"REPAIR",
 		"SYSTEM"
+	);
+	private static final Set<String> MEMORY_CANDIDATE_FIELDS = Set.of(
+		"type",
+		"content",
+		"confidence",
+		"evidence",
+		"promotionRequested"
+	);
+	private static final Set<String> MEMORY_CANDIDATE_TYPES = Set.of(
+		"STRENGTH",
+		"WEAKNESS",
+		"MISCONCEPTION",
+		"PREFERENCE"
 	);
 	private final QuizGenerationValidator quizGenerationValidator;
 
@@ -206,14 +221,33 @@ public class TurnResponseValidator {
 	private void validateMemoryCandidates(TurnResponse response) {
 		for (Map<String, Object> candidate : response.memoryCandidates()) {
 			if (candidate == null
-				|| !StringUtils.hasText(text(candidate, "type"))
-				|| !StringUtils.hasText(text(candidate, "content"))) {
+				|| !candidate.keySet().equals(MEMORY_CANDIDATE_FIELDS)
+				|| !MEMORY_CANDIDATE_TYPES.contains(
+					text(candidate, "type")
+				)
+				|| !StringUtils.hasText(text(candidate, "content"))
+				|| !(candidate.get("promotionRequested") instanceof Boolean)) {
 				throw invalid();
 			}
 			BigDecimal confidence = decimal(candidate.get("confidence"));
 			if (confidence == null
 				|| confidence.compareTo(BigDecimal.ZERO) < 0
 				|| confidence.compareTo(BigDecimal.ONE) > 0) {
+				throw invalid();
+			}
+			validateMemoryEvidence(candidate.get("evidence"));
+		}
+	}
+
+	private void validateMemoryEvidence(Object value) {
+		if (!(value instanceof List<?> evidence) || evidence.isEmpty()) {
+			throw invalid();
+		}
+		Set<String> unique = new HashSet<>();
+		for (Object item : evidence) {
+			if (!(item instanceof String text)
+				|| !StringUtils.hasText(text)
+				|| !unique.add(text.trim())) {
 				throw invalid();
 			}
 		}
