@@ -61,6 +61,10 @@ class PolicyVerifier:
         plan: TurnPlan,
         context: AgentContext,
     ) -> tuple[TurnPlan, list[Adjustment]]:
+        if sum(
+            action.tool is ToolName.PROMOTE_MEMORY for action in plan.actions
+        ) > 1:
+            raise PolicyViolation("multiple memory promotions in one turn")
         if len(plan.actions) > plan.pedagogy_policy.intervention_budget:
             raise PolicyViolation("intervention budget exceeded")
         if all(action.tool in MEMORY_TOOLS for action in plan.actions):

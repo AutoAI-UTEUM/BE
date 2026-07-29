@@ -137,7 +137,11 @@
   `{type, content, confidence, evidence[], promotionRequested}`이며 `type`은
   `STRENGTH | WEAKNESS | MISCONCEPTION | PREFERENCE`, `confidence`는 0~1
   숫자입니다. 실제 저장·승격은 Spring 책임입니다.
-- `memoryWrite`는 최상위 nullable 필드입니다. Spring은 턴 핵심 저장 커밋 후 별도 트랜잭션에서 반복 근거·confidence 정책을 검증해 승격합니다.
+- `memoryWrite`는 최상위 nullable 필드입니다. `PROMOTE_MEMORY` 성공 시
+  `{type, content, confidence, evidence[]}`를 반환하고 그 외에는 `null`입니다.
+  `memoryCandidates[].promotionRequested`는 호환용 신호로 유지하되 승격 요청의
+  정본은 `memoryWrite`입니다. Spring은 턴 핵심 저장 커밋 후 별도 트랜잭션에서
+  반복 근거·confidence 정책을 검증해 승격합니다.
 - `uiActions`: 예약 필드이며 AI Service는 항상 `[]`을 반환합니다. Spring은
   비어 있지 않은 값이 오면 무시하고 경고 로그를 남깁니다. 사용자 위젯은
   Spring이 [API 명세](api-spec.md) §5 규칙표에 따라 생성합니다.
