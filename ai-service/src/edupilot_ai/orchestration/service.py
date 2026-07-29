@@ -331,6 +331,7 @@ class TurnService:
             state_patch=dispatched.state_patch,
             ui_actions=dispatched.ui_actions,
             memory_candidates=dispatched.memory_candidates,
+            memory_write=dispatched.memory_write,
             quiz=dispatched.quiz,
             usage=_usage(usages, self._model),
         )

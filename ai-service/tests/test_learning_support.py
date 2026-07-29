@@ -3,6 +3,7 @@
 from copy import deepcopy
 
 import httpx
+import pytest
 
 from edupilot_ai.core.errors import ErrorCategory, InternalErrorResponse
 from edupilot_ai.llm.bridge import LlmBridgeError, LlmUsage
@@ -13,6 +14,9 @@ from edupilot_ai.models.learning_support import (
     RepairOutput,
 )
 from edupilot_ai.models.plan import AgentOutput, PlanAction, ToolName, TurnPlan
+from edupilot_ai.models.turn import TurnRequest, TurnResponse
+from edupilot_ai.orchestration.context import ContextBuilder
+from edupilot_ai.orchestration.policy import PolicyVerifier, PolicyViolation
 from edupilot_ai.settings import ReasoningEffort
 from tests.fakes import FakeLlm
 from tests.test_turn_contract import make_plan, post_turn
@@ -471,6 +475,7 @@ async def test_memory_candidate_is_returned_after_primary_action(
             "promotionRequested": False,
         }
     ]
+    assert body["memoryWrite"] is None
     assert len(fake_llm.calls) == 2
 
 
@@ -500,7 +505,9 @@ async def test_memory_promotion_returns_confirmed_numeric_contract(
     response = await post_turn(client, auth_headers, turn_payload)
 
     assert response.status_code == 200
-    assert response.json()["memoryCandidates"] == [
+    body = response.json()
+    turn = TurnResponse.model_validate(body)
+    assert body["memoryCandidates"] == [
         {
             "type": "MISCONCEPTION",
             "content": "편차를 평균값 자체로 혼동함",
@@ -509,6 +516,52 @@ async def test_memory_promotion_returns_confirmed_numeric_contract(
             "promotionRequested": True,
         }
     ]
+    expected_memory_write = {
+        "type": "MISCONCEPTION",
+        "content": "편차를 평균값 자체로 혼동함",
+        "confidence": 0.7,
+        "evidence": ["assessment-1", "qa-2"],
+    }
+    assert body["memoryWrite"] == expected_memory_write
+    assert turn.memory_write == expected_memory_write
+
+
+def test_multiple_memory_promotions_are_rejected(
+    turn_payload: dict[str, object],
+) -> None:
+    promotion_args = {
+        "type": "MISCONCEPTION",
+        "content": "편차를 평균값 자체로 혼동함",
+        "confidence": 0.8,
+        "evidence": ["assessment-1", "qa-2"],
+    }
+    plan = plan_with_memory_action(
+        ToolName.PROMOTE_MEMORY,
+        promotion_args,
+        "PROMOTE_MEMORY",
+    )
+    plan = plan.model_copy(
+        update={
+            "pedagogy_policy": plan.pedagogy_policy.model_copy(
+                update={"intervention_budget": 3}
+            ),
+            "actions": [
+                *plan.actions,
+                PlanAction(
+                    action_id="action-3",
+                    tool=ToolName.PROMOTE_MEMORY,
+                    args=promotion_args,
+                ),
+            ],
+        }
+    )
+    context = ContextBuilder().build(TurnRequest.model_validate(turn_payload))
+
+    with pytest.raises(
+        PolicyViolation,
+        match="^multiple memory promotions in one turn$",
+    ):
+        PolicyVerifier().verify(plan, context)
 
 
 async def test_personality_memory_type_is_rejected(

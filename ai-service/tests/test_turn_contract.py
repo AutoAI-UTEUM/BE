@@ -82,6 +82,7 @@ async def test_explain_current_page_turn(
     assert turn.state_patch == {"pageStatus": "EXPLAINED"}
     assert turn.actions_executed[0].agent == "ExplainerAgent"
     assert "adjustments" not in response.json()["actionsExecuted"][0]
+    assert response.json()["memoryWrite"] is None
     assert len(fake_llm.calls) == 2
     planner_payload = json.loads(fake_llm.calls[0][0][1]["content"])
     assert planner_payload["learnerConfidence"] == "HIGH"

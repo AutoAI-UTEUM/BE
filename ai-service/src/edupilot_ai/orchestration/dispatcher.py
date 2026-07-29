@@ -77,6 +77,7 @@ class DispatchResult:
     usages: list[LlmUsage] = field(default_factory=list)
     quiz: QuizGeneration | None = None
     memory_candidates: list[dict[str, Any]] = field(default_factory=list)
+    memory_write: dict[str, Any] | None = None
     failure: LlmBridgeError | PolicyViolation | None = None
 
 
@@ -141,7 +142,7 @@ class ToolDispatcher:
                     if result.quiz is not None:
                         raise PolicyViolation("multiple quiz results are not allowed")
                     result.quiz = outcome.quiz
-                result.memory_candidates.extend(outcome.memory_candidates)
+                self._record_memory_result(result, action, outcome)
                 result.usages.append(outcome.usage)
             except (LlmBridgeError, PolicyViolation) as error:
                 result.actions.append(
@@ -223,7 +224,7 @@ class ToolDispatcher:
                     if result.quiz is not None:
                         raise PolicyViolation("multiple quiz results are not allowed")
                     result.quiz = outcome.quiz
-                result.memory_candidates.extend(outcome.memory_candidates)
+                self._record_memory_result(result, action, outcome)
                 result.usages.append(outcome.usage)
             except (LlmBridgeError, PolicyViolation) as error:
                 result.actions.append(
@@ -281,6 +282,7 @@ class ToolDispatcher:
             ToolName.BUILD_MEMORY_CANDIDATE,
             ToolName.PROMOTE_MEMORY,
         }:
+            # memoryWrite is canonical; promotionRequested remains for compatibility.
             candidate = {
                 "type": action.args["type"],
                 "content": action.args["content"],
@@ -296,6 +298,25 @@ class ToolDispatcher:
                 memory_candidates=[candidate],
             )
         raise PolicyViolation("tool is not implemented in issue #23")
+
+    @staticmethod
+    def _record_memory_result(
+        result: DispatchResult,
+        action: PlanAction,
+        outcome: AgentResult,
+    ) -> None:
+        result.memory_candidates.extend(outcome.memory_candidates)
+        if action.tool is not ToolName.PROMOTE_MEMORY:
+            return
+        if result.memory_write is not None:
+            raise PolicyViolation("multiple memory promotions in one turn")
+        if len(outcome.memory_candidates) != 1:
+            raise PolicyViolation("memory promotion result is invalid")
+        candidate = outcome.memory_candidates[0]
+        result.memory_write = {
+            key: candidate[key]
+            for key in ("type", "content", "confidence", "evidence")
+        }
 
     def _agent_stream(
         self,
