@@ -550,3 +550,78 @@ Closes #25
 
 Closes #38
 ```
+
+---
+
+# Planner 축약 컨텍스트 Phase Worklog
+
+기준 브랜치: `origin/develop` (`92d7577`, 2026-07-28 rebase)
+
+## 작업 결과
+
+- 2026-07-28 05:25 KST: 최신 develop에서
+  `feature/planner-slim-context`를 생성했습니다.
+- `PlanContext`를 추가하고 Orchestrator의 Plan 생성 프롬프트에만
+  직렬화하도록 변경했습니다. PolicyVerifier와 Explainer/QaAgent는 기존
+  전체 `AgentContext`를 계속 사용합니다.
+- Plan 입력은 다음과 같이 제한했습니다.
+  - session은 `currentPage`, `pageStatus`만 포함
+  - 현재 페이지는 앞 500자 `pageTextPreview`, 인접 페이지는 존재 여부만 포함
+  - 최근 메시지는 최근 3개의 `role`, 앞 120자 `content`만 포함
+  - QA 문맥은 `threadRef`, 요약 존재 여부만 포함
+  - 평가 요약은 최신 1개만 포함
+  - pending diagnosis는 존재 여부와 `diagnosisId`, latest repair는 존재
+    여부만 포함
+- 테스트에서 페이지 전문, 오래된·전체 메시지, QA 전문, 학생 진단 답안,
+  교정 원문이 Plan 직렬화에 포함되지 않음을 확인했습니다.
+- 기존 Plan 정책 검증·page/detailLevel 보정과 Agent 전체 문맥 전달 테스트는
+  그대로 통과했습니다.
+
+## 검증 결과
+
+- `uv run pytest -q`: 54개 통과
+- `uv run ruff check .`: 통과
+- `uv run mypy src tests`: 41개 소스 파일 검사 통과
+- 테스트 중 실제 Grok/xAI 및 외부 네트워크 호출: 0회
+
+## 블로커 보완·최신 develop 정렬 (2026-07-28)
+
+- #25의 turn deadline·NDJSON 경로, learnerConfidence enum, #79의
+  QuizAgent·GraderAgent·`models/base.py`, #80의 평가·진단·Repair·메모리
+  도구가 포함된 최신 develop에 rebase했습니다.
+- Orchestrator는 최신 `create_plan(context, deadline)`을 유지하며 Plan LLM
+  호출에만 `PlanContext`를 전달합니다. Policy와 Explainer·QA·Quiz·Repair는
+  기존 전체 `AgentContext`를 사용합니다.
+- `DIAGNOSIS_ANSWER_SUBMITTED`의 `eventPayload.answer`를 Plan 입력에서
+  제거했습니다. 라우팅에 필요한 `diagnosisId`만 유지합니다.
+- 최신 `quizAssessments`는 dict 전체 대신 `understandingSummary`,
+  `recommendedNextDirection`, `weaknesses`만 선별합니다.
+- `QUIZ_TYPE_SELECTED`는 선택 유형과 bounded page preview만 Plan에 전달하며,
+  RepairAgent는 Plan에서 제거된 답안·전체 페이지·진단 문맥을 실행 단계에서
+  그대로 받는 것을 회귀 테스트로 확인했습니다.
+- 보완 후 `uv run pytest -q` 101개, ruff, mypy(56개 소스 파일)가
+  통과했습니다.
+- 테스트 중 실제 Grok/xAI 및 외부 네트워크 호출은 0회입니다.
+
+## PR 본문
+
+```markdown
+## 변경 요약
+
+- Orchestrator Plan 호출 전용 `PlanContext`를 추가했습니다.
+- 페이지 전문·전체 메시지·교정/진단 원문 대신 bounded preview와 존재 여부만
+  플래너에 전달합니다.
+- 진단 답변 원문을 Plan payload에서 제거하고 최신 평가도 승인된 요약 필드
+  3종만 전달합니다.
+- Policy 검증과 Explainer·QA·Quiz·Repair 실행은 기존 전체
+  `AgentContext`를 유지합니다.
+
+## 검증
+
+- Plan 직렬화 길이·진단 답변·평가 상세 원문 부재 단위 테스트
+- 기존 Plan 검증·보정 및 turn 계약 회귀 테스트
+- `uv run pytest -q` — 101 passed
+- `uv run ruff check .` — passed
+- `uv run mypy src tests` — passed
+- 실제 Grok/xAI 및 테스트 외부 네트워크 호출 0회
+```

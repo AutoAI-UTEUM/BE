@@ -5,7 +5,7 @@ from collections.abc import Mapping, Sequence
 
 from edupilot_ai.models.quiz import QuizType
 from edupilot_ai.models.turn import DetailLevel, QaThreadMode
-from edupilot_ai.orchestration.context import AgentContext
+from edupilot_ai.orchestration.context import AgentContext, PlanContext
 
 LEARNER_KOREAN_INSTRUCTION = (
     "모든 학습자 대상 텍스트(설명, 답변, 교정, 문항·보기, 피드백, "
@@ -24,7 +24,7 @@ def _quiz_confidence_instruction(context: AgentContext) -> str:
 
 
 def plan_messages(
-    context: AgentContext,
+    context: PlanContext,
     *,
     retry: bool,
 ) -> Sequence[Mapping[str, str]]:
