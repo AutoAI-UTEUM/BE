@@ -34,6 +34,7 @@ import io.edupilot.ai.dto.QuizGeneration;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.memory.LearnerMemoryPromotionService;
+import io.edupilot.memory.MemoryWrite;
 import io.edupilot.session.dto.TurnRequest;
 import io.edupilot.session.dto.TurnResponse;
 import io.edupilot.session.dto.TurnStateResponse;
@@ -622,6 +623,63 @@ class SessionTurnServiceTest {
 		)).isSameAs(failure);
 		verify(streamService).fail(streamConnection, failure);
 		verify(streamService, never()).complete(any(), any());
+	}
+
+	@Test
+	void promotionFailureDoesNotFailCommittedTurnAndReleasesClaim()
+		throws Exception {
+		stubPreparedTurn();
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.empty());
+		when(aiClient.executeTurn(any())).thenAnswer(invocation -> {
+			io.edupilot.ai.dto.TurnRequest aiRequest =
+				invocation.getArgument(0);
+			return aiResponse(aiRequest.turnId());
+		});
+		TurnResponse response = publicResponse();
+		MemoryWrite memoryWrite = new MemoryWrite(
+			List.of("strength"),
+			List.of("weakness"),
+			List.of("misconception"),
+			List.of("preference"),
+			List.of("MCQ"),
+			"BALANCED",
+			List.of("goal"),
+			"digest",
+			List.of(1L)
+		);
+		when(persistenceService.persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		)).thenReturn(new PersistedTurn(
+			response.turnId(),
+			response.sessionId(),
+			response.messages(),
+			response.uiActions(),
+			response.state(),
+			memoryWrite,
+			10L
+		));
+		when(memoryPromotionService.promoteMemory(
+			1L,
+			10L,
+			memoryWrite
+		)).thenThrow(new org.springframework.dao
+			.OptimisticLockingFailureException("conflict"));
+
+		assertThat(service().execute(1L, 100L, userQuestion()))
+			.isEqualTo(response);
+		verify(memoryPromotionService)
+			.promoteMemory(1L, 10L, memoryWrite);
+		verify(claimService).release(100L, "request-1");
 	}
 
 	private TurnResponse publicResponse() {

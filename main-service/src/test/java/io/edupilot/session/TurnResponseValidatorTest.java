@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -135,6 +136,34 @@ class TurnResponseValidatorTest {
 	void rejectsUnknownPatchAndNotExplainedRegression() {
 		assertPolicy(Map.of("status", "COMPLETED"));
 		assertPolicy(Map.of("pageStatus", "NOT_EXPLAINED"));
+	}
+
+	@Test
+	void acceptsValidMemoryCandidate() {
+		validator.validate(
+			responseWithMemoryCandidates(List.of(memoryCandidate())),
+			"turn-1"
+		);
+	}
+
+	@Test
+	void rejectsInvalidMemoryCandidateContract() {
+		assertInvalidMemoryCandidate(candidateWith("type", "UNKNOWN"));
+		assertInvalidMemoryCandidate(
+			candidateWith("confidence", new BigDecimal("1.01"))
+		);
+		assertInvalidMemoryCandidate(candidateWith("evidence", List.of()));
+		assertInvalidMemoryCandidate(
+			candidateWith("evidence", List.of("same", " same "))
+		);
+
+		Map<String, Object> missingPromotionRequested =
+			new LinkedHashMap<>(memoryCandidate());
+		missingPromotionRequested.remove("promotionRequested");
+		assertInvalidMemoryCandidate(missingPromotionRequested);
+		assertInvalidMemoryCandidate(
+			candidateWith("promotionRequested", "true")
+		);
 	}
 
 	@Test
@@ -310,6 +339,56 @@ class TurnResponseValidatorTest {
 				assertThat(exception.errorCode())
 					.isEqualTo(ErrorCode.AI_POLICY_REJECTED)
 			);
+	}
+
+	private void assertInvalidMemoryCandidate(
+		Map<String, Object> candidate
+	) {
+		assertThatThrownBy(() -> validator.validate(
+			responseWithMemoryCandidates(List.of(candidate)),
+			"turn-1"
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode())
+				.isEqualTo(ErrorCode.AI_RESPONSE_INVALID)
+		);
+	}
+
+	private io.edupilot.ai.dto.TurnResponse responseWithMemoryCandidates(
+		List<Map<String, Object>> memoryCandidates
+	) {
+		return new io.edupilot.ai.dto.TurnResponse(
+			"1.0",
+			"turn-1",
+			"ANSWER",
+			List.of(),
+			List.of(),
+			Map.of(),
+			List.of(),
+			null,
+			memoryCandidates,
+			null,
+			null
+		);
+	}
+
+	private Map<String, Object> memoryCandidate() {
+		Map<String, Object> candidate = new LinkedHashMap<>();
+		candidate.put("type", "WEAKNESS");
+		candidate.put("content", "분수 나눗셈 개념 보완 필요");
+		candidate.put("confidence", new BigDecimal("0.70"));
+		candidate.put("evidence", List.of("assessment-1", "qa-2"));
+		candidate.put("promotionRequested", true);
+		return candidate;
+	}
+
+	private Map<String, Object> candidateWith(
+		String key,
+		Object value
+	) {
+		Map<String, Object> candidate =
+			new LinkedHashMap<>(memoryCandidate());
+		candidate.put(key, value);
+		return candidate;
 	}
 
 	private io.edupilot.ai.dto.TurnResponse response(

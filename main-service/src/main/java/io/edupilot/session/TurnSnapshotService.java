@@ -32,6 +32,7 @@ public class TurnSnapshotService {
 	private static final int MESSAGE_LIMIT = 10;
 	private static final int QA_MESSAGE_LIMIT = 6;
 	private static final int QA_CONTENT_LIMIT = 500;
+	private static final int MEMORY_CANDIDATE_LIMIT = 10;
 
 	private final LearningSessionRepository sessionRepository;
 	private final MaterialPageRepository pageRepository;
@@ -142,7 +143,7 @@ public class TurnSnapshotService {
 			"memory",
 			Map.of(
 				"temporaryCandidates",
-				temporaryCandidates(userId, materialId)
+				temporaryCandidates(userId, materialId, sessionId)
 			)
 		);
 		return new TurnSnapshot(sessionData, context, materialId);
@@ -301,7 +302,8 @@ public class TurnSnapshotService {
 
 	private List<Map<String, Object>> temporaryCandidates(
 		Long userId,
-		Long materialId
+		Long materialId,
+		Long sessionId
 	) {
 		return candidateRepository
 			.findByUser_IdAndMaterial_IdAndStatusOrderByCreatedAtDescIdDesc(
@@ -310,6 +312,10 @@ public class TurnSnapshotService {
 				MemoryCandidateStatus.CANDIDATE
 			)
 			.stream()
+			.filter(candidate -> candidate.getEvidenceRefs().stream()
+				.anyMatch(reference ->
+					sessionId.equals(reference.sessionId())))
+			.limit(MEMORY_CANDIDATE_LIMIT)
 			.map(this::candidateData)
 			.toList();
 	}

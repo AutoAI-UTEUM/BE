@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Set;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.material.LearningMaterial;
@@ -36,7 +37,7 @@ class LearnerMemoryPromotionTransaction {
 		this.materialRepository = materialRepository;
 	}
 
-	@Transactional
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public boolean promote(
 		Long userId,
 		Long materialId,
@@ -86,7 +87,11 @@ class LearnerMemoryPromotionTransaction {
 			&& write.preferredQuizTypes() != null
 			&& write.nextCoachingGoals() != null
 			&& write.candidateIds() != null
-			&& new HashSet<>(write.candidateIds()).size() >= 2;
+			&& !write.candidateIds().isEmpty()
+			&& write.candidateIds().stream()
+				.allMatch(id -> id != null && id > 0)
+			&& new HashSet<>(write.candidateIds()).size()
+				== write.candidateIds().size();
 	}
 
 	private long independentEvidenceCount(
@@ -94,12 +99,7 @@ class LearnerMemoryPromotionTransaction {
 	) {
 		return candidates.stream()
 			.flatMap(candidate -> candidate.getEvidenceRefs().stream())
-			.map(reference ->
-				reference.sourceType()
-					+ ":"
-					+ reference.sourceId()
-					+ ":"
-					+ reference.sessionId())
+			.map(MemoryEvidenceRef::identity)
 			.distinct()
 			.count();
 	}
