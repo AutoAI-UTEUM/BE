@@ -3,14 +3,14 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-07-26 |
+| 마지막 갱신 | 2026-07-31 |
 | 대상 | Frontend · Spring Backend |
 
 ## 1. 화면별 매핑
 
 | 화면/영역 | 사용자 행동/시점 | API | 성공 시 UI | 주요 오류 |
 | --- | --- | --- | --- | --- |
-| 회원가입 | 제출 | `POST /api/auth/signup` | 로그인 화면 또는 자동 로그인 정책에 따른 이동 | 유효성, 이메일 중복 |
+| 회원가입 | `LEARNER | INSTRUCTOR` 역할 선택 후 제출 | `POST /api/auth/signup` | 반환된 역할 확인 후 로그인 화면 또는 자동 로그인 정책에 따른 이동 | 역할 누락/오류, 유효성, 이메일 중복 |
 | 로그인 | 제출 | `POST /api/auth/login` | 토큰 저장 후 자료 목록 이동 | 자격 증명 실패, 비활성 계정 |
 | 앱 초기 진입 | 인증 상태 확인 | `GET /api/users/me` | 사용자 정보/권한 반영 | 토큰 만료 |
 | 전역 | access 만료(401) 시 | `POST /api/auth/refresh` (credentials 포함) | 새 access로 원요청 재시도 | TOKEN_INVALID → 로그인 이동 |

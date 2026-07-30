@@ -57,7 +57,9 @@ Swagger UI: http://localhost:8080/swagger-ui.html
 
 ## 인증 흐름
 
-회원가입 후 로그인하면 access token은 응답 body로, refresh token은 `edupilot_refresh` HttpOnly 쿠키로 발급됩니다. access 만료 시 `/api/auth/refresh`가 쿠키를 회전하며 로그아웃과 탈퇴는 저장된 refresh를 폐기합니다.
+회원가입은 `role`에 `LEARNER` 또는 `INSTRUCTOR`를 필수로 받으며 `ADMIN` 공개 가입은 허용하지 않습니다. 로그인하면 access token은 응답 body로, refresh token은 `edupilot_refresh` HttpOnly 쿠키로 발급됩니다. access 만료 시 `/api/auth/refresh`가 쿠키를 회전하며 로그아웃과 탈퇴는 저장된 refresh를 폐기합니다.
+
+V8 migration은 기존 `USER` 계정을 `LEARNER`로 전환합니다. 배포 전에 발급된 `role=USER` access token은 무효가 될 수 있으므로 배포 후 한 번 재로그인해야 합니다.
 
 ## FastAPI 연동 로컬 검증
 

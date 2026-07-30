@@ -1,6 +1,7 @@
 package io.edupilot.user;
 
 public enum UserRole {
-	USER,
+	LEARNER,
+	INSTRUCTOR,
 	ADMIN
 }

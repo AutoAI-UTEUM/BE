@@ -85,7 +85,7 @@ marker만 생성하지 말고 애플리케이션의 실제 업로드 API로 검�
 ```bash
 curl --fail --silent \
   -H 'Content-Type: application/json' \
-  -d '{"email":"storage-check@example.com","password":"password123","name":"Storage Check"}' \
+  -d '{"email":"storage-check@example.com","password":"password123","name":"Storage Check","role":"LEARNER"}' \
   http://localhost:8080/api/auth/signup
 
 ACCESS_TOKEN="$(

@@ -56,7 +56,7 @@ Epic 본문에는 목적, 범위, 제외 범위, 핵심 하위 작업, 완료 �
 ## 현재 만들지 않는 Epic
 
 - 상세 관리자 기능
-- `TEACHER`, Course, Lecture, Assignment
+- Course, Lecture, Assignment와 실제 강사 전용 기능·차등 권한 (#102에서 범위 확정)
 - Notification
 - 리포트·통계 대시보드
 - 결제, 실시간 화상 강의, 교사-학생 실시간 채팅
