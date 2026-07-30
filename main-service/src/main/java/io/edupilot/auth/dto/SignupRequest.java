@@ -1,16 +1,14 @@
 package io.edupilot.auth.dto;
 
+import io.edupilot.auth.validation.ValidEmail;
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public record SignupRequest(
-	@NotBlank(message = "이메일은 필수입니다.")
-	@Email(message = "이메일 형식을 확인해 주세요.")
-	@Size(max = 255, message = "이메일은 255자 이하여야 합니다.")
+	@ValidEmail
 	@Schema(example = "user@example.com")
 	String email,
 

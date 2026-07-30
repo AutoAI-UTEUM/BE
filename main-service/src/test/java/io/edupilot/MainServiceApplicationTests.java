@@ -167,6 +167,15 @@ class MainServiceApplicationTests {
 				"$.components.securitySchemes.bearerAuth.scheme"
 			).value("bearer"))
 			.andExpect(jsonPath("$.paths['/api/auth/signup'].post").exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/auth/email-availability'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/auth/email-availability'].get.parameters[0].name"
+			).value("email"))
+			.andExpect(jsonPath(
+				"$.paths['/api/auth/email-availability'].get.parameters[0].required"
+			).value(true))
 			.andExpect(jsonPath("$.components.schemas.SignupRequest.required")
 				.value(org.hamcrest.Matchers.hasItem("role")))
 			.andExpect(jsonPath(

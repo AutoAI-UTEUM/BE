@@ -190,6 +190,39 @@ class AuthApiContractTest {
 	}
 
 	@Test
+	void emailAvailabilityIsPublicAndUsesSignupValidationRules() throws Exception {
+		when(userRepository.existsByEmail("available@example.com")).thenReturn(false);
+		when(userRepository.existsByEmail("existing@example.com")).thenReturn(true);
+		when(userRepository.existsByEmail("withdrawn@example.com")).thenReturn(false);
+
+		mockMvc.perform(get("/api/auth/email-availability")
+				.param("email", "AVAILABLE@Example.COM"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.available").value(true));
+
+		mockMvc.perform(get("/api/auth/email-availability")
+				.param("email", "existing@example.com"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.available").value(false));
+
+		mockMvc.perform(get("/api/auth/email-availability")
+				.param("email", "withdrawn@example.com"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.available").value(true));
+
+		for (String invalidEmail : java.util.List.of("", "not-an-email")) {
+			mockMvc.perform(get("/api/auth/email-availability")
+					.param("email", invalidEmail))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+		}
+
+		mockMvc.perform(get("/api/auth/email-availability"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+	}
+
+	@Test
 	void loginReturnsAccessAndStrictRefreshCookieWithoutSensitiveBody() throws Exception {
 		when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
 

@@ -17,7 +17,7 @@
 | Spring | 상태/데이터 저장, 권한 검증, 결정적 채점, FastAPI 호출 |
 | FastAPI | 전달받은 문맥 안에서 AI 계획과 생성 수행 |
 
-모든 리소스 접근은 역할뿐 아니라 소유권을 검증합니다. 공개 가입에서는 `ADMIN`을 선택할 수 없습니다(DEC-029 Proposed). Course·Lecture·Assignment 등 강사 전용 도메인은 현재 요구사항에 포함하지 않습니다.
+모든 리소스 접근은 역할뿐 아니라 소유권을 검증합니다. 공개 가입에서는 `ADMIN`을 선택할 수 없습니다(DEC-029 Accepted). Course·Lecture·Assignment 등 강사 전용 도메인은 현재 요구사항에 포함하지 않습니다.
 
 ## 2. 기능 요구사항
 

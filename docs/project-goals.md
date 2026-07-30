@@ -19,13 +19,13 @@ PDF 중심 학습은 자료를 읽는 행위와 이해 확인·질문·피드백
 | 관리자 | 사용자와 학습 자료를 관리한다 | MVP 미구현 — role만 예약, 운영 조치는 DB 수동 처리 (`DEC-017` Accepted) |
 | 내부 시스템 | 안정적으로 AI 기능과 상태 저장을 연결한다 | Spring-FastAPI 계약 실행, 기록, 오류 처리 |
 
-`INSTRUCTOR` 계정 역할은 DEC-029 초안에 따라 도입합니다. Course·Lecture·Assignment·Notification과 강사 전용 기능·차등 권한은 #102에서 별도 확정하며 이번 역할 구현에는 포함하지 않습니다.
+`INSTRUCTOR` 계정 역할은 DEC-029에 따라 도입합니다. Course·Lecture·Assignment·Notification과 강사 전용 기능·차등 권한은 #102에서 별도 확정하며 이번 역할 구현에는 포함하지 않습니다.
 
 ## 3. MVP 범위
 
 ### Must
 
-- `LEARNER | INSTRUCTOR` 역할 선택과 JWT 기반 회원가입·로그인·내 정보 조회·회원 탈퇴(DEC-028·DEC-029 Proposed)
+- `LEARNER | INSTRUCTOR` 역할 선택과 JWT 기반 회원가입·로그인·내 정보 조회·회원 탈퇴(DEC-028·DEC-029 Accepted)
 - PDF 업로드, 목록/상세 조회, 논리 삭제, 페이지 정보 제공
 - 학습 세션 생성, 재진입, 페이지 이동, 종료
 - 페이지 설명과 현재 페이지 기반 QA

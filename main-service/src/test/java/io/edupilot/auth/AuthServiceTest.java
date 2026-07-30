@@ -123,6 +123,27 @@ class AuthServiceTest {
 	}
 
 	@Test
+	void emailAvailabilitySharesSignupNormalizationAndDuplicateLookup() {
+		when(userRepository.existsByEmail("user@example.com")).thenReturn(true);
+
+		assertThat(authService.emailAvailability("  USER@Example.COM ").available())
+			.isFalse();
+		assertBusinessError(
+			() -> authService.signup(new SignupRequest(
+				"  USER@Example.COM ",
+				"password123",
+				"홍길동",
+				SignupRole.LEARNER
+			)),
+			ErrorCode.EMAIL_ALREADY_EXISTS
+		);
+
+		when(userRepository.existsByEmail("withdrawn@example.com")).thenReturn(false);
+		assertThat(authService.emailAvailability("withdrawn@example.com").available())
+			.isTrue();
+	}
+
+	@Test
 	void loginReturnsAccessAndRefreshForActiveUser() {
 		User user = user(1L, "user@example.com", "password123");
 		when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
