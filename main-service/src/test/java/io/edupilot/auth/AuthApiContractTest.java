@@ -45,6 +45,7 @@ import io.edupilot.session.ChatMessageRepository;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
+import io.edupilot.user.UserRole;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -120,13 +121,72 @@ class AuthApiContractTest {
 		mockMvc.perform(post("/api/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
-					{"email":"bad-email","password":"short","name":"홍길동"}
+					{
+					  "email":"bad-email",
+					  "password":"short",
+					  "name":"홍길동",
+					  "role":"LEARNER"
+					}
 					"""))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"))
 			.andExpect(jsonPath("$.error.details[*].field").value(
 				org.hamcrest.Matchers.hasItems("email", "password")
 			));
+	}
+
+	@Test
+	void signupAcceptsPublicRolesAndRejectsMissingOrReservedRoles() throws Exception {
+		when(userRepository.existsByEmail(any())).thenReturn(false);
+		when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> {
+			User saved = invocation.getArgument(0);
+			ReflectionTestUtils.setField(saved, "id", 2L);
+			return saved;
+		});
+
+		mockMvc.perform(post("/api/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email":"instructor@example.com",
+					  "password":"password123",
+					  "name":"강사",
+					  "role":"INSTRUCTOR"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(2))
+			.andExpect(jsonPath("$.data.role").value("INSTRUCTOR"));
+
+		mockMvc.perform(post("/api/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email":"missing-role@example.com",
+					  "password":"password123",
+					  "name":"학습자"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"))
+			.andExpect(jsonPath("$.error.details[*].field").value(
+				org.hamcrest.Matchers.hasItem("role")
+			));
+
+		for (String role : java.util.List.of("USER", "ADMIN", "UNKNOWN")) {
+			mockMvc.perform(post("/api/auth/signup")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+						{
+						  "email":"invalid-role@example.com",
+						  "password":"password123",
+						  "name":"사용자",
+						  "role":"%s"
+						}
+						""".formatted(role)))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("MALFORMED_REQUEST"));
+		}
 	}
 
 	@Test
@@ -143,6 +203,7 @@ class AuthApiContractTest {
 			.andExpect(jsonPath("$.data.tokenType").value("Bearer"))
 			.andExpect(jsonPath("$.data.expiresIn").value(3600))
 			.andExpect(jsonPath("$.data.user.id").value(1))
+			.andExpect(jsonPath("$.data.user.role").value("LEARNER"))
 			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
 				"edupilot_refresh="
 			)))
@@ -254,7 +315,42 @@ class AuthApiContractTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.id").value(1))
 			.andExpect(jsonPath("$.data.email").value("user@example.com"))
-			.andExpect(jsonPath("$.data.role").value("USER"));
+			.andExpect(jsonPath("$.data.role").value("LEARNER"));
+	}
+
+	@Test
+	void loginAndMePreserveInstructorRole() throws Exception {
+		User instructor = User.create(
+			"instructor@example.com",
+			passwordEncoder.encode("password123"),
+			"강사",
+			UserRole.INSTRUCTOR
+		);
+		ReflectionTestUtils.setField(instructor, "id", 3L);
+		when(userRepository.findByEmail("instructor@example.com"))
+			.thenReturn(Optional.of(instructor));
+		when(userRepository.findById(3L)).thenReturn(Optional.of(instructor));
+
+		var loginResult = mockMvc.perform(post("/api/auth/login")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"email":"instructor@example.com","password":"password123"}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.user.role").value("INSTRUCTOR"))
+			.andReturn();
+
+		String responseBody = loginResult.getResponse().getContentAsString();
+		String accessToken = new com.fasterxml.jackson.databind.ObjectMapper()
+			.readTree(responseBody)
+			.path("data")
+			.path("accessToken")
+			.asText();
+
+		mockMvc.perform(get("/api/users/me")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.role").value("INSTRUCTOR"));
 	}
 
 	@Test

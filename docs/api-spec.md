@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 계약 초안 |
-| 마지막 갱신 | 2026-07-23 |
+| 마지막 갱신 | 2026-07-31 |
 | 외부 호출자 | Frontend |
 | 내부 호출자 | Spring → FastAPI |
 
@@ -57,12 +57,12 @@
 | GET | `/api/health/ready` | DB·AI Service readiness ([응답 계약](issues/11-observability.md)) | N | 전체 |
 | GET | `/api/users/me` | 내 정보 조회 | Y | 본인 |
 | DELETE | `/api/users/me` | 회원 탈퇴(논리 삭제+익명화 — DEC-028) | Y | 본인 (비밀번호 재확인) |
-| POST | `/api/materials` | PDF 업로드 | Y | USER, ADMIN 초안 |
+| POST | `/api/materials` | PDF 업로드 | Y | LEARNER, INSTRUCTOR, ADMIN |
 | GET | `/api/materials` | 자료 목록 | Y | 본인 소유 자료 (DEC-026) |
 | GET | `/api/materials/{materialId}` | 자료 상세 | Y | 본인 소유 자료 |
 | DELETE | `/api/materials/{materialId}` | 자료 논리 삭제 (DEC-028) | Y | 본인 소유 자료 |
 | GET | `/api/materials/{materialId}/pages/{pageNumber}` | 페이지 텍스트 | Y | 본인 소유 자료 — 운영 비노출, dev/디버깅 한정(DEC-025) |
-| POST | `/api/sessions` | 학습 세션 생성 | Y | USER |
+| POST | `/api/sessions` | 학습 세션 생성 | Y | LEARNER, INSTRUCTOR, ADMIN |
 | GET | `/api/sessions` | 내 세션 목록 조회 | Y | 본인 |
 | GET | `/api/sessions/{sessionId}` | 세션 상태 조회 | Y | 세션 소유자 |
 | DELETE | `/api/sessions/{sessionId}` | 세션 논리 삭제 | Y | 세션 소유자 |
@@ -84,7 +84,8 @@
 {
   "email": "user@example.com",
   "password": "password123",
-  "name": "홍길동"
+  "name": "홍길동",
+  "role": "LEARNER"
 }
 ```
 
@@ -94,9 +95,12 @@
 {
   "userId": 1,
   "email": "user@example.com",
-  "name": "홍길동"
+  "name": "홍길동",
+  "role": "LEARNER"
 }
 ```
+
+`role`은 필수이며 공개 가입에서는 `LEARNER | INSTRUCTOR`만 허용합니다. `ADMIN`, 기존 `USER`, 알 수 없는 enum 값은 요청 오류로 거부합니다. `ADMIN` 계정은 운영상 필요한 경우에만 DB에서 수동 설정합니다(DEC-017, DEC-029 Proposed).
 
 비밀번호 정책(확정): **8~64자, 영문·숫자 각 1자 이상 포함**(특수문자 허용). 위반 시 `VALIDATION_FAILED` + `details: [{ "field": "password", "reason": "..." }]`.
 
@@ -122,10 +126,12 @@
     "id": 1,
     "email": "user@example.com",
     "name": "홍길동",
-    "role": "USER"
+    "role": "LEARNER"
   }
 }
 ```
+
+응답과 JWT `role` claim은 `LEARNER | INSTRUCTOR | ADMIN` 중 저장된 계정 역할을 반환합니다. `LEARNER`와 `INSTRUCTOR`는 현재 동일한 인증·소유권 규칙을 적용합니다.
 
 refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DEC-004 Accepted). 쿠키 계약(확정): 이름 `edupilot_refresh`, `HttpOnly`, `Secure`, `SameSite=Lax`, **`Path=/api/auth`**(refresh·logout 요청에만 전송되도록 최소화), Max-Age 14일. 서버는 refresh 해시를 DB에 저장하고 회전·재사용 감지·강제 폐기를 지원합니다. access token 만료는 1시간이며 FE는 메모리에 보관합니다(localStorage 금지). 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
 

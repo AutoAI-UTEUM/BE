@@ -342,14 +342,30 @@
 
 ### DEC-018 — TEACHER·LMS 도메인 (제외 확정)
 
-- 상태: Accepted
+- 상태: Accepted — 역할 제외 부분은 DEC-029 Proposed로 재검토 중
 - 결정일: 2026-07-23
 - 결정자: 프로젝트 담당자
 - 선택: **`TEACHER` 권한과 Course/Lecture/Assignment/Notification 도메인을 MVP·차기 범위에서 제외한다.** 스키마 예약(빈 테이블·미사용 컬럼)도 두지 않는다.
 - 이유: 기획안 제외 목록의 방향을 그대로 종결하는 것이다. BIGINT PK·enum 확장이 쉬워 선제 예약의 이점이 없고 과설계만 남는다.
 - 대안과 trade-off: 도메인 선예약은 확장 시 migration을 줄이지만, 요구가 확정되지 않은 상태의 스키마는 재작업 가능성이 더 크다.
-- **이후 개선안**: 교사-학생 관계 요구가 실제로 생기면 별도 DEC로 승격해 도메인 모델부터 재설계한다. 그 시점에 이 DEC를 Superseded로 갱신한다.
+- **이후 개선안**: DEC-029가 승인되면 계정 역할 제외 결정만 Superseded로 갱신합니다. Course/Lecture/Assignment/Notification 도메인 제외 결정은 #102에서 별도 범위를 승인하기 전까지 유지합니다.
 - 후속 변경 문서: [요구사항 명세](requirements.md) §1, [프로젝트 목표](project-goals.md), [도메인 모델](domain-model.md)
+
+### DEC-029 — 공개 계정 역할 LEARNER·INSTRUCTOR
+
+- 상태: Proposed — [GitHub #100](https://github.com/AutoAI-EduPilot/BE/issues/100) 승인 대기
+- 제안일: 2026-07-31
+- 결정자: 팀 — 승준 역할 정책 승인과 이감재의 "가입 시 역할 선택 UI 확정" 확인 후 Accepted 전환
+- 선택 초안:
+  - 공개 계정 역할은 `LEARNER`, `INSTRUCTOR`로 구분하고 회원가입 시 사용자가 직접 선택합니다.
+  - `ADMIN`은 내부 관리용 예약 역할로 유지하며 공개 회원가입에서는 거부합니다.
+  - 기존 `USER` 데이터는 migration으로 `LEARNER`로 전환합니다.
+  - 이번 결정의 구현 범위는 역할 저장, JWT claim, signup·login·내 정보 API 계약까지입니다.
+  - `LEARNER`와 `INSTRUCTOR`에는 현재 동일한 인증·소유권 규칙을 적용합니다. 강사 전용 기능·차등 권한과 Course/Lecture/Assignment 도입 여부는 #102에서 별도 결정합니다.
+- 이유: FE가 가입 시 역할 선택을 선반영했고 팀이 강사 계정 역할 도입 방향을 선택했습니다. 역할 계약을 먼저 명시하되 미확정 LMS 도메인을 함께 선행 구현하지 않도록 경계를 분리합니다.
+- 대안과 trade-off: 역할을 구분하지 않고 단일 `USER`로 유지하면 현재 구현은 단순하지만 FE 계약과 향후 강사 기능의 주체가 불명확합니다. 가입 후 관리자 승인 방식은 권한 상승 통제가 강하지만 승인 운영 요구가 없어 MVP에서는 자기 선택 방식을 사용합니다.
+- 호환성: 배포 전에 발급된 `role=USER` access token은 `TOKEN_INVALID`가 되며 refresh 또는 재로그인으로 `LEARNER` 토큰을 다시 발급받아야 합니다. 기존 DB 사용자는 V8 migration에서 `LEARNER`로 변환합니다.
+- 후속 변경 문서: [요구사항 명세](requirements.md), [프로젝트 목표](project-goals.md), [도메인 모델](domain-model.md), [API 명세](api-spec.md), [데이터베이스](database.md), [화면-API 매핑](screen-api-map.md)
 
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 

@@ -20,10 +20,12 @@ import org.springframework.test.util.ReflectionTestUtils;
 import io.edupilot.auth.RefreshTokenService.RotationResult;
 import io.edupilot.auth.dto.LoginRequest;
 import io.edupilot.auth.dto.SignupRequest;
+import io.edupilot.auth.dto.SignupRole;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
+import io.edupilot.user.UserRole;
 
 @ExtendWith(MockitoExtension.class)
 class AuthServiceTest {
@@ -63,13 +65,34 @@ class AuthServiceTest {
 		var response = authService.signup(new SignupRequest(
 			"  USER@Example.COM ",
 			"password123",
-			" 홍길동 "
+			" 홍길동 ",
+			SignupRole.LEARNER
 		));
 
 		assertThat(response.userId()).isEqualTo(1L);
 		assertThat(response.email()).isEqualTo("user@example.com");
 		assertThat(response.name()).isEqualTo("홍길동");
+		assertThat(response.role()).isEqualTo(UserRole.LEARNER);
 		verify(userRepository).saveAndFlush(any(User.class));
+	}
+
+	@Test
+	void signupPersistsInstructorRole() {
+		when(userRepository.existsByEmail("instructor@example.com")).thenReturn(false);
+		when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> {
+			User user = invocation.getArgument(0);
+			ReflectionTestUtils.setField(user, "id", 2L);
+			return user;
+		});
+
+		var response = authService.signup(new SignupRequest(
+			"instructor@example.com",
+			"password123",
+			"강사",
+			SignupRole.INSTRUCTOR
+		));
+
+		assertThat(response.role()).isEqualTo(UserRole.INSTRUCTOR);
 	}
 
 	@Test
@@ -79,7 +102,8 @@ class AuthServiceTest {
 			() -> authService.signup(new SignupRequest(
 				"user@example.com",
 				"password123",
-				"홍길동"
+				"홍길동",
+				SignupRole.LEARNER
 			)),
 			ErrorCode.EMAIL_ALREADY_EXISTS
 		);
@@ -91,7 +115,8 @@ class AuthServiceTest {
 			() -> authService.signup(new SignupRequest(
 				"other@example.com",
 				"password123",
-				"홍길동"
+				"홍길동",
+				SignupRole.LEARNER
 			)),
 			ErrorCode.EMAIL_ALREADY_EXISTS
 		);

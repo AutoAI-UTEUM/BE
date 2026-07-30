@@ -50,16 +50,25 @@ public class User {
 	protected User() {
 	}
 
-	private User(String email, String passwordHash, String name) {
+	private User(String email, String passwordHash, String name, UserRole role) {
 		this.email = email;
 		this.passwordHash = passwordHash;
 		this.name = name;
-		this.role = UserRole.USER;
+		this.role = role;
 		this.status = UserStatus.ACTIVE;
 	}
 
 	public static User create(String email, String passwordHash, String name) {
-		return new User(email, passwordHash, name);
+		return create(email, passwordHash, name, UserRole.LEARNER);
+	}
+
+	public static User create(
+		String email,
+		String passwordHash,
+		String name,
+		UserRole role
+	) {
+		return new User(email, passwordHash, name, role);
 	}
 
 	public void withdraw() {

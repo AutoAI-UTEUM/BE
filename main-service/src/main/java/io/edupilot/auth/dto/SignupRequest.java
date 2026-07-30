@@ -3,6 +3,7 @@ package io.edupilot.auth.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
@@ -24,6 +25,10 @@ public record SignupRequest(
 	@NotBlank(message = "이름은 필수입니다.")
 	@Size(max = 100, message = "이름은 100자 이하여야 합니다.")
 	@Schema(example = "홍길동")
-	String name
+	String name,
+
+	@NotNull(message = "역할은 필수입니다.")
+	@Schema(example = "LEARNER")
+	SignupRole role
 ) {
 }

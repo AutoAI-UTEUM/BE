@@ -52,14 +52,16 @@ public class AuthService {
 		User user = User.create(
 			email,
 			passwordEncoder.encode(request.password()),
-			request.name().trim()
+			request.name().trim(),
+			request.role().toUserRole()
 		);
 		try {
 			User savedUser = userRepository.saveAndFlush(user);
 			return new SignupResponse(
 				savedUser.getId(),
 				savedUser.getEmail(),
-				savedUser.getName()
+				savedUser.getName(),
+				savedUser.getRole()
 			);
 		} catch (DataIntegrityViolationException exception) {
 			throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);
