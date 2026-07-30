@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import io.edupilot.auth.RefreshTokenService.RotationResult;
 import io.edupilot.auth.RefreshTokenService.RotationStatus;
 import io.edupilot.auth.dto.AccessTokenResponse;
+import io.edupilot.auth.dto.EmailAvailabilityResponse;
 import io.edupilot.auth.dto.LoginRequest;
 import io.edupilot.auth.dto.LoginResponse;
 import io.edupilot.auth.dto.SignupRequest;
@@ -45,7 +46,7 @@ public class AuthService {
 	@Transactional
 	public SignupResponse signup(SignupRequest request) {
 		String email = normalizeEmail(request.email());
-		if (userRepository.existsByEmail(email)) {
+		if (!isEmailAvailable(email)) {
 			throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);
 		}
 
@@ -110,6 +111,16 @@ public class AuthService {
 
 	public void logout(String rawToken) {
 		refreshTokenService.logout(rawToken);
+	}
+
+	@Transactional(readOnly = true)
+	public EmailAvailabilityResponse emailAvailability(String email) {
+		String normalizedEmail = normalizeEmail(email);
+		return new EmailAvailabilityResponse(isEmailAvailable(normalizedEmail));
+	}
+
+	private boolean isEmailAvailable(String normalizedEmail) {
+		return !userRepository.existsByEmail(normalizedEmail);
 	}
 
 	static String normalizeEmail(String email) {

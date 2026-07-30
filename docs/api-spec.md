@@ -51,6 +51,7 @@
 | Method | URL | 설명 | 인증 | 권한/소유권 |
 | --- | --- | --- | :---: | --- |
 | POST | `/api/auth/signup` | 회원가입 | N | 전체 |
+| GET | `/api/auth/email-availability?email={email}` | 회원가입 이메일 중복 확인 | N | 전체 |
 | POST | `/api/auth/login` | 로그인 | N | 전체 |
 | POST | `/api/auth/refresh` | access 재발급 (refresh 쿠키 회전) | 쿠키 | refresh 쿠키 보유자 |
 | POST | `/api/auth/logout` | 로그아웃 (refresh 폐기·쿠키 만료) | 쿠키 | refresh 쿠키 보유자 (멱등) |
@@ -100,11 +101,28 @@
 }
 ```
 
-`role`은 필수이며 공개 가입에서는 `LEARNER | INSTRUCTOR`만 허용합니다. `ADMIN`, 기존 `USER`, 알 수 없는 enum 값은 요청 오류로 거부합니다. `ADMIN` 계정은 운영상 필요한 경우에만 DB에서 수동 설정합니다(DEC-017, DEC-029 Proposed).
+`role`은 필수이며 공개 가입에서는 `LEARNER | INSTRUCTOR`만 허용합니다. `ADMIN`, 기존 `USER`, 알 수 없는 enum 값은 요청 오류로 거부합니다. `ADMIN` 계정은 운영상 필요한 경우에만 DB에서 수동 설정합니다(DEC-017, DEC-029 Accepted).
 
 비밀번호 정책(확정): **8~64자, 영문·숫자 각 1자 이상 포함**(특수문자 허용). 위반 시 `VALIDATION_FAILED` + `details: [{ "field": "password", "reason": "..." }]`.
 
 주요 오류: `VALIDATION_FAILED`, `EMAIL_ALREADY_EXISTS`.
+
+### GET `/api/auth/email-availability?email={email}`
+
+회원가입과 동일하게 email을 trim·소문자 정규화하고 같은 중복 판정을 사용합니다.
+
+`data`:
+
+```json
+{
+  "available": true
+}
+```
+
+- 활성 사용자가 해당 이메일을 점유하면 `available=false`입니다.
+- 탈퇴 시 email이 `deleted_{id}`로 익명화되므로 원래 이메일은 `available=true`이며 재가입할 수 있습니다.
+- email 누락·공백·형식 오류·255자 초과는 `VALIDATION_FAILED`(400)입니다.
+- 계정 존재 여부 노출은 MVP에서 수용하며 rate limit은 후속 개선안으로 관리합니다.
 
 ### POST `/api/auth/login`
 
