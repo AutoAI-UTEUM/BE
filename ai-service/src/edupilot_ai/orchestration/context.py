@@ -6,7 +6,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
-from edupilot_ai.models.turn import EventPayload, EventType, SessionSnapshot, TurnRequest
+from edupilot_ai.models.turn import (
+    EventPayload,
+    EventType,
+    MemoryContext,
+    SessionSnapshot,
+    TurnRequest,
+)
 
 _PLAN_ASSESSMENT_FIELDS = {
     "understandingSummary",
@@ -33,6 +39,7 @@ class AgentContext(BaseModel):
     learner_confidence: Literal["LOW", "MEDIUM", "HIGH"] | None
     pending_diagnosis: dict[str, Any] | str | None
     latest_repair: dict[str, Any] | str | None
+    memory: MemoryContext
 
     def qa_thread_ref(self) -> str | None:
         if isinstance(self.qa_thread_digest, dict):
@@ -80,6 +87,7 @@ class PlanContext(PlanContextModel):
     has_pending_diagnosis: bool
     pending_diagnosis_id: int | None
     has_latest_repair: bool
+    memory: MemoryContext
 
     @classmethod
     def from_agent_context(cls, context: AgentContext) -> PlanContext:
@@ -150,6 +158,7 @@ class PlanContext(PlanContextModel):
             has_pending_diagnosis=context.pending_diagnosis is not None,
             pending_diagnosis_id=pending_diagnosis_id,
             has_latest_repair=context.latest_repair is not None,
+            memory=context.memory.model_copy(deep=True),
         )
 
 
@@ -172,4 +181,5 @@ class ContextBuilder:
             learner_confidence=context.learner_confidence,
             pending_diagnosis=context.pending_diagnosis,
             latest_repair=context.latest_repair,
+            memory=context.memory,
         )

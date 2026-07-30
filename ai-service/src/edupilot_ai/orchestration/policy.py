@@ -75,7 +75,7 @@ class PolicyVerifier:
             if action.tool in PIPELINE_TOOLS:
                 raise PolicyViolation("pipeline-only tool rejected")
             if action.tool in MEMORY_TOOLS:
-                corrected = self._verify_memory_action(action)
+                corrected = self._verify_memory_action(action, context)
                 action_adjustments: list[Adjustment] = []
             else:
                 corrected, action_adjustments = self._verify_action(action, context)
@@ -171,8 +171,14 @@ class PolicyVerifier:
                 raise PolicyViolation("pending diagnosis mismatch")
         return corrected, []
 
-    @staticmethod
-    def _verify_memory_action(action: PlanAction) -> PlanAction:
+    def _verify_memory_action(
+        self,
+        action: PlanAction,
+        context: AgentContext,
+    ) -> PlanAction:
+        if action.tool is ToolName.PROMOTE_MEMORY:
+            return self._verify_memory_promotion(action, context)
+
         corrected = _normalized_action(
             action,
             {"type", "content", "confidence", "evidence"},
@@ -200,8 +206,44 @@ class PolicyVerifier:
         unique_evidence = set(evidence)
         if len(unique_evidence) != len(evidence):
             raise PolicyViolation("memory evidence must be unique")
-        if action.tool is ToolName.PROMOTE_MEMORY and (
-            len(unique_evidence) < 2 or float(confidence) < 0.7
+        return corrected
+
+    @staticmethod
+    def _verify_memory_promotion(
+        action: PlanAction,
+        context: AgentContext,
+    ) -> PlanAction:
+        corrected = _normalized_action(action, {"candidateIds"})
+        candidate_ids = corrected.args["candidateIds"]
+        if (
+            not isinstance(candidate_ids, list)
+            or not candidate_ids
+            or any(
+                not isinstance(candidate_id, int)
+                or isinstance(candidate_id, bool)
+                or candidate_id <= 0
+                for candidate_id in candidate_ids
+            )
         ):
-            raise PolicyViolation("memory promotion threshold not met")
+            raise PolicyViolation("memory promotion candidateIds are invalid")
+        if len(set(candidate_ids)) != len(candidate_ids):
+            raise PolicyViolation("memory promotion candidateIds must be unique")
+
+        available = {
+            candidate.candidate_id: candidate
+            for candidate in context.memory.temporary_candidates
+        }
+        if any(candidate_id not in available for candidate_id in candidate_ids):
+            raise PolicyViolation("memory promotion candidateId is not in snapshot")
+
+        selected = [available[candidate_id] for candidate_id in candidate_ids]
+        if any(candidate.confidence < 0.7 for candidate in selected):
+            raise PolicyViolation("memory promotion confidence threshold not met")
+        evidence = {
+            reference.identity()
+            for candidate in selected
+            for reference in candidate.evidence_refs
+        }
+        if len(evidence) < 2:
+            raise PolicyViolation("memory promotion evidence threshold not met")
         return corrected

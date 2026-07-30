@@ -1,5 +1,6 @@
 """Draft #36 learning-support contracts and policy gates."""
 
+import json
 from copy import deepcopy
 
 import httpx
@@ -43,6 +44,40 @@ def plan_with_memory_action(
             ],
         }
     )
+
+
+def temporary_candidate(
+    candidate_id: int,
+    *,
+    confidence: float = 0.8,
+    evidence_source_id: int | None = None,
+) -> dict[str, object]:
+    source_id = evidence_source_id if evidence_source_id is not None else candidate_id
+    return {
+        "candidateId": candidate_id,
+        "type": "MISCONCEPTION",
+        "content": f"승격 후보 {candidate_id}",
+        "confidence": confidence,
+        "evidenceRefs": [
+            {
+                "sourceType": "QUIZ_ASSESSMENT",
+                "sourceId": source_id,
+                "sessionId": 100,
+                "reference": None,
+            }
+        ],
+    }
+
+
+def set_temporary_candidates(
+    payload: dict[str, object],
+    candidates: list[dict[str, object]],
+) -> None:
+    context = payload["context"]
+    assert isinstance(context, dict)
+    memory = context["memory"]
+    assert isinstance(memory, dict)
+    memory["temporaryCandidates"] = candidates
 
 
 def quiz_result() -> dict[str, object]:
@@ -386,7 +421,7 @@ async def test_repair_without_pending_diagnosis_is_rejected(
     assert len(fake_llm.calls) == 1
 
 
-async def test_memory_promotion_requires_two_evidence_and_confidence(
+async def test_memory_promotion_rejects_empty_candidate_ids(
     client: httpx.AsyncClient,
     fake_llm: FakeLlm,
     auth_headers: dict[str, str],
@@ -395,12 +430,85 @@ async def test_memory_promotion_requires_two_evidence_and_confidence(
     fake_llm.queue(
         plan_with_memory_action(
             ToolName.PROMOTE_MEMORY,
-            {
-                "type": "WEAKNESS",
-                "content": "편차 정의",
-                "confidence": 0.6,
-                "evidence": ["assessment-1"],
-            },
+            {"candidateIds": []},
+            "PROMOTE_MEMORY",
+        )
+    )
+
+    response = await post_turn(client, auth_headers, turn_payload)
+
+    assert response.status_code == 502
+    error = InternalErrorResponse.model_validate(response.json())
+    assert error.error.category == "POLICY"
+
+
+async def test_memory_promotion_rejects_unknown_candidate_id(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    set_temporary_candidates(turn_payload, [temporary_candidate(101)])
+    fake_llm.queue(
+        plan_with_memory_action(
+            ToolName.PROMOTE_MEMORY,
+            {"candidateIds": [101, 999]},
+            "PROMOTE_MEMORY",
+        )
+    )
+
+    response = await post_turn(client, auth_headers, turn_payload)
+
+    assert response.status_code == 502
+    error = InternalErrorResponse.model_validate(response.json())
+    assert error.error.category == "POLICY"
+
+
+async def test_memory_promotion_rejects_low_confidence_candidate(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    set_temporary_candidates(
+        turn_payload,
+        [
+            temporary_candidate(101),
+            temporary_candidate(102, confidence=0.6),
+        ],
+    )
+    fake_llm.queue(
+        plan_with_memory_action(
+            ToolName.PROMOTE_MEMORY,
+            {"candidateIds": [101, 102]},
+            "PROMOTE_MEMORY",
+        )
+    )
+
+    response = await post_turn(client, auth_headers, turn_payload)
+
+    assert response.status_code == 502
+    error = InternalErrorResponse.model_validate(response.json())
+    assert error.error.category == "POLICY"
+
+
+async def test_memory_promotion_rejects_single_unique_evidence(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    set_temporary_candidates(
+        turn_payload,
+        [
+            temporary_candidate(101, evidence_source_id=501),
+            temporary_candidate(102, evidence_source_id=501),
+        ],
+    )
+    fake_llm.queue(
+        plan_with_memory_action(
+            ToolName.PROMOTE_MEMORY,
+            {"candidateIds": [101, 102]},
             "PROMOTE_MEMORY",
         )
     )
@@ -479,21 +587,23 @@ async def test_memory_candidate_is_returned_after_primary_action(
     assert len(fake_llm.calls) == 2
 
 
-async def test_memory_promotion_returns_confirmed_numeric_contract(
+async def test_memory_promotion_returns_candidate_ids_contract(
     client: httpx.AsyncClient,
     fake_llm: FakeLlm,
     auth_headers: dict[str, str],
     turn_payload: dict[str, object],
 ) -> None:
+    set_temporary_candidates(
+        turn_payload,
+        [
+            temporary_candidate(101, evidence_source_id=501),
+            temporary_candidate(102, evidence_source_id=502),
+        ],
+    )
     fake_llm.queue(
         plan_with_memory_action(
             ToolName.PROMOTE_MEMORY,
-            {
-                "type": "MISCONCEPTION",
-                "content": "편차를 평균값 자체로 혼동함",
-                "confidence": 0.7,
-                "evidence": ["assessment-1", "qa-2"],
-            },
+            {"candidateIds": [101, 102]},
             "PROMOTE_MEMORY",
         ),
         AgentOutput(
@@ -507,34 +617,21 @@ async def test_memory_promotion_returns_confirmed_numeric_contract(
     assert response.status_code == 200
     body = response.json()
     turn = TurnResponse.model_validate(body)
-    assert body["memoryCandidates"] == [
-        {
-            "type": "MISCONCEPTION",
-            "content": "편차를 평균값 자체로 혼동함",
-            "confidence": 0.7,
-            "evidence": ["assessment-1", "qa-2"],
-            "promotionRequested": True,
-        }
-    ]
-    expected_memory_write = {
-        "type": "MISCONCEPTION",
-        "content": "편차를 평균값 자체로 혼동함",
-        "confidence": 0.7,
-        "evidence": ["assessment-1", "qa-2"],
-    }
+    assert body["memoryCandidates"] == []
+    expected_memory_write = {"candidateIds": [101, 102]}
     assert body["memoryWrite"] == expected_memory_write
     assert turn.memory_write == expected_memory_write
+    planner_payload = json.loads(fake_llm.calls[0][0][1]["content"])
+    assert [
+        candidate["candidateId"]
+        for candidate in planner_payload["memory"]["temporaryCandidates"]
+    ] == [101, 102]
 
 
 def test_multiple_memory_promotions_are_rejected(
     turn_payload: dict[str, object],
 ) -> None:
-    promotion_args = {
-        "type": "MISCONCEPTION",
-        "content": "편차를 평균값 자체로 혼동함",
-        "confidence": 0.8,
-        "evidence": ["assessment-1", "qa-2"],
-    }
+    promotion_args: dict[str, object] = {"candidateIds": [101, 102]}
     plan = plan_with_memory_action(
         ToolName.PROMOTE_MEMORY,
         promotion_args,

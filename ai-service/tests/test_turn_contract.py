@@ -104,6 +104,11 @@ def test_plan_prompt_declares_policy_value_contracts(
     assert "FOLLOW_UP requires the exact snapshot qaThreadDigest.threadRef" in system_prompt
     assert "if qaThreadDigest is absent, choose START_NEW" in system_prompt
     assert "quizType must equal the event payload value" in system_prompt
+    assert "PROMOTE_MEMORY={candidateIds}" in system_prompt
+    assert "memory.temporaryCandidates" in system_prompt
+    assert "never invent a new candidateId" in system_prompt
+    assert "confidence is at least 0.7" in system_prompt
+    assert "unique evidenceRefs total at least 2" in system_prompt
     assert "one of MCQ, OX, SHORT, ESSAY" in system_prompt
     assert "diagnosisId must equal snapshot pendingDiagnosis.diagnosisId" in system_prompt
     assert "type must be one of STRENGTH, WEAKNESS, MISCONCEPTION, PREFERENCE" in (

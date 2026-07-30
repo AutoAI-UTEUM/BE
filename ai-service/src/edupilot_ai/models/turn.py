@@ -59,8 +59,39 @@ class TurnEvent(ContractModel):
         return self
 
 
+class MemoryEvidenceRef(ContractModel):
+    source_type: str = Field(min_length=1)
+    source_id: int | None = Field(default=None, gt=0)
+    session_id: int = Field(gt=0)
+    reference: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def validate_identity_source(self) -> MemoryEvidenceRef:
+        if self.source_id is None and self.reference is None:
+            raise ValueError("evidenceRef requires sourceId or reference")
+        return self
+
+    def identity(self) -> tuple[str, int | str, int]:
+        if self.reference is not None:
+            return (self.source_type, self.reference.strip(), self.session_id)
+        if self.source_id is None:
+            raise ValueError("validated evidenceRef must have an identity")
+        return (self.source_type, self.source_id, self.session_id)
+
+
+class TemporaryMemoryCandidate(ContractModel):
+    candidate_id: int = Field(gt=0)
+    type: Literal["STRENGTH", "WEAKNESS", "MISCONCEPTION", "PREFERENCE"]
+    content: str = Field(min_length=1)
+    confidence: float = Field(ge=0, le=1)
+    evidence_refs: list[MemoryEvidenceRef] = Field(min_length=1)
+
+
 class MemoryContext(ContractModel):
-    temporary_candidates: list[dict[str, Any]] = Field(default_factory=list)
+    temporary_candidates: list[TemporaryMemoryCandidate] = Field(
+        default_factory=list,
+        max_length=10,
+    )
 
 
 class ContextSnapshot(ContractModel):
