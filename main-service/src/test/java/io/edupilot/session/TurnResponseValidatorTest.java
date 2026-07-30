@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -136,6 +137,99 @@ class TurnResponseValidatorTest {
 	void rejectsUnknownPatchAndNotExplainedRegression() {
 		assertPolicy(Map.of("status", "COMPLETED"));
 		assertPolicy(Map.of("pageStatus", "NOT_EXPLAINED"));
+	}
+
+	@Test
+	void logsInvalidAndPolicyReasonsWithoutExposingRawValues() {
+		String sentinel = "SENTINEL_REJECTED_AI_VALUE";
+		Logger logger =
+			(Logger) LoggerFactory.getLogger(TurnResponseValidator.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		MDC.put(TraceIdFilter.TRACE_ID_MDC_KEY, "trace-rejection");
+		try {
+			assertThatThrownBy(() -> validator.validate(
+				response(
+					List.of(Map.of(
+						"messageType",
+						sentinel,
+						"content",
+						"내용"
+					)),
+					Map.of()
+				),
+				"turn-1"
+			)).isInstanceOfSatisfying(
+				BusinessException.class,
+				exception -> {
+					assertThat(exception.errorCode())
+						.isEqualTo(ErrorCode.AI_RESPONSE_INVALID);
+					assertThat(exception.clientMessage())
+						.isEqualTo(ErrorCode.AI_RESPONSE_INVALID.message());
+				}
+			);
+			assertThatThrownBy(() -> validator.validate(
+				response(
+					List.of(),
+					Map.of("pageStatus", sentinel)
+				),
+				"turn-1"
+			)).isInstanceOfSatisfying(
+				BusinessException.class,
+				exception -> {
+					assertThat(exception.errorCode())
+						.isEqualTo(ErrorCode.AI_POLICY_REJECTED);
+					assertThat(exception.clientMessage())
+						.isEqualTo(ErrorCode.AI_POLICY_REJECTED.message());
+				}
+			);
+		} finally {
+			MDC.remove(TraceIdFilter.TRACE_ID_MDC_KEY);
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+
+		assertThat(appender.list)
+			.filteredOn(event -> event.getFormattedMessage().equals(
+				"AI response validation rejected"
+			))
+			.hasSize(2)
+			.allSatisfy(event -> {
+				assertThat(event.getLevel()).isEqualTo(Level.WARN);
+				assertThat(logFields(event))
+					.containsEntry("traceId", "trace-rejection")
+					.containsEntry(
+						"validator",
+						"TurnResponseValidator"
+					);
+				assertThat(event.getFormattedMessage())
+					.doesNotContain(sentinel);
+				assertThat(event.getKeyValuePairs().toString())
+					.doesNotContain(sentinel);
+			});
+		assertThat(appender.list)
+			.filteredOn(event -> logFields(event).get("errorCode")
+				.equals("AI_RESPONSE_INVALID"))
+			.singleElement()
+			.satisfies(event ->
+				assertThat(logFields(event))
+					.containsEntry(
+						"reason",
+						"messages[0].messageType is unsupported"
+					)
+			);
+		assertThat(appender.list)
+			.filteredOn(event -> logFields(event).get("errorCode")
+				.equals("AI_POLICY_REJECTED"))
+			.singleElement()
+			.satisfies(event ->
+				assertThat(logFields(event))
+					.containsEntry(
+						"reason",
+						"statePatch.pageStatus is unsupported"
+					)
+			);
 	}
 
 	@Test
@@ -389,6 +483,14 @@ class TurnResponseValidatorTest {
 			new LinkedHashMap<>(memoryCandidate());
 		candidate.put(key, value);
 		return candidate;
+	}
+
+	private Map<String, String> logFields(ILoggingEvent event) {
+		return event.getKeyValuePairs().stream()
+			.collect(Collectors.toMap(
+				pair -> pair.key,
+				pair -> String.valueOf(pair.value)
+			));
 	}
 
 	private io.edupilot.ai.dto.TurnResponse response(
