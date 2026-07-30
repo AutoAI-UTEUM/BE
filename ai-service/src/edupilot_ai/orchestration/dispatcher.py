@@ -349,17 +349,14 @@ class ToolDispatcher:
                 context,
                 timeout_seconds=deadline.remaining_seconds(),
             )
-        if action.tool in {
-            ToolName.BUILD_MEMORY_CANDIDATE,
-            ToolName.PROMOTE_MEMORY,
-        }:
-            # memoryWrite is canonical; promotionRequested remains for compatibility.
+        if action.tool is ToolName.BUILD_MEMORY_CANDIDATE:
             candidate = {
                 "type": action.args["type"],
                 "content": action.args["content"],
                 "confidence": action.args["confidence"],
                 "evidence": action.args["evidence"],
-                "promotionRequested": action.tool is ToolName.PROMOTE_MEMORY,
+                # Compatibility field; existing-candidate promotion uses memoryWrite.
+                "promotionRequested": False,
             }
             return AgentResult(
                 agent="LearnerMemoryService",
@@ -367,6 +364,13 @@ class ToolDispatcher:
                 state_patch={},
                 usage=LlmUsage(self._model, 0, 0, None),
                 memory_candidates=[candidate],
+            )
+        if action.tool is ToolName.PROMOTE_MEMORY:
+            return AgentResult(
+                agent="LearnerMemoryService",
+                message=None,
+                state_patch={},
+                usage=LlmUsage(self._model, 0, 0, None),
             )
         raise PolicyViolation("tool is not implemented in issue #23")
 
@@ -381,13 +385,10 @@ class ToolDispatcher:
             return
         if result.memory_write is not None:
             raise PolicyViolation("multiple memory promotions in one turn")
-        if len(outcome.memory_candidates) != 1:
+        candidate_ids = action.args["candidateIds"]
+        if not isinstance(candidate_ids, list):
             raise PolicyViolation("memory promotion result is invalid")
-        candidate = outcome.memory_candidates[0]
-        result.memory_write = {
-            key: candidate[key]
-            for key in ("type", "content", "confidence", "evidence")
-        }
+        result.memory_write = {"candidateIds": list(candidate_ids)}
 
     def _agent_stream(
         self,

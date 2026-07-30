@@ -34,7 +34,11 @@ from edupilot_ai.orchestration.service import TurnService, events_with_heartbeat
 from edupilot_ai.orchestration.timing import MonotonicClock
 from edupilot_ai.settings import Settings
 from tests.fakes import FakeLlm
-from tests.test_learning_support import plan_with_memory_action
+from tests.test_learning_support import (
+    plan_with_memory_action,
+    set_temporary_candidates,
+    temporary_candidate,
+)
 from tests.test_quiz_grading import make_quiz
 
 
@@ -380,12 +384,15 @@ async def test_ndjson_completed_includes_memory_write(
     auth_headers: dict[str, str],
     turn_payload: dict[str, object],
 ) -> None:
-    memory_write = {
-        "type": "MISCONCEPTION",
-        "content": "편차를 평균값 자체로 혼동함",
-        "confidence": 0.8,
-        "evidence": ["assessment-1", "qa-2"],
-    }
+    payload = deepcopy(turn_payload)
+    set_temporary_candidates(
+        payload,
+        [
+            temporary_candidate(101, evidence_source_id=501),
+            temporary_candidate(102, evidence_source_id=502),
+        ],
+    )
+    memory_write: dict[str, object] = {"candidateIds": [101, 102]}
     fake_llm.queue(
         plan_with_memory_action(
             ToolName.PROMOTE_MEMORY,
@@ -397,7 +404,7 @@ async def test_ndjson_completed_includes_memory_write(
 
     response = await client.post(
         "/internal/ai/turn",
-        json=turn_payload,
+        json=payload,
         headers={**auth_headers, "Accept": "application/x-ndjson"},
     )
 
@@ -408,7 +415,7 @@ async def test_ndjson_completed_includes_memory_write(
     assert isinstance(raw_result, dict)
     assert raw_result["memoryWrite"] == memory_write
     assert completed.result.memory_write == memory_write
-    assert completed.result.memory_candidates[0]["promotionRequested"] is True
+    assert completed.result.memory_candidates == []
 
 
 async def test_ndjson_accept_still_requires_internal_token(
