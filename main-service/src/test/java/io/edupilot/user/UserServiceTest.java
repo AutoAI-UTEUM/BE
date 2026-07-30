@@ -64,7 +64,9 @@ class UserServiceTest {
 		assertThat(user.getEmail()).isEqualTo("deleted_1");
 		assertThat(user.getName()).isEqualTo("탈퇴 사용자");
 		assertThat(user.getPasswordHash()).isEqualTo("!withdrawn:1");
-		InOrder order = inOrder(withdrawalHook, refreshTokenService);
+		InOrder order = inOrder(userRepository, withdrawalHook, refreshTokenService);
+		order.verify(userRepository).findById(1L);
+		order.verify(userRepository).flush();
 		order.verify(withdrawalHook).onWithdraw(1L);
 		order.verify(refreshTokenService).revokeAll(1L);
 	}
