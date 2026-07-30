@@ -44,9 +44,10 @@ public class UserService {
 			throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
 		}
 
+		user.withdraw();
+		userRepository.flush();
 		withdrawalHooks.forEach(hook -> hook.onWithdraw(userId));
 		refreshTokenService.revokeAll(userId);
-		user.withdraw();
 	}
 
 	private User activeUser(Long userId) {
