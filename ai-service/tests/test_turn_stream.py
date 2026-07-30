@@ -34,6 +34,7 @@ from edupilot_ai.orchestration.service import TurnService, events_with_heartbeat
 from edupilot_ai.orchestration.timing import MonotonicClock
 from edupilot_ai.settings import Settings
 from tests.fakes import FakeLlm
+from tests.test_learning_support import plan_with_memory_action
 from tests.test_quiz_grading import make_quiz
 
 
@@ -371,6 +372,43 @@ async def test_quiz_tool_uses_terminal_event_without_provider_stream(
     assert completed.result.quiz.quiz_type is QuizType.MCQ
     assert len(fake_llm.calls) == 2
     assert fake_llm.stream_calls == []
+
+
+async def test_ndjson_completed_includes_memory_write(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    memory_write = {
+        "type": "MISCONCEPTION",
+        "content": "편차를 평균값 자체로 혼동함",
+        "confidence": 0.8,
+        "evidence": ["assessment-1", "qa-2"],
+    }
+    fake_llm.queue(
+        plan_with_memory_action(
+            ToolName.PROMOTE_MEMORY,
+            memory_write,
+            "ANSWER_AND_PROMOTE_MEMORY",
+        )
+    )
+    fake_llm.queue_text_stream("편차는 평균과 관측값의 차이입니다.")
+
+    response = await client.post(
+        "/internal/ai/turn",
+        json=turn_payload,
+        headers={**auth_headers, "Accept": "application/x-ndjson"},
+    )
+
+    events = parse_events(response)
+    assert events[-1]["type"] == "completed"
+    completed = CompletedStreamEvent.model_validate(events[-1])
+    raw_result = events[-1]["result"]
+    assert isinstance(raw_result, dict)
+    assert raw_result["memoryWrite"] == memory_write
+    assert completed.result.memory_write == memory_write
+    assert completed.result.memory_candidates[0]["promotionRequested"] is True
 
 
 async def test_ndjson_accept_still_requires_internal_token(

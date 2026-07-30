@@ -1,5 +1,6 @@
 """POST /internal/ai/turn orchestration contract."""
 
+import json
 import logging
 from copy import deepcopy
 
@@ -17,7 +18,7 @@ from edupilot_ai.models.plan import (
 )
 from edupilot_ai.models.turn import TurnRequest, TurnResponse
 from edupilot_ai.orchestration.agents import ExplainerAgent, QaAgent
-from edupilot_ai.orchestration.context import ContextBuilder
+from edupilot_ai.orchestration.context import ContextBuilder, PlanContext
 from edupilot_ai.orchestration.dispatcher import ToolDispatcher, merge_state_patch
 from edupilot_ai.orchestration.policy import PolicyVerifier, PolicyViolation
 from edupilot_ai.orchestration.prompts import plan_messages
@@ -81,8 +82,10 @@ async def test_explain_current_page_turn(
     assert turn.state_patch == {"pageStatus": "EXPLAINED"}
     assert turn.actions_executed[0].agent == "ExplainerAgent"
     assert "adjustments" not in response.json()["actionsExecuted"][0]
+    assert response.json()["memoryWrite"] is None
     assert len(fake_llm.calls) == 2
-    assert '"learner_confidence":"HIGH"' in fake_llm.calls[0][0][1]["content"]
+    planner_payload = json.loads(fake_llm.calls[0][0][1]["content"])
+    assert planner_payload["learnerConfidence"] == "HIGH"
     assert '"learnerConfidence": "HIGH"' in fake_llm.calls[1][0][1]["content"]
     assert "learnerMemoryDigest" in fake_llm.calls[1][0][1]["content"]
     assert "모든 학습자 대상 텍스트" in fake_llm.calls[1][0][0]["content"]
@@ -91,7 +94,8 @@ async def test_explain_current_page_turn(
 def test_plan_prompt_declares_policy_value_contracts(
     turn_payload: dict[str, object],
 ) -> None:
-    context = ContextBuilder().build(TurnRequest.model_validate(turn_payload))
+    agent_context = ContextBuilder().build(TurnRequest.model_validate(turn_payload))
+    context = PlanContext.from_agent_context(agent_context)
 
     system_prompt = plan_messages(context, retry=False)[0]["content"]
 
@@ -208,7 +212,10 @@ async def test_explain_policy_still_rejects_missing_required_key(
     fake_llm.queue(
         make_plan(
             ToolName.EXPLAIN_PAGE,
-            {"detailLevel": "NORMAL"},
+            {
+                "detailLevel": "NORMAL",
+                "content": "PRIVATE-STUDENT-ANSWER",
+            },
             "EXPLAIN_CURRENT_PAGE",
         )
     )
@@ -250,6 +257,7 @@ async def test_policy_rejection_logs_reason_and_plan_actions(
     assert "tool args do not match policy" in caplog.text
     assert "EXPLAIN_PAGE" in caplog.text
     assert "detailLevel" in caplog.text
+    assert "PRIVATE-STUDENT-ANSWER" not in caplog.text
 
 
 async def test_user_question_start_new(

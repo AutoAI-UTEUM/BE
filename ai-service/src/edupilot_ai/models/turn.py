@@ -132,5 +132,6 @@ class TurnResponse(ContractModel):
     state_patch: dict[str, Any]
     ui_actions: list[dict[str, Any]]
     memory_candidates: list[dict[str, Any]]
+    memory_write: dict[str, Any] | None = None
     quiz: QuizGeneration | None = Field(default=None, exclude_if=lambda value: value is None)
     usage: Usage

@@ -15,6 +15,14 @@ class ReasoningEffort(StrEnum):
     HIGH = "high"
 
 
+class RuntimeEnvironment(StrEnum):
+    """Deployment environments with an approved log-level policy."""
+
+    LOCAL = "local"
+    DEV = "dev"
+    PROD = "prod"
+
+
 class AgentLlmProfile(BaseModel):
     """DEC-002 D5 provider configuration for one agent role."""
 
@@ -53,6 +61,10 @@ class Settings(BaseSettings):
         default="grok-4.5",
         validation_alias="MODEL_NAME",
         min_length=1,
+    )
+    environment: RuntimeEnvironment = Field(
+        default=RuntimeEnvironment.LOCAL,
+        validation_alias="ENVIRONMENT",
     )
 
     turn_timeout_seconds: PositiveInt = Field(

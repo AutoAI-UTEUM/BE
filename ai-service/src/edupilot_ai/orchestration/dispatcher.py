@@ -1,10 +1,13 @@
 """Sequential tool execution and statePatch merging."""
 
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from time import perf_counter
 from typing import Any
 
 from edupilot_ai.core.errors import ErrorCategory
+from edupilot_ai.core.logging import bind_log_context, reset_log_context
 from edupilot_ai.llm.bridge import (
     LlmBridgeError,
     LlmTextDelta,
@@ -39,6 +42,7 @@ _PAGE_STATUS_VALUES = {
     "REPAIR_COMPLETED",
 }
 _ALLOWED_PATCH_KEYS = {"pageStatus", "activeQuizId", "pendingDiagnosis", "qaThread"}
+logger = logging.getLogger(__name__)
 
 
 def merge_state_patch(current: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
@@ -77,6 +81,7 @@ class DispatchResult:
     usages: list[LlmUsage] = field(default_factory=list)
     quiz: QuizGeneration | None = None
     memory_candidates: list[dict[str, Any]] = field(default_factory=list)
+    memory_write: dict[str, Any] | None = None
     failure: LlmBridgeError | PolicyViolation | None = None
 
 
@@ -119,6 +124,8 @@ class ToolDispatcher:
         result = DispatchResult()
         verified_adjustments = adjustments or []
         for action in plan.actions:
+            started_at = perf_counter()
+            tokens = bind_log_context(action_id=action.action_id)
             action_adjustments = [
                 item
                 for item in verified_adjustments
@@ -141,8 +148,21 @@ class ToolDispatcher:
                     if result.quiz is not None:
                         raise PolicyViolation("multiple quiz results are not allowed")
                     result.quiz = outcome.quiz
-                result.memory_candidates.extend(outcome.memory_candidates)
+                self._record_memory_result(result, action, outcome)
                 result.usages.append(outcome.usage)
+                logger.info(
+                    "tool action completed",
+                    extra={
+                        "actionId": action.action_id,
+                        "agent": outcome.agent,
+                        "tool": action.tool.value,
+                        "status": "SUCCESS",
+                        "durationMs": round(
+                            (perf_counter() - started_at) * 1000,
+                            3,
+                        ),
+                    },
+                )
             except (LlmBridgeError, PolicyViolation) as error:
                 result.actions.append(
                     ActionExecuted(
@@ -153,7 +173,27 @@ class ToolDispatcher:
                     )
                 )
                 result.failure = error
+                error_code = (
+                    error.category.value
+                    if isinstance(error, LlmBridgeError)
+                    else "AI_POLICY_REJECTED"
+                )
+                logger.warning(
+                    "tool action failed",
+                    extra={
+                        "actionId": action.action_id,
+                        "tool": action.tool.value,
+                        "status": "FAILED",
+                        "durationMs": round(
+                            (perf_counter() - started_at) * 1000,
+                            3,
+                        ),
+                        "errorCode": error_code,
+                    },
+                )
                 break
+            finally:
+                reset_log_context(tokens)
         return result
 
     async def dispatch_stream(
@@ -165,6 +205,7 @@ class ToolDispatcher:
     ) -> AsyncIterator[DispatchStreamItem]:
         result = DispatchResult()
         for action in plan.actions:
+            started_at = perf_counter()
             action_adjustments = [
                 item for item in adjustments if item.belongs_to(action.action_id)
             ]
@@ -223,8 +264,21 @@ class ToolDispatcher:
                     if result.quiz is not None:
                         raise PolicyViolation("multiple quiz results are not allowed")
                     result.quiz = outcome.quiz
-                result.memory_candidates.extend(outcome.memory_candidates)
+                self._record_memory_result(result, action, outcome)
                 result.usages.append(outcome.usage)
+                logger.info(
+                    "tool action completed",
+                    extra={
+                        "actionId": action.action_id,
+                        "agent": outcome.agent,
+                        "tool": action.tool.value,
+                        "status": "SUCCESS",
+                        "durationMs": round(
+                            (perf_counter() - started_at) * 1000,
+                            3,
+                        ),
+                    },
+                )
             except (LlmBridgeError, PolicyViolation) as error:
                 result.actions.append(
                     ActionExecuted(
@@ -235,6 +289,24 @@ class ToolDispatcher:
                     )
                 )
                 result.failure = error
+                error_code = (
+                    error.category.value
+                    if isinstance(error, LlmBridgeError)
+                    else "AI_POLICY_REJECTED"
+                )
+                logger.warning(
+                    "tool action failed",
+                    extra={
+                        "actionId": action.action_id,
+                        "tool": action.tool.value,
+                        "status": "FAILED",
+                        "durationMs": round(
+                            (perf_counter() - started_at) * 1000,
+                            3,
+                        ),
+                        "errorCode": error_code,
+                    },
+                )
                 break
         yield DispatchStreamCompleted(result=result)
 
@@ -281,6 +353,7 @@ class ToolDispatcher:
             ToolName.BUILD_MEMORY_CANDIDATE,
             ToolName.PROMOTE_MEMORY,
         }:
+            # memoryWrite is canonical; promotionRequested remains for compatibility.
             candidate = {
                 "type": action.args["type"],
                 "content": action.args["content"],
@@ -296,6 +369,25 @@ class ToolDispatcher:
                 memory_candidates=[candidate],
             )
         raise PolicyViolation("tool is not implemented in issue #23")
+
+    @staticmethod
+    def _record_memory_result(
+        result: DispatchResult,
+        action: PlanAction,
+        outcome: AgentResult,
+    ) -> None:
+        result.memory_candidates.extend(outcome.memory_candidates)
+        if action.tool is not ToolName.PROMOTE_MEMORY:
+            return
+        if result.memory_write is not None:
+            raise PolicyViolation("multiple memory promotions in one turn")
+        if len(outcome.memory_candidates) != 1:
+            raise PolicyViolation("memory promotion result is invalid")
+        candidate = outcome.memory_candidates[0]
+        result.memory_write = {
+            key: candidate[key]
+            for key in ("type", "content", "confidence", "evidence")
+        }
 
     def _agent_stream(
         self,

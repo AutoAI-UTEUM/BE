@@ -58,6 +58,7 @@ def completion_response(
 
 
 async def test_xai_bridge_sends_strict_structured_output_wire_format(
+    caplog: pytest.LogCaptureFixture,
     respx_mock: respx.MockRouter,
 ) -> None:
     route = respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
@@ -71,15 +72,16 @@ async def test_xai_bridge_sends_strict_structured_output_wire_format(
             client=client,
             api_key=SecretStr("xai-test-not-real"),
         )
-        result = await bridge.complete_json(
-            messages=[
-                {"role": "system", "content": "Return structured output."},
-                {"role": "user", "content": "test"},
-            ],
-            response_model=ExampleStructuredOutput,
-            profile=profile(),
-            timeout_seconds=180,
-        )
+        with caplog.at_level(logging.INFO, logger="edupilot_ai.llm.xai"):
+            result = await bridge.complete_json(
+                messages=[
+                    {"role": "system", "content": "PRIVATE-PDF-TEXT"},
+                    {"role": "user", "content": "PRIVATE-STUDENT-ANSWER"},
+                ],
+                response_model=ExampleStructuredOutput,
+                profile=profile(),
+                timeout_seconds=180,
+            )
 
     request = route.calls[0].request
     payload = json.loads(request.content)
@@ -99,6 +101,17 @@ async def test_xai_bridge_sends_strict_structured_output_wire_format(
     assert result.usage.input_tokens == 11
     assert result.usage.output_tokens == 7
     assert result.usage.reasoning_tokens == 3
+    assert "PRIVATE-PDF-TEXT" not in caplog.text
+    assert "PRIVATE-STUDENT-ANSWER" not in caplog.text
+    assert "grounded" not in caplog.text
+    call_log = next(
+        record
+        for record in caplog.records
+        if record.message == "xAI chat completion finished"
+    )
+    assert call_log.__dict__["model"] == "grok-4.5"
+    assert call_log.__dict__["status"] == "SUCCESS"
+    assert call_log.__dict__["attempt"] == 1
 
 
 async def test_xai_bridge_warns_when_provider_model_differs(
@@ -187,6 +200,7 @@ async def test_xai_bridge_classifies_invalid_structured_output(
 
 
 async def test_xai_bridge_classifies_retryable_provider_failure(
+    caplog: pytest.LogCaptureFixture,
     respx_mock: respx.MockRouter,
 ) -> None:
     respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
@@ -197,16 +211,60 @@ async def test_xai_bridge_classifies_retryable_provider_failure(
             client=client,
             api_key=SecretStr("xai-test-not-real"),
         )
-        with pytest.raises(LlmBridgeError) as caught:
-            await bridge.complete_json(
-                messages=[{"role": "user", "content": "test"}],
-                response_model=ExampleStructuredOutput,
-                profile=profile(),
-                timeout_seconds=180,
-            )
+        with caplog.at_level(logging.WARNING, logger="edupilot_ai.llm.xai"):
+            with pytest.raises(LlmBridgeError) as caught:
+                await bridge.complete_json(
+                    messages=[{"role": "user", "content": "test"}],
+                    response_model=ExampleStructuredOutput,
+                    profile=profile(),
+                    timeout_seconds=180,
+                )
 
     assert caught.value.category is ErrorCategory.INTERNAL
     assert caught.value.retryable is True
+    call_log = next(
+        record
+        for record in caplog.records
+        if record.message == "xAI chat completion finished"
+    )
+    assert call_log.__dict__["failureKind"] == "provider"
+    assert call_log.__dict__["errorCode"] == "INTERNAL"
+
+
+async def test_xai_bridge_logs_rate_limit_without_provider_body(
+    caplog: pytest.LogCaptureFixture,
+    respx_mock: respx.MockRouter,
+) -> None:
+    private_provider_message = "PRIVATE-PROVIDER-ERROR"
+    respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
+        return_value=httpx.Response(
+            429,
+            json={"error": {"message": private_provider_message}},
+        )
+    )
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(
+            client=client,
+            api_key=SecretStr("xai-test-not-real"),
+        )
+        with caplog.at_level(logging.WARNING, logger="edupilot_ai.llm.xai"):
+            with pytest.raises(LlmBridgeError):
+                await bridge.complete_json(
+                    messages=[{"role": "user", "content": "PRIVATE-PROMPT"}],
+                    response_model=ExampleStructuredOutput,
+                    profile=profile(),
+                    timeout_seconds=180,
+                )
+
+    call_log = next(
+        record
+        for record in caplog.records
+        if record.message == "xAI chat completion finished"
+    )
+    assert call_log.__dict__["failureKind"] == "rate_limit"
+    assert call_log.__dict__["attempt"] == 1
+    assert private_provider_message not in caplog.text
+    assert "PRIVATE-PROMPT" not in caplog.text
 
 
 def stream_response() -> str:
@@ -251,6 +309,7 @@ def stream_response() -> str:
 
 
 async def test_xai_bridge_streams_markdown_without_response_format(
+    caplog: pytest.LogCaptureFixture,
     respx_mock: respx.MockRouter,
 ) -> None:
     route = respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
@@ -265,14 +324,15 @@ async def test_xai_bridge_streams_markdown_without_response_format(
             client=client,
             api_key=SecretStr("xai-test-not-real"),
         )
-        items = [
-            item
-            async for item in bridge.complete_text_stream(
-                messages=[{"role": "user", "content": "편차를 설명해 줘"}],
-                profile=profile(),
-                timeout_seconds=42.5,
-            )
-        ]
+        with caplog.at_level(logging.INFO, logger="edupilot_ai.llm.xai"):
+            items = [
+                item
+                async for item in bridge.complete_text_stream(
+                    messages=[{"role": "user", "content": "PRIVATE-STREAM-PROMPT"}],
+                    profile=profile(),
+                    timeout_seconds=42.5,
+                )
+            ]
 
     request = route.calls[0].request
     payload = json.loads(request.content)
@@ -291,6 +351,14 @@ async def test_xai_bridge_streams_markdown_without_response_format(
         output_tokens=9,
         reasoning_tokens=2,
     )
+    assert "PRIVATE-STREAM-PROMPT" not in caplog.text
+    assert "평균과의 차이입니다." not in caplog.text
+    call_log = next(
+        record
+        for record in caplog.records
+        if record.message == "xAI chat completion finished"
+    )
+    assert call_log.__dict__["status"] == "SUCCESS"
 
 
 async def test_xai_bridge_classifies_malformed_stream_chunk(
