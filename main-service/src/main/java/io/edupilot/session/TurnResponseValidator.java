@@ -98,13 +98,23 @@ public class TurnResponseValidator {
 		String expectedQuizType,
 		Set<Integer> availableQuizPages
 	) {
-		if (response == null
-			|| !expectedTurnId.equals(response.turnId())
-			|| response.messages() == null
-			|| response.statePatch() == null
-			|| response.uiActions() == null
-			|| response.memoryCandidates() == null) {
-			throw invalid();
+		if (response == null) {
+			throw invalid("turn response is null");
+		}
+		if (!expectedTurnId.equals(response.turnId())) {
+			throw invalid("turnId mismatch");
+		}
+		if (response.messages() == null) {
+			throw invalid("messages must not be null");
+		}
+		if (response.statePatch() == null) {
+			throw invalid("statePatch must not be null");
+		}
+		if (response.uiActions() == null) {
+			throw invalid("uiActions must not be null");
+		}
+		if (response.memoryCandidates() == null) {
+			throw invalid("memoryCandidates must not be null");
 		}
 		validateMessages(response);
 		validateStatePatch(response.statePatch(), expectedQaThreadRef);
@@ -120,11 +130,24 @@ public class TurnResponseValidator {
 	}
 
 	private void validateMessages(TurnResponse response) {
-		for (Map<String, Object> message : response.messages()) {
-			if (message == null
-				|| !MESSAGE_TYPES.contains(text(message, "messageType"))
-				|| !StringUtils.hasText(text(message, "content"))) {
-				throw invalid();
+		for (int index = 0; index < response.messages().size(); index++) {
+			Map<String, Object> message = response.messages().get(index);
+			if (message == null) {
+				throw invalid(
+					"messages[%d] must not be null".formatted(index)
+				);
+			}
+			if (!MESSAGE_TYPES.contains(text(message, "messageType"))) {
+				throw invalid(
+					"messages[%d].messageType is unsupported"
+						.formatted(index)
+				);
+			}
+			if (!StringUtils.hasText(text(message, "content"))) {
+				throw invalid(
+					"messages[%d].content must not be blank"
+						.formatted(index)
+				);
 			}
 		}
 	}
@@ -134,11 +157,11 @@ public class TurnResponseValidator {
 		String expectedQaThreadRef
 	) {
 		if (!PATCH_FIELDS.containsAll(patch.keySet())) {
-			throw policy();
+			throw policy("statePatch contains unsupported field");
 		}
 		if (patch.containsKey("pageStatus")
 			&& !PAGE_STATUSES.contains(text(patch, "pageStatus"))) {
-			throw policy();
+			throw policy("statePatch.pageStatus is unsupported");
 		}
 		validateNullablePositiveLong(patch, "pendingDiagnosis");
 		if (!patch.containsKey("qaThread")) {
@@ -148,7 +171,9 @@ public class TurnResponseValidator {
 		if (!(raw instanceof Map<?, ?> qaThread)
 			|| qaThread.keySet().stream()
 				.anyMatch(key -> !(key instanceof String))) {
-			throw policy();
+			throw policy(
+				"statePatch.qaThread must be an object with string keys"
+			);
 		}
 		Set<String> keys = qaThread.keySet().stream()
 			.map(String.class::cast)
@@ -157,16 +182,30 @@ public class TurnResponseValidator {
 		String threadRef = valueText(qaThread.get("threadRef"));
 		if ("START_NEW".equals(mode)) {
 			if (!keys.equals(Set.of("mode"))) {
-				throw policy();
+				throw policy(
+					"statePatch.qaThread START_NEW fields mismatch"
+				);
 			}
 			return;
 		}
-		if (!"FOLLOW_UP".equals(mode)
-			|| !keys.equals(Set.of("mode", "threadRef"))
-			|| threadRef == null
-			|| !threadRef.matches("qa-[1-9][0-9]*")
-			|| !threadRef.equals(expectedQaThreadRef)) {
-			throw policy();
+		if (!"FOLLOW_UP".equals(mode)) {
+			throw policy("statePatch.qaThread.mode is unsupported");
+		}
+		if (!keys.equals(Set.of("mode", "threadRef"))) {
+			throw policy(
+				"statePatch.qaThread FOLLOW_UP fields mismatch"
+			);
+		}
+		if (threadRef == null
+			|| !threadRef.matches("qa-[1-9][0-9]*")) {
+			throw policy(
+				"statePatch.qaThread.threadRef format is invalid"
+			);
+		}
+		if (!threadRef.equals(expectedQaThreadRef)) {
+			throw policy(
+				"statePatch.qaThread.threadRef does not match snapshot"
+			);
 		}
 	}
 
@@ -192,7 +231,10 @@ public class TurnResponseValidator {
 	) {
 		boolean quizTurn = eventType == TurnEventType.QUIZ_TYPE_SELECTED;
 		if (quizTurn != (response.quiz() != null)) {
-			throw invalid();
+			throw invalid(
+				"quiz presence mismatch: expected=%s actual=%s"
+					.formatted(quizTurn, response.quiz() != null)
+			);
 		}
 		if (!quizTurn) {
 			return;
@@ -219,36 +261,94 @@ public class TurnResponseValidator {
 	}
 
 	private void validateMemoryCandidates(TurnResponse response) {
-		for (Map<String, Object> candidate : response.memoryCandidates()) {
-			if (candidate == null
-				|| !candidate.keySet().equals(MEMORY_CANDIDATE_FIELDS)
-				|| !MEMORY_CANDIDATE_TYPES.contains(
-					text(candidate, "type")
-				)
-				|| !StringUtils.hasText(text(candidate, "content"))
-				|| !(candidate.get("promotionRequested") instanceof Boolean)) {
-				throw invalid();
+		for (int index = 0;
+			index < response.memoryCandidates().size();
+			index++) {
+			Map<String, Object> candidate =
+				response.memoryCandidates().get(index);
+			if (candidate == null) {
+				throw invalid(
+					"memoryCandidates[%d] must not be null"
+						.formatted(index)
+				);
+			}
+			if (!candidate.keySet().equals(MEMORY_CANDIDATE_FIELDS)) {
+				throw invalid(
+					"memoryCandidates[%d] fields mismatch"
+						.formatted(index)
+				);
+			}
+			if (!MEMORY_CANDIDATE_TYPES.contains(
+				text(candidate, "type")
+			)) {
+				throw invalid(
+					"memoryCandidates[%d].type is unsupported"
+						.formatted(index)
+				);
+			}
+			if (!StringUtils.hasText(text(candidate, "content"))) {
+				throw invalid(
+					"memoryCandidates[%d].content must not be blank"
+						.formatted(index)
+				);
+			}
+			if (!(candidate.get("promotionRequested") instanceof Boolean)) {
+				throw invalid(
+					"memoryCandidates[%d].promotionRequested must be boolean"
+						.formatted(index)
+				);
 			}
 			BigDecimal confidence = decimal(candidate.get("confidence"));
-			if (confidence == null
-				|| confidence.compareTo(BigDecimal.ZERO) < 0
-				|| confidence.compareTo(BigDecimal.ONE) > 0) {
-				throw invalid();
+			if (confidence == null) {
+				throw invalid(
+					"memoryCandidates[%d].confidence must be numeric"
+						.formatted(index)
+				);
 			}
-			validateMemoryEvidence(candidate.get("evidence"));
+			if (confidence.compareTo(BigDecimal.ZERO) < 0
+				|| confidence.compareTo(BigDecimal.ONE) > 0) {
+				throw invalid(
+					"memoryCandidates[%d].confidence must be between 0 and 1"
+						.formatted(index)
+				);
+			}
+			validateMemoryEvidence(candidate.get("evidence"), index);
 		}
 	}
 
-	private void validateMemoryEvidence(Object value) {
-		if (!(value instanceof List<?> evidence) || evidence.isEmpty()) {
-			throw invalid();
+	private void validateMemoryEvidence(Object value, int candidateIndex) {
+		if (!(value instanceof List<?> evidence)) {
+			throw invalid(
+				"memoryCandidates[%d].evidence must be an array"
+					.formatted(candidateIndex)
+			);
+		}
+		if (evidence.isEmpty()) {
+			throw invalid(
+				"memoryCandidates[%d].evidence must not be empty"
+					.formatted(candidateIndex)
+			);
 		}
 		Set<String> unique = new HashSet<>();
-		for (Object item : evidence) {
-			if (!(item instanceof String text)
-				|| !StringUtils.hasText(text)
-				|| !unique.add(text.trim())) {
-				throw invalid();
+		for (int index = 0; index < evidence.size(); index++) {
+			Object item = evidence.get(index);
+			if (!(item instanceof String text)) {
+				throw invalid(
+					"memoryCandidates[%d].evidence[%d] must be text"
+						.formatted(candidateIndex, index)
+				);
+			}
+			if (!StringUtils.hasText(text)) {
+				throw invalid(
+					"memoryCandidates[%d].evidence[%d] must not be blank"
+						.formatted(candidateIndex, index)
+				);
+			}
+			if (!unique.add(text.trim())) {
+				throw invalid(
+					"memoryCandidates[%d].evidence contains duplicate item"
+						.formatted(candidateIndex)
+				);
 			}
 		}
 	}
@@ -264,7 +364,9 @@ public class TurnResponseValidator {
 		if (!(value instanceof Number number)
 			|| number.longValue() < 1
 			|| number.doubleValue() != number.longValue()) {
-			throw policy();
+			throw policy(
+				"statePatch.%s must be a positive integer".formatted(field)
+			);
 		}
 	}
 
@@ -290,11 +392,24 @@ public class TurnResponseValidator {
 		return null;
 	}
 
-	private BusinessException invalid() {
-		return new BusinessException(ErrorCode.AI_RESPONSE_INVALID);
+	private BusinessException invalid(String reason) {
+		return rejected(ErrorCode.AI_RESPONSE_INVALID, reason);
 	}
 
-	private BusinessException policy() {
-		return new BusinessException(ErrorCode.AI_POLICY_REJECTED);
+	private BusinessException policy(String reason) {
+		return rejected(ErrorCode.AI_POLICY_REJECTED, reason);
+	}
+
+	private BusinessException rejected(ErrorCode errorCode, String reason) {
+		log.atWarn()
+			.addKeyValue(
+				"traceId",
+				MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY)
+			)
+			.addKeyValue("validator", TurnResponseValidator.class.getSimpleName())
+			.addKeyValue("errorCode", errorCode.code())
+			.addKeyValue("reason", reason)
+			.log("AI response validation rejected");
+		return new BusinessException(errorCode);
 	}
 }
