@@ -342,21 +342,21 @@
 
 ### DEC-018 — TEACHER·LMS 도메인 (제외 확정)
 
-- 상태: Accepted — 역할 제외 부분은 DEC-029 Proposed로 재검토 중
+- 상태: Partially Superseded — 계정 역할 제외 부분은 DEC-029로 대체되었고, Course·Lecture·Assignment·Notification 도메인 제외 결정은 Accepted로 유지
 - 결정일: 2026-07-23
 - 결정자: 프로젝트 담당자
-- 선택: **`TEACHER` 권한과 Course/Lecture/Assignment/Notification 도메인을 MVP·차기 범위에서 제외한다.** 스키마 예약(빈 테이블·미사용 컬럼)도 두지 않는다.
+- 선택: **Course/Lecture/Assignment/Notification 도메인을 MVP·차기 범위에서 제외한다.** 스키마 예약(빈 테이블·미사용 컬럼)도 두지 않는다. 기존 `TEACHER` 역할 제외 결정은 DEC-029의 `INSTRUCTOR` 공개 계정 역할 도입으로 대체한다.
 - 이유: 기획안 제외 목록의 방향을 그대로 종결하는 것이다. BIGINT PK·enum 확장이 쉬워 선제 예약의 이점이 없고 과설계만 남는다.
 - 대안과 trade-off: 도메인 선예약은 확장 시 migration을 줄이지만, 요구가 확정되지 않은 상태의 스키마는 재작업 가능성이 더 크다.
-- **이후 개선안**: DEC-029가 승인되면 계정 역할 제외 결정만 Superseded로 갱신합니다. Course/Lecture/Assignment/Notification 도메인 제외 결정은 #102에서 별도 범위를 승인하기 전까지 유지합니다.
+- **이후 개선안**: Course/Lecture/Assignment/Notification 도메인 제외 결정은 #102에서 별도 범위를 승인하기 전까지 유지합니다.
 - 후속 변경 문서: [요구사항 명세](requirements.md) §1, [프로젝트 목표](project-goals.md), [도메인 모델](domain-model.md)
 
 ### DEC-029 — 공개 계정 역할 LEARNER·INSTRUCTOR
 
-- 상태: Proposed — [GitHub #100](https://github.com/AutoAI-EduPilot/BE/issues/100) 승인 대기
-- 제안일: 2026-07-31
-- 결정자: 팀 — 승준 역할 정책 승인과 이감재의 "가입 시 역할 선택 UI 확정" 확인 후 Accepted 전환
-- 선택 초안:
+- 상태: Accepted — [GitHub #100](https://github.com/AutoAI-EduPilot/BE/issues/100) 결정 기록
+- 결정일: 2026-07-31
+- 결정자: 팀 — 승준 역할 정책 승인, 이감재의 "가입 시 역할 선택 UI 확정" 확인
+- 선택:
   - 공개 계정 역할은 `LEARNER`, `INSTRUCTOR`로 구분하고 회원가입 시 사용자가 직접 선택합니다.
   - `ADMIN`은 내부 관리용 예약 역할로 유지하며 공개 회원가입에서는 거부합니다.
   - 기존 `USER` 데이터는 migration으로 `LEARNER`로 전환합니다.
