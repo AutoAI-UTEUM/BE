@@ -190,6 +190,60 @@ class AuthApiContractTest {
 	}
 
 	@Test
+	void signupAcceptsOptionalAccountFieldsAndReturnsExpandedUserContract() throws Exception {
+		when(userRepository.existsByEmail(any())).thenReturn(false);
+		when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> {
+			User saved = invocation.getArgument(0);
+			ReflectionTestUtils.setField(saved, "id", 4L);
+			return saved;
+		});
+
+		mockMvc.perform(post("/api/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email":"profile@example.com",
+					  "password":"password123",
+					  "name":"학습자",
+					  "role":"LEARNER",
+					  "affiliation":"EduPilot University",
+					  "learningEmailOptIn":true,
+					  "termsVersion":"2026-07-01",
+					  "privacyVersion":"2026-07-01"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(4))
+			.andExpect(jsonPath("$.data.affiliation").value("EduPilot University"))
+			.andExpect(jsonPath("$.data.avatarUrl").value(org.hamcrest.Matchers.nullValue()))
+			.andExpect(jsonPath("$.data.learningEmailOptIn").value(true));
+	}
+
+	@Test
+	void signupRejectsUnknownOrPartialConsentVersions() throws Exception {
+		when(userRepository.existsByEmail(any())).thenReturn(false);
+
+		for (String consentFields : java.util.List.of(
+			"\"termsVersion\":\"2026-08-01\",\"privacyVersion\":\"2026-08-01\"",
+			"\"termsVersion\":\"2026-07-01\""
+		)) {
+			mockMvc.perform(post("/api/auth/signup")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+						{
+						  "email":"consent@example.com",
+						  "password":"password123",
+						  "name":"학습자",
+						  "role":"LEARNER",
+						  %s
+						}
+						""".formatted(consentFields)))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+		}
+	}
+
+	@Test
 	void emailAvailabilityIsPublicAndUsesSignupValidationRules() throws Exception {
 		when(userRepository.existsByEmail("available@example.com")).thenReturn(false);
 		when(userRepository.existsByEmail("existing@example.com")).thenReturn(true);
@@ -237,6 +291,13 @@ class AuthApiContractTest {
 			.andExpect(jsonPath("$.data.expiresIn").value(3600))
 			.andExpect(jsonPath("$.data.user.id").value(1))
 			.andExpect(jsonPath("$.data.user.role").value("LEARNER"))
+			.andExpect(jsonPath("$.data.user.affiliation").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.user.avatarUrl").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.user.learningEmailOptIn").value(false))
 			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
 				"edupilot_refresh="
 			)))
@@ -348,7 +409,14 @@ class AuthApiContractTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.id").value(1))
 			.andExpect(jsonPath("$.data.email").value("user@example.com"))
-			.andExpect(jsonPath("$.data.role").value("LEARNER"));
+			.andExpect(jsonPath("$.data.role").value("LEARNER"))
+			.andExpect(jsonPath("$.data.affiliation").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.avatarUrl").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.learningEmailOptIn").value(false));
 	}
 
 	@Test
