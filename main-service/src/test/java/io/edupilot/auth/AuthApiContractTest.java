@@ -40,6 +40,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.global.security.TraceIdFilter;
+import io.edupilot.feedback.FeedbackRepository;
 import io.edupilot.global.logging.AccessLogFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
@@ -100,6 +101,9 @@ class AuthApiContractTest {
 
 	@MockitoBean
 	private NoteRepository noteRepository;
+
+	@MockitoBean
+	private FeedbackRepository feedbackRepository;
 
 	@MockitoBean
 	private QuizRepository quizRepository;

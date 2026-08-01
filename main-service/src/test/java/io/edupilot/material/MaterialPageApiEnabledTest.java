@@ -20,6 +20,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.auth.JwtTokenProvider;
 import io.edupilot.auth.RefreshTokenRepository;
+import io.edupilot.feedback.FeedbackRepository;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.dto.MaterialPageResponse;
 import io.edupilot.session.ChatMessageRepository;
@@ -66,6 +67,9 @@ class MaterialPageApiEnabledTest {
 
 	@MockitoBean
 	private NoteRepository noteRepository;
+
+	@MockitoBean
+	private FeedbackRepository feedbackRepository;
 
 	@MockitoBean
 	private QuizRepository quizRepository;

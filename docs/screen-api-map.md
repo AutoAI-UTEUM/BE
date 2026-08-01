@@ -17,6 +17,7 @@
 | 계정 설정 | 이름·소속 수정 | `PATCH /api/users/me` | 확장 사용자 정보 갱신 | 빈 변경, 길이 오류 |
 | 계정 설정 | 아바타 업로드·교체·삭제 | `POST·GET·DELETE /api/users/me/avatar` | 인증 fetch로 Blob object URL 생성·교체 | 형식/2MiB 초과, 인증 실패 |
 | 계정 설정 | 학습 환경설정 조회·수정 | `GET·PATCH /api/users/me/preferences` | 알림 설정·AI 답변 스타일 저장 | 빈 변경, enum 오류 |
+| 피드백 화면/모달 | 피드백 제출 | `POST /api/feedback` | 접수 ID·시각 확인 후 완료 표시 | 비인증, category·내용 길이 오류 |
 | 전역 | access 만료(401) 시 | `POST /api/auth/refresh` (credentials 포함) | 새 access로 원요청 재시도 | TOKEN_INVALID → 로그인 이동 |
 | 헤더/메뉴 | 로그아웃 버튼 | `POST /api/auth/logout` | 메모리 access 삭제 후 로그인 화면 | 없음(멱등) |
 | 계정 설정 | 탈퇴 버튼 → 비밀번호 확인 모달 | `DELETE /api/users/me` | 토큰 정리 후 로그인 화면 이동 | 비밀번호 불일치 (DEC-028) |

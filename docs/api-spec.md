@@ -807,6 +807,36 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 - **비노출 필드(확정)**: `misconceptions`, `target_difficulty`, `next_coaching_goals`, confidence·`evidence_refs` 등 내부 근거와 시스템 판단 원문은 응답에 포함하지 않습니다 — 학습자 관점 요약(강점·약점·선호)과 digest만 공개합니다.
 - 자료 범위를 넘어선 전역 프로필 제공 여부는 별도 결정 사항입니다(DEC-023 대안 검토 연계).
 
+## 7.1 피드백 API
+
+### POST `/api/feedback`
+
+Bearer 인증이 필요하며, 인증 사용자를 작성자로 기록하고 피드백을 저장합니다.
+
+```json
+{
+  "category": "BUG",
+  "message": "채팅 화면이 멈춥니다.",
+  "pageUrl": "https://app.example/sessions/10",
+  "clientVersion": "web-1.2.3"
+}
+```
+
+- `category`는 `BUG | FEATURE_REQUEST | GENERAL` 중 하나입니다.
+- `message`는 공백이 아닌 문자열이며 최대 2,000자입니다.
+- `pageUrl`, `clientVersion`은 선택 필드입니다.
+
+`data`:
+
+```json
+{
+  "feedbackId": 100,
+  "createdAt": "2026-08-02T00:00:00Z"
+}
+```
+
+알 수 없는 category는 `MALFORMED_REQUEST`(400), message 누락·공백·길이 초과는 `VALIDATION_FAILED`(400), 비인증 요청은 `AUTHENTICATION_REQUIRED`(401)입니다. 운영자는 DB에서 직접 확인하며 피드백 조회·상태 관리 API는 제공하지 않습니다.
+
 ## 8. Spring → FastAPI 내부 API
 
 ### 호출 주체 원칙 (하이브리드)
