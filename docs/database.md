@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 논리 설계 초안 |
-| 마지막 갱신 | 2026-08-01 |
+| 마지막 갱신 | 2026-08-02 |
 | DB | MySQL |
 | Migration | Flyway (DEC-003 Accepted) |
 
@@ -20,6 +20,7 @@
 | `learning_sessions` | id, user_id, material_id, current_page, page_status, status, conversation_summary, last_ui_actions_json, active_quiz_id, pending_diagnosis_id, active_turn_request_id, active_turn_started_at, version, timestamps | `FK(user_id)`, `FK(material_id)`, `IDX(user_id,status,updated_at)` |
 | `session_page_records` | id, session_id, page_number, explained_at, timestamps | `FK(session_id)`, `UK(session_id,page_number)`, `CHECK(page_number >= 1)` |
 | `chat_messages` | id, session_id, sender_type, message_type, content, page_number, request_id, status, created_at | `FK(session_id)`, `UK(session_id,request_id)`, `IDX(session_id,created_at,id)` |
+| `notes` | id, user_id, material_id, session_id(nullable), page_number(nullable), source_message_id(nullable), content, timestamps | `FK(user_id)`, `FK(material_id)`, `FK(session_id)`, `FK(source_message_id)`, `IDX(user_id)`, `IDX(material_id,created_at,id)` |
 | `qa_threads` | id, session_id, page_number, status, timestamps | `FK(session_id)`, `IDX(session_id,status)` |
 | `qa_messages` | id, qa_thread_id, chat_message_id, sender_type, content, created_at | `FK(qa_thread_id)`, `FK(chat_message_id)`, `IDX(qa_thread_id,created_at,id)` |
 | `quizzes` | id, session_id, page_number, title, coverage_start_page, coverage_end_page, quiz_type, public_question_json, private_answer_json, schema_version, created_at | `FK(session_id)`, `IDX(session_id,created_at)` |
@@ -35,6 +36,7 @@
 - `learning_materials.processing_status`는 `PROCESSING`, `READY`, `FAILED` 3값을 사용하고 `status`는 `ACTIVE`, `DELETED`를 사용합니다. `page_count`는 처리 전·실패 시 `NULL`, READY일 때 1 이상입니다.
 - `learning_sessions.conversation_summary`는 내부 AI 턴 스냅샷 전용이며 외부 세션 상세 응답에는 노출하지 않습니다. `last_ui_actions_json`, `active_quiz_id`, `pending_diagnosis_id`는 재진입 UI 복원용입니다. `active_quiz_id`와 `pending_diagnosis_id`에는 FK를 추가하지 않습니다. 세션이 하위 퀴즈·진단보다 먼저 생성되는 순환 참조 부담을 피하고 Spring이 생성·제출·진단 소유권과 상태를 검증합니다.
 - `session_page_records`는 성공한 `EXPLAIN_CURRENT_PAGE` 턴이 `pageStatus=EXPLAINED`로 확정된 페이지를 기록합니다. 같은 페이지를 재설명하면 행을 추가하지 않고 `explained_at`을 갱신합니다. 진도율은 **설명 완료된 고유 페이지 수 ÷ 자료 `page_count` × 100을 정수 반올림**하며, 자료별 진도는 사용자×자료 범위의 ACTIVE·COMPLETED 세션 합집합으로 계산합니다. 이력이 없는 기존 세션은 `current_page`로 추정하지 않고 0으로 집계합니다.
+- `notes`는 사용자와 자료에 귀속하며 세션·페이지·원본 채팅 메시지는 nullable 참조입니다. 목록은 사용자×ACTIVE 자료 범위로 조회하므로 자료가 논리 삭제되면 노트 행은 보존하되 API 목록에서는 제외합니다. 최신순은 `(created_at DESC, id DESC)`로 고정합니다.
 - `quiz_submissions.score`와 `max_score`는 AI 부분점수를 보존하기 위해 `DECIMAL(10,2)`를 사용합니다. API 응답도 소수 둘째 자리까지 포함할 수 있습니다.
 - refresh token 원문은 저장하지 않고 SHA-256 해시만 `refresh_tokens.token_hash`에 저장합니다. 회전·로그아웃·탈퇴 시 `revoked_at`을 기록합니다.
 - `users.role`의 기본값은 `LEARNER`입니다. 공개 가입은 애플리케이션 계층에서 `LEARNER | INSTRUCTOR`만 허용하며 `ADMIN`은 예약 역할입니다.
@@ -56,6 +58,7 @@
 - `learning_materials.page_count IS NULL OR page_count >= 1`
 - `learning_sessions.current_page >= 1`이며 애플리케이션에서 자료 `page_count` 이하인지 검증
 - `session_page_records.page_number >= 1`
+- `notes.page_number IS NULL OR page_number >= 1`
 - 퀴즈 범위는 `1 <= coverage_start_page <= coverage_end_page <= page_count`
 - `quiz_submissions.score >= 0`
 - `quiz_submissions.max_score > 0`
@@ -85,6 +88,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - 최근 세션: `learning_sessions(user_id, status, updated_at DESC)`
 - 페이지 설명 이력: `session_page_records(session_id, page_number)` UNIQUE 인덱스
 - 채팅 페이지네이션: `chat_messages(session_id, created_at, id)`
+- 학습 노트: `notes(user_id)`, `notes(material_id, created_at, id)`
 - 활성 QA 스레드: `qa_threads(session_id, status)`
 - 최근 퀴즈: `quizzes(session_id, created_at)`
 - 최근 평가 큐: `quiz_assessments(session_id, created_at)`
@@ -98,6 +102,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V8__account_roles.sql`은 기존 `USER` 값을 `LEARNER`로 백필하고 role 기본값과 CHECK 제약을 `LEARNER | INSTRUCTOR | ADMIN`으로 교체합니다.
 - `V9__session_page_records.sql`은 페이지 설명 완료 이력과 `(session_id, page_number)` 유일성을 추가합니다.
 - `V10__account_profile.sql`은 가입 부가정보·아바타 키·약관 동의와 사용자 환경설정 컬럼을 추가합니다. nullable 프로필·약관 필드와 기본값이 있는 설정 컬럼으로 기존 계정 로그인을 유지합니다.
+- `V11__learning_notes.sql`은 자료 귀속 학습 노트와 nullable 세션·페이지·채팅 메시지 참조, 사용자·자료 조회 인덱스를 추가합니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.
 - 운영 스키마 변경은 수동 DDL이 아니라 migration 파일로만 수행합니다.

@@ -29,6 +29,7 @@ import io.edupilot.global.config.ReadinessService;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.note.NoteRepository;
 import io.edupilot.quiz.QuizRepository;
 import io.edupilot.quiz.QuizProperties;
 import io.edupilot.quiz.QuizSubmissionRepository;
@@ -70,6 +71,9 @@ class MainServiceApplicationTests {
 
 	@MockitoBean
 	private ChatMessageRepository chatMessageRepository;
+
+	@MockitoBean
+	private NoteRepository noteRepository;
 
 	@MockitoBean
 	private QuizRepository quizRepository;
@@ -220,6 +224,20 @@ class MainServiceApplicationTests {
 			.andExpect(jsonPath(
 				"$.paths['/api/sessions/{sessionId}/complete'].post"
 			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/sessions/{sessionId}/notes'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/sessions/{sessionId}/notes'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/materials/{materialId}/notes'].get"
+			).exists())
+			.andExpect(jsonPath("$.paths['/api/notes/{noteId}'].patch").exists())
+			.andExpect(jsonPath("$.paths['/api/notes/{noteId}'].delete").exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.CreateNoteRequest.required"
+			).value(org.hamcrest.Matchers.hasItem("content")))
 			.andExpect(jsonPath(
 				"$.paths['/api/sessions/{sessionId}/quizzes'].get"
 			).exists())
