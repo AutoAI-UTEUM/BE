@@ -1,5 +1,6 @@
 package io.edupilot.classroom;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -45,6 +46,17 @@ public interface ClassroomRepository extends JpaRepository<Classroom, Long> {
 		@Param("query") String query,
 		Pageable pageable
 	);
+
+	@EntityGraph(attributePaths = "instructor")
+	@Query("""
+		select distinct classroom
+		from Classroom classroom
+		left join ClassroomMember member
+		  on member.classroom = classroom
+		where classroom.instructor.id = :userId
+		   or member.user.id = :userId
+		""")
+	List<Classroom> findAllVisibleByUserId(@Param("userId") Long userId);
 
 	@EntityGraph(attributePaths = "instructor")
 	Optional<Classroom> findWithInstructorById(Long id);
