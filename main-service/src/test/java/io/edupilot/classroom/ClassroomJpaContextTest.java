@@ -7,7 +7,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.ArgumentMatchers.any;
 
 import java.io.InputStream;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +21,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import io.edupilot.classroom.dto.CreateClassroomRequest;
 import io.edupilot.classroom.dto.CreateJoinRequest;
 import io.edupilot.classroom.dto.CreateClassroomWeekRequest;
+import io.edupilot.classroom.dto.CreateClassroomNoticeRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterial;
@@ -28,6 +31,8 @@ import io.edupilot.material.MaterialService;
 import io.edupilot.material.storage.FileStorage;
 import io.edupilot.session.SessionPageRecordRepository;
 import io.edupilot.session.SessionService;
+import io.edupilot.schedule.ScheduleService;
+import io.edupilot.schedule.ScheduleType;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
@@ -62,6 +67,8 @@ class ClassroomJpaContextTest {
 	@Autowired
 	private ClassroomWeekService weekService;
 	@Autowired
+	private ClassroomWeekRepository weekRepository;
+	@Autowired
 	private LearningMaterialRepository materialRepository;
 	@Autowired
 	private MaterialAccessService materialAccessService;
@@ -69,6 +76,12 @@ class ClassroomJpaContextTest {
 	private MaterialService materialService;
 	@Autowired
 	private SessionService sessionService;
+	@Autowired
+	private ClassroomNoticeService noticeService;
+	@Autowired
+	private ClassroomNoticeRepository noticeRepository;
+	@Autowired
+	private ScheduleService scheduleService;
 	@MockitoBean
 	private SessionPageRecordRepository pageRecordRepository;
 	@MockitoBean
@@ -204,5 +217,101 @@ class ClassroomJpaContextTest {
 		);
 		assertThat(materialRepository.count()).isEqualTo(materialCount);
 		verify(fileStorage).delete("materials/rollback.pdf");
+
+		var notice = noticeService.create(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.classroomId(),
+			new CreateClassroomNoticeRequest("Assignment", "Submit by Friday")
+		);
+		assertThat(noticeService.list(
+			learner.getId(),
+			UserRole.LEARNER,
+			classroom.classroomId(),
+			0,
+			20
+		).items()).singleElement()
+			.satisfies(item -> assertThat(item.noticeId()).isEqualTo(notice.noticeId()));
+		LocalDate today = LocalDate.now(ZoneOffset.UTC);
+		assertThat(scheduleService.list(
+			learner.getId(),
+			UserRole.LEARNER,
+			today,
+			today,
+			classroom.classroomId()
+		).items()).extracting(item -> item.type())
+			.contains(ScheduleType.WEEK_RELEASE, ScheduleType.NOTICE_PUBLISH);
+
+		User outsider = userRepository.save(User.create(
+			"outsider@example.com", "hash", "Outsider", UserRole.LEARNER
+		));
+		assertThatThrownBy(() -> noticeService.list(
+			outsider.getId(),
+			UserRole.LEARNER,
+			classroom.classroomId(),
+			0,
+			20
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode()).isEqualTo(ErrorCode.CLASSROOM_NOT_FOUND)
+		);
+		assertThat(scheduleService.list(
+			outsider.getId(),
+			UserRole.LEARNER,
+			today,
+			today,
+			null
+		).items()).isEmpty();
+
+		Classroom classroomEntity = classroomRepository.findById(
+			classroom.classroomId()
+		).orElseThrow();
+		Instant rangeStart = Instant.parse("2026-09-01T00:00:00Z");
+		ClassroomWeek boundaryWeek = weekRepository.saveAndFlush(
+			ClassroomWeek.create(classroomEntity, 2, "Boundary week", rangeStart)
+		);
+		ClassroomNotice boundaryNotice = noticeRepository.saveAndFlush(
+			ClassroomNotice.create(
+				classroomEntity,
+				"Boundary notice",
+				"Included",
+				Instant.parse("2026-09-01T23:59:59.999999Z")
+			)
+		);
+		noticeRepository.saveAndFlush(ClassroomNotice.create(
+			classroomEntity,
+			"Next day",
+			"Excluded",
+			Instant.parse("2026-09-02T00:00:00Z")
+		));
+		assertThat(scheduleService.list(
+			learner.getId(),
+			UserRole.LEARNER,
+			LocalDate.of(2026, 9, 1),
+			LocalDate.of(2026, 9, 1),
+			classroom.classroomId()
+		).items()).extracting(item -> item.scheduleId())
+			.containsExactly(
+				"WEEK-" + boundaryWeek.getId(),
+				"NOTICE-" + boundaryNotice.getId()
+			);
+
+		noticeService.delete(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.classroomId(),
+			notice.noticeId()
+		);
+		assertThat(noticeRepository.existsById(notice.noticeId())).isFalse();
+		classroomService.complete(
+			instructor.getId(), UserRole.INSTRUCTOR, classroom.classroomId()
+		);
+		assertThatThrownBy(() -> noticeService.create(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.classroomId(),
+			new CreateClassroomNoticeRequest("Closed", "No more updates")
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode()).isEqualTo(ErrorCode.CLASSROOM_COMPLETED)
+		);
 	}
 }
