@@ -49,6 +49,7 @@ import io.edupilot.user.UserRepository;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@io.edupilot.Epic10ServiceMocks
 class MaterialApiContractTest {
 
 	@Autowired

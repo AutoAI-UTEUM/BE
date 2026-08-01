@@ -59,6 +59,7 @@ import ch.qos.logback.core.read.ListAppender;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@io.edupilot.Epic10ServiceMocks
 class AuthApiContractTest {
 
 	private static final String TRACE_ID = "auth-contract-trace";

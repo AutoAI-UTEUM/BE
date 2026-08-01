@@ -49,6 +49,7 @@ import io.edupilot.user.UserRepository;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@io.edupilot.Epic10ServiceMocks
 class SessionApiContractTest {
 
 	private static final Instant NOW = Instant.parse("2026-07-25T10:00:00Z");

@@ -41,6 +41,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@Epic10ServiceMocks
 class MainServiceApplicationTests {
 
 	@Autowired
@@ -244,6 +245,12 @@ class MainServiceApplicationTests {
 			).value(org.hamcrest.Matchers.hasItem("content")))
 			.andExpect(jsonPath("$.paths['/api/feedback'].post").exists())
 			.andExpect(jsonPath("$.paths['/api/feedback'].get").doesNotExist())
+			.andExpect(jsonPath("$.paths['/api/classrooms'].post").exists())
+			.andExpect(jsonPath("$.paths['/api/classrooms'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/classrooms/{id}'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/classrooms/{id}'].patch").exists())
+			.andExpect(jsonPath("$.paths['/api/classrooms/{id}'].delete").exists())
+			.andExpect(jsonPath("$.paths['/api/classroom-join-requests'].post").exists())
 			.andExpect(jsonPath(
 				"$.components.schemas.CreateFeedbackRequest.required"
 			).value(org.hamcrest.Matchers.hasItems("category", "message")))
