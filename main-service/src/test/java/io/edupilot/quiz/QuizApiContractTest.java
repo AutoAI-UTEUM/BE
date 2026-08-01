@@ -34,6 +34,7 @@ import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.note.NoteRepository;
 import io.edupilot.quiz.dto.QuizDetailResponse;
 import io.edupilot.quiz.dto.QuizListResponse;
 import io.edupilot.quiz.dto.QuizGradingResultResponse;
@@ -84,6 +85,9 @@ class QuizApiContractTest {
 
 	@MockitoBean
 	private ChatMessageRepository chatMessageRepository;
+
+	@MockitoBean
+	private NoteRepository noteRepository;
 
 	@MockitoBean
 	private QuizRepository quizRepository;

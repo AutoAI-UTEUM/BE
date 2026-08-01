@@ -81,6 +81,11 @@ public enum ErrorCode {
 		HttpStatus.CONFLICT,
 		"현재 세션 상태에서 요청을 처리할 수 없습니다."
 	),
+	NOTE_NOT_FOUND(
+		"NOTE_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"노트를 찾을 수 없습니다."
+	),
 	UNSUPPORTED_EVENT_TYPE(
 		"UNSUPPORTED_EVENT_TYPE",
 		HttpStatus.BAD_REQUEST,

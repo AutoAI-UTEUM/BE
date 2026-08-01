@@ -32,6 +32,7 @@ import io.edupilot.diagnosis.RepairResultRepository;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.note.NoteRepository;
 import io.edupilot.memory.dto.LearnerMemoryResponse;
 import io.edupilot.quiz.QuizRepository;
 import io.edupilot.quiz.QuizSubmissionRepository;
@@ -73,6 +74,9 @@ class LearnerMemoryApiContractTest {
 
 	@MockitoBean
 	private ChatMessageRepository chatMessageRepository;
+
+	@MockitoBean
+	private NoteRepository noteRepository;
 
 	@MockitoBean
 	private QuizRepository quizRepository;
