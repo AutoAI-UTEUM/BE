@@ -8,6 +8,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,8 +36,14 @@ import io.edupilot.user.UserRepository;
 @ExtendWith(MockitoExtension.class)
 class TurnPersistenceServiceTest {
 
+	private static final Instant NOW = Instant.parse(
+		"2026-08-01T12:00:00Z"
+	);
+
 	@Mock
 	private LearningSessionRepository sessionRepository;
+	@Mock
+	private SessionPageRecordRepository pageRecordRepository;
 	@Mock
 	private ChatMessageRepository messageRepository;
 	@Mock
@@ -122,6 +131,7 @@ class TurnPersistenceServiceTest {
 			List.of(UiAction.quizProposal()),
 			true
 		);
+		verify(pageRecordRepository).upsertExplainedPage(100L, 1, NOW);
 	}
 
 	@Test
@@ -148,6 +158,45 @@ class TurnPersistenceServiceTest {
 			PageStatus.EXPLAINED,
 			List.of(),
 			false
+		);
+		verify(pageRecordRepository).upsertExplainedPage(100L, 1, NOW);
+	}
+
+	@Test
+	void doesNotRecordExplainedPageForUserQuestion() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINED,
+			PageStatus.EXPLAINED,
+			1,
+			3
+		);
+		ChatMessage userMessage = org.mockito.Mockito.mock(ChatMessage.class);
+		when(userMessage.getSenderType()).thenReturn(SenderType.USER);
+		when(userMessage.getContent()).thenReturn("질문");
+		when(messageRepository.findById(501L))
+			.thenReturn(Optional.of(userMessage));
+		when(qaThreadRepository.saveAndFlush(any())).thenAnswer(invocation ->
+			invocation.getArgument(0)
+		);
+		Map<String, Object> patch = new LinkedHashMap<>();
+		patch.put("pageStatus", "EXPLAINED");
+		patch.put("qaThread", Map.of("mode", "START_NEW"));
+
+		service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.USER_QUESTION,
+			null,
+			501L,
+			response(patch, List.of())
+		);
+
+		verify(session).applyAiTurn(PageStatus.EXPLAINED, List.of(), false);
+		verify(pageRecordRepository, never()).upsertExplainedPage(
+			any(),
+			org.mockito.ArgumentMatchers.anyInt(),
+			any()
 		);
 	}
 
@@ -191,6 +240,11 @@ class TurnPersistenceServiceTest {
 			PageStatus.REPAIR_COMPLETED,
 			List.of(UiAction.completeSession()),
 			true
+		);
+		verify(pageRecordRepository, never()).upsertExplainedPage(
+			any(),
+			org.mockito.ArgumentMatchers.anyInt(),
+			any()
 		);
 	}
 
@@ -237,6 +291,11 @@ class TurnPersistenceServiceTest {
 
 		verify(quizService).createFromGeneration(100L, "1.0", generation);
 		verify(session).activateQuiz(50L, List.of());
+		verify(pageRecordRepository, never()).upsertExplainedPage(
+			any(),
+			org.mockito.ArgumentMatchers.anyInt(),
+			any()
+		);
 		assertThat(persisted.state().activeQuizId()).isEqualTo(50L);
 		assertThat(persisted.state().pageStatus())
 			.isEqualTo(PageStatus.QUIZ_READY);
@@ -379,6 +438,7 @@ class TurnPersistenceServiceTest {
 	private TurnPersistenceService service() {
 		return new TurnPersistenceService(
 			sessionRepository,
+			pageRecordRepository,
 			messageRepository,
 			qaThreadRepository,
 			qaMessageRepository,
@@ -387,7 +447,8 @@ class TurnPersistenceServiceTest {
 			materialRepository,
 			quizService,
 			diagnosisService,
-			new UiActionResolver()
+			new UiActionResolver(),
+			Clock.fixed(NOW, ZoneOffset.UTC)
 		);
 	}
 }
