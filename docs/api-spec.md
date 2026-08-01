@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 계약 초안 |
-| 마지막 갱신 | 2026-07-31 |
+| 마지막 갱신 | 2026-08-02 |
 | 외부 호출자 | Frontend |
 | 내부 호출자 | Spring → FastAPI |
 
@@ -64,12 +64,13 @@
 | GET | `/api/users/me/preferences` | 내 학습 환경설정 조회 | Y | 본인 |
 | PATCH | `/api/users/me/preferences` | 내 학습 환경설정 수정 | Y | 본인 |
 | DELETE | `/api/users/me` | 회원 탈퇴(논리 삭제+익명화 — DEC-028) | Y | 본인 (비밀번호 재확인) |
-| POST | `/api/materials` | PDF 업로드 | Y | LEARNER, INSTRUCTOR, ADMIN |
+| POST | `/api/materials` | 개인 PDF 업로드 또는 강의실 주차 업로드 | Y | LEARNER, INSTRUCTOR, ADMIN; 강의실 part는 소유 INSTRUCTOR만 |
 | GET | `/api/materials` | 자료 목록 | Y | 본인 소유 자료 (DEC-026) |
-| GET | `/api/materials/{materialId}` | 자료 상세 | Y | 본인 소유 자료 |
+| GET | `/api/materials/{materialId}` | 자료 상세 | Y | 소유자 또는 승인 멤버의 공개 주차 자료 |
+| GET | `/api/materials/{materialId}/file` | PDF 원본 스트리밍 | Y | 소유자 또는 승인 멤버의 공개 주차 자료 |
 | DELETE | `/api/materials/{materialId}` | 자료 논리 삭제 (DEC-028) | Y | 본인 소유 자료 |
-| GET | `/api/materials/{materialId}/pages/{pageNumber}` | 페이지 텍스트 | Y | 본인 소유 자료 — 운영 비노출, dev/디버깅 한정(DEC-025) |
-| POST | `/api/sessions` | 학습 세션 생성 | Y | LEARNER, INSTRUCTOR, ADMIN |
+| GET | `/api/materials/{materialId}/pages/{pageNumber}` | 페이지 텍스트 | Y | 접근 가능한 자료 — 운영 비노출, dev/디버깅 한정(DEC-025) |
+| POST | `/api/sessions` | 학습 세션 생성 | Y | 본인 소유 또는 승인 멤버의 공개 주차 자료 |
 | GET | `/api/sessions` | 내 세션 목록 조회 | Y | 본인 |
 | GET | `/api/sessions/{sessionId}` | 세션 상태 조회 | Y | 세션 소유자 |
 | DELETE | `/api/sessions/{sessionId}` | 세션 논리 삭제 | Y | 세션 소유자 |
@@ -82,6 +83,29 @@
 | POST | `/api/quizzes/{quizId}/submit` | 퀴즈 제출 | Y | 세션 소유자 |
 | GET | `/api/users/me/memory?materialId={materialId}` | 학습자 메모리 조회(자료별) | Y | 본인 |
 | POST | `/api/sessions/{sessionId}/complete` | 세션 종료 | Y | 세션 소유자 |
+| POST | `/api/classrooms` | 강의실 개설 | Y | INSTRUCTOR |
+| GET | `/api/classrooms` | 내 강의실 목록 | Y | 소유 또는 승인 멤버 관계 |
+| GET | `/api/classrooms/{id}` | 강의실 상세 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
+| PATCH | `/api/classrooms/{id}` | 강의실 수정 | Y | 소유 INSTRUCTOR |
+| DELETE | `/api/classrooms/{id}` | 강의실 COMPLETED 전환 | Y | 소유 INSTRUCTOR |
+| GET | `/api/classrooms/{id}/invite-code` | 초대 코드 조회 | Y | 소유 INSTRUCTOR |
+| POST | `/api/classrooms/{id}/invite-code/regenerate` | 초대 코드 재발급 | Y | 소유 INSTRUCTOR |
+| POST | `/api/classroom-join-requests` | 초대 코드 참여 요청 | Y | LEARNER, INSTRUCTOR(타인 강의실) |
+| GET | `/api/classroom-join-requests/me` | 내 참여 요청 목록 | Y | LEARNER, INSTRUCTOR |
+| GET | `/api/classrooms/{id}/join-requests` | 강의실 참여 요청 목록 | Y | 소유 INSTRUCTOR |
+| POST | `/api/classrooms/{id}/join-requests/{requestId}/approve` | 참여 요청 승인 | Y | 소유 INSTRUCTOR |
+| POST | `/api/classrooms/{id}/join-requests/{requestId}/reject` | 참여 요청 거절 | Y | 소유 INSTRUCTOR |
+| GET | `/api/classrooms/{id}/weeks` | 강의실 주차·자료 목록 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
+| POST | `/api/classrooms/{id}/weeks` | 주차 생성 | Y | 소유 INSTRUCTOR |
+| PATCH | `/api/classrooms/{id}/weeks/{weekNumber}` | 주차 수정 | Y | 소유 INSTRUCTOR |
+| DELETE | `/api/classrooms/{id}/weeks/{weekNumber}` | 주차·자료 연결 삭제 | Y | 소유 INSTRUCTOR |
+| POST | `/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}` | 기존 자료 연결 | Y | 소유 INSTRUCTOR, 본인 소유 자료 |
+| DELETE | `/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}` | 자료 연결 해제 | Y | 소유 INSTRUCTOR |
+| GET | `/api/classrooms/{id}/notices` | 공지 목록 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
+| POST | `/api/classrooms/{id}/notices` | 즉시 공지 게시 | Y | 소유 INSTRUCTOR |
+| PATCH | `/api/classrooms/{id}/notices/{noticeId}` | 공지 수정 | Y | 소유 INSTRUCTOR |
+| DELETE | `/api/classrooms/{id}/notices/{noticeId}` | 공지 삭제 | Y | 소유 INSTRUCTOR |
+| GET | `/api/users/me/schedule` | 주차 공개·공지 일정 파생 조회 | Y | 소유·참여 강의실 범위 |
 
 ## 3. 인증 API
 
@@ -248,6 +272,8 @@ Bearer 인증 후 저장된 이미지의 실제 Media-Type으로 private/no-stor
 | --- | --- | :---: | --- |
 | `file` | PDF binary | Y | 최대 45MB·300페이지, `%PDF-` 매직 바이트 검증(DEC-016) |
 | `title` | string | Y | 자료 제목 |
+| `classroomId` | long | N | 강의실 주차 업로드 대상. `weekNumber`와 함께 있을 때만 유효 |
+| `weekNumber` | integer | N | 연결할 주차. `classroomId`와 함께 있을 때만 유효 |
 
 `data` 초안:
 
@@ -262,6 +288,8 @@ Bearer 인증 후 저장된 이미지의 실제 Media-Type으로 private/no-stor
 ```
 
 업로드 직후 응답은 `processingStatus=PROCESSING`, `pageCount=null`입니다. Spring이 백그라운드에서 내부 API `POST /internal/ai/extract`로 추출을 요청하고, 결과 저장 후 `READY`(실패 시 `FAILED`)로 전이합니다(DEC-006). `processingStatus`는 `PROCESSING`, `READY`, `FAILED` 3값을 사용합니다. FE는 자료 상세 재조회로 상태를 확인합니다.
+
+개인 업로드는 `LEARNER | INSTRUCTOR | ADMIN`이 사용할 수 있습니다. `ADMIN`은 기존 예약 역할 계약만 유지하며 강의실 기능은 제공하지 않습니다. `classroomId`와 `weekNumber`는 둘 다 생략하거나 둘 다 제공해야 하며, 강의실 업로드는 해당 강의실 소유 `INSTRUCTOR`만 가능합니다. 자료 행과 주차 연결은 한 DB 트랜잭션으로 저장하고 DB 저장 실패 시 이미 저장된 파일을 보상 삭제합니다.
 
 ### GET `/api/materials`
 
@@ -289,15 +317,19 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 ### GET `/api/materials/{materialId}`
 
-자료 제목, 페이지 수, 처리 상태, 학습 가능 여부를 반환합니다. 원본 파일 접근은 Spring의 인증된 다운로드 스트리밍(`GET /api/materials/{materialId}/file` 초안)으로 제공하며, S3 전환 시 presigned URL 방식으로 변경합니다(DEC-005).
+자료 제목, 페이지 수, 처리 상태, 학습 가능 여부를 반환합니다. 소유자 또는 승인 멤버가 접근 가능한 `PUBLISHED` 주차에 연결된 자료만 허용합니다. 강의실 자료는 전역 `GET /api/materials` 목록에는 포함하지 않고 강의실 주차 API에서 발견합니다.
+
+### GET `/api/materials/{materialId}/file`
+
+Spring이 인증된 PDF 스트림을 반환합니다. 자료 상세와 같은 소유자·공개 주차 멤버 권한을 적용하며, S3 전환 시 presigned URL 방식으로 변경합니다(DEC-005).
 
 ### DELETE `/api/materials/{materialId}`
 
-자료를 논리 삭제(`status=DELETED`)합니다(DEC-028). 삭제된 자료는 목록·상세·세션 생성에서 제외합니다. 해당 자료의 ACTIVE 세션이 있으면 `MATERIAL_HAS_ACTIVE_SESSION`(409)으로 거부합니다 — 세션을 완료하거나 삭제한 뒤 재시도합니다. 완료된 세션·퀴즈·평가 기록은 보존하며, storage 파일은 즉시 삭제하지 않습니다(물리 삭제 배치는 이후 개선안). 주요 오류: `MATERIAL_NOT_FOUND`, `MATERIAL_HAS_ACTIVE_SESSION`.
+자료를 논리 삭제(`status=DELETED`)합니다(DEC-028). 삭제된 자료는 목록·상세·세션 생성에서 제외합니다. 해당 자료의 ACTIVE 세션이 있으면 `MATERIAL_HAS_ACTIVE_SESSION`(409), 강의실 주차에 연결돼 있으면 `MATERIAL_LINKED_TO_CLASSROOM`(409)으로 거부합니다. 세션을 완료·삭제하고 모든 강의실 연결을 해제한 뒤 재시도합니다. 완료된 세션·퀴즈·평가 기록은 보존하며, storage 파일은 즉시 삭제하지 않습니다(물리 삭제 배치는 이후 개선안).
 
 ### GET `/api/materials/{materialId}/pages/{pageNumber}`
 
-페이지 번호와 추출 텍스트를 반환합니다. 운영 FE에는 노출하지 않고 dev/디버깅 프로파일에서만 활성화합니다(DEC-025). 추출 텍스트는 AI 문맥 전용이며 FE는 PDF 원본 뷰어를 사용합니다.
+페이지 번호와 추출 텍스트를 반환합니다. 운영 FE에는 노출하지 않고 dev/디버깅 프로파일에서만 활성화합니다(DEC-025). 활성화된 환경에서는 자료 상세와 같은 접근 권한을 적용합니다. 추출 텍스트는 AI 문맥 전용이며 FE는 PDF 원본 뷰어를 사용합니다.
 
 ## 5. 세션 API
 
@@ -331,6 +363,8 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 ```
 
 같은 자료에 기존 `ACTIVE` 세션이 있으면 새로 만들지 않고 그 세션을 반환하며 `reused: true`로 표시합니다(DEC-024). 처음부터 다시 시작하려면 기존 세션을 삭제한 뒤 생성합니다.
+
+자료 소유자 또는 승인 멤버가 접근 가능한 공개 주차 자료만 세션을 생성할 수 있습니다. 세션은 `classroomId`를 저장하지 않으므로 동일 사용자의 동일 자료 ACTIVE 세션은 개인 학습과 여러 강의실에서 공유됩니다. 자료 연결 해제 또는 공개 취소로 강의실 접근권을 잃으면 신규 세션 생성과 기존 세션의 추가 학습 턴은 차단하되 기존 세션·메시지·퀴즈 기록은 보존합니다.
 
 ### GET `/api/sessions`
 
@@ -836,6 +870,328 @@ Bearer 인증이 필요하며, 인증 사용자를 작성자로 기록하고 피
 ```
 
 알 수 없는 category는 `MALFORMED_REQUEST`(400), message 누락·공백·길이 초과는 `VALIDATION_FAILED`(400), 비인증 요청은 `AUTHENTICATION_REQUIRED`(401)입니다. 운영자는 DB에서 직접 확인하며 피드백 조회·상태 관리 API는 제공하지 않습니다.
+
+## 7.2 강의실 API
+
+강의실 계약은 DEC-030을 따릅니다. `INSTRUCTOR`는 본인 소유 강의실을 관리하고, `LEARNER`와 타 강의실에 참여한 `INSTRUCTOR`는 승인 멤버 권한으로 접근합니다. 강의실 존재·소유권·멤버십을 숨겨야 하는 경우 `CLASSROOM_NOT_FOUND`(404), 소유 강사 전용 API를 멤버가 호출하면 `ACCESS_DENIED`(403)를 반환합니다. `ADMIN` 강의실 기능은 MVP에서 구현하지 않습니다.
+
+색상 enum과 FE 표시값:
+
+| API 값 | FE 색상 |
+| --- | --- |
+| `BLUE` | `#3B82F6` |
+| `GREEN` | `#22C55E` |
+| `PURPLE` | `#8B5CF6` |
+| `ORANGE` | `#F97316` |
+| `RED` | `#EF4444` |
+| `GRAY` | `#64748B` |
+
+### POST `/api/classrooms`
+
+`INSTRUCTOR` 전용입니다.
+
+```json
+{
+  "name": "AI 기초",
+  "startDate": "2026-09-01",
+  "endDate": "2026-12-15",
+  "color": "BLUE",
+  "description": "화요일 3교시"
+}
+```
+
+- `name`: 비공백, 최대 100자
+- `endDate >= startDate`
+- `color`: 위 6개 enum 중 하나
+- `description`: 선택, 최대 255자
+- `weekCount`: `ceil((endDate-startDate+1일)/7)`로 서버 계산
+- 초대 코드: 혼동 문자를 제외한 대문자·숫자 `XXXX-XXXX` 형식으로 서버 생성
+
+성공 시 아래 강의실 상세 응답을 반환합니다.
+
+### GET `/api/classrooms`
+
+Query:
+
+| 파라미터 | 필수 | 설명 |
+| --- | :---: | --- |
+| `status` | N | `ACTIVE | COMPLETED`; 생략 시 둘 다 |
+| `q` | N | 강의실 이름 부분 검색 |
+| `sort` | N | `RECENT` 기본 또는 `NAME` |
+| `page` | N | 기본 0 |
+| `size` | N | 기본 20 |
+
+`RECENT`는 `createdAt DESC, classroomId DESC`, `NAME`은 이름 오름차순 후 `classroomId ASC`입니다. 역할과 무관하게 본인 소유 또는 승인 멤버인 강의실의 합집합을 반환합니다.
+
+```json
+{
+  "items": [
+    {
+      "classroomId": 30,
+      "name": "AI 기초",
+      "instructorName": "홍길동",
+      "startDate": "2026-09-01",
+      "endDate": "2026-12-15",
+      "weekCount": 16,
+      "color": "BLUE",
+      "status": "ACTIVE",
+      "currentWeek": 3,
+      "learnerCount": 24,
+      "progressRate": 18,
+      "lastStudied": {
+        "sessionId": 100,
+        "materialId": 10,
+        "materialTitle": "선형회귀 기초",
+        "pageNumber": 3,
+        "updatedAt": "2026-09-16T03:00:00Z"
+      },
+      "pendingRequestCount": null
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+- 멤버 관계의 항목은 `progressRate`, `lastStudied`를 포함하고 `pendingRequestCount`는 `null`입니다.
+- 소유자 관계의 항목은 `pendingRequestCount`를 포함하고 `progressRate`, `lastStudied`는 `null`입니다.
+- `lastStudied`는 공개 주차에 연결된 고유 자료 중 사용자의 가장 최근 ACTIVE·COMPLETED 세션이며 없으면 `null`입니다. 세션을 어느 화면에서 시작했는지는 구분하지 않습니다.
+- `progressRate`는 공개 주차의 고유 READY 자료에 대해 `고유 (materialId,pageNumber) 설명 완료 수 ÷ 고유 자료 pageCount 합 × 100`을 정수 반올림합니다. 이력 또는 유효 분모가 없으면 0입니다.
+- `currentWeek`은 `Asia/Seoul`의 오늘을 기준으로 계산하고 시작 전은 1, 종료 후는 `weekCount`입니다.
+- `PROGRESS_ASC`, `NEW_MATERIAL`, `newMaterialCount`는 Phase C입니다.
+
+### GET `/api/classrooms/{id}`
+
+목록 공통 필드와 `description`을 반환합니다. 소유 강사 응답에는 `inviteCode`가 포함되고 멤버 응답에서는 해당 필드를 `null`로 반환합니다.
+
+### PATCH `/api/classrooms/{id}`
+
+```json
+{
+  "name": "AI 기초 심화",
+  "endDate": "2026-12-22",
+  "color": "PURPLE",
+  "description": null
+}
+```
+
+모든 필드는 선택이지만 하나 이상 필요합니다. 필드 생략은 변경 없음, `description:null`은 설명 삭제입니다. `startDate`는 변경할 수 없습니다. 종료일 축소로 기존 최대 주차가 새 `weekCount`를 넘으면 `CLASSROOM_WEEK_RANGE_CONFLICT`(409)를 반환합니다. 성공 시 갱신된 상세를 반환합니다.
+
+### DELETE `/api/classrooms/{id}`
+
+물리 삭제하지 않고 `status=COMPLETED`로 전환하며 멱등입니다. 완료 강의실은 기존 소유자·멤버의 공개 자료 조회와 본인 통합학습을 유지하고, 초대·참여 처리·주차·자료 연결·공지 쓰기는 `CLASSROOM_COMPLETED`(409)로 거부합니다. 성공 시 갱신된 상세를 반환합니다.
+
+### GET `/api/classrooms/{id}/invite-code`
+
+### POST `/api/classrooms/{id}/invite-code/regenerate`
+
+소유 `INSTRUCTOR` 전용이며 두 API 모두 다음 데이터를 반환합니다. 재발급 성공 즉시 기존 코드는 무효입니다.
+
+```json
+{
+  "classroomId": 30,
+  "inviteCode": "7KMX-9QTR"
+}
+```
+
+### POST `/api/classroom-join-requests`
+
+`LEARNER`와 `INSTRUCTOR`가 사용할 수 있습니다. `INSTRUCTOR`는 본인이 소유하지 않은 강의실에만 요청할 수 있으며 자기 강의실 요청은 `ACCESS_DENIED`입니다. 입력 코드는 trim 후 대문자로 정규화합니다.
+
+```json
+{
+  "inviteCode": "7KMX-9QTR"
+}
+```
+
+```json
+{
+  "requestId": 50,
+  "classroomId": 30,
+  "classroomName": "AI 기초",
+  "status": "PENDING",
+  "requestedAt": "2026-09-01T00:00:00Z"
+}
+```
+
+- 존재하지 않거나 완료 강의실의 코드: `INVALID_INVITE_CODE`
+- 이미 멤버: `ALREADY_CLASSROOM_MEMBER`
+- 기존 PENDING 요청: `JOIN_REQUEST_ALREADY_PENDING`
+- 기존 REJECTED 요청: 같은 행을 PENDING으로 바꾸고 `requestedAt`을 갱신하며 `processedAt=null`
+
+### GET `/api/classroom-join-requests/me?page&size`
+
+내 요청을 `requestedAt DESC, requestId DESC`로 반환합니다. 항목은 참여 요청 응답 필드와 `processedAt`을 포함합니다.
+
+### GET `/api/classrooms/{id}/join-requests?status&page&size`
+
+소유 `INSTRUCTOR` 전용입니다. 기본 status는 `PENDING`이며 최신 요청순입니다.
+
+```json
+{
+  "items": [
+    {
+      "requestId": 50,
+      "status": "PENDING",
+      "requestedAt": "2026-09-01T00:00:00Z",
+      "processedAt": null,
+      "learner": {
+        "userId": 20,
+        "name": "김학습",
+        "email": "learner@example.com",
+        "affiliation": "컴퓨터공학과"
+      }
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+### POST `/api/classrooms/{id}/join-requests/{requestId}/approve`
+
+### POST `/api/classrooms/{id}/join-requests/{requestId}/reject`
+
+PENDING 요청만 처리합니다. 승인은 같은 트랜잭션에서 `classroom_members`를 생성합니다. 이미 처리된 요청은 `JOIN_REQUEST_ALREADY_PROCESSED`입니다. 성공 응답은 `{requestId, classroomId, status, processedAt}`입니다.
+
+### GET `/api/classrooms/{id}/weeks`
+
+강사는 전체 주차, 학습자는 `PUBLISHED` 주차만 조회합니다. 주차 상태는 저장하지 않고 현재 UTC 시각과 `releaseAt`으로 계산합니다.
+
+```json
+{
+  "items": [
+    {
+      "weekNumber": 1,
+      "title": "회귀분석 개요",
+      "status": "PUBLISHED",
+      "releaseAt": null,
+      "materials": [
+        {
+          "materialId": 10,
+          "title": "선형회귀 기초",
+          "pageCount": 25,
+          "processingStatus": "READY",
+          "uploadedAt": "2026-09-01T00:00:00Z"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### POST `/api/classrooms/{id}/weeks`
+
+```json
+{
+  "weekNumber": 1,
+  "title": "회귀분석 개요",
+  "releaseAt": null
+}
+```
+
+`1 <= weekNumber <= weekCount`이며 중복 번호는 `WEEK_ALREADY_EXISTS`입니다. `releaseAt` 생략 또는 `null`은 즉시 공개입니다. 성공 시 위 주차 항목을 반환합니다.
+
+### PATCH `/api/classrooms/{id}/weeks/{weekNumber}`
+
+```json
+{
+  "title": "회귀분석 기초",
+  "releaseAt": "2026-09-08T00:00:00Z"
+}
+```
+
+필드 생략은 변경 없음, `releaseAt:null`은 즉시 공개입니다. 자료 공개가 취소되고 다른 소유권·공개 주차 접근 경로도 없으면 신규 자료·파일 조회, 세션 생성과 기존 세션의 추가 턴을 차단하고 기존 학습 기록은 보존합니다.
+
+### DELETE `/api/classrooms/{id}/weeks/{weekNumber}`
+
+주차와 모든 자료 연결을 삭제하되 자료 자체는 유지합니다. 성공 시 `data:null`을 반환합니다.
+
+### POST `/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}`
+
+강사 본인 소유 ACTIVE 자료만 연결합니다. 동일 연결은 `MATERIAL_ALREADY_LINKED`입니다. 성공 시 갱신된 주차 항목을 반환합니다.
+
+### DELETE `/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}`
+
+연결만 제거하고 자료와 기존 학습 기록은 유지합니다. 연결이 이미 없으면 멱등 성공합니다. 연결 해제 후 다른 소유권·공개 주차 접근 경로가 없는 사용자는 신규 자료·파일 조회, 세션 생성과 기존 세션의 추가 턴이 차단됩니다.
+
+### GET `/api/classrooms/{id}/notices?page&size`
+
+소유 강사와 승인 멤버가 접근하며 `publishedAt DESC, noticeId DESC`로 반환합니다.
+
+```json
+{
+  "items": [
+    {
+      "noticeId": 70,
+      "classroomId": 30,
+      "title": "첫 수업 안내",
+      "content": "교재를 준비해 주세요.",
+      "publishedAt": "2026-09-01T00:00:00Z",
+      "createdAt": "2026-09-01T00:00:00Z",
+      "updatedAt": "2026-09-01T00:00:00Z"
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+### POST `/api/classrooms/{id}/notices`
+
+```json
+{
+  "title": "첫 수업 안내",
+  "content": "교재를 준비해 주세요."
+}
+```
+
+제목은 비공백·최대 200자이고 내용은 비공백이어야 합니다. `publishedAt=now`로 즉시 게시하며 예약 게시·상태·readCount는 Phase C입니다. 성공 시 공지 항목을 반환합니다.
+
+### PATCH `/api/classrooms/{id}/notices/{noticeId}`
+
+`title`, `content` 부분 수정이며 하나 이상 필요합니다. `publishedAt`은 변경하지 않습니다. 성공 시 공지 항목을 반환합니다.
+
+### DELETE `/api/classrooms/{id}/notices/{noticeId}`
+
+MVP에서는 공지를 물리 삭제하고 `data:null`을 반환합니다.
+
+### GET `/api/users/me/schedule?from&to&classroomId`
+
+`from`, `to`는 `YYYY-MM-DD` 형식의 필수 값이고 양 끝 날짜를 포함하며 `from <= to`여야 합니다. 선택 `classroomId`는 사용자가 소유하거나 참여한 강의실이어야 합니다. 저장 테이블 없이 공개 주차와 공지에서 파생하고 `dateTime ASC, scheduleId ASC`로 반환합니다. 예약 주차는 `releaseAt`, 즉시 공개 주차(`releaseAt=null`)는 주차 `createdAt`, 공지는 `publishedAt`을 일정 시각으로 사용합니다.
+
+```json
+{
+  "items": [
+    {
+      "scheduleId": "WEEK-40",
+      "dateTime": "2026-09-08T00:00:00Z",
+      "type": "WEEK_RELEASE",
+      "title": "2주차 공개: 선형회귀",
+      "classroomId": 30,
+      "classroomName": "AI 기초",
+      "color": "BLUE"
+    },
+    {
+      "scheduleId": "NOTICE-70",
+      "dateTime": "2026-09-08T01:00:00Z",
+      "type": "NOTICE_PUBLISH",
+      "title": "과제 안내",
+      "classroomId": 30,
+      "classroomName": "AI 기초",
+      "color": "BLUE"
+    }
+  ]
+}
+```
+
+`CUSTOM` 일정 쓰기와 공지 예약 게시는 Phase C입니다.
 
 ## 8. Spring → FastAPI 내부 API
 

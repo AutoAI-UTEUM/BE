@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-07-21 |
+| 마지막 갱신 | 2026-08-02 |
 | 코드 형식 | `UPPER_SNAKE_CASE` |
 
 ## 1. 응답 형식
@@ -87,7 +87,23 @@
 | `MATERIAL_PROCESSING` | 409 | 아직 처리 중 |
 | `MATERIAL_PROCESSING_FAILED` | 409 | 텍스트 추출 등 처리 실패 |
 | `MATERIAL_HAS_ACTIVE_SESSION` | 409 | 활성 세션이 있어 자료 삭제 불가 (DEC-028) |
+| `MATERIAL_LINKED_TO_CLASSROOM` | 409 | 강의실 주차에 연결되어 있어 자료 삭제 불가 — 먼저 연결 해제 필요 |
 | `PAGE_OUT_OF_RANGE` | 400 | 페이지 번호 범위 초과 |
+
+### 강의실
+
+| code | HTTP | 의미 |
+| --- | ---: | --- |
+| `CLASSROOM_NOT_FOUND` | 404 | 강의실이 없거나 현재 사용자가 접근할 수 없음 — 소유권·멤버십 은닉 |
+| `INVALID_INVITE_CODE` | 404 | 초대 코드가 없거나 완료된 강의실의 무효 코드 |
+| `ALREADY_CLASSROOM_MEMBER` | 409 | 이미 승인된 강의실 멤버 |
+| `JOIN_REQUEST_ALREADY_PENDING` | 409 | 같은 강의실에 대기 중인 참여 요청이 있음 |
+| `JOIN_REQUEST_ALREADY_PROCESSED` | 409 | 참여 요청이 이미 승인 또는 거절됨 |
+| `WEEK_NOT_FOUND` | 404 | 주차가 없거나 상위 강의실에 접근할 수 없음 |
+| `WEEK_ALREADY_EXISTS` | 409 | 같은 강의실에 동일 주차 번호가 이미 존재함 |
+| `MATERIAL_ALREADY_LINKED` | 409 | 같은 주차에 자료가 이미 연결됨 |
+| `CLASSROOM_COMPLETED` | 409 | 완료 강의실에서 허용되지 않는 관리 쓰기 또는 참여 처리 시도 |
+| `CLASSROOM_WEEK_RANGE_CONFLICT` | 409 | 종료일 축소로 기존 주차가 계산된 주차 범위를 벗어남 |
 
 ### 세션·턴
 
