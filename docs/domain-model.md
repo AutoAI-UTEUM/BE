@@ -72,8 +72,14 @@ erDiagram
 
 - 한 명의 사용자와 하나의 자료에 속합니다.
 - `currentPage`는 자료의 유효 페이지 범위 안에 있어야 합니다.
-- 세션의 전역 상태와 페이지별 학습 상태가 분리될 필요가 있는지 구현 전 검토합니다. 여러 페이지의 설명 이력을 정확히 보존해야 한다면 별도 `SessionPageProgress` 모델이 필요합니다.
+- 현재 페이지의 런타임 상태는 단일 `pageStatus`로 유지하고, 여러 페이지의 설명 완료 근거는 `SessionPageRecord`로 분리합니다.
 - `conversationSummary`는 대화 요약이며 퀴즈 원본 저장소가 아닙니다.
+
+### SessionPageRecord
+
+- 성공한 설명 턴이 `pageStatus=EXPLAINED`로 확정된 세션·페이지를 기록합니다.
+- `(sessionId, pageNumber)`는 유일하며 재설명 시 새 행 대신 `explainedAt`을 갱신합니다.
+- 페이지별 전체 학습 상태나 설명 원문을 저장하지 않고 진도율의 결정적 근거로만 사용합니다.
 
 ### ChatMessage
 
@@ -139,7 +145,7 @@ erDiagram
 | DIAGNOSIS_PENDING | 진단 답변 대기 |
 | REPAIR_COMPLETED | 오개념 교정 완료 |
 
-MVP는 세션 단일 `pageStatus`를 유지하고 페이지 이동 시 초기화합니다(DEC-008 Accepted). 페이지별 이력 모델(`SessionPageProgress`) 분리는 MVP 이후 확장으로 미룹니다.
+MVP는 세션 단일 `pageStatus`를 유지하고 페이지 이동 시 초기화합니다(DEC-008 Accepted). 설명 완료 여부만 `SessionPageRecord`에 누적하며, 페이지별 전체 상태 모델(`SessionPageProgress`)은 도입하지 않습니다.
 
 ### QuizType
 
