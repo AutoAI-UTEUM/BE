@@ -25,6 +25,7 @@ import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.memory.LearnerMemoryPromotionService;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.session.dto.TurnRequest;
 import io.edupilot.session.dto.TurnResponse;
 import io.edupilot.user.User;
@@ -55,6 +56,7 @@ public class SessionTurnService {
 	private final AiClientProperties aiClientProperties;
 	private final UserRepository userRepository;
 	private final LongSupplier nanoTime;
+	private final MaterialAccessService materialAccessService;
 
 	@Autowired
 	public SessionTurnService(
@@ -67,7 +69,8 @@ public class SessionTurnService {
 		LearnerMemoryPromotionService memoryPromotionService,
 		SessionStreamService streamService,
 		AiClientProperties aiClientProperties,
-		UserRepository userRepository
+		UserRepository userRepository,
+		MaterialAccessService materialAccessService
 	) {
 		this(
 			claimService,
@@ -80,6 +83,7 @@ public class SessionTurnService {
 			streamService,
 			aiClientProperties,
 			userRepository,
+			materialAccessService,
 			System::nanoTime
 		);
 	}
@@ -95,6 +99,7 @@ public class SessionTurnService {
 		SessionStreamService streamService,
 		AiClientProperties aiClientProperties,
 		UserRepository userRepository,
+		MaterialAccessService materialAccessService,
 		LongSupplier nanoTime
 	) {
 		this.claimService = claimService;
@@ -107,6 +112,7 @@ public class SessionTurnService {
 		this.streamService = streamService;
 		this.aiClientProperties = aiClientProperties;
 		this.userRepository = userRepository;
+		this.materialAccessService = materialAccessService;
 		this.nanoTime = nanoTime;
 	}
 
@@ -115,6 +121,7 @@ public class SessionTurnService {
 		Long sessionId,
 		TurnRequest request
 	) {
+		materialAccessService.assertSessionAccessible(userId, sessionId);
 		TurnEventType eventType = parseEventType(request.eventType());
 		ValidatedPayload payload = validatePayload(
 			userId,

@@ -49,6 +49,31 @@ public enum ErrorCode {
 		HttpStatus.CONFLICT,
 		"완료된 강의실에서는 이 작업을 수행할 수 없습니다."
 	),
+	WEEK_NOT_FOUND(
+		"WEEK_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"강의실 주차를 찾을 수 없습니다."
+	),
+	WEEK_ALREADY_EXISTS(
+		"WEEK_ALREADY_EXISTS",
+		HttpStatus.CONFLICT,
+		"같은 번호의 강의실 주차가 이미 존재합니다."
+	),
+	MATERIAL_ALREADY_LINKED(
+		"MATERIAL_ALREADY_LINKED",
+		HttpStatus.CONFLICT,
+		"자료가 이미 해당 주차에 연결되어 있습니다."
+	),
+	MATERIAL_LINKED_TO_CLASSROOM(
+		"MATERIAL_LINKED_TO_CLASSROOM",
+		HttpStatus.CONFLICT,
+		"강의실에 연결된 자료는 삭제할 수 없습니다."
+	),
+	CLASSROOM_WEEK_RANGE_CONFLICT(
+		"CLASSROOM_WEEK_RANGE_CONFLICT",
+		HttpStatus.CONFLICT,
+		"기존 주차가 변경할 강의실 기간을 벗어납니다."
+	),
 	EMAIL_ALREADY_EXISTS(
 		"EMAIL_ALREADY_EXISTS",
 		HttpStatus.CONFLICT,
