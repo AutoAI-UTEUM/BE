@@ -563,6 +563,80 @@ Query:
 
 활성 세션을 완료 처리하고 최종 상태를 반환합니다. `COMPLETED → ACTIVE` 재개는 MVP에서 지원하지 않으며, 재학습은 새 세션 생성으로 처리합니다(DEC-024 부가 확정).
 
+## 5.1 학습 노트 API
+
+노트는 사용자와 자료에 귀속하고 세션·페이지·채팅 메시지는 선택 참조입니다. 모든 API는 Bearer 인증이 필요합니다. 목록은 `createdAt DESC, noteId DESC`로 정렬하며 기본 `page=0`, `size=50`, 최대 `size=100`을 사용합니다. 논리 삭제된 자료의 노트는 목록에서 제외합니다.
+
+공통 노트 응답:
+
+```json
+{
+  "noteId": 1000,
+  "sessionId": 100,
+  "materialId": 10,
+  "content": "인과관계와 상관관계의 차이",
+  "pageNumber": 3,
+  "sourceMessageId": 501,
+  "createdAt": "2026-08-02T00:00:00Z",
+  "updatedAt": "2026-08-02T00:00:00Z"
+}
+```
+
+### POST `/api/sessions/{sessionId}/notes`
+
+```json
+{
+  "content": "인과관계와 상관관계의 차이",
+  "pageNumber": 3,
+  "sourceMessageId": 501
+}
+```
+
+`content`는 비공백·10,000자 이하입니다. `pageNumber`는 해당 자료의 페이지 범위여야 하고, `sourceMessageId`는 요청 경로의 세션에 속한 채팅 메시지여야 합니다. `pageNumber`와 `sourceMessageId`는 생략할 수 있습니다. 다른 사용자의 세션 또는 삭제된 세션은 `SESSION_NOT_FOUND`, 삭제된 자료는 `MATERIAL_NOT_FOUND`로 처리합니다.
+
+### GET `/api/materials/{materialId}/notes?page=0&size=50`
+
+자료에 속한 현재 사용자의 노트를 페이지 응답으로 반환합니다.
+
+```json
+{
+  "items": [
+    {
+      "noteId": 1000,
+      "sessionId": 100,
+      "materialId": 10,
+      "content": "인과관계와 상관관계의 차이",
+      "pageNumber": 3,
+      "sourceMessageId": 501,
+      "createdAt": "2026-08-02T00:00:00Z",
+      "updatedAt": "2026-08-02T00:00:00Z"
+    }
+  ],
+  "page": 0,
+  "size": 50,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+### GET `/api/sessions/{sessionId}/notes?page=0&size=50`
+
+세션의 자료 ID를 해석한 뒤 위 자료 목록과 같은 서비스 메서드를 사용합니다. 따라서 같은 `page`·`size` 조건이면 두 경로의 결과는 동일한 자료 스코프입니다. 세션에서 직접 생성한 노트만으로 제한하지 않습니다.
+
+### PATCH `/api/notes/{noteId}`
+
+```json
+{
+  "content": "수정된 노트 내용"
+}
+```
+
+본인 노트만 수정할 수 있습니다. 존재하지 않거나 다른 사용자의 노트는 모두 `NOTE_NOT_FOUND`(404)로 은닉합니다.
+
+### DELETE `/api/notes/{noteId}`
+
+본인 노트를 물리 삭제합니다. 존재하지 않거나 다른 사용자의 노트는 모두 `NOTE_NOT_FOUND`(404)로 은닉합니다.
+
 ## 6. 퀴즈 API
 
 ### GET `/api/quizzes/{quizId}`
