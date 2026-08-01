@@ -57,6 +57,12 @@
 | POST | `/api/auth/logout` | 로그아웃 (refresh 폐기·쿠키 만료) | 쿠키 | refresh 쿠키 보유자 (멱등) |
 | GET | `/api/health/ready` | DB·AI Service readiness ([응답 계약](issues/11-observability.md)) | N | 전체 |
 | GET | `/api/users/me` | 내 정보 조회 | Y | 본인 |
+| PATCH | `/api/users/me` | 내 프로필 수정 | Y | 본인 |
+| POST | `/api/users/me/avatar` | 내 아바타 업로드·교체 | Y | 본인 |
+| GET | `/api/users/me/avatar` | 내 아바타 스트리밍 | Y | 본인 |
+| DELETE | `/api/users/me/avatar` | 내 아바타 삭제 | Y | 본인 |
+| GET | `/api/users/me/preferences` | 내 학습 환경설정 조회 | Y | 본인 |
+| PATCH | `/api/users/me/preferences` | 내 학습 환경설정 수정 | Y | 본인 |
 | DELETE | `/api/users/me` | 회원 탈퇴(논리 삭제+익명화 — DEC-028) | Y | 본인 (비밀번호 재확인) |
 | POST | `/api/materials` | PDF 업로드 | Y | LEARNER, INSTRUCTOR, ADMIN |
 | GET | `/api/materials` | 자료 목록 | Y | 본인 소유 자료 (DEC-026) |
@@ -86,7 +92,11 @@
   "email": "user@example.com",
   "password": "password123",
   "name": "홍길동",
-  "role": "LEARNER"
+  "role": "LEARNER",
+  "affiliation": "EduPilot University",
+  "learningEmailOptIn": true,
+  "termsVersion": "2026-07-01",
+  "privacyVersion": "2026-07-01"
 }
 ```
 
@@ -97,11 +107,16 @@
   "userId": 1,
   "email": "user@example.com",
   "name": "홍길동",
-  "role": "LEARNER"
+  "role": "LEARNER",
+  "affiliation": "EduPilot University",
+  "avatarUrl": null,
+  "learningEmailOptIn": true
 }
 ```
 
 `role`은 필수이며 공개 가입에서는 `LEARNER | INSTRUCTOR`만 허용합니다. `ADMIN`, 기존 `USER`, 알 수 없는 enum 값은 요청 오류로 거부합니다. `ADMIN` 계정은 운영상 필요한 경우에만 DB에서 수동 설정합니다(DEC-017, DEC-029 Accepted).
+
+`affiliation`은 선택이며 공백을 제거한 뒤 최대 100자입니다. `learningEmailOptIn`은 생략 시 `false`입니다. `termsVersion`과 `privacyVersion`은 하위 호환을 위해 둘 다 생략할 수 있지만 하나만 보낼 수는 없습니다. 현재 서버 허용값은 두 필드 모두 `2026-07-01`이며, 함께 전송하면 서버가 동의 시각을 기록합니다. 알 수 없는 버전과 부분 전송은 `VALIDATION_FAILED`입니다. FE와 운영 약관의 실제 버전 문자열은 배포 전 다시 확정해야 합니다.
 
 비밀번호 정책(확정): **8~64자, 영문·숫자 각 1자 이상 포함**(특수문자 허용). 위반 시 `VALIDATION_FAILED` + `details: [{ "field": "password", "reason": "..." }]`.
 
@@ -144,7 +159,10 @@
     "id": 1,
     "email": "user@example.com",
     "name": "홍길동",
-    "role": "LEARNER"
+    "role": "LEARNER",
+    "affiliation": "EduPilot University",
+    "avatarUrl": "/api/users/me/avatar",
+    "learningEmailOptIn": true
   }
 }
 ```
@@ -174,6 +192,41 @@ refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DE
 ### POST `/api/auth/logout`
 
 요청 body 없음 — `edupilot_refresh` 쿠키의 refresh를 폐기하고 쿠키를 만료(Max-Age=0)시킵니다. 이미 폐기됐거나 쿠키가 없어도 200을 반환합니다(멱등). access token은 서버가 무효화하지 않으며 만료(최대 1시간)로 소멸합니다 — FE는 로그아웃 시 메모리의 access를 즉시 삭제합니다.
+
+### GET `/api/users/me`
+
+login의 `user`와 같은 사용자 필드를 반환합니다. 기존 계정은 `affiliation`, `avatarUrl`이 `null`이고 `learningEmailOptIn`은 `false`입니다.
+
+### PATCH `/api/users/me`
+
+```json
+{
+  "name": "새 이름",
+  "affiliation": "EduPilot University"
+}
+```
+
+두 필드는 부분 수정입니다. `name`은 공백 제거 후 1~100자이고, `affiliation`은 생략하면 유지하며 빈 문자열이면 `null`로 해제합니다. 변경 필드가 없으면 `VALIDATION_FAILED`입니다. 성공 시 GET users/me와 같은 사용자 응답을 반환합니다.
+
+### POST `/api/users/me/avatar`
+
+`multipart/form-data`의 `file` part로 JPEG, PNG, WEBP 파일을 업로드합니다. Content-Type과 매직바이트가 일치해야 하며 최대 크기는 2MiB입니다. 성공 시 기존 파일을 교체하고 다음을 반환합니다.
+
+```json
+{
+  "avatarUrl": "/api/users/me/avatar"
+}
+```
+
+형식 위반은 `VALIDATION_FAILED`, 크기 초과는 기존 `FILE_TOO_LARGE`(413)를 사용합니다.
+
+### GET `/api/users/me/avatar`
+
+Bearer 인증 후 저장된 이미지의 실제 Media-Type으로 private/no-store inline 스트리밍합니다. 아바타가 없으면 `RESOURCE_NOT_FOUND`입니다. `avatarUrl`은 인증형 상대 경로이므로 일반 `<img src>`로 직접 호출할 수 없습니다. FE는 access token을 포함해 fetch한 Blob을 object URL로 표시하고 교체·화면 해제 시 `URL.revokeObjectURL`로 정리합니다.
+
+### DELETE `/api/users/me/avatar`
+
+저장 파일과 `avatar_key`를 함께 제거하며, 이미 없는 경우에도 성공하는 멱등 API입니다.
 
 ### DELETE `/api/users/me`
 
@@ -621,7 +674,42 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 
 `uiActions`의 `MOVE_NEXT_PAGE`는 turns 이벤트가 아닙니다. FE는 이 액션 선택 시 `PATCH /api/sessions/{sessionId}/page`를 호출합니다(화면-API 매핑 §3 확정 규칙).
 
-## 7. 학습자 메모리 API
+## 7. 학습 환경설정·학습자 메모리 API
+
+### GET `/api/users/me/preferences`
+
+`data`:
+
+```json
+{
+  "newMaterialNotification": true,
+  "studyReminder": true,
+  "aiAnswerStyle": "NORMAL"
+}
+```
+
+기존 사용자와 미설정 사용자의 기본값은 `true`, `true`, `NORMAL`입니다. 알림 두 필드는 저장만 하며 실제 발송은 Phase C 범위입니다.
+
+### PATCH `/api/users/me/preferences`
+
+```json
+{
+  "studyReminder": false,
+  "aiAnswerStyle": "DETAILED"
+}
+```
+
+세 필드는 부분 수정이며 하나 이상 필요합니다. `aiAnswerStyle`은 `CONCISE | NORMAL | DETAILED`입니다. 성공 시 GET과 같은 전체 환경설정 응답을 반환합니다.
+
+`EXPLAIN_CURRENT_PAGE`의 설명 상세도 우선순위:
+
+| 조건 | 실제 `detailLevel` |
+| --- | --- |
+| payload에 `NORMAL` | `NORMAL` — 요청값 우선 |
+| payload에 `DETAILED` | `DETAILED` — 요청값 우선 |
+| payload 생략 + `CONCISE` 설정 | `NORMAL` |
+| payload 생략 + `NORMAL` 설정 | `NORMAL` |
+| payload 생략 + `DETAILED` 설정 | `DETAILED` |
 
 ### GET `/api/users/me/memory?materialId={materialId}`
 

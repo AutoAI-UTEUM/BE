@@ -38,6 +38,9 @@ import io.edupilot.memory.MemoryWrite;
 import io.edupilot.session.dto.TurnRequest;
 import io.edupilot.session.dto.TurnResponse;
 import io.edupilot.session.dto.TurnStateResponse;
+import io.edupilot.user.AiAnswerStyle;
+import io.edupilot.user.User;
+import io.edupilot.user.UserRepository;
 import tools.jackson.databind.ObjectMapper;
 
 @ExtendWith(MockitoExtension.class)
@@ -65,6 +68,8 @@ class SessionTurnServiceTest {
 	private AiClientProperties aiClientProperties;
 	@Mock
 	private SessionStreamConnection streamConnection;
+	@Mock
+	private UserRepository userRepository;
 
 	@Test
 	void retryableFailureUsesNewTurnIdAndAlwaysReleases() throws Exception {
@@ -185,6 +190,39 @@ class SessionTurnServiceTest {
 			org.mockito.ArgumentMatchers.anyLong(),
 			anyString()
 		);
+	}
+
+	@Test
+	void explainUsesPayloadDetailLevelBeforeStoredPreference() throws Exception {
+		when(preparationService.prepare(
+			1L,
+			100L,
+			"explain-request",
+			"현재 페이지 설명 요청: DETAILED",
+			null
+		)).thenThrow(new BusinessException(ErrorCode.SESSION_STATE_CONFLICT));
+
+		assertError(
+			() -> service().execute(
+				1L,
+				100L,
+				new TurnRequest(
+					"explain-request",
+					"EXPLAIN_CURRENT_PAGE",
+					objectMapper.readTree("{\"detailLevel\":\"DETAILED\"}")
+				)
+			),
+			ErrorCode.SESSION_STATE_CONFLICT
+		);
+
+		verify(userRepository, never()).findById(any());
+	}
+
+	@Test
+	void explainMapsStoredAnswerStyleWhenPayloadOmitsDetailLevel() throws Exception {
+		assertStoredStyleMapping(AiAnswerStyle.CONCISE, "NORMAL", "concise-request");
+		assertStoredStyleMapping(AiAnswerStyle.NORMAL, "NORMAL", "normal-request");
+		assertStoredStyleMapping(AiAnswerStyle.DETAILED, "DETAILED", "detailed-request");
 	}
 
 	@Test
@@ -443,7 +481,38 @@ class SessionTurnServiceTest {
 			memoryPromotionService,
 			streamService,
 			aiClientProperties,
+			userRepository,
 			nanoTime
+		);
+	}
+
+	private void assertStoredStyleMapping(
+		AiAnswerStyle style,
+		String expectedDetailLevel,
+		String requestId
+	) throws Exception {
+		User user = User.create("user@example.com", "hash", "학습자");
+		user.updatePreferences(null, null, style);
+		when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+		when(preparationService.prepare(
+			1L,
+			100L,
+			requestId,
+			"현재 페이지 설명 요청: " + expectedDetailLevel,
+			null
+		)).thenThrow(new BusinessException(ErrorCode.SESSION_STATE_CONFLICT));
+
+		assertError(
+			() -> service().execute(
+				1L,
+				100L,
+				new TurnRequest(
+					requestId,
+					"EXPLAIN_CURRENT_PAGE",
+					objectMapper.createObjectNode()
+				)
+			),
+			ErrorCode.SESSION_STATE_CONFLICT
 		);
 	}
 

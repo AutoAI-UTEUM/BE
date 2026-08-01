@@ -27,6 +27,8 @@ import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.memory.LearnerMemoryPromotionService;
 import io.edupilot.session.dto.TurnRequest;
 import io.edupilot.session.dto.TurnResponse;
+import io.edupilot.user.User;
+import io.edupilot.user.UserRepository;
 import tools.jackson.databind.JsonNode;
 
 @Service
@@ -51,6 +53,7 @@ public class SessionTurnService {
 	private final LearnerMemoryPromotionService memoryPromotionService;
 	private final SessionStreamService streamService;
 	private final AiClientProperties aiClientProperties;
+	private final UserRepository userRepository;
 	private final LongSupplier nanoTime;
 
 	@Autowired
@@ -63,7 +66,8 @@ public class SessionTurnService {
 		TurnPersistenceService persistenceService,
 		LearnerMemoryPromotionService memoryPromotionService,
 		SessionStreamService streamService,
-		AiClientProperties aiClientProperties
+		AiClientProperties aiClientProperties,
+		UserRepository userRepository
 	) {
 		this(
 			claimService,
@@ -75,6 +79,7 @@ public class SessionTurnService {
 			memoryPromotionService,
 			streamService,
 			aiClientProperties,
+			userRepository,
 			System::nanoTime
 		);
 	}
@@ -89,6 +94,7 @@ public class SessionTurnService {
 		LearnerMemoryPromotionService memoryPromotionService,
 		SessionStreamService streamService,
 		AiClientProperties aiClientProperties,
+		UserRepository userRepository,
 		LongSupplier nanoTime
 	) {
 		this.claimService = claimService;
@@ -100,6 +106,7 @@ public class SessionTurnService {
 		this.memoryPromotionService = memoryPromotionService;
 		this.streamService = streamService;
 		this.aiClientProperties = aiClientProperties;
+		this.userRepository = userRepository;
 		this.nanoTime = nanoTime;
 	}
 
@@ -110,6 +117,7 @@ public class SessionTurnService {
 	) {
 		TurnEventType eventType = parseEventType(request.eventType());
 		ValidatedPayload payload = validatePayload(
+			userId,
 			eventType,
 			request.payload()
 		);
@@ -415,6 +423,7 @@ public class SessionTurnService {
 	}
 
 	private ValidatedPayload validatePayload(
+		Long userId,
 		TurnEventType eventType,
 		JsonNode payload
 	) {
@@ -423,7 +432,10 @@ public class SessionTurnService {
 		}
 		return switch (eventType) {
 			case EXPLAIN_CURRENT_PAGE -> {
-				String detailLevel = requiredText(payload, "detailLevel");
+				String detailLevel = optionalText(payload, "detailLevel");
+				if (detailLevel == null) {
+					detailLevel = defaultDetailLevel(userId);
+				}
 				if (!Set.of("NORMAL", "DETAILED").contains(detailLevel)) {
 					throw new BusinessException(
 						ErrorCode.VALIDATION_FAILED
@@ -465,6 +477,26 @@ public class SessionTurnService {
 				);
 			}
 		};
+	}
+
+	private String optionalText(JsonNode payload, String field) {
+		JsonNode value = payload.get(field);
+		if (value == null) {
+			return null;
+		}
+		if (!value.isTextual() || value.textValue().isBlank()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+		}
+		return value.textValue();
+	}
+
+	private String defaultDetailLevel(Long userId) {
+		User user = userRepository.findById(userId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+		if (!user.isActive()) {
+			throw new BusinessException(ErrorCode.USER_INACTIVE);
+		}
+		return user.getAiAnswerStyle().detailLevel();
 	}
 
 	private String requiredText(JsonNode payload, String field) {

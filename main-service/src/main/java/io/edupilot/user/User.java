@@ -49,6 +49,16 @@ public class User {
 	@Column(name = "consented_at")
 	private Instant consentedAt;
 
+	@Column(name = "new_material_notification", nullable = false)
+	private boolean newMaterialNotification = true;
+
+	@Column(name = "study_reminder", nullable = false)
+	private boolean studyReminder = true;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "ai_answer_style", nullable = false, length = 20)
+	private AiAnswerStyle aiAnswerStyle = AiAnswerStyle.NORMAL;
+
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)
 	private UserRole role;
@@ -152,6 +162,22 @@ public class User {
 		this.avatarKey = avatarKey;
 	}
 
+	public void updatePreferences(
+		Boolean newMaterialNotification,
+		Boolean studyReminder,
+		AiAnswerStyle aiAnswerStyle
+	) {
+		if (newMaterialNotification != null) {
+			this.newMaterialNotification = newMaterialNotification;
+		}
+		if (studyReminder != null) {
+			this.studyReminder = studyReminder;
+		}
+		if (aiAnswerStyle != null) {
+			this.aiAnswerStyle = aiAnswerStyle;
+		}
+	}
+
 	public Long getId() {
 		return id;
 	}
@@ -194,6 +220,18 @@ public class User {
 
 	public Instant getConsentedAt() {
 		return consentedAt;
+	}
+
+	public boolean isNewMaterialNotification() {
+		return newMaterialNotification;
+	}
+
+	public boolean isStudyReminder() {
+		return studyReminder;
+	}
+
+	public AiAnswerStyle getAiAnswerStyle() {
+		return aiAnswerStyle;
 	}
 
 	public UserRole getRole() {

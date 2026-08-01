@@ -26,6 +26,7 @@ import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.storage.FileStorage;
 import io.edupilot.user.dto.UpdateProfileRequest;
+import io.edupilot.user.dto.UpdatePreferencesRequest;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -91,6 +92,33 @@ class UserServiceTest {
 		);
 		assertBusinessError(
 			() -> userService.updateProfile(1L, new UpdateProfileRequest("  ", null)),
+			ErrorCode.VALIDATION_FAILED
+		);
+	}
+
+	@Test
+	void preferencesReturnDefaultsAndSupportPartialUpdates() {
+		var defaults = userService.preferences(1L);
+		assertThat(defaults.newMaterialNotification()).isTrue();
+		assertThat(defaults.studyReminder()).isTrue();
+		assertThat(defaults.aiAnswerStyle()).isEqualTo(AiAnswerStyle.NORMAL);
+
+		var updated = userService.updatePreferences(
+			1L,
+			new UpdatePreferencesRequest(false, null, AiAnswerStyle.DETAILED)
+		);
+		assertThat(updated.newMaterialNotification()).isFalse();
+		assertThat(updated.studyReminder()).isTrue();
+		assertThat(updated.aiAnswerStyle()).isEqualTo(AiAnswerStyle.DETAILED);
+	}
+
+	@Test
+	void preferencesRejectEmptyPatch() {
+		assertBusinessError(
+			() -> userService.updatePreferences(
+				1L,
+				new UpdatePreferencesRequest(null, null, null)
+			),
 			ErrorCode.VALIDATION_FAILED
 		);
 	}

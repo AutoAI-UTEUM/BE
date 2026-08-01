@@ -470,6 +470,30 @@ class AuthApiContractTest {
 	}
 
 	@Test
+	void preferencesReturnDefaultsAndPatchSelectedValues() throws Exception {
+		when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+		String accessToken = jwtTokenProvider.createAccessToken(user);
+
+		mockMvc.perform(get("/api/users/me/preferences")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.newMaterialNotification").value(true))
+			.andExpect(jsonPath("$.data.studyReminder").value(true))
+			.andExpect(jsonPath("$.data.aiAnswerStyle").value("NORMAL"));
+
+		mockMvc.perform(patch("/api/users/me/preferences")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"studyReminder":false,"aiAnswerStyle":"DETAILED"}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.newMaterialNotification").value(true))
+			.andExpect(jsonPath("$.data.studyReminder").value(false))
+			.andExpect(jsonPath("$.data.aiAnswerStyle").value("DETAILED"));
+	}
+
+	@Test
 	void loginAndMePreserveInstructorRole() throws Exception {
 		User instructor = User.create(
 			"instructor@example.com",

@@ -11,9 +11,12 @@
 | 화면/영역 | 사용자 행동/시점 | API | 성공 시 UI | 주요 오류 |
 | --- | --- | --- | --- | --- |
 | 회원가입 | 이메일 입력 중 중복 확인 | `GET /api/auth/email-availability?email={email}` | 사용 가능 여부 표시 | 이메일 누락·형식 오류 |
-| 회원가입 | `LEARNER | INSTRUCTOR` 역할 선택 후 제출 | `POST /api/auth/signup` | 반환된 역할 확인 후 로그인 화면 또는 자동 로그인 정책에 따른 이동 | 역할 누락/오류, 유효성, 이메일 중복 |
+| 회원가입 | 역할·선택 소속·수신 동의·약관 버전 제출 | `POST /api/auth/signup` | 확장 사용자 응답 확인 후 로그인 화면 또는 자동 로그인 정책에 따른 이동 | 역할/약관 버전 오류, 유효성, 이메일 중복 |
 | 로그인 | 제출 | `POST /api/auth/login` | 토큰 저장 후 자료 목록 이동 | 자격 증명 실패, 비활성 계정 |
 | 앱 초기 진입 | 인증 상태 확인 | `GET /api/users/me` | 사용자 정보/권한 반영 | 토큰 만료 |
+| 계정 설정 | 이름·소속 수정 | `PATCH /api/users/me` | 확장 사용자 정보 갱신 | 빈 변경, 길이 오류 |
+| 계정 설정 | 아바타 업로드·교체·삭제 | `POST·GET·DELETE /api/users/me/avatar` | 인증 fetch로 Blob object URL 생성·교체 | 형식/2MiB 초과, 인증 실패 |
+| 계정 설정 | 학습 환경설정 조회·수정 | `GET·PATCH /api/users/me/preferences` | 알림 설정·AI 답변 스타일 저장 | 빈 변경, enum 오류 |
 | 전역 | access 만료(401) 시 | `POST /api/auth/refresh` (credentials 포함) | 새 access로 원요청 재시도 | TOKEN_INVALID → 로그인 이동 |
 | 헤더/메뉴 | 로그아웃 버튼 | `POST /api/auth/logout` | 메모리 access 삭제 후 로그인 화면 | 없음(멱등) |
 | 계정 설정 | 탈퇴 버튼 → 비밀번호 확인 모달 | `DELETE /api/users/me` | 토큰 정리 후 로그인 화면 이동 | 비밀번호 불일치 (DEC-028) |
@@ -69,7 +72,7 @@ FE가 낙관적으로 페이지를 먼저 움직이더라도 실패 시 Spring �
 
 | UI 행동 | `eventType` | 필수 payload |
 | --- | --- | --- |
-| 현재 페이지 설명 | `EXPLAIN_CURRENT_PAGE` | `detailLevel` |
+| 현재 페이지 설명 | `EXPLAIN_CURRENT_PAGE` | `detailLevel` 선택 — 생략 시 사용자 `aiAnswerStyle` 적용 |
 | 새 질문/후속 질문 | `USER_QUESTION` | `message` |
 | 퀴즈 유형 선택 | `QUIZ_TYPE_SELECTED` | `quizType` |
 | 진단 답변 | `DIAGNOSIS_ANSWER_SUBMITTED` | `diagnosisId`, `answer` |
@@ -98,3 +101,4 @@ turn 응답의 `state.activeQuizId`는 nullable입니다. 퀴즈 생성 턴에�
 - 처리 중 PDF와 AI 장시간 작업 표시
 - 퀴즈 재제출 및 결과 공개 정책
 - 오류별 사용자 문구와 재시도 버튼 정책
+- 타 사용자 아바타가 필요한 Epic 10 강의실 범위에서 공개 또는 사용자 ID 기반 아바타 endpoint 검토

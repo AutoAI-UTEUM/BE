@@ -20,6 +20,8 @@ import io.edupilot.material.storage.FileStorage;
 import io.edupilot.material.storage.StorageException;
 import io.edupilot.user.dto.AvatarResponse;
 import io.edupilot.user.dto.UpdateProfileRequest;
+import io.edupilot.user.dto.UpdatePreferencesRequest;
+import io.edupilot.user.dto.UserPreferencesResponse;
 import io.edupilot.user.dto.UserResponse;
 
 @Service
@@ -79,6 +81,30 @@ public class UserService {
 			: normalizeOptional(request.affiliation());
 		user.updateProfile(name, affiliation);
 		return UserResponse.from(user);
+	}
+
+	@Transactional(readOnly = true)
+	public UserPreferencesResponse preferences(Long userId) {
+		return UserPreferencesResponse.from(activeUser(userId));
+	}
+
+	@Transactional
+	public UserPreferencesResponse updatePreferences(
+		Long userId,
+		UpdatePreferencesRequest request
+	) {
+		if (request.newMaterialNotification() == null
+			&& request.studyReminder() == null
+			&& request.aiAnswerStyle() == null) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+		}
+		User user = activeUser(userId);
+		user.updatePreferences(
+			request.newMaterialNotification(),
+			request.studyReminder(),
+			request.aiAnswerStyle()
+		);
+		return UserPreferencesResponse.from(user);
 	}
 
 	@Transactional

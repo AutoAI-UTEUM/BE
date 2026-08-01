@@ -20,6 +20,8 @@ import io.edupilot.auth.AuthenticatedUser;
 import io.edupilot.global.response.ApiResponse;
 import io.edupilot.user.dto.AvatarResponse;
 import io.edupilot.user.dto.UpdateProfileRequest;
+import io.edupilot.user.dto.UpdatePreferencesRequest;
+import io.edupilot.user.dto.UserPreferencesResponse;
 import io.edupilot.user.dto.UserResponse;
 import io.edupilot.user.dto.WithdrawRequest;
 import io.swagger.v3.oas.annotations.Operation;
@@ -54,6 +56,26 @@ public class UserController {
 		@Valid @RequestBody UpdateProfileRequest request
 	) {
 		return ApiResponse.success(userService.updateProfile(
+			authenticatedUser.userId(),
+			request
+		));
+	}
+
+	@GetMapping("/me/preferences")
+	@Operation(summary = "내 학습 환경설정 조회")
+	public ApiResponse<UserPreferencesResponse> preferences(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser
+	) {
+		return ApiResponse.success(userService.preferences(authenticatedUser.userId()));
+	}
+
+	@PatchMapping("/me/preferences")
+	@Operation(summary = "내 학습 환경설정 수정")
+	public ApiResponse<UserPreferencesResponse> updatePreferences(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@Valid @RequestBody UpdatePreferencesRequest request
+	) {
+		return ApiResponse.success(userService.updatePreferences(
 			authenticatedUser.userId(),
 			request
 		));
