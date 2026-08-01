@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-07-31 |
+| 마지막 갱신 | 2026-08-02 |
 | 범위 | Spring 소유 영속 도메인 |
 
 ## 1. 도메인 경계
@@ -12,13 +12,14 @@
 | --- | --- | --- |
 | Identity | User | 인증 주체, 역할, 계정 상태 |
 | Material | LearningMaterial, MaterialPage | PDF 메타데이터와 페이지 문맥 |
+| Classroom | Classroom, ClassroomMember, ClassroomJoinRequest, ClassroomWeek, ClassroomWeekMaterial, ClassroomNotice | 강의실 소유권, 참여, 주차 자료, 즉시 공지 |
 | Learning | LearningSession, ChatMessage | 현재 학습 상태와 대화 기록 |
 | QA | QaThread, QaMessage | 이어지는 질문 문맥 |
 | Quiz | Quiz, QuizSubmission, QuizAssessment | 문제 원본, 제출·채점, 내부 평가 |
 | Repair | Diagnosis, RepairResult | 진단 질문과 오개념 교정 |
 | Personalization | LearnerMemory | 반복 근거 기반 장기 개인화 정보 |
 
-초기 계획에 언급된 Course, Lecture, Assignment, File, Notification은 현재 MVP 영속 모델에 포함하지 않습니다. 필요해지면 기존 `LearningMaterial`과의 경계를 먼저 합의합니다.
+DEC-030에 따라 강의실 최소셋은 MVP 영속 모델에 포함합니다. Course, Lecture, Assignment, File, Notification은 별도 도메인으로 도입하지 않으며 통계·리마인더·예약 게시·CUSTOM 일정도 Phase C로 유지합니다.
 
 ## 2. 엔티티 관계
 
@@ -28,6 +29,16 @@ erDiagram
   USER ||--o{ LEARNING_SESSION : owns
   USER ||--o{ QUIZ_SUBMISSION : submits
   USER ||--o{ LEARNER_MEMORY : has
+  USER ||--o{ CLASSROOM : instructs
+  USER ||--o{ CLASSROOM_MEMBER : joins
+  USER ||--o{ CLASSROOM_JOIN_REQUEST : requests
+
+  CLASSROOM ||--o{ CLASSROOM_MEMBER : contains
+  CLASSROOM ||--o{ CLASSROOM_JOIN_REQUEST : receives
+  CLASSROOM ||--o{ CLASSROOM_WEEK : schedules
+  CLASSROOM ||--o{ CLASSROOM_NOTICE : publishes
+  CLASSROOM_WEEK ||--o{ CLASSROOM_WEEK_MATERIAL : links
+  LEARNING_MATERIAL ||--o{ CLASSROOM_WEEK_MATERIAL : assigned_as
 
   LEARNING_MATERIAL ||--o{ MATERIAL_PAGE : contains
   LEARNING_MATERIAL ||--o{ LEARNING_SESSION : studied_in
@@ -51,14 +62,14 @@ erDiagram
 - 이메일은 중복될 수 없습니다.
 - 비밀번호 원문을 저장하지 않습니다.
 - 역할은 `LEARNER`, `INSTRUCTOR`, `ADMIN`입니다. 공개 가입은 `LEARNER | INSTRUCTOR`만 허용하고 `ADMIN`은 기능 미구현·예약 상태로 유지합니다(DEC-017, DEC-029 Accepted).
-- `LEARNER`와 `INSTRUCTOR`는 현재 같은 학습 기능·소유권 규칙을 사용합니다. 강사 전용 도메인과 차등 권한은 #102에서 별도 정의합니다.
+- `LEARNER`와 `INSTRUCTOR`는 개인 PDF 업로드와 개인 통합학습을 사용할 수 있습니다. 강의실 개설·관리·자료 연결은 소유 `INSTRUCTOR`만 가능하고, `LEARNER`와 타 강의실에 참여한 `INSTRUCTOR`는 승인 멤버로서 공개 자료를 조회·학습할 수 있습니다(DEC-030).
 - 상태는 `ACTIVE`, `DELETED`입니다. 탈퇴(DEC-028)는 논리 삭제 + 즉시 익명화(email → `deleted_{id}`, name 고정 문구, password_hash 무효화)이며 복구는 MVP 미지원입니다. 유예 기간·물리 삭제 배치는 이후 개선안입니다.
 
 ### LearningMaterial
 
 - PDF 파일과 학습용 메타데이터를 나타냅니다.
 - 처리 상태는 `PROCESSING → READY | FAILED`이며 `READY`만 학습 가능합니다.
-- 소유자만 조회·다운로드·삭제할 수 있고 삭제는 `ACTIVE → DELETED` 논리 전이입니다.
+- 전역 자료 목록·수정·삭제는 소유자 전용이고 삭제는 `ACTIVE → DELETED` 논리 전이입니다. 승인된 강의실 멤버는 공개 주차에 연결된 자료의 상세·원본 파일을 조회하고 본인 통합학습 세션을 생성할 수 있지만 자료를 수정·삭제·연결할 수 없습니다.
 - 원본 물리 경로 대신 저장소 독립적인 `storageKey`를 저장하며, 삭제 시 파일과 페이지 문맥은 보존합니다.
 - 비동기 추출 결과는 적용 직전에 상태를 다시 확인하고, 그 사이 삭제됐다면 폐기합니다.
 
@@ -68,9 +79,36 @@ erDiagram
 - 페이지 번호는 1부터 시작합니다.
 - 추출 텍스트는 AI 문맥이며 원본 PDF의 유일한 표현으로 간주하지 않습니다.
 
+### Classroom / ClassroomMember
+
+- 강의실은 한 명의 `INSTRUCTOR`가 소유하며 `ACTIVE | COMPLETED` 상태를 가집니다. `COMPLETED`는 명시적 전환이고 날짜 경과로 자동 전환하지 않습니다.
+- `weekCount`와 `currentWeek`은 저장하지 않고 날짜에서 계산합니다. `currentWeek`의 날짜 기준은 `Asia/Seoul`입니다.
+- 초대 코드는 대문자·숫자의 `XXXX-XXXX` 형식이며 재발급하면 기존 코드는 즉시 무효화됩니다.
+- 승인 멤버는 역할과 무관하게 `(classroomId, userId)`당 하나입니다. `INSTRUCTOR`도 본인이 소유하지 않은 강의실에는 참여할 수 있으며 MVP에서는 탈퇴·강퇴를 지원하지 않습니다.
+- 완료 강의실은 기존 멤버에게 공개 자료 조회와 본인 통합학습을 유지하고 강의실 관리 쓰기는 거부합니다.
+
+### ClassroomJoinRequest
+
+- 상태는 `PENDING | APPROVED | REJECTED`입니다.
+- `(classroomId, userId)`당 한 행을 유지합니다. `REJECTED` 후 재요청은 같은 행을 `PENDING`으로 갱신하고 `requestedAt`을 새로 기록하며 `processedAt`을 비웁니다.
+- 승인 시 같은 트랜잭션에서 `ClassroomMember`를 생성합니다. 이미 처리된 요청은 다시 승인·거절할 수 없습니다.
+
+### ClassroomWeek / ClassroomWeekMaterial
+
+- 주차 번호는 `1 <= weekNumber <= weekCount`이고 `(classroomId, weekNumber)`는 유일합니다.
+- 주차 상태는 저장하지 않습니다. `releaseAt=null` 또는 도래한 시각은 `PUBLISHED`, 미래 시각은 `SCHEDULED`로 파생합니다.
+- 학습자는 `PUBLISHED` 주차만 조회합니다. 강사는 전체 주차와 파생 상태를 조회합니다.
+- 자료 연결은 `(weekId, materialId)`당 하나입니다. 주차 삭제는 연결을 제거하지만 자료 자체를 삭제하지 않습니다.
+
+### ClassroomNotice
+
+- 강사가 즉시 게시하며 예약 게시·읽음 수·별도 상태는 두지 않습니다.
+- 공지 게시 시각은 사용자 캘린더의 `NOTICE_PUBLISH` 일정으로 파생되며, 공지 삭제는 MVP에서 물리 삭제합니다.
+
 ### LearningSession
 
 - 한 명의 사용자와 하나의 자료에 속합니다.
+- 강의실 식별자를 저장하지 않습니다. 동일 사용자의 동일 자료 세션과 설명 완료 이력은 개인 학습과 여러 강의실에서 공유합니다.
 - `currentPage`는 자료의 유효 페이지 범위 안에 있어야 합니다.
 - 현재 페이지의 런타임 상태는 단일 `pageStatus`로 유지하고, 여러 페이지의 설명 완료 근거는 `SessionPageRecord`로 분리합니다.
 - `conversationSummary`는 대화 요약이며 퀴즈 원본 저장소가 아닙니다.
@@ -169,6 +207,18 @@ MVP는 세션 단일 `pageStatus`를 유지하고 페이지 이동 시 초기화
 
 `FOUNDATIONAL`, `BALANCED`, `CHALLENGING`
 
+### Classroom.status
+
+`ACTIVE → COMPLETED`
+
+### ClassroomJoinRequest.status
+
+`PENDING → APPROVED | REJECTED`, `REJECTED → PENDING`
+
+### ClassroomWeek.status (파생)
+
+`SCHEDULED | PUBLISHED`. 영속 컬럼이 아니며 `releaseAt`과 현재 UTC 시각으로 계산합니다.
+
 ## 5. 주요 비즈니스 규칙
 
 1. 모든 세션·퀴즈·진단 접근은 소유권을 검증합니다.
@@ -180,4 +230,7 @@ MVP는 세션 단일 `pageStatus`를 유지하고 페이지 이동 시 초기화
 7. 교정 후 추가 질문은 QA 흐름으로 전환합니다.
 8. 단일 관찰로 장기 학습자 메모리를 갱신하지 않습니다.
 9. AI 결과와 그 근거가 된 퀴즈/진단 기록을 연결해 재현 가능하게 보존합니다.
+10. 강의실 소유권 위반은 `CLASSROOM_NOT_FOUND`로 숨기고, 강사 전용 행위에 대한 역할 부족은 `ACCESS_DENIED`로 처리합니다.
+11. 강의실 진도율은 공개 주차에 연결된 고유 READY 자료의 사용자×자료 설명 완료 이력을 합산하며, 동일 자료가 여러 주차에 연결돼도 한 번만 계산합니다.
+12. 자료 연결 해제 또는 공개 취소 후 다른 소유권·공개 주차 접근 경로가 없으면 강의실 권한에 의한 신규 접근과 추가 학습 턴을 차단하고 기존 사용자 학습 기록은 보존합니다.
 

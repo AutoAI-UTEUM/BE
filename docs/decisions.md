@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | Open |
-| 마지막 갱신 | 2026-07-23 |
+| 마지막 갱신 | 2026-08-02 |
 
 확정된 선택은 날짜, 결정자, 이유를 기록하고 관련 문서를 함께 갱신합니다. 마감일은 팀 일정 확정 후 입력합니다.
 
@@ -297,7 +297,7 @@
 
 ### DEC-026 — 자료 접근 모델 (소유자 전용)
 
-- 상태: Accepted
+- 상태: Partially Superseded — 개인 자료의 소유자 전용 원칙은 유지하고, 승인된 강의실 멤버의 공개 자료 학습 접근은 DEC-030으로 확장
 - 결정일: 2026-07-20
 - 결정자: 프로젝트 담당자
 - 선택: MVP에서 학습 자료는 업로드한 본인만 조회·학습할 수 있다. "접근 가능한 자료"는 "본인이 업로드한 자료"를 의미한다.
@@ -342,7 +342,7 @@
 
 ### DEC-018 — TEACHER·LMS 도메인 (제외 확정)
 
-- 상태: Partially Superseded — 계정 역할 제외 부분은 DEC-029로 대체되었고, Course·Lecture·Assignment·Notification 도메인 제외 결정은 Accepted로 유지
+- 상태: Partially Superseded — 계정 역할 제외 부분은 DEC-029, 강의실 최소셋 제외 부분은 DEC-030으로 대체. Course·Lecture·Assignment·Notification 도메인 제외 결정은 유지
 - 결정일: 2026-07-23
 - 결정자: 프로젝트 담당자
 - 선택: **Course/Lecture/Assignment/Notification 도메인을 MVP·차기 범위에서 제외한다.** 스키마 예약(빈 테이블·미사용 컬럼)도 두지 않는다. 기존 `TEACHER` 역할 제외 결정은 DEC-029의 `INSTRUCTOR` 공개 계정 역할 도입으로 대체한다.
@@ -361,11 +361,33 @@
   - `ADMIN`은 내부 관리용 예약 역할로 유지하며 공개 회원가입에서는 거부합니다.
   - 기존 `USER` 데이터는 migration으로 `LEARNER`로 전환합니다.
   - 이번 결정의 구현 범위는 역할 저장, JWT claim, signup·login·내 정보 API 계약까지입니다.
-  - `LEARNER`와 `INSTRUCTOR`에는 현재 동일한 인증·소유권 규칙을 적용합니다. 강사 전용 기능·차등 권한과 Course/Lecture/Assignment 도입 여부는 #102에서 별도 결정합니다.
+  - 역할 저장·JWT 계약은 공통으로 유지하되, 강의실 최소셋의 차등 권한은 DEC-030을 적용합니다.
 - 이유: FE가 가입 시 역할 선택을 선반영했고 팀이 강사 계정 역할 도입 방향을 선택했습니다. 역할 계약을 먼저 명시하되 미확정 LMS 도메인을 함께 선행 구현하지 않도록 경계를 분리합니다.
 - 대안과 trade-off: 역할을 구분하지 않고 단일 `USER`로 유지하면 현재 구현은 단순하지만 FE 계약과 향후 강사 기능의 주체가 불명확합니다. 가입 후 관리자 승인 방식은 권한 상승 통제가 강하지만 승인 운영 요구가 없어 MVP에서는 자기 선택 방식을 사용합니다.
 - 호환성: 배포 전에 발급된 `role=USER` access token은 `TOKEN_INVALID`가 되며 refresh 또는 재로그인으로 `LEARNER` 토큰을 다시 발급받아야 합니다. 기존 DB 사용자는 V8 migration에서 `LEARNER`로 변환합니다.
 - 후속 변경 문서: [요구사항 명세](requirements.md), [프로젝트 목표](project-goals.md), [도메인 모델](domain-model.md), [API 명세](api-spec.md), [데이터베이스](database.md), [화면-API 매핑](screen-api-map.md)
+
+### DEC-030 — 강의실 최소셋·자료 접근·진도 계약
+
+- 상태: Accepted — [GitHub #126](https://github.com/AutoAI-EduPilot/BE/issues/126) 계약, FE 검토 완료
+- 결정일: 2026-08-02
+- 결정자: 프로젝트 담당자, Frontend 담당자
+- 선택:
+  - 강의실 개설·초대 참여·주차 자료·즉시 공지·캘린더 파생 조회를 MVP에 포함합니다. DEC-018의 강의실 제외 부분만 대체하며 Course·Lecture·Assignment·Notification, 통계·리마인더·예약 게시·CUSTOM 일정은 계속 제외합니다.
+  - 강의실은 `INSTRUCTOR`가 소유하고 관리합니다. `LEARNER`와 본인이 소유하지 않은 강의실에 참여한 `INSTRUCTOR`는 승인 멤버로서 공개된 주차와 연결 자료를 조회하고 그 자료로 본인 통합학습 세션을 생성·진행할 수 있습니다. 소유권을 숨겨야 하는 강의실 접근은 `CLASSROOM_NOT_FOUND`, 역할 부족은 `ACCESS_DENIED`를 사용합니다.
+  - `LEARNER`와 `INSTRUCTOR`의 기존 개인 PDF 업로드를 유지하고 예약 역할 `ADMIN`의 기존 개인 업로드 계약도 변경하지 않습니다. 강의실 업로드·기존 자료 연결·연결 해제는 해당 강의실 소유 `INSTRUCTOR`만 수행합니다. 전역 자료 목록은 본인 소유 자료만 반환하고 강의실 자료는 주차 API에서 발견합니다.
+  - 동일 사용자의 동일 자료 학습 이력은 개인 학습과 여러 강의실에서 공유합니다. `learning_sessions`에 `classroom_id`를 추가하지 않으며, 강의실 진도는 공개 주차에 연결된 고유 자료의 사용자×자료 설명 완료 이력을 합산합니다. 다른 사용자의 이력은 공유하지 않습니다.
+  - 강의실 진도율은 공개 주차에 연결된 고유 READY 자료를 대상으로 `고유 (material_id, page_number) 설명 완료 수 ÷ 고유 자료 page_count 합 × 100`을 정수 반올림합니다. 같은 자료의 여러 주차 연결은 한 번만 계산하고, 이력 또는 유효한 분모가 없으면 0입니다.
+  - 주차 상태는 저장하지 않고 `release_at`과 현재 UTC 시각을 비교해 파생합니다. `NULL`은 즉시 공개, 미래는 `SCHEDULED`, 도래 시각 이후는 `PUBLISHED`입니다.
+  - `currentWeek`은 `Asia/Seoul`의 오늘을 기준으로 `min(weekCount, floor((today-startDate)/7)+1)`로 계산하고, 시작 전은 1, 종료 후는 `weekCount`입니다. `weekCount`는 `ceil((endDate-startDate+1일)/7)`로 서버가 계산합니다.
+  - 주차 번호는 `1 <= weekNumber <= weekCount`입니다. 기존 최대 주차보다 작아지도록 `endDate`를 줄이는 요청은 `CLASSROOM_WEEK_RANGE_CONFLICT`로 거부합니다. `startDate`는 생성 후 변경하지 않습니다.
+  - PATCH에서 필드 생략은 변경 없음, `releaseAt: null`은 즉시 공개, `description: null`은 설명 삭제를 의미합니다.
+  - 강의실 색상은 `BLUE | GREEN | PURPLE | ORANGE | RED | GRAY`를 사용합니다. FE 표시값은 각각 `#3B82F6`, `#22C55E`, `#8B5CF6`, `#F97316`, `#EF4444`, `#64748B`입니다.
+  - 참여 요청은 `(classroom, user)`당 한 행입니다. 거절 후 재요청은 같은 행을 `PENDING`으로 바꾸고 `requested_at`을 갱신하며 `processed_at`을 비웁니다. 멤버 탈퇴·강퇴는 MVP에서 지원하지 않습니다.
+  - 자료 연결 해제 또는 공개 취소 후 다른 소유권·공개 주차 접근 경로가 없으면 신규 자료 조회·파일 조회·세션 생성과 기존 세션의 추가 학습 턴을 차단합니다. 기존 세션·메시지·퀴즈 기록은 보존합니다. 완료 강의실은 명시적 상태 전환으로만 만들고 기존 멤버에게 공개 자료 조회와 본인 통합학습을 유지하되 강의실 관리 쓰기는 거부합니다.
+- 이유: 강의실은 리포트·강의실 통계의 권한 경계와 자료 범위를 제공하면서도 기존 사용자×자료 학습 모델과 AI snapshot 계약을 재사용할 수 있습니다. 강의실별 세션 복제를 피하고 설명 완료 이력을 자료 학습 성취의 공통 근거로 사용합니다.
+- 대안과 trade-off: 세션에 `classroom_id`를 저장하면 강의실별 학습 출처를 엄격히 분리할 수 있지만 동일 자료의 중복 세션·진도와 API 변경이 발생해 MVP에서 제외합니다. 학습자 개인 업로드 금지는 기존 자유 학습 흐름을 깨므로 채택하지 않습니다.
+- 후속 변경 문서: [API 명세](api-spec.md), [데이터베이스](database.md), [에러 코드](error-code.md), [도메인 모델](domain-model.md), [화면-API 매핑](screen-api-map.md)
 
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 
