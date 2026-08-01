@@ -13,7 +13,7 @@
 
 | 테이블 | 핵심 컬럼 | 주요 제약/인덱스 |
 | --- | --- | --- |
-| `users` | id, email, password_hash, name, role, status, timestamps | `UK(email)`, `IDX(status)`, role `CHECK(LEARNER, INSTRUCTOR, ADMIN)` |
+| `users` | id, email, password_hash, name, affiliation, avatar_key, learning_email_opt_in, 약관 버전·동의 시각, notification preferences, ai_answer_style, role, status, timestamps | `UK(email)`, `IDX(status)`, role·ai_answer_style CHECK |
 | `refresh_tokens` | id, user_id, token_hash, expires_at, revoked_at, created_at | `FK(user_id)`, `UK(token_hash)`, `IDX(user_id)` |
 | `learning_materials` | id, owner_id, title, storage_key, page_count, processing_status, status, timestamps | `FK(owner_id)`, `UK(storage_key)`, `IDX(owner_id,status)`, 상태·page_count CHECK |
 | `material_pages` | id, material_id, page_number, text_content, created_at | `FK(material_id)`, `UK(material_id,page_number)`, `CHECK(page_number >= 1)` |
@@ -38,6 +38,7 @@
 - `quiz_submissions.score`와 `max_score`는 AI 부분점수를 보존하기 위해 `DECIMAL(10,2)`를 사용합니다. API 응답도 소수 둘째 자리까지 포함할 수 있습니다.
 - refresh token 원문은 저장하지 않고 SHA-256 해시만 `refresh_tokens.token_hash`에 저장합니다. 회전·로그아웃·탈퇴 시 `revoked_at`을 기록합니다.
 - `users.role`의 기본값은 `LEARNER`입니다. 공개 가입은 애플리케이션 계층에서 `LEARNER | INSTRUCTOR`만 허용하며 `ADMIN`은 예약 역할입니다.
+- 계정 환경설정은 필드가 3개이고 사용자와 1:1이므로 별도 테이블 대신 `users` 컬럼으로 저장합니다. 기존 계정에는 `new_material_notification=true`, `study_reminder=true`, `ai_answer_style=NORMAL`을 적용합니다. `avatar_key`는 URL 대신 storage 상대 키를 저장하며 실제 파일은 `avatars/` 하위에 둡니다.
 
 ## 2. 컬럼 원칙
 
@@ -96,6 +97,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V7__turn_integration.sql`은 `qa_threads`, `qa_messages`를 생성하고 `chat_messages.message_type`에 `SYSTEM`을 추가합니다.
 - `V8__account_roles.sql`은 기존 `USER` 값을 `LEARNER`로 백필하고 role 기본값과 CHECK 제약을 `LEARNER | INSTRUCTOR | ADMIN`으로 교체합니다.
 - `V9__session_page_records.sql`은 페이지 설명 완료 이력과 `(session_id, page_number)` 유일성을 추가합니다.
+- `V10__account_profile.sql`은 가입 부가정보·아바타 키·약관 동의와 사용자 환경설정 컬럼을 추가합니다. nullable 프로필·약관 필드와 기본값이 있는 설정 컬럼으로 기존 계정 로그인을 유지합니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.
 - 운영 스키마 변경은 수동 DDL이 아니라 migration 파일로만 수행합니다.

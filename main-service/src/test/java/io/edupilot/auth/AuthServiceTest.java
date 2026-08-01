@@ -6,6 +6,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -29,6 +32,7 @@ import io.edupilot.user.UserRole;
 
 @ExtendWith(MockitoExtension.class)
 class AuthServiceTest {
+	private static final Instant NOW = Instant.parse("2026-08-01T00:00:00Z");
 
 	@Mock
 	private UserRepository userRepository;
@@ -49,7 +53,8 @@ class AuthServiceTest {
 			userRepository,
 			passwordEncoder,
 			jwtTokenProvider,
-			refreshTokenService
+			refreshTokenService,
+			Clock.fixed(NOW, ZoneOffset.UTC)
 		);
 	}
 
@@ -73,7 +78,73 @@ class AuthServiceTest {
 		assertThat(response.email()).isEqualTo("user@example.com");
 		assertThat(response.name()).isEqualTo("홍길동");
 		assertThat(response.role()).isEqualTo(UserRole.LEARNER);
+		assertThat(response.affiliation()).isNull();
+		assertThat(response.avatarUrl()).isNull();
+		assertThat(response.learningEmailOptIn()).isFalse();
 		verify(userRepository).saveAndFlush(any(User.class));
+	}
+
+	@Test
+	void signupPersistsOptionalProfileAndAcceptedConsentVersions() {
+		when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
+		when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> {
+			User user = invocation.getArgument(0);
+			ReflectionTestUtils.setField(user, "id", 3L);
+			return user;
+		});
+
+		var response = authService.signup(new SignupRequest(
+			"user@example.com",
+			"password123",
+			"홍길동",
+			SignupRole.LEARNER,
+			" EduPilot University ",
+			true,
+			"2026-07-01",
+			"2026-07-01"
+		));
+
+		assertThat(response.affiliation()).isEqualTo("EduPilot University");
+		assertThat(response.learningEmailOptIn()).isTrue();
+		org.mockito.ArgumentCaptor<User> captor = org.mockito.ArgumentCaptor.forClass(
+			User.class
+		);
+		verify(userRepository).saveAndFlush(captor.capture());
+		assertThat(captor.getValue().getTermsVersion()).isEqualTo("2026-07-01");
+		assertThat(captor.getValue().getPrivacyVersion()).isEqualTo("2026-07-01");
+		assertThat(captor.getValue().getConsentedAt()).isEqualTo(NOW);
+	}
+
+	@Test
+	void signupRejectsPartialOrUnknownConsentVersions() {
+		when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
+
+		assertBusinessError(
+			() -> authService.signup(new SignupRequest(
+				"user@example.com",
+				"password123",
+				"홍길동",
+				SignupRole.LEARNER,
+				null,
+				false,
+				"2026-07-01",
+				null
+			)),
+			ErrorCode.VALIDATION_FAILED
+		);
+		assertBusinessError(
+			() -> authService.signup(new SignupRequest(
+				"user@example.com",
+				"password123",
+				"홍길동",
+				SignupRole.LEARNER,
+				null,
+				false,
+				"2026-08-01",
+				"2026-08-01"
+			)),
+			ErrorCode.VALIDATION_FAILED
+		);
 	}
 
 	@Test

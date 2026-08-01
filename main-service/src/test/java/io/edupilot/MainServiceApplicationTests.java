@@ -186,6 +186,24 @@ class MainServiceApplicationTests {
 			.andExpect(jsonPath("$.paths['/api/auth/refresh'].post").exists())
 			.andExpect(jsonPath("$.paths['/api/auth/logout'].post").exists())
 			.andExpect(jsonPath("$.paths['/api/users/me'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/users/me'].patch").exists())
+			.andExpect(jsonPath("$.paths['/api/users/me/avatar'].post").exists())
+			.andExpect(jsonPath("$.paths['/api/users/me/avatar'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/users/me/avatar'].delete").exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/users/me/avatar'].post.requestBody.content"
+					+ "['multipart/form-data'].schema.properties.file"
+			).exists())
+			.andExpect(jsonPath("$.paths['/api/users/me/preferences'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/users/me/preferences'].patch").exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.UpdatePreferencesRequest.properties"
+					+ ".aiAnswerStyle.enum"
+			).value(org.hamcrest.Matchers.contains(
+				"CONCISE",
+				"NORMAL",
+				"DETAILED"
+			)))
 			.andExpect(jsonPath("$.paths['/api/sessions'].post").exists())
 			.andExpect(jsonPath("$.paths['/api/sessions'].get").exists())
 			.andExpect(jsonPath("$.paths['/api/sessions/{sessionId}'].get").exists())

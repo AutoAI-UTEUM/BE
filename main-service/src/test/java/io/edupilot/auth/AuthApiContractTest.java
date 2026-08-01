@@ -9,6 +9,8 @@ import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -26,7 +28,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.mock.web.MockCookie;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -39,6 +43,7 @@ import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.global.logging.AccessLogFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.material.storage.FileStorage;
 import io.edupilot.quiz.QuizRepository;
 import io.edupilot.quiz.QuizSubmissionRepository;
 import io.edupilot.session.ChatMessageRepository;
@@ -97,6 +102,9 @@ class AuthApiContractTest {
 
 	@MockitoBean
 	private QuizSubmissionRepository quizSubmissionRepository;
+
+	@MockitoBean
+	private FileStorage fileStorage;
 
 	private MockMvc mockMvc;
 	private User user;
@@ -190,6 +198,60 @@ class AuthApiContractTest {
 	}
 
 	@Test
+	void signupAcceptsOptionalAccountFieldsAndReturnsExpandedUserContract() throws Exception {
+		when(userRepository.existsByEmail(any())).thenReturn(false);
+		when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> {
+			User saved = invocation.getArgument(0);
+			ReflectionTestUtils.setField(saved, "id", 4L);
+			return saved;
+		});
+
+		mockMvc.perform(post("/api/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email":"profile@example.com",
+					  "password":"password123",
+					  "name":"학습자",
+					  "role":"LEARNER",
+					  "affiliation":"EduPilot University",
+					  "learningEmailOptIn":true,
+					  "termsVersion":"2026-07-01",
+					  "privacyVersion":"2026-07-01"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(4))
+			.andExpect(jsonPath("$.data.affiliation").value("EduPilot University"))
+			.andExpect(jsonPath("$.data.avatarUrl").value(org.hamcrest.Matchers.nullValue()))
+			.andExpect(jsonPath("$.data.learningEmailOptIn").value(true));
+	}
+
+	@Test
+	void signupRejectsUnknownOrPartialConsentVersions() throws Exception {
+		when(userRepository.existsByEmail(any())).thenReturn(false);
+
+		for (String consentFields : java.util.List.of(
+			"\"termsVersion\":\"2026-08-01\",\"privacyVersion\":\"2026-08-01\"",
+			"\"termsVersion\":\"2026-07-01\""
+		)) {
+			mockMvc.perform(post("/api/auth/signup")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+						{
+						  "email":"consent@example.com",
+						  "password":"password123",
+						  "name":"학습자",
+						  "role":"LEARNER",
+						  %s
+						}
+						""".formatted(consentFields)))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+		}
+	}
+
+	@Test
 	void emailAvailabilityIsPublicAndUsesSignupValidationRules() throws Exception {
 		when(userRepository.existsByEmail("available@example.com")).thenReturn(false);
 		when(userRepository.existsByEmail("existing@example.com")).thenReturn(true);
@@ -237,6 +299,13 @@ class AuthApiContractTest {
 			.andExpect(jsonPath("$.data.expiresIn").value(3600))
 			.andExpect(jsonPath("$.data.user.id").value(1))
 			.andExpect(jsonPath("$.data.user.role").value("LEARNER"))
+			.andExpect(jsonPath("$.data.user.affiliation").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.user.avatarUrl").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.user.learningEmailOptIn").value(false))
 			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
 				"edupilot_refresh="
 			)))
@@ -348,7 +417,80 @@ class AuthApiContractTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.id").value(1))
 			.andExpect(jsonPath("$.data.email").value("user@example.com"))
-			.andExpect(jsonPath("$.data.role").value("LEARNER"));
+			.andExpect(jsonPath("$.data.role").value("LEARNER"))
+			.andExpect(jsonPath("$.data.affiliation").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.avatarUrl").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.learningEmailOptIn").value(false));
+	}
+
+	@Test
+	void profileAndAvatarEndpointsUseExpandedAuthenticatedContract() throws Exception {
+		when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+		when(fileStorage.storeAvatar(any(), org.mockito.ArgumentMatchers.eq("png")))
+			.thenReturn("avatars/avatar.png");
+		String accessToken = jwtTokenProvider.createAccessToken(user);
+
+		mockMvc.perform(patch("/api/users/me")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"name":"새 이름","affiliation":"EduPilot University"}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.name").value("새 이름"))
+			.andExpect(jsonPath("$.data.affiliation").value("EduPilot University"));
+
+		MockMultipartFile avatar = new MockMultipartFile(
+			"file",
+			"avatar.png",
+			"image/png",
+			new byte[] {
+				(byte)0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+				0x00, 0x00, 0x00, 0x00
+			}
+		);
+		mockMvc.perform(multipart("/api/users/me/avatar")
+				.file(avatar)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.avatarUrl").value("/api/users/me/avatar"));
+
+		when(fileStorage.load("avatars/avatar.png"))
+			.thenReturn(new ByteArrayResource(new byte[] {1, 2, 3}));
+		mockMvc.perform(get("/api/users/me/avatar")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+			.andExpect(status().isOk())
+			.andExpect(header().string(HttpHeaders.CONTENT_TYPE, "image/png"))
+			.andExpect(header().string(HttpHeaders.CACHE_CONTROL,
+				org.hamcrest.Matchers.containsString("no-store")));
+	}
+
+	@Test
+	void preferencesReturnDefaultsAndPatchSelectedValues() throws Exception {
+		when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+		String accessToken = jwtTokenProvider.createAccessToken(user);
+
+		mockMvc.perform(get("/api/users/me/preferences")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.newMaterialNotification").value(true))
+			.andExpect(jsonPath("$.data.studyReminder").value(true))
+			.andExpect(jsonPath("$.data.aiAnswerStyle").value("NORMAL"));
+
+		mockMvc.perform(patch("/api/users/me/preferences")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"studyReminder":false,"aiAnswerStyle":"DETAILED"}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.newMaterialNotification").value(true))
+			.andExpect(jsonPath("$.data.studyReminder").value(false))
+			.andExpect(jsonPath("$.data.aiAnswerStyle").value("DETAILED"));
 	}
 
 	@Test

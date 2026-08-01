@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -15,9 +16,12 @@ import org.springframework.stereotype.Component;
 public class LocalVolumeStorage implements FileStorage {
 
 	private static final Pattern STORAGE_KEY_PATTERN = Pattern.compile(
-		"materials/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
-			+ "[0-9a-f]{4}-[0-9a-f]{12}\\.pdf"
+		"(?:materials/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+			+ "[0-9a-f]{4}-[0-9a-f]{12}\\.pdf|"
+			+ "avatars/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+			+ "[0-9a-f]{4}-[0-9a-f]{12}\\.(?:jpg|png|webp))"
 	);
+	private static final Set<String> AVATAR_EXTENSIONS = Set.of("jpg", "png", "webp");
 
 	private final Path rootDirectory;
 
@@ -29,7 +33,18 @@ public class LocalVolumeStorage implements FileStorage {
 
 	@Override
 	public String store(InputStream inputStream) {
-		String storageKey = "materials/" + UUID.randomUUID() + ".pdf";
+		return store(inputStream, "materials/" + UUID.randomUUID() + ".pdf");
+	}
+
+	@Override
+	public String storeAvatar(InputStream inputStream, String extension) {
+		if (!AVATAR_EXTENSIONS.contains(extension)) {
+			throw new StorageException("지원하지 않는 아바타 확장자입니다.");
+		}
+		return store(inputStream, "avatars/" + UUID.randomUUID() + "." + extension);
+	}
+
+	private String store(InputStream inputStream, String storageKey) {
 		Path target = resolve(storageKey);
 		try {
 			Files.createDirectories(target.getParent());
@@ -42,6 +57,16 @@ public class LocalVolumeStorage implements FileStorage {
 				exception.addSuppressed(cleanupFailure);
 			}
 			throw new StorageException("파일 저장에 실패했습니다.", exception);
+		}
+	}
+
+	@Override
+	public void delete(String storageKey) {
+		Path target = resolve(storageKey);
+		try {
+			Files.deleteIfExists(target);
+		} catch (IOException exception) {
+			throw new StorageException("저장된 파일 삭제에 실패했습니다.", exception);
 		}
 	}
 
