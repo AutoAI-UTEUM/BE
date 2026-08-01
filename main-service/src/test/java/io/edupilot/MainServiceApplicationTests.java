@@ -24,6 +24,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.ai.AiClientProperties;
 import io.edupilot.auth.RefreshTokenRepository;
+import io.edupilot.feedback.FeedbackRepository;
 import io.edupilot.global.config.ReadinessResponse;
 import io.edupilot.global.config.ReadinessService;
 import io.edupilot.global.security.TraceIdFilter;
@@ -74,6 +75,9 @@ class MainServiceApplicationTests {
 
 	@MockitoBean
 	private NoteRepository noteRepository;
+
+	@MockitoBean
+	private FeedbackRepository feedbackRepository;
 
 	@MockitoBean
 	private QuizRepository quizRepository;
@@ -238,6 +242,18 @@ class MainServiceApplicationTests {
 			.andExpect(jsonPath(
 				"$.components.schemas.CreateNoteRequest.required"
 			).value(org.hamcrest.Matchers.hasItem("content")))
+			.andExpect(jsonPath("$.paths['/api/feedback'].post").exists())
+			.andExpect(jsonPath("$.paths['/api/feedback'].get").doesNotExist())
+			.andExpect(jsonPath(
+				"$.components.schemas.CreateFeedbackRequest.required"
+			).value(org.hamcrest.Matchers.hasItems("category", "message")))
+			.andExpect(jsonPath(
+				"$.components.schemas.CreateFeedbackRequest.properties.category.enum"
+			).value(org.hamcrest.Matchers.contains(
+				"BUG",
+				"FEATURE_REQUEST",
+				"GENERAL"
+			)))
 			.andExpect(jsonPath(
 				"$.paths['/api/sessions/{sessionId}/quizzes'].get"
 			).exists())

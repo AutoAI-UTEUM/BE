@@ -1,22 +1,21 @@
-package io.edupilot.memory;
+package io.edupilot.feedback;
 
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.not;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
-import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -24,17 +23,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
-import io.edupilot.assessment.QuizAssessmentRepository;
 import io.edupilot.auth.JwtTokenProvider;
 import io.edupilot.auth.RefreshTokenRepository;
-import io.edupilot.feedback.FeedbackRepository;
-import io.edupilot.diagnosis.DiagnosisRepository;
-import io.edupilot.diagnosis.RepairResultRepository;
+import io.edupilot.feedback.dto.FeedbackResponse;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.note.NoteRepository;
-import io.edupilot.memory.dto.LearnerMemoryResponse;
 import io.edupilot.quiz.QuizRepository;
 import io.edupilot.quiz.QuizSubmissionRepository;
 import io.edupilot.session.ChatMessageRepository;
@@ -44,7 +39,9 @@ import io.edupilot.user.UserRepository;
 
 @SpringBootTest
 @ActiveProfiles("test")
-class LearnerMemoryApiContractTest {
+class FeedbackApiContractTest {
+
+	private static final Instant NOW = Instant.parse("2026-08-02T00:00:00Z");
 
 	@Autowired
 	private WebApplicationContext context;
@@ -56,7 +53,10 @@ class LearnerMemoryApiContractTest {
 	private JwtTokenProvider jwtTokenProvider;
 
 	@MockitoBean
-	private LearnerMemoryService memoryService;
+	private FeedbackService feedbackService;
+
+	@MockitoBean
+	private FeedbackRepository feedbackRepository;
 
 	@MockitoBean
 	private UserRepository userRepository;
@@ -74,34 +74,16 @@ class LearnerMemoryApiContractTest {
 	private LearningSessionRepository sessionRepository;
 
 	@MockitoBean
-	private ChatMessageRepository chatMessageRepository;
+	private ChatMessageRepository messageRepository;
 
 	@MockitoBean
 	private NoteRepository noteRepository;
-
-	@MockitoBean
-	private FeedbackRepository feedbackRepository;
 
 	@MockitoBean
 	private QuizRepository quizRepository;
 
 	@MockitoBean
 	private QuizSubmissionRepository submissionRepository;
-
-	@MockitoBean
-	private QuizAssessmentRepository assessmentRepository;
-
-	@MockitoBean
-	private DiagnosisRepository diagnosisRepository;
-
-	@MockitoBean
-	private RepairResultRepository repairResultRepository;
-
-	@MockitoBean
-	private LearnerMemoryRepository memoryRepository;
-
-	@MockitoBean
-	private LearnerMemoryCandidateRepository candidateRepository;
 
 	private MockMvc mockMvc;
 	private String accessToken;
@@ -118,49 +100,56 @@ class LearnerMemoryApiContractTest {
 	}
 
 	@Test
-	void memoryRequiresAuthentication() throws Exception {
-		mockMvc.perform(get("/api/users/me/memory")
-				.param("materialId", "10"))
-			.andExpect(status().isUnauthorized());
+	void createRequiresAuthenticationAndReturnsReceipt() throws Exception {
+		String body = """
+			{
+			  "category": "BUG",
+			  "message": "채팅 화면이 멈춥니다.",
+			  "pageUrl": "https://app.example/sessions/10",
+			  "clientVersion": "web-1.2.3"
+			}
+			""";
+
+		mockMvc.perform(post("/api/feedback")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(body))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code")
+				.value("AUTHENTICATION_REQUIRED"));
+
+		when(feedbackService.create(eq(1L), any()))
+			.thenReturn(new FeedbackResponse(100L, NOW));
+
+		mockMvc.perform(post("/api/feedback")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(body))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.feedbackId").value(100))
+			.andExpect(jsonPath("$.data.createdAt")
+				.value("2026-08-02T00:00:00Z"));
 	}
 
 	@Test
-	void returnsPublicSummaryAndOmitsInternalFields() throws Exception {
-		when(memoryService.get(1L, 10L)).thenReturn(
-			new LearnerMemoryResponse(
-				10L,
-				List.of("강점"),
-				List.of("약점"),
-				List.of("예시 선호"),
-				List.of("MCQ"),
-				"digest",
-				Instant.parse("2026-07-26T10:00:00Z")
-			)
-		);
+	void createRejectsUnknownCategoryAndOversizedMessage() throws Exception {
+		mockMvc.perform(post("/api/feedback")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"category\":\"OTHER\",\"message\":\"내용\"}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("MALFORMED_REQUEST"));
 
-		mockMvc.perform(get("/api/users/me/memory")
-				.header(
-					HttpHeaders.AUTHORIZATION,
-					"Bearer " + accessToken
-				)
-				.param("materialId", "10"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.materialId").value(10))
-			.andExpect(jsonPath("$.data.strengths[0]").value("강점"))
-			.andExpect(content().string(not(
-				containsString("misconceptions")
-			)))
-			.andExpect(content().string(not(
-				containsString("targetDifficulty")
-			)))
-			.andExpect(content().string(not(
-				containsString("nextCoachingGoals")
-			)))
-			.andExpect(content().string(not(
-				containsString("confidence")
-			)))
-			.andExpect(content().string(not(
-				containsString("evidenceRefs")
-			)));
+		String oversized = "a".repeat(2001);
+		mockMvc.perform(post("/api/feedback")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"category\":\"GENERAL\",\"message\":\""
+					+ oversized + "\"}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+	}
+
+	private String bearer() {
+		return "Bearer " + accessToken;
 	}
 }
