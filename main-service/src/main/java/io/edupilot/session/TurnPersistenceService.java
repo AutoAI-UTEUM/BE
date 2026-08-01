@@ -1,6 +1,7 @@
 package io.edupilot.session;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,6 +28,7 @@ import io.edupilot.user.UserRepository;
 public class TurnPersistenceService {
 
 	private final LearningSessionRepository sessionRepository;
+	private final SessionPageRecordRepository pageRecordRepository;
 	private final ChatMessageRepository messageRepository;
 	private final QaThreadRepository qaThreadRepository;
 	private final QaMessageRepository qaMessageRepository;
@@ -36,9 +38,11 @@ public class TurnPersistenceService {
 	private final QuizService quizService;
 	private final DiagnosisService diagnosisService;
 	private final UiActionResolver uiActionResolver;
+	private final Clock clock;
 
 	public TurnPersistenceService(
 		LearningSessionRepository sessionRepository,
+		SessionPageRecordRepository pageRecordRepository,
 		ChatMessageRepository messageRepository,
 		QaThreadRepository qaThreadRepository,
 		QaMessageRepository qaMessageRepository,
@@ -47,9 +51,11 @@ public class TurnPersistenceService {
 		LearningMaterialRepository materialRepository,
 		QuizService quizService,
 		DiagnosisService diagnosisService,
-		UiActionResolver uiActionResolver
+		UiActionResolver uiActionResolver,
+		Clock clock
 	) {
 		this.sessionRepository = sessionRepository;
+		this.pageRecordRepository = pageRecordRepository;
 		this.messageRepository = messageRepository;
 		this.qaThreadRepository = qaThreadRepository;
 		this.qaMessageRepository = qaMessageRepository;
@@ -59,6 +65,7 @@ public class TurnPersistenceService {
 		this.quizService = quizService;
 		this.diagnosisService = diagnosisService;
 		this.uiActionResolver = uiActionResolver;
+		this.clock = clock;
 	}
 
 	@Transactional
@@ -148,6 +155,14 @@ public class TurnPersistenceService {
 				uiActions,
 				pageStatusChanged
 			);
+			if (eventType == TurnEventType.EXPLAIN_CURRENT_PAGE
+				&& nextPageStatus == PageStatus.EXPLAINED) {
+				pageRecordRepository.upsertExplainedPage(
+					sessionId,
+					session.getCurrentPage(),
+					clock.instant()
+				);
+			}
 		}
 
 		saveMemoryCandidates(
