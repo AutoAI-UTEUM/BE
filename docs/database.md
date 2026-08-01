@@ -138,6 +138,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V11__learning_notes.sql`은 자료 귀속 학습 노트와 nullable 세션·페이지·채팅 메시지 참조, 사용자·자료 조회 인덱스를 추가합니다.
 - `V12__feedbacks.sql`은 인증 사용자 귀속 피드백, category CHECK, 작성자 인덱스를 추가합니다.
 - `V13__classroom_core.sql`은 강의실, 승인 멤버, 참여 요청과 초대 코드·상태·기간 제약을 추가합니다.
+- `V14__classroom_weeks_materials.sql`은 강의실 주차와 주차별 자료 연결, 공개 시각·중복 연결 제약을 추가합니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.
