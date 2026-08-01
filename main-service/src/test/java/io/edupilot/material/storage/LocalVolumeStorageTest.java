@@ -43,4 +43,23 @@ class LocalVolumeStorageTest {
 		assertThatThrownBy(() -> storage.load("materials/not-a-uuid.pdf"))
 			.isInstanceOf(StorageException.class);
 	}
+
+	@Test
+	void storesLoadsAndDeletesAvatarInDedicatedDirectory() throws Exception {
+		LocalVolumeStorage storage = new LocalVolumeStorage(
+			new StorageProperties(tempDirectory)
+		);
+
+		String storageKey = storage.storeAvatar(
+			new ByteArrayInputStream("avatar".getBytes(StandardCharsets.US_ASCII)),
+			"webp"
+		);
+
+		assertThat(storageKey).matches("avatars/[0-9a-f-]{36}\\.webp");
+		assertThat(storage.load(storageKey).getContentAsByteArray())
+			.isEqualTo("avatar".getBytes(StandardCharsets.US_ASCII));
+		storage.delete(storageKey);
+		assertThatThrownBy(() -> storage.load(storageKey))
+			.isInstanceOf(StorageException.class);
+	}
 }

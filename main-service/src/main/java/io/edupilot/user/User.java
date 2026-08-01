@@ -131,8 +131,25 @@ public class User {
 	public void withdraw() {
 		this.email = "deleted_" + id;
 		this.name = "탈퇴 사용자";
+		this.affiliation = null;
+		this.avatarKey = null;
+		this.learningEmailOptIn = false;
+		this.termsVersion = null;
+		this.privacyVersion = null;
+		this.consentedAt = null;
 		this.passwordHash = "!withdrawn:" + id;
 		this.status = UserStatus.DELETED;
+	}
+
+	public void updateProfile(String name, String affiliation) {
+		if (name != null) {
+			this.name = name;
+		}
+		this.affiliation = affiliation;
+	}
+
+	public void replaceAvatar(String avatarKey) {
+		this.avatarKey = avatarKey;
 	}
 
 	public Long getId() {
