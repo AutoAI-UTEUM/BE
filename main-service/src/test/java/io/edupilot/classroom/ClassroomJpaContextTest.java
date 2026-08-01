@@ -1,16 +1,33 @@
 package io.edupilot.classroom;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.any;
 
+import java.io.InputStream;
 import java.time.LocalDate;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.mock.web.MockMultipartFile;
 
 import io.edupilot.classroom.dto.CreateClassroomRequest;
 import io.edupilot.classroom.dto.CreateJoinRequest;
+import io.edupilot.classroom.dto.CreateClassroomWeekRequest;
+import io.edupilot.global.error.BusinessException;
+import io.edupilot.global.error.ErrorCode;
+import io.edupilot.material.LearningMaterial;
+import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialAccessService;
+import io.edupilot.material.MaterialService;
+import io.edupilot.material.storage.FileStorage;
+import io.edupilot.session.SessionPageRecordRepository;
+import io.edupilot.session.SessionService;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
@@ -42,6 +59,20 @@ class ClassroomJpaContextTest {
 	private UserRepository userRepository;
 	@Autowired
 	private ClassroomService classroomService;
+	@Autowired
+	private ClassroomWeekService weekService;
+	@Autowired
+	private LearningMaterialRepository materialRepository;
+	@Autowired
+	private MaterialAccessService materialAccessService;
+	@Autowired
+	private MaterialService materialService;
+	@Autowired
+	private SessionService sessionService;
+	@MockitoBean
+	private SessionPageRecordRepository pageRecordRepository;
+	@MockitoBean
+	private FileStorage fileStorage;
 
 	@Test
 	void persistsJoinApprovalAndQueriesOwnedAndMemberScopes() {
@@ -75,6 +106,33 @@ class ClassroomJpaContextTest {
 			classroom.classroomId(),
 			request.requestId()
 		);
+		weekService.create(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.classroomId(),
+			new CreateClassroomWeekRequest(1, "Week 1", null)
+		);
+		LearningMaterial material = LearningMaterial.create(
+			instructor,
+			"Released material",
+			"materials/released.pdf"
+		);
+		material.markReady(96);
+		material = materialRepository.saveAndFlush(material);
+		weekService.link(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.classroomId(),
+			1,
+			material.getId()
+		);
+		assertThat(materialAccessService.requireAccessible(
+			learner.getId(), material.getId()
+		).getId()).isEqualTo(material.getId());
+		var session = sessionService.create(learner.getId(), material.getId());
+		when(pageRecordRepository.countDistinctByUserIdAndMaterialId(
+			learner.getId(), material.getId()
+		)).thenReturn(3L);
 
 		assertThat(memberRepository.existsByClassroom_IdAndUser_Id(
 			classroom.classroomId(),
@@ -99,8 +157,52 @@ class ClassroomJpaContextTest {
 			20
 		).items()).singleElement()
 			.satisfies(item -> {
-				assertThat(item.progressRate()).isZero();
+				assertThat(item.progressRate()).isEqualTo(3);
+				assertThat(item.lastStudied().sessionId()).isEqualTo(session.sessionId());
 				assertThat(item.pendingRequestCount()).isNull();
 			});
+		assertThat(weekService.list(
+			learner.getId(), UserRole.LEARNER, classroom.classroomId()
+		).items()).singleElement()
+			.satisfies(week -> assertThat(week.materials()).hasSize(1));
+		assertThat(materialService.list(learner.getId(), 0, 20).items()).isEmpty();
+
+		weekService.unlink(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.classroomId(),
+			1,
+			material.getId()
+		);
+		Long materialId = material.getId();
+		assertThatThrownBy(() -> materialAccessService.requireAccessible(
+			learner.getId(), materialId
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode()).isEqualTo(ErrorCode.MATERIAL_NOT_FOUND)
+		);
+		assertThat(sessionService.detail(learner.getId(), session.sessionId()).sessionId())
+			.isEqualTo(session.sessionId());
+
+		long materialCount = materialRepository.count();
+		when(fileStorage.store(any(InputStream.class)))
+			.thenReturn("materials/rollback.pdf");
+		MockMultipartFile upload = new MockMultipartFile(
+			"file",
+			"rollback.pdf",
+			"application/pdf",
+			"%PDF-rollback".getBytes()
+		);
+		assertThatThrownBy(() -> materialService.upload(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			upload,
+			"Rollback material",
+			classroom.classroomId(),
+			99
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode()).isEqualTo(ErrorCode.WEEK_NOT_FOUND)
+		);
+		assertThat(materialRepository.count()).isEqualTo(materialCount);
+		verify(fileStorage).delete("materials/rollback.pdf");
 	}
 }

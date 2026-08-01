@@ -35,6 +35,7 @@ import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.memory.LearnerMemoryPromotionService;
 import io.edupilot.memory.MemoryWrite;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.session.dto.TurnRequest;
 import io.edupilot.session.dto.TurnResponse;
 import io.edupilot.session.dto.TurnStateResponse;
@@ -70,6 +71,21 @@ class SessionTurnServiceTest {
 	private SessionStreamConnection streamConnection;
 	@Mock
 	private UserRepository userRepository;
+	@Mock
+	private MaterialAccessService materialAccessService;
+
+	@Test
+	void revokedClassroomMaterialAccessBlocksTurnBeforeClaim() {
+		org.mockito.Mockito.doThrow(
+			new BusinessException(ErrorCode.MATERIAL_NOT_FOUND)
+		).when(materialAccessService).assertSessionAccessible(1L, 100L);
+
+		assertThatThrownBy(() -> service().execute(1L, 100L, userQuestion()))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MATERIAL_NOT_FOUND)
+			);
+		verify(claimService, never()).claim(any(), any(), anyString());
+	}
 
 	@Test
 	void retryableFailureUsesNewTurnIdAndAlwaysReleases() throws Exception {
@@ -482,6 +498,7 @@ class SessionTurnServiceTest {
 			streamService,
 			aiClientProperties,
 			userRepository,
+			materialAccessService,
 			nanoTime
 		);
 	}

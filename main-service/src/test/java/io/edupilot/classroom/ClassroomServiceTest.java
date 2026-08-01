@@ -29,6 +29,8 @@ import io.edupilot.classroom.dto.CreateJoinRequest;
 import io.edupilot.classroom.dto.UpdateClassroomRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.session.LearningProgressService;
+import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
@@ -45,6 +47,14 @@ class ClassroomServiceTest {
 	@Mock
 	private ClassroomJoinRequestRepository joinRequestRepository;
 	@Mock
+	private ClassroomWeekRepository weekRepository;
+	@Mock
+	private ClassroomWeekMaterialRepository weekMaterialRepository;
+	@Mock
+	private LearningProgressService progressService;
+	@Mock
+	private LearningSessionRepository sessionRepository;
+	@Mock
 	private UserRepository userRepository;
 	@Mock
 	private ClassroomInviteCodeGenerator inviteCodeGenerator;
@@ -60,6 +70,10 @@ class ClassroomServiceTest {
 			classroomRepository,
 			memberRepository,
 			joinRequestRepository,
+			weekRepository,
+			weekMaterialRepository,
+			progressService,
+			sessionRepository,
 			userRepository,
 			inviteCodeGenerator,
 			Clock.fixed(NOW, ZoneOffset.UTC)
@@ -190,6 +204,19 @@ class ClassroomServiceTest {
 		assertError(
 			() -> service.update(1L, UserRole.INSTRUCTOR, 30L, empty),
 			ErrorCode.VALIDATION_FAILED
+		);
+	}
+
+	@Test
+	void endDateCannotShrinkBelowExistingMaximumWeek() {
+		when(classroomRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(classroom));
+		when(weekRepository.findMaximumWeekNumber(30L)).thenReturn(3);
+		UpdateClassroomRequest request = new UpdateClassroomRequest();
+		request.setEndDate(LocalDate.of(2026, 9, 10));
+
+		assertError(
+			() -> service.update(1L, UserRole.INSTRUCTOR, 30L, request),
+			ErrorCode.CLASSROOM_WEEK_RANGE_CONFLICT
 		);
 	}
 

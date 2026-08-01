@@ -6,7 +6,11 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,6 +19,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.classroom.ClassroomMemberRepository;
+import io.edupilot.classroom.ClassroomRepository;
+import io.edupilot.classroom.ClassroomWeekMaterialRepository;
+import io.edupilot.classroom.Classroom;
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.LearningMaterialRepository;
 
@@ -27,6 +35,12 @@ class LearningProgressServiceTest {
 	private LearningMaterialRepository materialRepository;
 	@Mock
 	private SessionPageRecordRepository pageRecordRepository;
+	@Mock
+	private ClassroomRepository classroomRepository;
+	@Mock
+	private ClassroomMemberRepository memberRepository;
+	@Mock
+	private ClassroomWeekMaterialRepository weekMaterialRepository;
 
 	@Test
 	void roundsThreeExplainedPagesOfNinetySixToThreePercent() {
@@ -106,11 +120,42 @@ class LearningProgressServiceTest {
 			.countDistinctByUserIdAndMaterialId(1L, 20L);
 	}
 
+	@Test
+	void calculatesClassroomRateAcrossDistinctReleasedReadyMaterials() {
+		Classroom classroom = org.mockito.Mockito.mock(Classroom.class);
+		LearningMaterial material = org.mockito.Mockito.mock(LearningMaterial.class);
+		when(classroom.getInstructorId()).thenReturn(9L);
+		when(classroomRepository.findWithInstructorById(30L))
+			.thenReturn(Optional.of(classroom));
+		when(memberRepository.existsByClassroom_IdAndUser_Id(30L, 1L))
+			.thenReturn(true);
+		when(weekMaterialRepository.findDistinctReleasedReadyMaterials(
+			30L,
+			Instant.parse("2026-08-02T00:00:00Z"),
+			io.edupilot.material.MaterialStatus.ACTIVE,
+			io.edupilot.material.MaterialProcessingStatus.READY
+		)).thenReturn(List.of(material));
+		when(material.getId()).thenReturn(20L);
+		when(material.getPageCount()).thenReturn(96);
+		when(pageRecordRepository.countDistinctByUserIdAndMaterialId(1L, 20L))
+			.thenReturn(3L);
+
+		assertThat(service().calculateClassroomProgressRate(1L, 30L))
+			.isEqualTo(3);
+	}
+
 	private LearningProgressService service() {
 		return new LearningProgressService(
 			sessionRepository,
 			materialRepository,
-			pageRecordRepository
+			pageRecordRepository,
+			classroomRepository,
+			memberRepository,
+			weekMaterialRepository,
+			Clock.fixed(
+				Instant.parse("2026-08-02T00:00:00Z"),
+				ZoneOffset.UTC
+			)
 		);
 	}
 }

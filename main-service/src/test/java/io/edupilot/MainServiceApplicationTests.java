@@ -252,6 +252,24 @@ class MainServiceApplicationTests {
 			.andExpect(jsonPath("$.paths['/api/classrooms/{id}'].delete").exists())
 			.andExpect(jsonPath("$.paths['/api/classroom-join-requests'].post").exists())
 			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks/{weekNumber}'].patch"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks/{weekNumber}'].delete"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}'].delete"
+			).exists())
+			.andExpect(jsonPath(
 				"$.components.schemas.CreateFeedbackRequest.required"
 			).value(org.hamcrest.Matchers.hasItems("category", "message")))
 			.andExpect(jsonPath(
@@ -282,6 +300,14 @@ class MainServiceApplicationTests {
 			.andExpect(jsonPath(
 				"$.paths['/api/materials'].post.requestBody.content"
 					+ "['multipart/form-data'].schema.properties.title"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/materials'].post.requestBody.content"
+					+ "['multipart/form-data'].schema.properties.classroomId"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/materials'].post.requestBody.content"
+					+ "['multipart/form-data'].schema.properties.weekNumber"
 			).exists())
 			.andExpect(jsonPath("$.paths['/api/materials'].get").exists())
 			.andExpect(jsonPath("$.paths['/api/materials/{materialId}'].get").exists())
