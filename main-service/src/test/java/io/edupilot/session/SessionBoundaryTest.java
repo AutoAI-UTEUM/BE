@@ -5,6 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -19,6 +23,7 @@ import io.edupilot.user.User;
 
 @ExtendWith(MockitoExtension.class)
 class SessionBoundaryTest {
+	private static final Instant NOW = Instant.parse("2026-08-02T10:00:00Z");
 
 	@Mock
 	private LearningSessionRepository sessionRepository;
@@ -42,8 +47,11 @@ class SessionBoundaryTest {
 					.isEqualTo(ErrorCode.MATERIAL_HAS_ACTIVE_SESSION)
 			);
 
-		new SessionWithdrawalHook(sessionRepository).onWithdraw(1L);
-		verify(sessionRepository).deleteAllByUserId(1L);
+		new SessionWithdrawalHook(
+			sessionRepository,
+			Clock.fixed(NOW, ZoneOffset.UTC)
+		).onWithdraw(1L);
+		verify(sessionRepository).deleteAllByUserId(1L, NOW);
 	}
 
 	@Test
