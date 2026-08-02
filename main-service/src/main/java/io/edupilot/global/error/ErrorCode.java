@@ -19,6 +19,36 @@ public enum ErrorCode {
 	TOKEN_INVALID("TOKEN_INVALID", HttpStatus.UNAUTHORIZED, "유효하지 않은 인증 토큰입니다."),
 	TOKEN_EXPIRED("TOKEN_EXPIRED", HttpStatus.UNAUTHORIZED, "인증 토큰이 만료되었습니다."),
 	ACCESS_DENIED("ACCESS_DENIED", HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
+	CLASSROOM_NOT_FOUND(
+		"CLASSROOM_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"강의실을 찾을 수 없습니다."
+	),
+	INVALID_INVITE_CODE(
+		"INVALID_INVITE_CODE",
+		HttpStatus.NOT_FOUND,
+		"유효하지 않은 초대 코드입니다."
+	),
+	ALREADY_CLASSROOM_MEMBER(
+		"ALREADY_CLASSROOM_MEMBER",
+		HttpStatus.CONFLICT,
+		"이미 강의실에 참여하고 있습니다."
+	),
+	JOIN_REQUEST_ALREADY_PENDING(
+		"JOIN_REQUEST_ALREADY_PENDING",
+		HttpStatus.CONFLICT,
+		"이미 대기 중인 참여 요청이 있습니다."
+	),
+	JOIN_REQUEST_ALREADY_PROCESSED(
+		"JOIN_REQUEST_ALREADY_PROCESSED",
+		HttpStatus.CONFLICT,
+		"이미 처리된 참여 요청입니다."
+	),
+	CLASSROOM_COMPLETED(
+		"CLASSROOM_COMPLETED",
+		HttpStatus.CONFLICT,
+		"완료된 강의실에서는 이 작업을 수행할 수 없습니다."
+	),
 	EMAIL_ALREADY_EXISTS(
 		"EMAIL_ALREADY_EXISTS",
 		HttpStatus.CONFLICT,

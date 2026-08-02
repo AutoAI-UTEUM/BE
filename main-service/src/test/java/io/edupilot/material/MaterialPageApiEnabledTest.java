@@ -33,6 +33,7 @@ import io.edupilot.user.UserRepository;
 
 @SpringBootTest(properties = "edupilot.material.page-text-api-enabled=true")
 @ActiveProfiles("test")
+@io.edupilot.Epic10ServiceMocks
 class MaterialPageApiEnabledTest {
 
 	@Autowired
