@@ -18,6 +18,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import io.edupilot.auth.AuthenticatedUser;
 import io.edupilot.global.response.ApiResponse;
+import io.edupilot.session.dto.ConversationStartResponse;
 import io.edupilot.session.dto.CreateSessionRequest;
 import io.edupilot.session.dto.MessageListResponse;
 import io.edupilot.session.dto.PageMoveRequest;
@@ -146,6 +147,18 @@ public class SessionController {
 		return ApiResponse.success(
 			sessionService.complete(authenticatedUser.userId(), sessionId)
 		);
+	}
+
+	@PostMapping("/{sessionId}/conversations")
+	@Operation(summary = "LLM 호출 없는 새 대화 시작")
+	public ApiResponse<ConversationStartResponse> startNewConversation(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long sessionId
+	) {
+		return ApiResponse.success(sessionService.startNewConversation(
+			authenticatedUser.userId(),
+			sessionId
+		));
 	}
 
 	@PostMapping("/{sessionId}/turns")

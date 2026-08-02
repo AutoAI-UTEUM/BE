@@ -38,6 +38,7 @@ import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.note.NoteRepository;
 import io.edupilot.quiz.QuizRepository;
 import io.edupilot.quiz.QuizSubmissionRepository;
+import io.edupilot.session.dto.ConversationStartResponse;
 import io.edupilot.session.dto.MessageListResponse;
 import io.edupilot.session.dto.MessageResponse;
 import io.edupilot.session.dto.PendingDiagnosisResponse;
@@ -290,6 +291,45 @@ class SessionApiContractTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer()))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+	}
+
+	@Test
+	void newConversationUsesAuthenticatedBodylessContractAndConflictError()
+		throws Exception {
+		when(sessionService.startNewConversation(1L, 100L)).thenReturn(
+			new ConversationStartResponse("conversation-1", NOW)
+		);
+
+		mockMvc.perform(post("/api/sessions/100/conversations")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.conversationId")
+				.value("conversation-1"))
+			.andExpect(jsonPath("$.data.startedAt")
+				.value(NOW.toString()));
+
+		mockMvc.perform(post("/api/sessions/100/conversations"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code")
+				.value("AUTHENTICATION_REQUIRED"));
+
+		when(sessionService.startNewConversation(1L, 100L))
+			.thenThrow(new BusinessException(ErrorCode.SESSION_STATE_CONFLICT));
+		mockMvc.perform(post("/api/sessions/100/conversations")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.error.code")
+				.value("SESSION_STATE_CONFLICT"));
+	}
+
+	@Test
+	void openApiDocumentsNewConversationEndpoint() throws Exception {
+		mockMvc.perform(get("/v3/api-docs"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath(
+				"$.paths['/api/sessions/{sessionId}/conversations']"
+					+ ".post.summary"
+			).value("LLM 호출 없는 새 대화 시작"));
 	}
 
 	private String bearer() {
