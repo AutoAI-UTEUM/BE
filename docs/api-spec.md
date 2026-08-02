@@ -525,6 +525,8 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 | `QUIZ_TYPE_SELECTED` | `{ "quizType": "MCQ" }` |
 | `DIAGNOSIS_ANSWER_SUBMITTED` | `{ "diagnosisId": 30, "answer": "..." }` |
 
+요청에서 생략된 선택 필드는 Spring이 기본값과 사용자 설정을 적용해 해석한 뒤, 이벤트별 내부 AI 계약에 정의된 필드만 포함하도록 payload를 정규화해 전달합니다.
+
 교정 후 추가 질문은 별도 이벤트 없이 `USER_QUESTION`을 재사용합니다. 직전 교정(repair)이 존재하면 Spring이 내부 턴 스냅샷의 `latestRepair`에 교정 답변 원문(또는 원문을 보존한 요약)을 포함해 전달하고, Orchestrator가 교정 후속 여부를 판단해 QaAgent를 선택합니다([에이전트 시스템 명세](agent-system-spec.md) §9.9 참고).
 
 `USER_QUESTION.payload.includeCurrentPage`는 boolean만 허용합니다. 생략하거나 `true`이면 현재·이전·다음 페이지 텍스트를 기존처럼 내부 context에 포함합니다. `false`이면 Spring은 `currentPageText`, `previousPageText`, `nextPageText` 세 필드의 값을 모두 null로 전달하되 context 12키 구조를 유지합니다. 이때 QaAgent는 일반 학습 지식으로 답변할 수 있지만 업로드 자료 내용을 추측하지 않고 학습과 무관한 요청에는 기존 한계 안내를 적용합니다. QA thread와 `latestRepair` 문맥은 플래그와 무관하게 승계합니다. 다른 eventType에 `includeCurrentPage`를 보내거나 boolean 외 값을 보내면 `VALIDATION_FAILED`입니다.
