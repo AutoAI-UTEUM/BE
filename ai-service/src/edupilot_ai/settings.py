@@ -91,6 +91,14 @@ class Settings(BaseSettings):
         default=120,
         validation_alias="EXTRACT_TIMEOUT_SECONDS",
     )
+    report_timeout_seconds: PositiveInt = Field(
+        default=180,
+        validation_alias="REPORT_TIMEOUT_SECONDS",
+    )
+    report_query_timeout_seconds: PositiveInt = Field(
+        default=60,
+        validation_alias="REPORT_QUERY_TIMEOUT_SECONDS",
+    )
     edupilot_upload_max_mb: int = Field(
         default=45,
         ge=1,
@@ -147,6 +155,14 @@ class Settings(BaseSettings):
     repair_reasoning_effort: ReasoningEffort = Field(
         default=ReasoningEffort.MEDIUM,
         validation_alias="REPAIR_REASONING_EFFORT",
+    )
+    report_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.HIGH,
+        validation_alias="REPORT_REASONING_EFFORT",
+    )
+    report_query_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.MEDIUM,
+        validation_alias="REPORT_QUERY_REASONING_EFFORT",
     )
 
     @property
@@ -206,6 +222,16 @@ class Settings(BaseSettings):
     def repair_llm_profile(self) -> AgentLlmProfile:
         """Build the focused misconception repair profile."""
         return self._profile(self.repair_reasoning_effort)
+
+    @property
+    def report_llm_profile(self) -> AgentLlmProfile:
+        """Build the high-reasoning report generation profile."""
+        return self._profile(self.report_reasoning_effort)
+
+    @property
+    def report_query_llm_profile(self) -> AgentLlmProfile:
+        """Build the medium-reasoning report query profile."""
+        return self._profile(self.report_query_reasoning_effort)
 
     @property
     def upload_max_bytes(self) -> int:

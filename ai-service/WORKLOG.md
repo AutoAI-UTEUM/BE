@@ -368,6 +368,57 @@ Closes #25
 
 ---
 
+# ReportAgent·ReportQuery 계약 (#121)
+
+기준 브랜치: `origin/develop` (`e221a1f`, 2026-08-02)
+
+## 구현 범위
+
+- `POST /internal/ai/reports/generate`, `POST /internal/ai/reports/query`의
+  strict Pydantic 요청·LLM 출력·응답 모델을 추가했습니다.
+- 생성 요청의 criterion/evidence 중복, eligibility 참조, source 집합 정합성을
+  입력 경계에서 검증합니다.
+- LLM 출력의 criterion/evidence/score/eligibility/반복 오개념 불변식을 요청
+  snapshot과 대조하는 순수 validator를 추가했습니다.
+- 구조적으로 유효하지만 계약 불변식을 위반한 출력은 사유 코드만 전달해 1회
+  재생성하고, 다시 실패하면 `AI_RESPONSE_INVALID`/`SCHEMA` 502로 종료합니다.
+- ReportAgent는 high/180초, ReportQuery는 medium/60초 전용 profile을 사용합니다.
+- 리포트 본문·질문·evidence fact는 로그에 남기지 않고 reportId,
+  generationId, criterion/evidence 개수와 검증 사유 코드만 기록합니다.
+- Spring DTO 대조용 JSON Schema를
+  `docs/contracts/report-agent.schema.json`에 생성했습니다.
+- 기존 grading/support 오류 helper 공통화는 선택 범위이며, 기존 동작 변경을
+  피하기 위해 reporting 지역 helper로 제한했습니다.
+
+## 검증 결과
+
+- `uv run pytest -q`: 141개 통과.
+- `uv run ruff check .`: 통과. 커밋 금지 미추적 `smoke_live.py`는 내용과
+  해시를 보존한 채 검사 동안에만 작업 경로 밖으로 이동했습니다.
+- `uv run mypy src tests`: 64개 소스 파일 검사 통과.
+- FakeLlm만 사용했고 실제 Grok/xAI 및 외부 네트워크 호출은 0회입니다.
+
+## 미결 5건 — Spring 계약 회신 대기
+
+1. `reportId`, `generationId`, `evidenceId`, criterion key의 형식과 최대 길이.
+2. `scope.periodStart/periodEnd`, evidence `occurredAt`의 날짜 형식과 기간 역전
+   검증 책임.
+3. `criterionEligibility`가 모든 요청 criterion을 정확히 한 번씩 포함해야
+   하는지와 criterion의 `allowedSourceTypes` 대조 책임.
+4. `previousReport`에 허용할 공개 요약 범위와 criterion 결과 외 필드
+   (`#121 §7-4`).
+5. `trend`는 Spring 결정값을 AI 요청에만 제공할지, 응답에도 반영할지
+   (`#121 §7-5`). 현재 AI 출력에는 포함하지 않습니다.
+
+## 남은 작업·이월
+
+- Spring #118 내부 DTO 승인과 contract fixture 대조 후 Draft를 해제합니다.
+- 최대 evidence 수·fact 길이·token budget은 #118 승인값에 맞춰 제한합니다.
+- 문체·과잉 일반화 방지 프롬프트 강화는 #124, 리포트 QA golden·보안 테스트는
+  #122 범위입니다.
+
+---
+
 # Issue #44 구조화 로깅 (2026-07-29 develop 정렬)
 
 기준 브랜치: `origin/develop` (`95e2a7e`)

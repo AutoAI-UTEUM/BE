@@ -17,6 +17,7 @@ from edupilot_ai.orchestration.dispatcher import ToolDispatcher
 from edupilot_ai.orchestration.orchestrator import Orchestrator
 from edupilot_ai.orchestration.policy import PolicyVerifier
 from edupilot_ai.orchestration.service import TurnService
+from edupilot_ai.reporting.service import ReportGenerationService, ReportQueryService
 from edupilot_ai.settings import Settings
 from edupilot_ai.support.service import QuizAssessmentService, QuizDiagnosisService
 
@@ -97,4 +98,26 @@ def get_quiz_diagnosis_service(
         llm=llm,
         profile=settings.diagnosis_llm_profile,
         timeout_seconds=settings.diagnosis_timeout_seconds,
+    )
+
+
+def get_report_generation_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    llm: Annotated[LlmBridge, Depends(get_llm_bridge)],
+) -> ReportGenerationService:
+    return ReportGenerationService(
+        llm=llm,
+        profile=settings.report_llm_profile,
+        timeout_seconds=settings.report_timeout_seconds,
+    )
+
+
+def get_report_query_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    llm: Annotated[LlmBridge, Depends(get_llm_bridge)],
+) -> ReportQueryService:
+    return ReportQueryService(
+        llm=llm,
+        profile=settings.report_query_llm_profile,
+        timeout_seconds=settings.report_query_timeout_seconds,
     )
