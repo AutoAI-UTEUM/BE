@@ -44,6 +44,7 @@ public class TurnClaimService {
 			userId,
 			requestId,
 			now,
+			now,
 			now.minus(SessionService.TURN_CLAIM_TTL)
 		);
 		if (claimed == 1) {
@@ -63,6 +64,6 @@ public class TurnClaimService {
 
 	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public void release(Long sessionId, String requestId) {
-		sessionRepository.releaseTurn(sessionId, requestId);
+		sessionRepository.releaseTurn(sessionId, requestId, clock.instant());
 	}
 }

@@ -38,8 +38,18 @@ class SessionPageRecordRepositoryTest {
 	void reExplanationKeepsOneRowAndRefreshesExplainedAt() {
 		Instant first = Instant.parse("2026-08-01T10:00:00Z");
 		Instant second = Instant.parse("2026-08-01T11:00:00Z");
+		Instant originalCreatedAt = Instant.parse("2026-07-01T09:00:00Z");
+		Instant originalUpdatedAt = Instant.parse("2026-07-01T10:00:00Z");
 
 		repository.upsertExplainedPage(100L, 3, first);
+		jdbcTemplate.update(
+			"""
+			UPDATE session_page_records
+			SET created_at = ?, updated_at = ?
+			""",
+			Timestamp.from(originalCreatedAt),
+			Timestamp.from(originalUpdatedAt)
+		);
 		repository.upsertExplainedPage(100L, 3, second);
 
 		assertThat(repository.countBySessionId(100L)).isEqualTo(1);
@@ -49,6 +59,18 @@ class SessionPageRecordRepositoryTest {
 		);
 		assertThat(explainedAt).isNotNull();
 		assertThat(explainedAt.toInstant()).isEqualTo(second);
+		Timestamp createdAt = jdbcTemplate.queryForObject(
+			"SELECT created_at FROM session_page_records",
+			Timestamp.class
+		);
+		Timestamp updatedAt = jdbcTemplate.queryForObject(
+			"SELECT updated_at FROM session_page_records",
+			Timestamp.class
+		);
+		assertThat(createdAt).isNotNull();
+		assertThat(createdAt.toInstant()).isEqualTo(originalCreatedAt);
+		assertThat(updatedAt).isNotNull();
+		assertThat(updatedAt.toInstant()).isEqualTo(second);
 	}
 
 	@Test
