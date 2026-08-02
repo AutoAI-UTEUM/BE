@@ -35,6 +35,7 @@ Spring이 계산한 사실·지표·데이터 충분성과 허용된 evidence sn
 ## 선행 조건
 
 - Main Service evidence snapshot 계약 Approved
+- 별도 시험 evidence는 학생별 최신 GRADED attempt만 포함하며 SUBMITTED·GRADING_FAILED는 집계에서 제외
 - criterion catalog와 data sufficiency policy version
 - 최대 evidence·token·timeout 예산
 

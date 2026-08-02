@@ -12,6 +12,7 @@ public record StudentExamListItemResponse(
 	Integer weekNumber,
 	ExamStatus status,
 	boolean allowRetake,
+	boolean submittable,
 	BigDecimal totalScore,
 	ExamSubmissionSummaryResponse latestSubmission,
 	Instant publishedAt,
@@ -19,11 +20,12 @@ public record StudentExamListItemResponse(
 ) {
 	public static StudentExamListItemResponse from(
 		Exam exam,
+		boolean submittable,
 		ExamSubmissionSummaryResponse latestSubmission
 	) {
 		return new StudentExamListItemResponse(
 			exam.getId(), exam.getTitle(), exam.getWeekNumber(), exam.getStatus(),
-			exam.isAllowRetake(), exam.getTotalScore(), latestSubmission,
+			exam.isAllowRetake(), submittable, exam.getTotalScore(), latestSubmission,
 			exam.getPublishedAt(), exam.getClosedAt()
 		);
 	}

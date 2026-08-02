@@ -332,6 +332,11 @@ class StudentExamJpaTest {
 			)
 		);
 		var failed = grade(first.submissionId());
+		assertThat(studentExamService.list(
+			learner.getId(), UserRole.LEARNER, classroom.getId(), 0, 20
+		).items()).singleElement().satisfies(item ->
+			assertThat(item.submittable()).isTrue()
+		);
 		var retry = studentExamService.submit(
 			learner.getId(), UserRole.LEARNER, exam.getId(),
 			new SubmitExamRequest(
@@ -345,6 +350,11 @@ class StudentExamJpaTest {
 		assertThat(studentExamService.detail(
 			learner.getId(), UserRole.LEARNER, exam.getId()
 		).submittable()).isFalse();
+		assertThat(studentExamService.list(
+			learner.getId(), UserRole.LEARNER, classroom.getId(), 0, 20
+		).items()).singleElement().satisfies(item ->
+			assertThat(item.submittable()).isFalse()
+		);
 	}
 
 	@Test

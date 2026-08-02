@@ -68,12 +68,16 @@ public class StudentExamService {
 			classroomId, VISIBLE_STATUSES, pageable
 		);
 		return new StudentExamListResponse(
-			exams.getContent().stream().map(exam -> StudentExamListItemResponse.from(
-				exam,
-				submissionRepository.findTopByExam_IdAndUser_IdOrderByAttemptNoDesc(
-					exam.getId(), userId
-				).map(ExamSubmissionSummaryResponse::from).orElse(null)
-			)).toList(),
+			exams.getContent().stream().map(exam -> {
+				ExamSubmission latest = submissionRepository
+					.findTopByExam_IdAndUser_IdOrderByAttemptNoDesc(exam.getId(), userId)
+					.orElse(null);
+				return StudentExamListItemResponse.from(
+					exam,
+					isSubmittable(exam, latest),
+					latest == null ? null : ExamSubmissionSummaryResponse.from(latest)
+				);
+			}).toList(),
 			exams.getNumber(), exams.getSize(), exams.getTotalElements(), exams.getTotalPages()
 		);
 	}
@@ -84,15 +88,10 @@ public class StudentExamService {
 		ExamSubmission latest = submissionRepository
 			.findTopByExam_IdAndUser_IdOrderByAttemptNoDesc(examId, userId)
 			.orElse(null);
-		boolean submittable = exam.getStatus() == ExamStatus.PUBLISHED
-			&& exam.getClassroomStatus() == ClassroomStatus.ACTIVE
-			&& (latest == null
-				|| latest.getStatus() == SubmissionStatus.GRADING_FAILED
-				|| latest.getStatus() == SubmissionStatus.GRADED && exam.isAllowRetake());
 		return StudentExamDetailResponse.from(
 			exam,
 			questionRepository.findByExam_IdOrderByQuestionNo(examId),
-			submittable,
+			isSubmittable(exam, latest),
 			latest == null ? null : ExamSubmissionSummaryResponse.from(latest)
 		);
 	}
@@ -121,6 +120,14 @@ public class StudentExamService {
 			}
 			return persistenceService.create(userId, role, examId, request);
 		}
+	}
+
+	private boolean isSubmittable(Exam exam, ExamSubmission latest) {
+		return exam.getStatus() == ExamStatus.PUBLISHED
+			&& exam.getClassroomStatus() == ClassroomStatus.ACTIVE
+			&& (latest == null
+				|| latest.getStatus() == SubmissionStatus.GRADING_FAILED
+				|| latest.getStatus() == SubmissionStatus.GRADED && exam.isAllowRetake());
 	}
 
 	@Transactional(readOnly = true)
