@@ -509,7 +509,8 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
   "requestId": "client-generated-id",
   "eventType": "USER_QUESTION",
   "payload": {
-    "message": "편차가 정확히 무슨 뜻이야?"
+    "message": "편차가 정확히 무슨 뜻이야?",
+    "includeCurrentPage": true
   }
 }
 ```
@@ -519,11 +520,13 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 | eventType | payload |
 | --- | --- |
 | `EXPLAIN_CURRENT_PAGE` | `{ "detailLevel": "NORMAL" }` |
-| `USER_QUESTION` | `{ "message": "..." }` |
+| `USER_QUESTION` | `{ "message": "...", "includeCurrentPage": true\|false }` — `includeCurrentPage` 선택, 생략 시 `true` |
 | `QUIZ_TYPE_SELECTED` | `{ "quizType": "MCQ" }` |
 | `DIAGNOSIS_ANSWER_SUBMITTED` | `{ "diagnosisId": 30, "answer": "..." }` |
 
 교정 후 추가 질문은 별도 이벤트 없이 `USER_QUESTION`을 재사용합니다. 직전 교정(repair)이 존재하면 Spring이 내부 턴 스냅샷의 `latestRepair`에 교정 답변 원문(또는 원문을 보존한 요약)을 포함해 전달하고, Orchestrator가 교정 후속 여부를 판단해 QaAgent를 선택합니다([에이전트 시스템 명세](agent-system-spec.md) §9.9 참고).
+
+`USER_QUESTION.payload.includeCurrentPage`는 boolean만 허용합니다. 생략하거나 `true`이면 현재·이전·다음 페이지 텍스트를 기존처럼 내부 context에 포함합니다. `false`이면 Spring은 `currentPageText`, `previousPageText`, `nextPageText` 세 필드의 값을 모두 null로 전달하되 context 12키 구조를 유지합니다. 이때 QaAgent는 일반 학습 지식으로 답변할 수 있지만 업로드 자료 내용을 추측하지 않고 학습과 무관한 요청에는 기존 한계 안내를 적용합니다. QA thread와 `latestRepair` 문맥은 플래그와 무관하게 승계합니다. 다른 eventType에 `includeCurrentPage`를 보내거나 boolean 외 값을 보내면 `VALIDATION_FAILED`입니다.
 
 동일 `requestId` 재전송 처리(확정): **`TURN_ALREADY_PROCESSED`(409)로 거부**합니다. 기존 결과를 재반환하는 replay는 제공하지 않으며, FE는 409 수신 시 세션 상세·메시지 재조회로 최신 상태를 복원합니다(DEC-024 복원 체계 재사용). 스트리밍 재연결 요구가 생기면 기존 결과 반환 방식으로 확장을 재검토합니다(이후 개선안).
 
@@ -712,7 +715,7 @@ Query:
 | SHORT | 공통 | `referenceAnswer`, `gradingCriteria: []` |
 | ESSAY | 공통 | `modelAnswer`, `rubric: [{ "criterion": "...", "weight": 0.5 }]` — **weight 합계 = 1.0 검증**(DEC-002 D4, 위반 시 생성 실패 처리) |
 
-- 내부 생성·저장 필드명은 [AI 연동 계약](ai-integration-contract.md) v0.4
+- 내부 생성·저장 필드명은 [AI 연동 계약](ai-integration-contract.md) v0.5
   §6.2를 따릅니다. Spring은 AI가 생성한 JSON을 공개/비공개로 분리 저장하고,
   외부 GET DTO에서만 `points/choices/choiceId`를
   `maxScore/options/optionId`로 변환합니다. 비공개 필드는 외부 DTO에 매핑하지
@@ -1227,7 +1230,8 @@ MVP에서는 공지를 물리 삭제하고 `data:null`을 반환합니다.
   "event": {
     "eventType": "USER_QUESTION",
     "payload": {
-      "message": "편차가 뭔지 모르겠어"
+      "message": "편차가 뭔지 모르겠어",
+      "includeCurrentPage": true
     }
   },
   "context": {
@@ -1249,7 +1253,9 @@ MVP에서는 공지를 물리 삭제하고 `data:null`을 반환합니다.
 }
 ```
 
-`learnerLevel`은 `learner_memories.target_difficulty`이며 데이터가 없으면 `null`입니다. `learnerConfidence`는 같은 사용자×자료의 최근 assessment 5개 통과 비율로 파생합니다. 비율이 0.4 미만이면 `LOW`, 0.4 이상 0.7 이하면 `MEDIUM`, 0.7 초과면 `HIGH`이며 평가가 없으면 `null`입니다. `conversationSummary`는 MVP에서 생성하지 않으며 내부 턴 스냅샷에 포함하지 않습니다(`ai-integration-contract.md` v0.4 §3.1).
+`learnerLevel`은 `learner_memories.target_difficulty`이며 데이터가 없으면 `null`입니다. `learnerConfidence`는 같은 사용자×자료의 최근 assessment 5개 통과 비율로 파생합니다. 비율이 0.4 미만이면 `LOW`, 0.4 이상 0.7 이하면 `MEDIUM`, 0.7 초과면 `HIGH`이며 평가가 없으면 `null`입니다. `conversationSummary`는 MVP에서 생성하지 않으며 내부 턴 스냅샷에 포함하지 않습니다(`ai-integration-contract.md` v0.5 §3.1).
+
+`currentPageText`는 `string | null`이며 null은 `USER_QUESTION`의 `includeCurrentPage=false`일 때만 허용합니다. 이 경우 `previousPageText`와 `nextPageText`도 null이고 context 12키는 그대로 유지합니다. `EXPLAIN_CURRENT_PAGE`와 `QUIZ_TYPE_SELECTED`에서는 `currentPageText`가 필수이며 AI Service가 eventType과 context를 교차 검증합니다. `includeCurrentPage=false`인데 페이지 텍스트가 전달되면 AI Service는 전달된 context를 사용하고 Spring이 정합 책임을 집니다.
 
 `quizAssessments`는 현재 세션 기준 최근 5개의 평가 요약입니다(DEC-011 — DB는 전량 보존, 스냅샷은 세션 스코프 윈도우. 메모리 승격 판단용 user×material 교차 세션 최근 20개 조회는 별도 경로).
 
@@ -1294,7 +1300,7 @@ MVP에서는 공지를 물리 삭제하고 `data:null`을 반환합니다.
 
 세션 `status` 전이(`ACTIVE`/`COMPLETED`/`DELETED`)는 statePatch로 허용하지 않으며 Spring 외부 API(complete/delete)로만 변경합니다. 목록의 세부 값은 구현 시 domain-model과 함께 확정합니다.
 
-DTO 상세·타임아웃·재시도·`usage` 필드는 [docs/ai-integration-contract.md](ai-integration-contract.md) v0.4가 기준입니다(turn 요청/응답 구조, grade/quiz-assessment/diagnosis/extract DTO, 오류 category 5종 AUTH/TIMEOUT/SCHEMA/POLICY/INTERNAL과 Spring 매핑 포함).
+DTO 상세·타임아웃·재시도·`usage` 필드는 [docs/ai-integration-contract.md](ai-integration-contract.md) v0.5가 기준입니다(turn 요청/응답 구조, grade/quiz-assessment/diagnosis/extract DTO, 오류 category 5종 AUTH/TIMEOUT/SCHEMA/POLICY/INTERNAL과 Spring 매핑 포함).
 
 내부 API 필수 정책:
 
