@@ -44,6 +44,16 @@ public class SessionTurnService {
 		"SHORT",
 		"ESSAY"
 	);
+	private static final Map<TurnEventType, Set<String>> PAYLOAD_FIELDS = Map.of(
+		TurnEventType.EXPLAIN_CURRENT_PAGE,
+		Set.of("detailLevel"),
+		TurnEventType.USER_QUESTION,
+		Set.of("message", "includeCurrentPage"),
+		TurnEventType.QUIZ_TYPE_SELECTED,
+		Set.of("quizType"),
+		TurnEventType.DIAGNOSIS_ANSWER_SUBMITTED,
+		Set.of("diagnosisId", "answer")
+	);
 
 	private final TurnClaimService claimService;
 	private final TurnPreparationService preparationService;
@@ -446,8 +456,7 @@ public class SessionTurnService {
 		if (!payload.isObject()) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}
-		if (eventType != TurnEventType.USER_QUESTION
-			&& payload.has("includeCurrentPage")) {
+		if (!PAYLOAD_FIELDS.get(eventType).containsAll(payload.propertyNames())) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}
 		return switch (eventType) {
@@ -461,13 +470,13 @@ public class SessionTurnService {
 						ErrorCode.VALIDATION_FAILED
 					);
 				}
-					yield new ValidatedPayload(
-						"현재 페이지 설명 요청: " + detailLevel,
-						null,
-						true,
-						Map.of("detailLevel", detailLevel)
-					);
-				}
+				yield new ValidatedPayload(
+					"현재 페이지 설명 요청: " + detailLevel,
+					null,
+					true,
+					Map.of("detailLevel", detailLevel)
+				);
+			}
 			case USER_QUESTION -> {
 				String message = requiredText(payload, "message");
 				boolean includeCurrentPage = includeCurrentPage(payload);

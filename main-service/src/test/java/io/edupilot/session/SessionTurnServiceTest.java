@@ -305,7 +305,7 @@ class SessionTurnServiceTest {
 	}
 
 	@Test
-	void rejectsNonUserIncludeCurrentPageBeforeNormalization()
+	void rejectsExplainIncludeCurrentPageBeforeNormalization()
 		throws Exception {
 		assertError(
 			() -> service().execute(
@@ -451,9 +451,7 @@ class SessionTurnServiceTest {
 			new TurnRequest(
 				"explicit-request",
 				"EXPLAIN_CURRENT_PAGE",
-				objectMapper.readTree(
-					"{\"detailLevel\":\"DETAILED\",\"extra\":true}"
-				)
+				objectMapper.readTree("{\"detailLevel\":\"DETAILED\"}")
 			)
 		);
 
@@ -518,9 +516,7 @@ class SessionTurnServiceTest {
 			new TurnRequest(
 				"quiz-request",
 				"QUIZ_TYPE_SELECTED",
-				objectMapper.readTree(
-					"{\"quizType\":\" MCQ \",\"extra\":true}"
-				)
+				objectMapper.readTree("{\"quizType\":\" MCQ \"}")
 			)
 		);
 		service().execute(
@@ -530,7 +526,7 @@ class SessionTurnServiceTest {
 				"diagnosis-request",
 				"DIAGNOSIS_ANSWER_SUBMITTED",
 				objectMapper.readTree(
-					"{\"diagnosisId\":30,\"answer\":\" answer \",\"extra\":true}"
+					"{\"diagnosisId\":30,\"answer\":\" answer \"}"
 				)
 			)
 		);

@@ -525,7 +525,7 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 | `QUIZ_TYPE_SELECTED` | `{ "quizType": "MCQ" }` |
 | `DIAGNOSIS_ANSWER_SUBMITTED` | `{ "diagnosisId": 30, "answer": "..." }` |
 
-요청에서 생략된 선택 필드는 Spring이 기본값과 사용자 설정을 적용해 해석한 뒤, 이벤트별 내부 AI 계약에 정의된 필드만 포함하도록 payload를 정규화해 전달합니다.
+요청 payload는 위 표에 정의된 이벤트별 필드의 부분집합만 허용하며, 알 수 없는 필드가 있으면 `VALIDATION_FAILED`입니다. 생략된 선택 필드는 Spring이 기본값과 사용자 설정을 적용해 해석한 뒤 내부 AI 계약 형식으로 정규화해 전달합니다.
 
 교정 후 추가 질문은 별도 이벤트 없이 `USER_QUESTION`을 재사용합니다. 직전 교정(repair)이 존재하면 Spring이 내부 턴 스냅샷의 `latestRepair`에 교정 답변 원문(또는 원문을 보존한 요약)을 포함해 전달하고, Orchestrator가 교정 후속 여부를 판단해 QaAgent를 선택합니다([에이전트 시스템 명세](agent-system-spec.md) §9.9 참고).
 
