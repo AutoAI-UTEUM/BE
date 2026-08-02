@@ -106,7 +106,7 @@ class MemoryContext(ContractModel):
 
 
 class ContextSnapshot(ContractModel):
-    current_page_text: str
+    current_page_text: str | None
     previous_page_text: str | None
     next_page_text: str | None
     recent_messages: list[dict[str, Any]]
@@ -126,6 +126,17 @@ class TurnRequest(ContractModel):
     session: SessionSnapshot
     event: TurnEvent
     context: ContextSnapshot
+
+    @model_validator(mode="after")
+    def validate_page_context(self) -> TurnRequest:
+        if self.context.current_page_text is None and not (
+            self.event.event_type is EventType.USER_QUESTION
+            and self.event.payload.include_current_page is False
+        ):
+            raise ValueError(
+                "currentPageText may be null only for USER_QUESTION with includeCurrentPage=false"
+            )
+        return self
 
 
 class Adjustment(ContractModel):

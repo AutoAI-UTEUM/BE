@@ -123,7 +123,7 @@ class QaAgent:
         timeout_seconds: float,
     ) -> AgentResult:
         state_patch = self._thread_patch(mode, thread_ref)
-        if not context.current_page_text.strip():
+        if context.page_attached and not (context.current_page_text or "").strip():
             return AgentResult(
                 agent="QaAgent",
                 message=Message(
@@ -158,7 +158,7 @@ class QaAgent:
         timeout_seconds: float,
     ) -> AgentTextStream:
         state_patch = self._thread_patch(mode, thread_ref)
-        if not context.current_page_text.strip():
+        if context.page_attached and not (context.current_page_text or "").strip():
             items = _fixed_text_stream(
                 (
                     "제공된 강의 자료만으로는 이 질문에 답하기 어렵습니다. "
