@@ -140,6 +140,11 @@ ReportSnapshotBuilder는 다음을 수행합니다.
 9. versioned data sufficiency 적용
 10. FastAPI에 전달할 최소 evidence snapshot 구성
 
+별도 시험의 성적 대표 제출은 학생별 `MAX(attempt_no WHERE status=GRADED)`입니다.
+`SUBMITTED`와 `GRADING_FAILED`는 점수·성취도 집계에서 제외하고, 더 늦은 실패 시도가
+있어도 이전 GRADED 시도가 있으면 그 결과를 사용합니다. 예를 들어 1회차 GRADED
+80점 뒤 2회차 GRADING_FAILED이면 대표 성적은 1회차 80점입니다.
+
 데이터 충분성은 LLM이 판단하지 않습니다. policyVersion, availableSources,
 missingSources, criterionEligibility를 Spring이 계산합니다. 반복 패턴은 독립 근거
 2회 미만이면 확정 오개념으로 표현하지 않습니다.

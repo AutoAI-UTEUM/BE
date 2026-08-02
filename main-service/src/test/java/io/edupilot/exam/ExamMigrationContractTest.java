@@ -33,4 +33,23 @@ class ExamMigrationContractTest {
 			.contains("verdict IS NULL OR verdict IN ('CORRECT', 'PARTIAL', 'WRONG')")
 			.doesNotContain("ON DELETE CASCADE");
 	}
+
+	@Test
+	void v18AddsBoundedGradingLeaseContract() throws Exception {
+		String migration;
+		try (var input = getClass().getResourceAsStream(
+			"/db/migration/V18__exam_grading_lease.sql"
+		)) {
+			assertThat(input).isNotNull();
+			migration = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+		}
+
+		assertThat(migration)
+			.contains("ADD COLUMN grading_lease_token VARCHAR(36) NULL")
+			.contains("ADD COLUMN grading_lease_until DATETIME(6) NOT NULL")
+			.contains("DEFAULT '1970-01-01 00:00:00.000000'")
+			.contains("idx_exam_submissions_status_lease (status, grading_lease_until)")
+			.contains("idx_exam_submissions_status_submitted (status, submitted_at)")
+			.doesNotContain("CHECK");
+	}
 }

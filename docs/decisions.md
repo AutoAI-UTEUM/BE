@@ -396,7 +396,7 @@
 - 결정자: 프로젝트 담당자. grade optional 필드와 정수 `quizId`는 본 결정으로 확정하며 AI 담당자는 구현·검증 결과를 보고합니다.
 - 선택:
   - **D1 — 출제**: MVP는 강사 직접 출제만 지원합니다. AI 시험 초안 생성(#135)은 Phase C로 이월하며 `exam_questions.source` 같은 선행 확장 컬럼을 두지 않습니다.
-  - **D2 — 재응시**: `allow_retake=false`가 기본입니다. 허용 시 모든 시도를 `attempt_no` 순서로 보존하고, 목록·리포트의 대표값은 `MAX(attempt_no)`인 최신 제출로 파생합니다.
+  - **D2 — 재응시**: `allow_retake=false`가 기본입니다. 허용 시 모든 시도를 `attempt_no` 순서로 보존합니다. 운영 화면의 최신 제출은 상태와 무관한 `MAX(attempt_no)`, 성적·리포트 대표값은 DEC-032에 따라 `MAX(attempt_no WHERE status=GRADED)`로 파생합니다.
   - **D3 — 주관식 루브릭**: SHORT의 `referenceAnswer`와 ESSAY의 `modelAnswer`는 필수이고 rubric은 선택입니다. `null`과 빈 배열은 모두 미입력으로 취급해 grade 호출 시 `[{"criterion":"모범 답안 부합도","weight":1.0}]`을 주입합니다. DRAFT에는 불완전한 weight 합도 저장할 수 있고, 공개 시 입력된 rubric의 weight 합이 1.0인지 검증합니다.
   - **D4 — 정답·해설 공개**: 정책 확정 전에는 제출 후에도 정답, 해설, 모범 답안과 rubric을 학생 응답에 포함하지 않습니다. 공개 전환은 별도 결정으로 추가하며 기존 공개 문항 조회 경로에는 조건부 정답 직렬화를 넣지 않습니다.
   - **D5 — AI 채점**: SHORT/ESSAY는 기존 `/internal/ai/grade`를 재사용합니다. 시험은 `pageContext`와 `learnerMemoryDigest`를 생략하고, 동일 답안의 채점이 학습자 메모리에 따라 달라지지 않게 합니다. grade `quizId`에는 숫자 `examId`를 사용하며 wire 타입 변경은 후속 계약 버전에서 다룹니다. 응답이 있는 SHORT와 ESSAY를 유형별로 묶어 각 최대 1회 호출하고, 한 유형 호출이 실패해도 나머지 유형은 계속 호출해 성공 결과를 보존합니다.
@@ -407,10 +407,27 @@
   - 완료 강의실은 신규 학습 활동인 시험 생성·수정·공개·제출만 `CLASSROOM_COMPLETED`로 차단합니다. 기존 PUBLISHED 시험의 마감과 DRAFT 시험의 물리 삭제는 정리 작업으로 허용합니다.
   - 동일 제출의 네트워크 재시도는 같은 `requestId`를 사용해 기존 제출을 반환하고, 재응시는 반드시 새 `requestId`를 발급합니다.
   - 응답이 있는 SHORT/ESSAY 문항이 하나도 없으면 AI를 호출하지 않고 결정적 결과만으로 `GRADED`를 확정합니다. 실제 AI 호출이 하나 이상 발생하고 일반 채점 오류가 하나라도 생긴 경우에만 `GRADING_FAILED`로 저장합니다.
-  - AI가 `AI_REQUEST_INVALID`을 반환하면 Spring의 내부 계약 위반으로 간주합니다. 재시도하거나 `GRADING_FAILED`로 저장하지 않고, 임시 제출·답안이 있다면 보상 삭제한 뒤 기존 공통 `INTERNAL_SERVER_ERROR`(500)를 반환하고 민감정보 없는 오류 로그를 남깁니다.
+  - 최초 동기 채점 계약에서는 `AI_REQUEST_INVALID`을 보상 삭제 후 `INTERNAL_SERVER_ERROR`(500)로 반환하기로 했습니다. 비동기 채점 전환 이후의 처리는 DEC-032가 대체합니다.
 - 이유: 별도 시험은 통합 학습 퀴즈와 데이터를 분리하면서 기존 결정적 채점과 GraderAgent 검증을 재사용해야 합니다. 공개 전 편집 자유도, 채점 실패의 정확한 표현, 전 시도 보존을 보장해야 리포트의 최신·누적 추세가 왜곡되지 않습니다.
 - 대안과 trade-off: 정답·해설 즉시 공개는 학습 피드백이 빠르지만 재응시 시험의 정답 노출 문제가 있어 보류했습니다. AI 출제 초안은 편의성이 있으나 ReportAgent보다 우선하지 않아 Phase C로 이월합니다.
 - 후속 변경 문서: [API 명세](api-spec.md) §6.2, [데이터베이스](database.md), [도메인 모델](domain-model.md), [에러 코드](error-code.md), [화면-API 매핑](screen-api-map.md), [AI 연동 계약](ai-integration-contract.md) v0.6
+
+### DEC-032 — 시험 비동기 채점·복구와 성적 대표값
+
+- 상태: Accepted — 시험 도메인 구현 후 발견된 고아 `SUBMITTED` 복구와 응답 지연 문제를 보완합니다. 신규 구현 이슈 번호는 원격 이슈 등록 후 연결합니다.
+- 결정일: 2026-08-03
+- 결정자: 프로젝트 담당자
+- 선택:
+  - 응답 있는 SHORT/ESSAY가 있으면 제출을 `SUBMITTED`로 커밋하고 동일한 `ExamSubmissionResponse` 봉투를 HTTP 202로 즉시 반환합니다. MCQ/OX 전용 또는 주관식 전부 미응답은 기존대로 즉시 `GRADED`, HTTP 200입니다. FE는 HTTP 코드가 아니라 본문의 `status`로 분기합니다.
+  - `SUBMITTED` 응답은 총점·정규화 점수·채점 시각뿐 아니라 이미 계산된 MCQ/OX의 문항별 `score`, `verdict`, `feedback`도 null로 마스킹합니다. 본인 `answer`, `maxScore`, `questionId`는 유지하며 문항별 결과는 `GRADED | GRADING_FAILED`에서만 공개합니다. 이는 재응시 허용 시험에서 객관식 정오답 선공개로 생기는 정보 이득을 막기 위함입니다.
+  - 제출 커밋 뒤 bounded executor(core 2, max 4, queue 100, AbortPolicy)에 직접 전달합니다. worker는 5분 lease를 조건부 claim하고 `status=SUBMITTED AND grading_lease_token=:token`일 때만 terminal 결과를 반영해 늦은 worker 덮어쓰기를 막습니다.
+  - scheduler는 30초마다 최대 100건을 처리합니다. 제출 후 30분이 지난 `SUBMITTED`는 active lease보다 우선해 `GRADING_FAILED`로 종결하고, 30분 미만의 만료 lease만 재전달합니다. 일반 AI 오류와 잡힌 worker 예외는 즉시 실패 처리합니다.
+  - 비동기 worker가 `AI_REQUEST_INVALID`을 받으면 재시도하지 않고 `GRADING_FAILED`로 종결하며 ERROR 로그로 Spring-AI 계약 결함을 구분합니다. 원 POST에 500을 반환하거나 이미 커밋된 제출을 보상 삭제하지 않습니다. 이 항목은 DEC-031의 동기 처리 규칙을 대체합니다.
+  - 같은 `requestId`는 기존 상태를 반환합니다. 최신 제출이 `SUBMITTED`이면 새 requestId를 거부하고, `GRADING_FAILED`는 `allowRetake`와 무관하게 응시권을 소모하지 않아 새 requestId로 다음 attempt를 만들 수 있습니다.
+  - 운영 조회·polling·제출 제한의 최신 시도는 상태와 무관한 `MAX(attempt_no)`입니다. 성적·리포트 대표 제출은 `MAX(attempt_no WHERE status=GRADED)`이며 실패 시도는 제외합니다. 예를 들어 1회차 `GRADED` 80점 뒤 2회차 `GRADING_FAILED`이면 대표 성적은 1회차 80점입니다. GRADED 시도가 없는 학생은 점수·성취도 집계에서 제외합니다.
+- 이유: 외부 AI 호출을 요청 트랜잭션과 분리하면서 프로세스 종료·executor 포화·늦은 worker에도 제출을 회수할 수 있어야 합니다. 채점 실패는 시스템 장애이므로 이미 확정된 학생 성적을 지우거나 응시권을 영구 소모해서는 안 됩니다.
+- 대안과 trade-off: 동기 채점은 구현이 단순하지만 요청 지연과 고아 제출 복구가 어렵습니다. 재채점 API·시도 카운터는 운영 복잡도가 커 MVP에서 제외하고 lease와 절대 컷오프를 채택합니다.
+- 후속 변경 문서: [API 명세](api-spec.md) §6.2, [데이터베이스](database.md), [도메인 모델](domain-model.md), [에러 코드](error-code.md), [화면-API 매핑](screen-api-map.md), [리포트 설계](report-agent-design.md)
 
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 

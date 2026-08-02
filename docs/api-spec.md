@@ -870,9 +870,9 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 
 | Method | URL | 계약 |
 | --- | --- | --- |
-| GET | `/api/classrooms/{classroomId}/exams?page&size` | PUBLISHED·CLOSED 목록과 본인 최신 제출 요약을 반환합니다. |
+| GET | `/api/classrooms/{classroomId}/exams?page&size` | PUBLISHED·CLOSED 목록과 본인 최신 제출 요약·`submittable`을 반환합니다. GRADING_FAILED 최신 시도는 재제출 가능으로 계산합니다. |
 | GET | `/api/exams/{examId}` | 공개 문항과 `submittable`만 반환합니다. |
-| POST | `/api/exams/{examId}/submissions` | PUBLISHED 시험을 동기 채점해 제출 결과를 반환합니다. |
+| POST | `/api/exams/{examId}/submissions` | PUBLISHED 시험을 제출합니다. 주관식 AI 채점이 필요하면 `SUBMITTED`/202, 아니면 `GRADED`/200입니다. 두 응답은 같은 봉투와 `ExamSubmissionResponse` 스키마입니다. |
 | GET | `/api/exams/{examId}/submissions/me?attemptNo=` | 본인 결과를 조회하며 attemptNo 생략 시 최신 시도입니다. |
 
 학생 문항 DTO는 `questionId`, `questionText`, `maxScore`, `questionType`, `options`만 포함합니다. 정답·해설·모범 답안·rubric은 DEC-031 D4 확정 전까지 제출 후에도 반환하지 않습니다.
@@ -892,7 +892,8 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 - 답안 형식은 MCQ=`optionId`, OX=`"true"|"false"`, SHORT/ESSAY=자유 텍스트입니다.
 - 누락 questionId는 미응답으로 처리합니다. 알 수 없거나 중복된 questionId, 유형에 맞지 않는 답안은 `INVALID_EXAM_ANSWER`(400)입니다.
 - 같은 제출의 통신 재시도는 동일 requestId를 사용하며 기존 제출을 반환합니다. 새로운 재응시는 반드시 새 requestId를 사용합니다.
-- `allowRetake=false`에서 새 requestId로 다시 제출하면 `EXAM_ALREADY_SUBMITTED`(409), `allowRetake=true`이면 다음 attemptNo를 생성합니다.
+- 최신 제출이 `SUBMITTED`인 동안 새 requestId는 `EXAM_ALREADY_SUBMITTED`(409)입니다. 이 오류는 채점 중일 수 있으므로 기존 결과·polling 화면으로 유도합니다.
+- 최신 제출이 `GRADED`이면 `allowRetake=false`에서 새 requestId를 거부하고, `allowRetake=true`이면 다음 attemptNo를 생성합니다. `GRADING_FAILED`는 응시권을 소모하지 않아 allowRetake와 무관하게 새 requestId로 다음 attempt를 생성할 수 있습니다.
 - DRAFT 제출은 `EXAM_NOT_FOUND`(404)로 은닉하고 CLOSED 제출은 `EXAM_NOT_PUBLISHED`(409)로 거부합니다.
 
 제출·본인 결과 응답의 공통 형태:
@@ -920,15 +921,22 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 }
 ```
 
+- HTTP 202 응답 본문은 200과 동일한 API envelope 및 `ExamSubmissionResponse` 스키마입니다. FE는 HTTP 상태코드가 아니라 응답의 `status` 필드로 화면과 polling 여부를 분기합니다.
+- `SUBMITTED`에서는 `score`, `normalizedScore`, `gradedAt`과 모든 문항의 `score`, `verdict`, `feedback`을 null로 반환합니다. MCQ/OX 결과가 내부에서 이미 계산됐어도 terminal 상태 전에는 마스킹합니다. `answer`, `maxScore`, `questionId=q{questionNo}`는 유지합니다.
+- 학생 목록·상세·제출 결과에는 `answerChoiceId`, `answerValue`, `explanation`, `referenceAnswer`, `modelAnswer`, `rubric`, `privateAnswer`, `isCorrect` 키를 포함하지 않습니다.
+- POST가 `SUBMITTED`를 반환하면 기존 `GET /api/exams/{examId}/submissions/me`를 2초 간격으로 polling하고, 30초 뒤 5초 간격으로 전환합니다. `GRADED | GRADING_FAILED`에서 즉시 중단하며, 31분을 넘겨도 `SUBMITTED`이면 마지막 조회 후 중단하고 문의 안내를 표시합니다.
+
 #### 채점·실패 계약
 
 - MCQ/OX는 Spring이 결정적으로 채점합니다. 미응답은 `answer=null`, `score=0`, `verdict=WRONG`, `feedback=null`이며 AI 요청에 포함하지 않습니다.
 - 응답이 있는 SHORT가 하나 이상이면 SHORT grade를 1회, 응답이 있는 ESSAY가 하나 이상이면 ESSAY grade를 1회 호출합니다. 해당 문항이 없으면 그 유형을 호출하지 않습니다.
 - MCQ/OX만 있는 시험, SHORT/ESSAY가 모두 미응답인 시험과 전 문항 미응답 시험은 AI 호출 없이 `GRADED`로 완료합니다.
 - 한 AI 유형 호출이 일반 채점 오류로 실패해도 다른 유형 호출은 계속합니다. 성공한 AI·결정적 결과와 미응답 결과는 보존하며, 실제 AI 호출이 하나 이상 실패하면 제출을 `GRADING_FAILED`로 둡니다.
-- `GRADING_FAILED`에서는 제출 `score`, `normalizedScore`, `gradedAt`이 null입니다. 실패한 AI 문항의 `score`, `verdict`, `feedback`도 null이며 `answer`, `maxScore`는 유지합니다.
-- 내부 AI가 `AI_REQUEST_INVALID`을 반환하면 Spring 계약 결함입니다. 재시도·GRADING_FAILED 저장 없이 임시 제출을 보상 삭제하고 외부 `INTERNAL_SERVER_ERROR`(500)를 반환하며 traceId와 안전한 메타데이터만 오류 로그에 남깁니다.
+- `GRADING_FAILED`에서는 제출 `score`, `normalizedScore`, `gradedAt`이 null입니다. 실패한 AI 문항의 `score`, `verdict`, `feedback`도 null이며 성공한 결정적·AI 결과와 미응답 결과는 보존합니다.
+- 내부 AI가 `AI_REQUEST_INVALID`을 반환하면 Spring 계약 결함입니다. 비동기 worker는 재시도하지 않고 제출을 `GRADING_FAILED`로 종결하며 traceId와 안전한 메타데이터만 ERROR 로그에 남깁니다.
+- 채점 worker는 5분 lease를 사용하고 scheduler는 30초마다 최대 100건을 회수합니다. 제출 후 30분이 지나면 active lease보다 우선해 `GRADING_FAILED`로 종결하며, 그보다 최신인 만료 lease만 재전달합니다.
 - AI 응답 점수는 문항 범위·소수 자릿수·questionId·verdict를 Spring이 재검증합니다. 총점과 `ROUND(score/maxScore*100,2)` 정규화 점수는 Spring이 계산합니다. 시험 결과는 quiz-assessment·diagnosis 파이프라인을 호출하지 않습니다.
+- 운영용 최신 제출과 학생 결과 조회는 상태와 무관한 `MAX(attemptNo)`를 사용합니다. 성적·리포트 대표값은 `MAX(attemptNo WHERE status=GRADED)`이며, `GRADED 80점 → GRADING_FAILED` 순서라면 이전 80점 제출이 대표 성적입니다.
 
 ## 7. 학습 환경설정·학습자 메모리 API
 
@@ -1361,7 +1369,7 @@ MVP에서는 공지를 물리 삭제하고 `data:null`을 반환합니다.
 
 별도 시험 grade는 숫자 `examId`를 `quizId`로 사용합니다. `pageContext`와 `learnerMemoryDigest`는 생략·null을 허용하고 나머지 grade 요청 필드는 필수·non-null입니다. 응답이 있는 SHORT와 ESSAY는 각각 묶어 호출하며 한 유형이 실패해도 나머지 유형은 계속 호출합니다. 실제 호출의 `items`와 `studentAnswers`는 비어 있지 않아야 합니다. 상세 필드 강제력과 표준 오류 봉투는 `ai-integration-contract.md` v0.6 §6.2를 따릅니다.
 
-grade 호출의 `AI_REQUEST_INVALID`은 Spring 요청 계약 결함입니다. Spring은 재시도하지 않고 오류 로그를 남기며 외부 `INTERNAL_SERVER_ERROR`(500)를 반환합니다. 이 경우 제출을 `GRADING_FAILED`로 저장하지 않고 임시 데이터가 있다면 보상 삭제합니다.
+별도 시험의 비동기 grade 호출에서 `AI_REQUEST_INVALID`을 받으면 Spring 요청 계약 결함으로 ERROR 로그를 남기고 재시도 없이 해당 제출을 `GRADING_FAILED`로 종결합니다. 이미 커밋된 제출을 보상 삭제하거나 원 POST에 500을 반환하지 않습니다(DEC-032). 통합 학습 퀴즈의 동기 파이프라인 오류 변환은 기존 계약을 유지합니다.
 
 일반 턴 요청 최소 구조:
 

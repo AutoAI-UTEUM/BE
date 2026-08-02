@@ -23,11 +23,14 @@ public record ExamSubmissionResponse(
 		ExamSubmission submission,
 		List<ExamAnswer> answers
 	) {
+		boolean revealResult = submission.getStatus() != SubmissionStatus.SUBMITTED;
 		return new ExamSubmissionResponse(
 			submission.getId(), submission.getAttemptNo(), submission.getStatus(),
 			submission.getScore(), submission.getMaxScore(), submission.getNormalizedScore(),
 			submission.getSubmittedAt(), submission.getGradedAt(),
-			answers.stream().map(ExamAnswerResultResponse::from).toList()
+			answers.stream()
+				.map(answer -> ExamAnswerResultResponse.from(answer, revealResult))
+				.toList()
 		);
 	}
 }

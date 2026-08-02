@@ -1,5 +1,7 @@
 package io.edupilot.exam;
 
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -20,6 +22,7 @@ import io.edupilot.exam.dto.SubmitExamRequest;
 import io.edupilot.exam.dto.UpdateExamRequest;
 import io.edupilot.global.response.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -131,14 +134,29 @@ public class ExamController {
 
 	@PostMapping("/{examId}/submissions")
 	@Operation(summary = "시험 제출")
-	public ApiResponse<ExamSubmissionResponse> submit(
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(
+			responseCode = "200",
+			description = "동기 채점 완료",
+			useReturnTypeSchema = true
+		),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(
+			responseCode = "202",
+			description = "주관식 비동기 채점 접수",
+			useReturnTypeSchema = true
+		)
+	})
+	public ResponseEntity<ApiResponse<ExamSubmissionResponse>> submit(
 		@AuthenticationPrincipal AuthenticatedUser user,
 		@PathVariable Long examId,
 		@Valid @RequestBody SubmitExamRequest request
 	) {
-		return ApiResponse.success(studentExamService.submit(
+		ExamSubmissionResponse response = studentExamService.submit(
 			user.userId(), user.role(), examId, request
-		));
+		);
+		HttpStatus status = response.status() == SubmissionStatus.SUBMITTED
+			? HttpStatus.ACCEPTED : HttpStatus.OK;
+		return ResponseEntity.status(status).body(ApiResponse.success(response));
 	}
 
 	@GetMapping("/{examId}/submissions/me")

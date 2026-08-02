@@ -33,10 +33,10 @@
 | 캘린더 | 기간·강의실 필터 조회 | `GET /api/users/me/schedule?from&to&classroomId` | 주차 공개·공지 게시 일정을 시간순 표시 | 날짜 범위, 강의실 접근권 |
 | 시험 관리 | 시험 생성·목록·상세·수정 | `POST·GET /api/classrooms/{classroomId}/exams`, `GET·PATCH /api/exams/{examId}` | DRAFT 편집기와 전체 상태 목록 표시. rubric 편집기는 기본 접힘·미입력 상태 | 강사 권한, 완료 강의실, DRAFT 편집 상태 |
 | 시험 관리 | 공개·마감·DRAFT 삭제 | `POST /api/exams/{examId}/publish`, `POST .../close`, `DELETE /api/exams/{examId}` | 상태 배지와 응시 가능 여부 갱신 | `EXAM_NOT_EDITABLE`, `EXAM_NOT_PUBLISHED` |
-| 시험 결과 관리 | 학생별 최신 제출·특정 시도 조회 | `GET /api/exams/{examId}/submissions`, `GET .../submissions/{submissionId}` | 최신 attempt 대표값과 전체 attempt 수, 채점 상세 표시 | 시험 소유권, 페이지네이션 |
+| 시험 결과 관리 | 학생별 최신 제출·특정 시도 조회 | `GET /api/exams/{examId}/submissions`, `GET .../submissions/{submissionId}` | 운영 화면은 전체 상태의 최신 attempt를 표시. 성적·리포트 대표값은 최신 GRADED attempt | 시험 소유권, 페이지네이션 |
 | 시험 응시 | 공개·마감 시험 목록과 상세 조회 | `GET /api/classrooms/{classroomId}/exams`, `GET /api/exams/{examId}` | PUBLISHED는 응시 UI, CLOSED는 읽기 전용 결과 UI | DRAFT는 `EXAM_NOT_FOUND`로 은닉 |
-| 시험 응시 | 답안 제출·통신 재시도·재응시 | `POST /api/exams/{examId}/submissions` | 같은 제출 재시도는 같은 `requestId`로 기존 결과 복원. 재응시는 새 `requestId`로 다음 attempt 생성 | CLOSED, 재응시 불가, 답안 형식 오류 |
-| 시험 결과 | 내 최신 또는 지정 시도 조회 | `GET /api/exams/{examId}/submissions/me?attemptNo=` | 점수·판정·피드백 표시. 미채점 항목과 전체 점수는 nullable 처리 | 접근 권한, 시도 없음 |
+| 시험 응시 | 답안 제출·통신 재시도·재응시 | `POST /api/exams/{examId}/submissions` | 응답 `status`로 분기. 같은 제출 재시도는 같은 `requestId`, 재응시·GRADING_FAILED 재제출은 새 `requestId` | CLOSED, SUBMITTED 중복, 재응시 불가, 답안 형식 오류 |
+| 시험 결과 | 내 최신 또는 지정 시도 조회 | `GET /api/exams/{examId}/submissions/me?attemptNo=` | SUBMITTED는 2초 polling→30초 뒤 5초, terminal에서 중단. 31분 초과 시 마지막 조회 후 문의 안내 | 접근 권한, 시도 없음 |
 | 전역 | access 만료(401) 시 | `POST /api/auth/refresh` (credentials 포함) | 새 access로 원요청 재시도 | TOKEN_INVALID → 로그인 이동 |
 | 헤더/메뉴 | 로그아웃 버튼 | `POST /api/auth/logout` | 메모리 access 삭제 후 로그인 화면 | 없음(멱등) |
 | 계정 설정 | 탈퇴 버튼 → 비밀번호 확인 모달 | `DELETE /api/users/me` | 토큰 정리 후 로그인 화면 이동 | 비밀번호 불일치 (DEC-028) |

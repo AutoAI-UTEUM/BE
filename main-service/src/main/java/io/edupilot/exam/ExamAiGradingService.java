@@ -15,7 +15,6 @@ import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
-import io.edupilot.exam.dto.ExamSubmissionResponse;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 
@@ -36,7 +35,7 @@ public class ExamAiGradingService {
 		this.persistenceService = persistenceService;
 	}
 
-	public ExamSubmissionResponse grade(Long submissionId) {
+	public ExamAiGradingOutcome grade(Long submissionId) {
 		PreparedExamAiGrading prepared = persistenceService.prepareAiGrading(submissionId);
 		Map<String, ExamAiGradingOutcome.GradedItem> grades = new HashMap<>();
 		boolean failed = false;
@@ -59,18 +58,14 @@ public class ExamAiGradingService {
 		}
 
 		if (requestInvalid) {
-			persistenceService.deleteCompensation(submissionId);
 			log.atError()
 				.addKeyValue("submissionId", submissionId)
 				.addKeyValue("examId", prepared.examId())
 				.addKeyValue("failureCode", "AI_REQUEST_INVALID")
 				.log("Exam grading request violated the AI contract");
-			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR);
+			failed = true;
 		}
-		return persistenceService.applyAiGrading(
-			submissionId,
-			new ExamAiGradingOutcome(Map.copyOf(grades), failed)
-		);
+		return new ExamAiGradingOutcome(Map.copyOf(grades), failed);
 	}
 
 	private GradeRequest toRequest(
