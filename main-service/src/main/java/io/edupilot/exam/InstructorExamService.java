@@ -255,11 +255,18 @@ public class InstructorExamService {
 				request.points(),
 				new ExamPublicQuestion(
 					normalizedRequired(request.questionText(), 10_000),
-					request.options() == null ? List.of() : List.copyOf(request.options())
+					request.options() == null ? List.of() : request.options().stream()
+						.map(option -> new io.edupilot.quiz.QuizOption(
+							normalizedRequired(option.optionId(), 100),
+							normalizedRequired(option.text(), 1_000)
+						))
+						.toList()
 				),
 				new ExamPrivateAnswer(
-					privateCorrectAnswer(request),
+					normalizedOptional(request.answerChoiceId(), 100),
+					request.answerValue(),
 					normalizedOptional(request.explanation(), 10_000),
+					normalizedOptional(request.referenceAnswer(), 10_000),
 					normalizedOptional(request.modelAnswer(), 10_000),
 					request.rubric() == null ? List.of() : List.copyOf(request.rubric())
 				),
@@ -302,7 +309,7 @@ public class InstructorExamService {
 			var privateAnswer = question.getPrivateAnswer();
 			switch (question.getQuestionType()) {
 				case MCQ -> {
-					String answer = required(privateAnswer.correctAnswer());
+					String answer = required(privateAnswer.answerChoiceId());
 					if (question.getPublicQuestion().options() == null
 						|| question.getPublicQuestion().options().isEmpty()
 						|| question.getPublicQuestion().options().stream()
@@ -311,12 +318,11 @@ public class InstructorExamService {
 					}
 				}
 				case OX -> {
-					String answer = required(privateAnswer.correctAnswer());
-					if (!answer.equals("true") && !answer.equals("false")) {
+					if (privateAnswer.answerValue() == null) {
 						throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 					}
 				}
-				case SHORT -> required(privateAnswer.correctAnswer());
+				case SHORT -> required(privateAnswer.referenceAnswer());
 				case ESSAY -> required(privateAnswer.modelAnswer());
 			}
 			List<io.edupilot.quiz.RubricCriterion> rubric = privateAnswer.rubric();
@@ -383,12 +389,6 @@ public class InstructorExamService {
 		if (role != UserRole.INSTRUCTOR) {
 			throw new BusinessException(ErrorCode.ACCESS_DENIED);
 		}
-	}
-
-	private String privateCorrectAnswer(ExamQuestionRequest request) {
-		return request.questionType() == ExamQuestionType.SHORT
-			? normalizedOptional(request.referenceAnswer(), 10_000)
-			: normalizedOptional(request.correctAnswer(), 10_000);
 	}
 
 	private String required(String value) {

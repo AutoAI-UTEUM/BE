@@ -304,6 +304,33 @@ class MainServiceApplicationTests {
 				"$.paths['/api/quizzes/{quizId}/submit'].post"
 			).exists())
 			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/exams'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/exams'].get"
+			).exists())
+			.andExpect(jsonPath("$.paths['/api/exams/{examId}'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/exams/{examId}'].patch").exists())
+			.andExpect(jsonPath("$.paths['/api/exams/{examId}'].delete").exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/exams/{examId}/publish'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/exams/{examId}/close'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/exams/{examId}/submissions'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/exams/{examId}/submissions'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/exams/{examId}/submissions/{submissionId}'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/exams/{examId}/submissions/me'].get"
+			).exists())
+			.andExpect(jsonPath(
 				"$.paths['/api/users/me/memory'].get"
 			).exists())
 			.andExpect(jsonPath("$.paths['/api/users/me'].delete").exists())

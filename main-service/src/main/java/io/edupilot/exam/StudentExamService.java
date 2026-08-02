@@ -34,6 +34,7 @@ public class StudentExamService {
 	private final ExamSubmissionRepository submissionRepository;
 	private final ExamAnswerRepository answerRepository;
 	private final ExamSubmissionPersistenceService persistenceService;
+	private final ExamAiGradingService aiGradingService;
 
 	public StudentExamService(
 		ClassroomService classroomService,
@@ -41,7 +42,8 @@ public class StudentExamService {
 		ExamQuestionRepository questionRepository,
 		ExamSubmissionRepository submissionRepository,
 		ExamAnswerRepository answerRepository,
-		ExamSubmissionPersistenceService persistenceService
+		ExamSubmissionPersistenceService persistenceService,
+		ExamAiGradingService aiGradingService
 	) {
 		this.classroomService = classroomService;
 		this.examRepository = examRepository;
@@ -49,6 +51,7 @@ public class StudentExamService {
 		this.submissionRepository = submissionRepository;
 		this.answerRepository = answerRepository;
 		this.persistenceService = persistenceService;
+		this.aiGradingService = aiGradingService;
 	}
 
 	@Transactional(readOnly = true)
@@ -109,14 +112,25 @@ public class StudentExamService {
 			return existing;
 		}
 		try {
-			return persistenceService.create(userId, role, examId, request);
+			ExamSubmissionResponse created = persistenceService.create(
+				userId, role, examId, request
+			);
+			return gradeIfNeeded(created);
 		} catch (DataIntegrityViolationException exception) {
 			ExamSubmissionResponse concurrent = findByRequest(examId, userId, requestId);
 			if (concurrent != null) {
 				return concurrent;
 			}
-			throw exception;
+			return gradeIfNeeded(
+				persistenceService.create(userId, role, examId, request)
+			);
 		}
+	}
+
+	private ExamSubmissionResponse gradeIfNeeded(ExamSubmissionResponse submission) {
+		return submission.status() == SubmissionStatus.SUBMITTED
+			? aiGradingService.grade(submission.submissionId())
+			: submission;
 	}
 
 	@Transactional(readOnly = true)

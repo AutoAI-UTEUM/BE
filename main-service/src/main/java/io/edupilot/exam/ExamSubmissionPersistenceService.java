@@ -12,12 +12,14 @@ import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import io.edupilot.classroom.ClassroomService;
 import io.edupilot.classroom.ClassroomStatus;
 import io.edupilot.exam.dto.ExamAnswerRequest;
 import io.edupilot.exam.dto.ExamSubmissionResponse;
 import io.edupilot.exam.dto.SubmitExamRequest;
+import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.quiz.DeterministicAnswerGrader;
@@ -28,6 +30,10 @@ import io.edupilot.user.UserRole;
 
 @Service
 public class ExamSubmissionPersistenceService {
+
+	private static final List<GradeRequest.Rubric> DEFAULT_RUBRIC = List.of(
+		new GradeRequest.Rubric("모범 답안 부합도", BigDecimal.ONE)
+	);
 
 	private final ClassroomService classroomService;
 	private final ExamRepository examRepository;
@@ -122,7 +128,7 @@ public class ExamSubmissionPersistenceService {
 			} else if (question.getQuestionType() == ExamQuestionType.MCQ
 				|| question.getQuestionType() == ExamQuestionType.OX) {
 				var grade = deterministicAnswerGrader.grade(
-					question.getPrivateAnswer().correctAnswer(),
+					deterministicExpectedAnswer(question),
 					submittedAnswer,
 					question.getPoints()
 				);
@@ -144,6 +150,94 @@ public class ExamSubmissionPersistenceService {
 			submissionRepository.flush();
 		}
 		return ExamSubmissionResponse.from(submission, answers);
+	}
+
+	@Transactional(readOnly = true)
+	public PreparedExamAiGrading prepareAiGrading(Long submissionId) {
+		ExamSubmission submission = submissionRepository.findById(submissionId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.EXAM_NOT_FOUND));
+		List<ExamAnswer> answers = answerRepository
+			.findBySubmission_IdOrderByQuestion_Id(submissionId);
+		List<PreparedExamAiGrading.Group> groups = new ArrayList<>();
+		for (ExamQuestionType type : List.of(
+			ExamQuestionType.SHORT, ExamQuestionType.ESSAY
+		)) {
+			List<PreparedExamAiGrading.Item> items = answers.stream()
+				.filter(answer -> answer.getQuestionType() == type)
+				.filter(answer -> answer.getAnswer() != null && !answer.getAnswer().isBlank())
+				.map(answer -> new PreparedExamAiGrading.Item(
+					"q" + answer.getQuestionNo(),
+					answer.getQuestionText(),
+					type == ExamQuestionType.SHORT
+						? answer.getPrivateAnswer().referenceAnswer()
+						: answer.getPrivateAnswer().modelAnswer(),
+					gradeRubric(answer),
+					answer.getMaxScore(),
+					answer.getAnswer()
+				))
+				.toList();
+			if (!items.isEmpty()) {
+				groups.add(new PreparedExamAiGrading.Group(type, items));
+			}
+		}
+		return new PreparedExamAiGrading(
+			submissionId, submission.getExamId(), List.copyOf(groups)
+		);
+	}
+
+	@Transactional
+	public ExamSubmissionResponse applyAiGrading(
+		Long submissionId,
+		ExamAiGradingOutcome outcome
+	) {
+		ExamSubmission submission = submissionRepository.findById(submissionId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.EXAM_NOT_FOUND));
+		List<ExamAnswer> answers = answerRepository
+			.findBySubmission_IdOrderByQuestion_Id(submissionId);
+		for (ExamAnswer answer : answers) {
+			ExamAiGradingOutcome.GradedItem grade = outcome.grades().get(
+				"q" + answer.getQuestionNo()
+			);
+			if (grade != null) {
+				answer.recordGrade(grade.score(), grade.verdict(), grade.feedback());
+			}
+		}
+		if (outcome.failed()) {
+			submission.failGrading();
+		} else {
+			if (answers.stream().anyMatch(answer -> answer.getScore() == null)) {
+				throw new BusinessException(ErrorCode.GRADING_RESULT_INVALID);
+			}
+			BigDecimal score = answers.stream()
+				.map(ExamAnswer::getScore)
+				.reduce(BigDecimal.ZERO, BigDecimal::add);
+			submission.complete(
+				score, normalized(score, submission.getMaxScore()), clock.instant()
+			);
+		}
+		answerRepository.flush();
+		submissionRepository.flush();
+		return ExamSubmissionResponse.from(submission, answers);
+	}
+
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void deleteCompensation(Long submissionId) {
+		answerRepository.deleteBySubmission_Id(submissionId);
+		answerRepository.flush();
+		submissionRepository.deleteById(submissionId);
+		submissionRepository.flush();
+	}
+
+	private List<GradeRequest.Rubric> gradeRubric(ExamAnswer answer) {
+		var rubric = answer.getPrivateAnswer().rubric();
+		if (rubric == null || rubric.isEmpty()) {
+			return DEFAULT_RUBRIC;
+		}
+		return rubric.stream()
+			.map(criterion -> new GradeRequest.Rubric(
+				criterion.criterion(), criterion.weight()
+			))
+			.toList();
 	}
 
 	private Map<String, String> validateAnswers(
@@ -229,6 +323,12 @@ public class ExamSubmissionPersistenceService {
 
 	private Verdict toExamVerdict(GradingVerdict verdict) {
 		return Verdict.valueOf(verdict.name());
+	}
+
+	private String deterministicExpectedAnswer(ExamQuestion question) {
+		return question.getQuestionType() == ExamQuestionType.MCQ
+			? question.getPrivateAnswer().answerChoiceId()
+			: Boolean.toString(question.getPrivateAnswer().answerValue());
 	}
 
 	private void requireLearner(UserRole role) {

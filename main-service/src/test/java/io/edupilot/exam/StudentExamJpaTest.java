@@ -2,6 +2,8 @@ package io.edupilot.exam;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -13,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,6 +27,10 @@ import io.edupilot.classroom.ClassroomMemberRepository;
 import io.edupilot.classroom.ClassroomRepository;
 import io.edupilot.exam.dto.ExamAnswerRequest;
 import io.edupilot.exam.dto.SubmitExamRequest;
+import io.edupilot.ai.AiClient;
+import io.edupilot.ai.AiClientException;
+import io.edupilot.ai.dto.GradeRequest;
+import io.edupilot.ai.dto.GradeResponse;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.quiz.QuizOption;
@@ -59,6 +66,7 @@ class StudentExamJpaTest {
 	@Autowired private ExamSubmissionRepository submissionRepository;
 	@Autowired private StudentExamService studentExamService;
 	private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+	@MockitoBean private AiClient aiClient;
 
 	private User learner;
 	private Classroom classroom;
@@ -122,7 +130,12 @@ class StudentExamJpaTest {
 			learner.getId(), UserRole.LEARNER, exam.getId()
 		));
 		assertThat(studentJson)
+			.contains("\"optionId\":\"a\"")
+			.doesNotContain("choiceId")
 			.doesNotContain("correctAnswer")
+			.doesNotContain("answerChoiceId")
+			.doesNotContain("answerValue")
+			.doesNotContain("referenceAnswer")
 			.doesNotContain("explanation")
 			.doesNotContain("modelAnswer")
 			.doesNotContain("rubric");
@@ -191,6 +204,107 @@ class StudentExamJpaTest {
 			.isEqualTo(1);
 	}
 
+	@Test
+	void gradesAnsweredShortAndEssayByTypeWithDefaultRubric() {
+		Exam exam = Exam.create(classroom, 1, "Subjective", null, false);
+		exam.replaceTotalScore(new BigDecimal("20.00"));
+		exam.publish(Instant.parse("2026-08-03T00:00:00Z"));
+		exam = examRepository.saveAndFlush(exam);
+		Long examId = exam.getId();
+		questionRepository.saveAllAndFlush(List.of(
+			shortQuestion(exam, 1),
+			ExamQuestion.create(
+				exam,
+				2,
+				ExamQuestionType.ESSAY,
+				new BigDecimal("10.00"),
+				new ExamPublicQuestion("ESSAY", List.of()),
+				new ExamPrivateAnswer(null, null, null, null, "Model", List.of()),
+				"1.0"
+			)
+		));
+		when(aiClient.grade(any())).thenAnswer(invocation -> {
+			GradeRequest request = invocation.getArgument(0);
+			String questionId = request.items().get(0).questionId();
+			BigDecimal score = request.quizType().equals("SHORT")
+				? new BigDecimal("7.00") : new BigDecimal("8.00");
+			assertThat(request.quizId()).isEqualTo(examId);
+			assertThat(request.pageContext()).isNull();
+			assertThat(request.learnerMemoryDigest()).isNull();
+			assertThat(request.items().get(0).rubric()).singleElement()
+				.satisfies(rubric -> {
+					assertThat(rubric.criterion()).isEqualTo("모범 답안 부합도");
+					assertThat(rubric.weight()).isEqualByComparingTo(BigDecimal.ONE);
+				});
+			return new GradeResponse(
+				"1.0", examId, request.quizType(), score,
+				new BigDecimal("10.00"),
+				List.of(new GradeResponse.Item(
+					questionId, score, new BigDecimal("10.00"), "PARTIAL", "Feedback"
+				)),
+				null
+			);
+		});
+
+		var result = studentExamService.submit(
+			learner.getId(), UserRole.LEARNER, examId,
+			new SubmitExamRequest("subjective-1", List.of(
+				new ExamAnswerRequest("q1", "Short answer"),
+				new ExamAnswerRequest("q2", "Essay answer")
+			))
+		);
+
+		assertThat(result.status()).isEqualTo(SubmissionStatus.GRADED);
+		assertThat(result.score()).isEqualByComparingTo("15.00");
+		assertThat(result.normalizedScore()).isEqualByComparingTo("75.00");
+		assertThat(result.items()).extracting(item -> item.score())
+			.containsExactly(new BigDecimal("7.00"), new BigDecimal("8.00"));
+	}
+
+	@Test
+	void preservesSuccessfulGroupAndNullableFailedGroup() {
+		Exam exam = Exam.create(classroom, 1, "Partial failure", null, false);
+		exam.replaceTotalScore(new BigDecimal("20.00"));
+		exam.publish(Instant.parse("2026-08-03T00:00:00Z"));
+		exam = examRepository.saveAndFlush(exam);
+		Long examId = exam.getId();
+		questionRepository.saveAllAndFlush(List.of(
+			shortQuestion(exam, 1),
+			ExamQuestion.create(
+				exam, 2, ExamQuestionType.ESSAY, new BigDecimal("10.00"),
+				new ExamPublicQuestion("ESSAY", List.of()),
+				new ExamPrivateAnswer(null, null, null, null, "Model", List.of()), "1.0"
+			)
+		));
+		when(aiClient.grade(any()))
+			.thenReturn(new GradeResponse(
+				"1.0", examId, "SHORT", new BigDecimal("7.00"),
+				new BigDecimal("10.00"),
+				List.of(new GradeResponse.Item(
+					"q1", new BigDecimal("7.00"), new BigDecimal("10.00"),
+					"PARTIAL", "Feedback"
+				)), null
+			))
+			.thenThrow(new AiClientException(ErrorCode.AI_SERVICE_TIMEOUT));
+
+		var result = studentExamService.submit(
+			learner.getId(), UserRole.LEARNER, examId,
+			new SubmitExamRequest("partial-failure", List.of(
+				new ExamAnswerRequest("q1", "Short answer"),
+				new ExamAnswerRequest("q2", "Essay answer")
+			))
+		);
+
+		assertThat(result.status()).isEqualTo(SubmissionStatus.GRADING_FAILED);
+		assertThat(result.score()).isNull();
+		assertThat(result.normalizedScore()).isNull();
+		assertThat(result.gradedAt()).isNull();
+		assertThat(result.items().get(0).score()).isEqualByComparingTo("7.00");
+		assertThat(result.items().get(1).score()).isNull();
+		assertThat(result.items().get(1).verdict()).isNull();
+		assertThat(result.items().get(1).feedback()).isNull();
+	}
+
 	private Exam publishedExam(boolean allowRetake) {
 		Exam exam = Exam.create(classroom, 1, "Published", null, allowRetake);
 		exam.replaceTotalScore(new BigDecimal("30.00"));
@@ -207,7 +321,7 @@ class StudentExamJpaTest {
 			new ExamPublicQuestion("MCQ", List.of(
 				new QuizOption("a", "A"), new QuizOption("b", "B")
 			)),
-			new ExamPrivateAnswer(answer, "Explanation", null, List.of()),
+			new ExamPrivateAnswer(answer, null, "Explanation", null, null, List.of()),
 			"1.0"
 		);
 	}
@@ -219,7 +333,7 @@ class StudentExamJpaTest {
 			ExamQuestionType.OX,
 			new BigDecimal("10.00"),
 			new ExamPublicQuestion("OX", List.of()),
-			new ExamPrivateAnswer(answer, "Explanation", null, List.of()),
+			new ExamPrivateAnswer(null, Boolean.valueOf(answer), "Explanation", null, null, List.of()),
 			"1.0"
 		);
 	}
@@ -231,7 +345,7 @@ class StudentExamJpaTest {
 			ExamQuestionType.SHORT,
 			new BigDecimal("10.00"),
 			new ExamPublicQuestion("SHORT", List.of()),
-			new ExamPrivateAnswer("Reference", null, null, List.of()),
+			new ExamPrivateAnswer(null, null, null, "Reference", null, List.of()),
 			"1.0"
 		);
 	}

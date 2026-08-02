@@ -92,6 +92,9 @@ public class ExamAnswer {
 	public Long getSubmissionId() { return submission.getId(); }
 	public Long getQuestionId() { return question.getId(); }
 	public int getQuestionNo() { return question.getQuestionNo(); }
+	public ExamQuestionType getQuestionType() { return question.getQuestionType(); }
+	public String getQuestionText() { return question.getPublicQuestion().question(); }
+	public ExamPrivateAnswer getPrivateAnswer() { return question.getPrivateAnswer(); }
 	public String getAnswer() { return answer; }
 	public BigDecimal getScore() { return score; }
 	public BigDecimal getMaxScore() { return maxScore; }

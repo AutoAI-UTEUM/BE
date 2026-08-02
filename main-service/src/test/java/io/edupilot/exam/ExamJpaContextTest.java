@@ -78,7 +78,9 @@ class ExamJpaContextTest {
 			),
 			new ExamPrivateAnswer(
 				"A",
+				null,
 				"Explanation",
+				null,
 				null,
 				List.of(new RubricCriterion("Accuracy", BigDecimal.ONE))
 			),
@@ -100,7 +102,7 @@ class ExamJpaContextTest {
 			.singleElement()
 			.satisfies(saved -> {
 				assertThat(saved.getPublicQuestion().question()).isEqualTo("Choose one");
-				assertThat(saved.getPrivateAnswer().correctAnswer()).isEqualTo("A");
+				assertThat(saved.getPrivateAnswer().answerChoiceId()).isEqualTo("A");
 			});
 		assertThat(submissionRepository.findByExam_IdAndUser_IdAndRequestId(
 			exam.getId(), learner.getId(), "request-1"

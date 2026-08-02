@@ -5,7 +5,6 @@ import java.util.List;
 
 import io.edupilot.exam.ExamQuestion;
 import io.edupilot.exam.ExamQuestionType;
-import io.edupilot.quiz.QuizOption;
 import io.edupilot.quiz.RubricCriterion;
 
 public record InstructorExamQuestionResponse(
@@ -13,8 +12,9 @@ public record InstructorExamQuestionResponse(
 	ExamQuestionType questionType,
 	String questionText,
 	BigDecimal maxScore,
-	List<QuizOption> options,
-	String correctAnswer,
+	List<ExamOptionResponse> options,
+	String answerChoiceId,
+	Boolean answerValue,
 	String explanation,
 	String referenceAnswer,
 	String modelAnswer,
@@ -27,13 +27,12 @@ public record InstructorExamQuestionResponse(
 			question.getQuestionType(),
 			question.getPublicQuestion().question(),
 			question.getPoints(),
-			question.getPublicQuestion().options(),
-			question.getQuestionType() == ExamQuestionType.MCQ
-				|| question.getQuestionType() == ExamQuestionType.OX
-				? privateAnswer.correctAnswer() : null,
+			question.getPublicQuestion().options().stream()
+				.map(ExamOptionResponse::from).toList(),
+			privateAnswer.answerChoiceId(),
+			privateAnswer.answerValue(),
 			privateAnswer.explanation(),
-			question.getQuestionType() == ExamQuestionType.SHORT
-				? privateAnswer.correctAnswer() : null,
+			privateAnswer.referenceAnswer(),
 			privateAnswer.modelAnswer(),
 			privateAnswer.rubric()
 		);

@@ -5,14 +5,13 @@ import java.util.List;
 
 import io.edupilot.exam.ExamQuestion;
 import io.edupilot.exam.ExamQuestionType;
-import io.edupilot.quiz.QuizOption;
 
 public record StudentExamQuestionResponse(
 	String questionId,
 	String questionText,
 	BigDecimal maxScore,
 	ExamQuestionType questionType,
-	List<QuizOption> options
+	List<ExamOptionResponse> options
 ) {
 	public static StudentExamQuestionResponse from(ExamQuestion question) {
 		return new StudentExamQuestionResponse(
@@ -20,7 +19,8 @@ public record StudentExamQuestionResponse(
 			question.getPublicQuestion().question(),
 			question.getPoints(),
 			question.getQuestionType(),
-			question.getPublicQuestion().options()
+			question.getPublicQuestion().options().stream()
+				.map(ExamOptionResponse::from).toList()
 		);
 	}
 }

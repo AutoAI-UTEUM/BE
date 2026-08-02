@@ -196,8 +196,10 @@ class InstructorExamServiceTest {
 			new BigDecimal("20"),
 			new ExamPublicQuestion("Explain", List.of()),
 			new ExamPrivateAnswer(
-				"Reference",
 				null,
+				null,
+				null,
+				"Reference",
 				null,
 				List.of(new RubricCriterion("Accuracy", rubricWeight))
 			),
@@ -212,7 +214,8 @@ class InstructorExamServiceTest {
 			ExamQuestionType.SHORT,
 			"Explain",
 			new BigDecimal("20"),
-			List.<QuizOption>of(),
+			List.of(),
+			null,
 			null,
 			null,
 			"Reference",

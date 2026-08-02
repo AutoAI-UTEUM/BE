@@ -18,4 +18,6 @@ public interface ExamAnswerRepository extends JpaRepository<ExamAnswer, Long> {
 	List<ExamAnswer> findBySubmission_IdOrderByQuestion_Id(
 		@Param("submissionId") Long submissionId
 	);
+
+	void deleteBySubmission_Id(Long submissionId);
 }
