@@ -1,15 +1,17 @@
-# ai-integration-contract v0.5 — Spring ↔ AI Service 통합 계약
+# ai-integration-contract v0.6 — Spring ↔ AI Service 통합 계약
 
 | 항목 | 내용 |
 | --- | --- |
-| 상태 | v0.5 — #108 확정안 반영 |
+| 상태 | v0.6 초안 — #133 승인·담당자 확인 대기 |
 | 작성일 | 2026-08-02 |
 | 역할 | Epic5 ⓐ(#27 턴 계약)·Epic6 ⓐ(퀴즈 계약)·Epic7 ⓐ(평가·진단·메모리 계약)의 AI측 상위 기준 문서 |
 | 선행 결정 | DEC-002 v2(모델), DEC-006(추출 책임), DEC-013(SSE 기본, 세부 잔여), DEC-014(X-Internal-Token), DEC-022(하이브리드) |
 
-> v0.2 → v0.3 주요 변경: 이벤트명·스트림 이벤트를 팀 표준으로 개명, 내부 엔드포인트를 api-spec §10의 5종 체계로 재편, statePatch 허용목록을 api-spec 표와 통일, 오류를 category 5종 체계로 교체, RuleRouter 개념을 DEC-022 하이브리드(규칙은 Spring, 판단은 FastAPI Orchestrator)로 재배치.
+> v0.2 → v0.3 주요 변경: 이벤트명·스트림 이벤트를 팀 표준으로 개명, 내부 엔드포인트를 api-spec §8의 5종 체계로 재편, statePatch 허용목록을 api-spec 표와 통일, 오류를 category 5종 체계로 교체, RuleRouter 개념을 DEC-022 하이브리드(규칙은 Spring, 판단은 FastAPI Orchestrator)로 재배치.
 >
 > v0.4 → v0.5 주요 변경: `USER_QUESTION`의 선택 `includeCurrentPage`와 페이지 텍스트 3필드의 조건부 null 규칙을 추가하고, 새 대화 마커 이후의 대화 문맥 경계를 확정했다. 내부 `schemaVersion`은 `"1.0"`을 유지한다.
+>
+> v0.5 → v0.6 주요 변경: grade 요청의 전 필드에 required·nullable을 명시하고 시험이 숫자 `examId`를 `quizId`로 전달하는 규칙, 선택 문맥 없이 채점하는 규칙, 표준 `AI_REQUEST_INVALID` 오류 봉투를 확정했다. 이는 문서상 필수 필드를 선택으로 완화한 것이 아니라 기존에 없던 필드 강제력을 명문화하고 구현을 일치시키는 변경이다.
 
 ---
 
@@ -26,7 +28,7 @@
 
 - 인증: 모든 내부 호출에 `X-Internal-Token` 헤더 (DEC-014, env `EDUPILOT_INTERNAL_TOKEN`). 불일치 시 category `AUTH`.
 - 필드 camelCase, 시간 ISO-8601 UTC, `schemaVersion: "1.0"` 전 요청/응답 포함.
-- 내부 오류 응답 형식 (api-spec §10):
+- 내부 오류 응답 형식 (api-spec §8):
 
 ```json
 { "schemaVersion": "1.0", "error": { "code": "EXTRACTION_FAILED", "category": "INTERNAL", "message": "운영 노출 가능한 요약", "retryable": false }, "traceId": "01J..." }
@@ -42,7 +44,7 @@
 
 - 원시 예외 문자열·프롬프트·내부 추론을 message에 넣지 않는다.
 
-## 2. 내부 엔드포인트 (5종 — api-spec §10 확정 체계)
+## 2. 내부 엔드포인트 (5종 — api-spec §8 확정 체계)
 
 | Method | URL | 목적 | 호출 시점 |
 | --- | --- | --- | --- |
@@ -52,12 +54,12 @@
 | POST | `/internal/ai/quiz-assessment` | 내부 평가 생성 | 파이프라인 2단계 (채점 후 항상) |
 | POST | `/internal/ai/diagnosis` | 진단 질문 생성 | 파이프라인 3단계 (60% 미달 시 — DEC-010) |
 
-- repair·memory 전용 엔드포인트는 두지 않는다 (turn 내부 도구 — api-spec §10 확정).
+- repair·memory 전용 엔드포인트는 두지 않는다 (turn 내부 도구 — api-spec §8 확정).
 - `GET /health` (+readiness 대상은 Epic8 ⓐ 계약에 따름).
 
 ## 3. POST /internal/ai/turn
 
-### 3.1 요청 (api-spec §10 최소 구조 기준)
+### 3.1 요청 (api-spec §8 최소 구조 기준)
 
 ```json
 {
@@ -156,7 +158,7 @@
   비어 있지 않은 값이 오면 무시하고 경고 로그를 남깁니다. 사용자 위젯은
   Spring이 [API 명세](api-spec.md) §5 규칙표에 따라 생성합니다.
 
-### 3.4 statePatch 허용목록 (api-spec §10 표와 동일 — Spring이 이외 전부 거부)
+### 3.4 statePatch 허용목록 (api-spec §8 표와 동일 — Spring이 이외 전부 거부)
 
 | 필드 | 허용 값 | 비고 |
 | --- | --- | --- |
@@ -292,7 +294,7 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 - Spring은 `completed.result`를 검증한 뒤 메시지와 상태를 정확히 1회 확정
   저장하며, `error` 또는 연결 중단 시 저장하지 않습니다.
 
-## 6. 파이프라인 엔드포인트 DTO (api-spec §10 기준 + usage 추가)
+## 6. 파이프라인 엔드포인트 DTO (api-spec §8 기준 + usage 추가)
 
 ### 6.1 POST /internal/ai/extract
 
@@ -318,9 +320,40 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
   퀴즈는 후속 이슈에서 별도 설계합니다.
 - `generationId`는 AI Service가 생성하는 추적용 ID이며 멱등 키가 아닙니다.
   멱등성의 원천은 Spring의 `requestId`입니다.
-- 요청: `quizId, quizType(SHORT|ESSAY), items[]{questionId, question, modelAnswer, rubric[]{criterion, weight}, maxScore}, studentAnswers[]{questionId, answer}, pageContext{coverageStartPage, coverageEndPage, text}, learnerMemoryDigest`
+- grade 요청 필드의 강제력은 다음과 같습니다.
+
+| 필드 | 타입 | required | nullable | 규칙 |
+| --- | --- | :---: | :---: | --- |
+| `schemaVersion` | string | Y | N | 내부 스키마 버전 `"1.0"` |
+| `quizId` | integer | Y | N | 통합 퀴즈는 숫자 quiz ID, 별도 시험은 숫자 exam ID. wire 타입 변경은 v0.7 이상에서 별도 계약 |
+| `quizType` | `SHORT \| ESSAY` | Y | N | 한 요청에는 한 유형만 포함 |
+| `items` | array | Y | N | 실제 호출 시 비어 있지 않음. `questionId`, `question`, `modelAnswer`, `rubric[]`, `maxScore` 포함 |
+| `studentAnswers` | array | Y | N | 실제 호출 시 비어 있지 않음. 응답이 있는 대상 문항만 포함 |
+| `pageContext` | object | N | Y | 생략 또는 null 허용. 값이 있으면 `coverageStartPage`, `coverageEndPage`, `text` 포함 |
+| `learnerMemoryDigest` | string | N | Y | 생략 또는 null 허용 |
+
+`items[]`와 `studentAnswers[]`의 하위 필드 강제력:
+
+| 경로 | 타입 | required | nullable | 규칙 |
+| --- | --- | :---: | :---: | --- |
+| `items[].questionId` | string | Y | N | 비공백, 응답 매칭 키 |
+| `items[].question` | string | Y | N | 비공백 |
+| `items[].modelAnswer` | string | Y | N | 비공백 |
+| `items[].rubric` | array | Y | N | 서버 기본값 주입 후 1개 이상, weight 합 1.0 |
+| `items[].rubric[].criterion` | string | Y | N | 비공백 |
+| `items[].rubric[].weight` | number | Y | N | 0 초과, 전체 합 1.0 |
+| `items[].maxScore` | number | Y | N | 0 초과 |
+| `studentAnswers[].questionId` | string | Y | N | `items[].questionId`와 일치 |
+| `studentAnswers[].answer` | string | Y | N | 응답이 있는 문항만 전송하므로 비공백 |
+
+`pageContext`가 존재할 때 `coverageStartPage`, `coverageEndPage`, `text`는 모두 required·non-null이며 페이지 범위는 양수이고 끝 페이지가 시작 페이지보다 작을 수 없습니다.
+
+- Spring은 응답이 있는 SHORT와 ESSAY를 각각 묶어 유형별 최대 1회 호출합니다. 한 유형 호출이 실패해도 다른 유형은 계속 호출합니다. 응답이 있는 AI 채점 문항이 없다면 grade를 호출하지 않습니다.
+- `pageContext`가 없으면 GraderAgent는 `question`, `modelAnswer`, `rubric`만으로 채점합니다. AI Service Pydantic 모델은 `page_context`와 `learner_memory_digest`에 실제 기본값 `None`을 두어 생략 요청을 허용해야 합니다.
 - 응답: `quizId, quizType, score, maxScore, items[]{questionId, score, maxScore, verdict(CORRECT|PARTIAL|WRONG), feedback}` + `usage`
+- 응답은 기존처럼 `quizId`를 에코하며 요청의 정수 값을 그대로 유지합니다. 별도 에코 필드는 추가하지 않습니다. 요청 로그에도 원문 답안을 제외한 정수 `quizId`를 상관관계 값으로 기록할 수 있습니다.
 - 규칙: **questionId 기반 매칭**(index 금지), rubric weight 합 검증, 항목별 점수 산출 후 **합산은 코드에서**(DEC-002 D4), 점수 불변식(0≤score≤maxScore) 자체 검증 → Spring 재검증(GRADING_RESULT_INVALID). verdict는 만점 비율 `CORRECT >= 0.8`, `WRONG <= 0.2`, 그 사이는 `PARTIAL`. reasoning_effort=high.
+- 필수 필드 누락과 DTO 검증 실패는 FastAPI 기본 `{"detail":[...]}` 응답을 노출하지 않고 `{"schemaVersion":"1.0","error":{"code":"AI_REQUEST_INVALID","category":"SCHEMA","message":"...","retryable":false},"traceId":"..."}` 표준 봉투로 반환합니다. Spring은 grade에서 이 오류를 받으면 계약 결함으로 간주해 재시도하거나 `GRADING_FAILED`로 저장하지 않고, 오류 로그 후 외부 `INTERNAL_SERVER_ERROR`(500)로 매핑합니다.
 
 ### 6.3 POST /internal/ai/quiz-assessment
 
@@ -360,6 +393,11 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 | `QA_REASONING_EFFORT` | `medium` | QaAgent 프로필 |
 
 ## 8. 확정 로그 및 문서 반영 대기
+
+**v0.6 초안의 승인 대상** (근거: #133·DEC-031 Proposed):
+
+- grade의 `quizId` wire 타입은 integer이며 시험은 숫자 exam ID를 사용한다. `pageContext`와 `learnerMemoryDigest`는 optional·nullable이고 나머지 요청 필드는 required·non-null이다.
+- 응답이 있는 SHORT·ESSAY만 유형별 호출하며 한 유형 실패 후에도 나머지 유형을 호출한다. `AI_REQUEST_INVALID`은 표준 SCHEMA 봉투로 반환하고 Spring은 이를 내부 계약 결함으로 처리한다.
 
 **v0.5에서 확정된 사항** (근거: #108 합의):
 

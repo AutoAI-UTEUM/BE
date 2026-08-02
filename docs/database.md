@@ -23,6 +23,10 @@
 | `classroom_weeks` | id, classroom_id, week_number, title, release_at(nullable), timestamps | `FK(classroom_id)`, `UK(classroom_id,week_number)`, `CHECK(week_number >= 1)` |
 | `classroom_week_materials` | id, week_id, material_id, added_at, timestamps | `FK(week_id)`, `FK(material_id)`, `UK(week_id,material_id)`, `IDX(material_id)` |
 | `classroom_notices` | id, classroom_id, title, content, published_at, timestamps | `FK(classroom_id)`, `IDX(classroom_id,published_at,id)` |
+| `exams` | id, classroom_id, week_number(nullable), title, description(nullable), status, allow_retake, total_score, published_at(nullable), closed_at(nullable), timestamps | `FK(classroom_id)`, `IDX(classroom_id,status)`, 상태·총점 CHECK |
+| `exam_questions` | id, exam_id, question_no, question_type, points, public_question_json, private_answer_json, schema_version, timestamps | `FK(exam_id)`, `UK(exam_id,question_no)`, 유형·점수 CHECK |
+| `exam_submissions` | id, exam_id, user_id, attempt_no, request_id, status, submitted_at, graded_at(nullable), score(nullable), max_score, normalized_score(nullable), timestamps | `FK(exam_id)`, `FK(user_id)`, 시도·멱등 UK, 상태·점수 CHECK |
+| `exam_answers` | id, submission_id, question_id, answer(nullable), score(nullable), max_score, verdict(nullable), feedback(nullable), timestamps | `FK(submission_id)`, `FK(question_id)`, `UK(submission_id,question_id)`, 점수·판정 CHECK |
 | `learning_sessions` | id, user_id, material_id, current_page, page_status, status, conversation_summary, last_ui_actions_json, active_quiz_id, pending_diagnosis_id, active_turn_request_id, active_turn_started_at, conversation_reset_at, conversation_reset_count, version, timestamps | `FK(user_id)`, `FK(material_id)`, `IDX(user_id,status,updated_at)`, `CHECK(conversation_reset_count >= 0)` |
 | `session_page_records` | id, session_id, page_number, explained_at, timestamps | `FK(session_id)`, `UK(session_id,page_number)`, `CHECK(page_number >= 1)` |
 | `chat_messages` | id, session_id, sender_type, message_type, content, page_number, request_id, status, created_at | `FK(session_id)`, `UK(session_id,request_id)`, `IDX(session_id,created_at,id)` |
@@ -50,6 +54,12 @@
 - `classrooms.color`는 `BLUE | GREEN | PURPLE | ORANGE | RED | GRAY`, `status`는 `ACTIVE | COMPLETED`입니다. 완료는 날짜가 아니라 명시적 상태 전환으로만 발생합니다.
 - 강의실 컬럼 타입은 `name VARCHAR(100)`, `start_date/end_date DATE`, `color VARCHAR(20)`, `description VARCHAR(255) NULL`, `status VARCHAR(20)`, `invite_code VARCHAR(16)`입니다. 주차는 `week_number INT`, `title VARCHAR(100)`, `release_at DATETIME(6) NULL`, 공지는 `title VARCHAR(200)`, `content TEXT`, `published_at DATETIME(6)`을 사용합니다. 참여·요청·연결 시각도 `DATETIME(6)` UTC입니다.
 - 강의실 관련 테이블은 모두 `BIGINT AUTO_INCREMENT` PK와 `created_at`, `updated_at`을 사용합니다. FK에는 자동 cascade를 두지 않고 주차·연결·공지 삭제 순서를 서비스 트랜잭션에서 명시적으로 처리합니다.
+- 별도 시험은 강의실에 귀속하고 `week_number`는 nullable 표시·집계 라벨로만 사용합니다. 값이 있으면 `1 <= week_number <= classroom.week_count`를 애플리케이션에서 검증하되 `classroom_weeks` 행의 존재를 요구하지 않습니다. `exams.status`는 `DRAFT | PUBLISHED | CLOSED`, `allow_retake` 기본값은 false입니다.
+- DRAFT 시험은 문항 0개와 `total_score=0`을 허용하므로 DB 제약은 `total_score >= 0`입니다. 공개 시 애플리케이션이 문항 1개 이상과 `total_score > 0`을 검증하며, 문항 전체 교체 시 합계를 다시 계산합니다. 공개 이후 문항과 설정은 변경하지 않습니다.
+- `exam_questions`는 `question_no`를 1부터 부여하고 외부 `questionId`를 `q{question_no}`로 파생합니다. 공개 JSON과 정답·모범 답안·rubric이 담긴 비공개 JSON을 분리하며 학생 DTO에는 비공개 JSON을 매핑하지 않습니다. SHORT/ESSAY rubric 키가 없거나 빈 배열이면 grade 호출 시 서버 기본 rubric을 주입합니다.
+- `exam_submissions`는 모든 재응시를 보존합니다. `(exam_id,user_id,attempt_no)`와 `(exam_id,user_id,request_id)`를 각각 UNIQUE로 두고 대표 제출은 조회 시 `MAX(attempt_no)`로 파생합니다. `max_score`는 제출 시점 총점 스냅샷이며 `normalized_score=ROUND(score/max_score*100,2)`는 완전한 채점 후 Spring이 계산합니다.
+- AI 채점 전·실패 상태에서는 제출 `score`, `normalized_score`, `graded_at`과 해당 AI 답안의 `score`, `verdict`, `feedback`이 NULL입니다. 결정적 MCQ/OX 결과는 즉시 저장하고, 미응답은 `answer=NULL`, `score=0`, `verdict=WRONG`, `feedback=NULL`로 확정합니다. 따라서 답안 점수 제약은 `score IS NULL OR (score >= 0 AND score <= max_score)` 형태입니다.
+- 시험과 문항 FK에는 자동 cascade를 두지 않습니다. DRAFT 물리 삭제와 문항 전체 교체는 하위 `exam_questions`를 서비스 트랜잭션에서 먼저 제거하며 PUBLISHED 이후에는 삭제·교체하지 않습니다.
 - `classroom_join_requests`는 사용자×강의실당 한 행입니다. `REJECTED` 재요청은 같은 행을 `PENDING`으로 갱신하고 `requested_at`을 새로 기록하며 `processed_at=NULL`로 되돌립니다.
 - 강의실 자료 업로드 시 `learning_materials` 행과 `classroom_week_materials` 연결은 한 DB 트랜잭션으로 저장합니다. 파일 storage는 DB 트랜잭션에 참여하지 않으므로 DB 실패 시 저장 파일을 보상 삭제합니다.
 - `notes`는 사용자와 자료에 귀속하며 세션·페이지·원본 채팅 메시지는 nullable 참조입니다. 목록은 사용자×ACTIVE 자료 범위로 조회하므로 자료가 논리 삭제되면 노트 행은 보존하되 API 목록에서는 제외합니다. 최신순은 `(created_at DESC, id DESC)`로 고정합니다.
@@ -85,6 +95,12 @@
 - `classroom_join_requests.status IN (PENDING, APPROVED, REJECTED)`
 - `classroom_weeks.week_number >= 1`; 애플리케이션에서 계산된 `week_count` 이하인지 검증
 - `classrooms.end_date` 축소 후 기존 최대 주차가 새 `week_count`를 넘으면 변경 거부
+- `exams.total_score >= 0`; 공개 시 애플리케이션에서 `total_score > 0` 검증
+- `exam_questions.question_no >= 1`, `exam_questions.points > 0`
+- `exam_submissions.attempt_no >= 1`, `exam_submissions.max_score > 0`
+- `exam_submissions.score IS NULL OR (score >= 0 AND score <= max_score)`
+- `exam_submissions.normalized_score IS NULL OR (normalized_score >= 0 AND normalized_score <= 100)`
+- `exam_answers.score IS NULL OR (score >= 0 AND score <= max_score)`
 - 퀴즈 범위는 `1 <= coverage_start_page <= coverage_end_page <= page_count`
 - `quiz_submissions.score >= 0`
 - `quiz_submissions.max_score > 0`
@@ -129,6 +145,9 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - 내 참여 요청: `classroom_join_requests(user_id, status, requested_at, id)`
 - 주차 자료 역조회: `classroom_week_materials(material_id)`
 - 강의실 공지: `classroom_notices(classroom_id, published_at, id)`
+- 강의실 시험 목록: `exams(classroom_id, status, created_at, id)`
+- 학생별 시험 시도: `exam_submissions(exam_id, user_id, attempt_no)` UNIQUE
+- 시험 제출 멱등성: `exam_submissions(exam_id, user_id, request_id)` UNIQUE
 
 실제 쿼리와 실행 계획을 확인하기 전 인덱스를 과도하게 추가하지 않습니다.
 
@@ -144,6 +163,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V14__classroom_weeks_materials.sql`은 강의실 주차와 주차별 자료 연결, 공개 시각·중복 연결 제약을 추가합니다.
 - `V15__classroom_notices.sql`은 즉시 게시 강의실 공지와 강의실별 게시 시각 인덱스를 추가합니다.
 - `V16__conversation_reset.sql`은 새 대화의 AI 문맥 경계 시각과 세션별 순번을 추가합니다.
+- 별도 시험 migration은 #134 착수 시 최신 `origin/develop`을 확인한 다음 번호를 사용해 `exams`, `exam_questions`, `exam_submissions`, `exam_answers` 4개 테이블을 함께 추가합니다. 현재 예상은 `V17`이며 선행 migration 병합 시 rebase 후 재조정합니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.
