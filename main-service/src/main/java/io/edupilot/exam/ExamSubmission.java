@@ -23,6 +23,8 @@ import jakarta.persistence.Table;
 @Table(name = "exam_submissions")
 public class ExamSubmission {
 
+	private static final Instant NO_GRADING_LEASE = Instant.EPOCH;
+
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
@@ -60,6 +62,12 @@ public class ExamSubmission {
 	@Column(name = "normalized_score", precision = 10, scale = 2)
 	private BigDecimal normalizedScore;
 
+	@Column(name = "grading_lease_token", length = 36)
+	private String gradingLeaseToken;
+
+	@Column(name = "grading_lease_until", nullable = false)
+	private Instant gradingLeaseUntil = NO_GRADING_LEASE;
+
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
@@ -86,6 +94,7 @@ public class ExamSubmission {
 		this.status = SubmissionStatus.SUBMITTED;
 		this.maxScore = maxScore;
 		this.submittedAt = submittedAt;
+		this.gradingLeaseUntil = NO_GRADING_LEASE;
 	}
 
 	public static ExamSubmission create(
@@ -129,4 +138,6 @@ public class ExamSubmission {
 	public BigDecimal getScore() { return score; }
 	public BigDecimal getMaxScore() { return maxScore; }
 	public BigDecimal getNormalizedScore() { return normalizedScore; }
+	public String getGradingLeaseToken() { return gradingLeaseToken; }
+	public Instant getGradingLeaseUntil() { return gradingLeaseUntil; }
 }
