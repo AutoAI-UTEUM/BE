@@ -102,6 +102,7 @@ public class ExamSubmission {
 	public Long getId() { return id; }
 	public Long getExamId() { return exam.getId(); }
 	public Long getUserId() { return user.getId(); }
+	public String getUserName() { return user.getName(); }
 	public int getAttemptNo() { return attemptNo; }
 	public String getRequestId() { return requestId; }
 	public SubmissionStatus getStatus() { return status; }

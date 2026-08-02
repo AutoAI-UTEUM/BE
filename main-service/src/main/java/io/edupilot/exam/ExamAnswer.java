@@ -85,6 +85,7 @@ public class ExamAnswer {
 	public Long getId() { return id; }
 	public Long getSubmissionId() { return submission.getId(); }
 	public Long getQuestionId() { return question.getId(); }
+	public int getQuestionNo() { return question.getQuestionNo(); }
 	public String getAnswer() { return answer; }
 	public BigDecimal getScore() { return score; }
 	public BigDecimal getMaxScore() { return maxScore; }

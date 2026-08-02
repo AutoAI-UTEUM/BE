@@ -94,6 +94,42 @@ public class Exam {
 		return new Exam(classroom, weekNumber, title, description, allowRetake);
 	}
 
+	public void update(
+		String title,
+		boolean descriptionPresent,
+		String description,
+		boolean weekNumberPresent,
+		Integer weekNumber,
+		Boolean allowRetake
+	) {
+		if (title != null) {
+			this.title = title;
+		}
+		if (descriptionPresent) {
+			this.description = description;
+		}
+		if (weekNumberPresent) {
+			this.weekNumber = weekNumber;
+		}
+		if (allowRetake != null) {
+			this.allowRetake = allowRetake;
+		}
+	}
+
+	public void replaceTotalScore(BigDecimal totalScore) {
+		this.totalScore = totalScore;
+	}
+
+	public void publish(Instant publishedAt) {
+		this.status = ExamStatus.PUBLISHED;
+		this.publishedAt = publishedAt;
+	}
+
+	public void close(Instant closedAt) {
+		this.status = ExamStatus.CLOSED;
+		this.closedAt = closedAt;
+	}
+
 	public Long getId() {
 		return id;
 	}
@@ -108,6 +144,10 @@ public class Exam {
 
 	public ClassroomStatus getClassroomStatus() {
 		return classroom.getStatus();
+	}
+
+	public int getClassroomWeekCount() {
+		return classroom.getWeekCount();
 	}
 
 	public Integer getWeekNumber() {
