@@ -37,9 +37,24 @@ class SessionSnapshot(ContractModel):
 class EventPayload(ContractModel):
     detail_level: DetailLevel | None = None
     message: str | None = Field(default=None, min_length=1)
+    include_current_page: bool | None = None
     quiz_type: QuizType | None = None
     diagnosis_id: int | None = Field(default=None, gt=0)
     answer: str | None = Field(default=None, min_length=1)
+
+
+_PAYLOAD_RULES: dict[EventType, tuple[frozenset[str], frozenset[str]]] = {
+    EventType.EXPLAIN_CURRENT_PAGE: (frozenset({"detail_level"}), frozenset()),
+    EventType.USER_QUESTION: (
+        frozenset({"message"}),
+        frozenset({"include_current_page"}),
+    ),
+    EventType.QUIZ_TYPE_SELECTED: (frozenset({"quiz_type"}), frozenset()),
+    EventType.DIAGNOSIS_ANSWER_SUBMITTED: (
+        frozenset({"diagnosis_id", "answer"}),
+        frozenset(),
+    ),
+}
 
 
 class TurnEvent(ContractModel):
@@ -48,13 +63,9 @@ class TurnEvent(ContractModel):
 
     @model_validator(mode="after")
     def validate_payload(self) -> TurnEvent:
-        expected = {
-            EventType.EXPLAIN_CURRENT_PAGE: {"detail_level"},
-            EventType.USER_QUESTION: {"message"},
-            EventType.QUIZ_TYPE_SELECTED: {"quiz_type"},
-            EventType.DIAGNOSIS_ANSWER_SUBMITTED: {"diagnosis_id", "answer"},
-        }[self.event_type]
-        if self.payload.model_fields_set != expected:
+        required, optional = _PAYLOAD_RULES[self.event_type]
+        supplied = self.payload.model_fields_set
+        if not required <= supplied or not supplied <= required | optional:
             raise ValueError("payload fields do not match eventType")
         return self
 
