@@ -44,6 +44,16 @@ public class SessionTurnService {
 		"SHORT",
 		"ESSAY"
 	);
+	private static final Map<TurnEventType, Set<String>> PAYLOAD_FIELDS = Map.of(
+		TurnEventType.EXPLAIN_CURRENT_PAGE,
+		Set.of("detailLevel"),
+		TurnEventType.USER_QUESTION,
+		Set.of("message", "includeCurrentPage"),
+		TurnEventType.QUIZ_TYPE_SELECTED,
+		Set.of("quizType"),
+		TurnEventType.DIAGNOSIS_ANSWER_SUBMITTED,
+		Set.of("diagnosisId", "answer")
+	);
 
 	private final TurnClaimService claimService;
 	private final TurnPreparationService preparationService;
@@ -161,10 +171,16 @@ public class SessionTurnService {
 			streamConnection = activeStream.orElse(null);
 			io.edupilot.ai.dto.TurnResponse aiResponse =
 				streamConnection == null
-					? executeAiTurn(request, eventType, snapshot)
+					? executeAiTurn(
+						request,
+						eventType,
+						payload.aiPayload(),
+						snapshot
+					)
 					: executeAiTurnStream(
 						request,
 						eventType,
+						payload.aiPayload(),
 						snapshot,
 						streamConnection,
 						cancellation
@@ -204,6 +220,7 @@ public class SessionTurnService {
 	private io.edupilot.ai.dto.TurnResponse executeAiTurnStream(
 		TurnRequest request,
 		TurnEventType eventType,
+		Map<String, Object> payload,
 		TurnSnapshot snapshot,
 		SessionStreamConnection streamConnection,
 		AiStreamCancellation cancellation
@@ -216,7 +233,7 @@ public class SessionTurnService {
 			io.edupilot.ai.dto.TurnRequest aiRequest = aiRequest(
 				turnId,
 				eventType,
-				request,
+				payload,
 				snapshot
 			);
 			try {
@@ -246,7 +263,7 @@ public class SessionTurnService {
 					turnId,
 					qaThreadRef(snapshot),
 					eventType,
-					expectedQuizType(eventType, request.payload()),
+					expectedQuizType(eventType, payload),
 					availableQuizPages(eventType, snapshot)
 				);
 				return response;
@@ -273,6 +290,7 @@ public class SessionTurnService {
 	private io.edupilot.ai.dto.TurnResponse executeAiTurn(
 		TurnRequest request,
 		TurnEventType eventType,
+		Map<String, Object> payload,
 		TurnSnapshot snapshot
 	) {
 		for (int attempt = 1; attempt <= 2; attempt++) {
@@ -280,7 +298,7 @@ public class SessionTurnService {
 			io.edupilot.ai.dto.TurnRequest aiRequest = aiRequest(
 				turnId,
 				eventType,
-				request,
+				payload,
 				snapshot
 			);
 			try {
@@ -291,7 +309,7 @@ public class SessionTurnService {
 					turnId,
 					qaThreadRef(snapshot),
 					eventType,
-					expectedQuizType(eventType, request.payload()),
+					expectedQuizType(eventType, payload),
 					availableQuizPages(eventType, snapshot)
 				);
 				return response;
@@ -314,14 +332,14 @@ public class SessionTurnService {
 	private io.edupilot.ai.dto.TurnRequest aiRequest(
 		String turnId,
 		TurnEventType eventType,
-		TurnRequest request,
+		Map<String, Object> payload,
 		TurnSnapshot snapshot
 	) {
 		return new io.edupilot.ai.dto.TurnRequest(
 			SCHEMA_VERSION,
 			turnId,
 			snapshot.session(),
-			eventData(eventType, request.payload()),
+			eventData(eventType, payload),
 			snapshot.context()
 		);
 	}
@@ -349,7 +367,7 @@ public class SessionTurnService {
 
 	private Map<String, Object> eventData(
 		TurnEventType eventType,
-		JsonNode payload
+		Map<String, Object> payload
 	) {
 		Map<String, Object> event = new LinkedHashMap<>();
 		event.put("eventType", eventType.name());
@@ -368,10 +386,10 @@ public class SessionTurnService {
 
 	private String expectedQuizType(
 		TurnEventType eventType,
-		JsonNode payload
+		Map<String, Object> payload
 	) {
 		return eventType == TurnEventType.QUIZ_TYPE_SELECTED
-			? payload.get("quizType").stringValue()
+			? (String) payload.get("quizType")
 			: null;
 	}
 
@@ -438,8 +456,7 @@ public class SessionTurnService {
 		if (!payload.isObject()) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}
-		if (eventType != TurnEventType.USER_QUESTION
-			&& payload.has("includeCurrentPage")) {
+		if (!PAYLOAD_FIELDS.get(eventType).containsAll(payload.propertyNames())) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}
 		return switch (eventType) {
@@ -456,14 +473,25 @@ public class SessionTurnService {
 				yield new ValidatedPayload(
 					"현재 페이지 설명 요청: " + detailLevel,
 					null,
-					true
+					true,
+					Map.of("detailLevel", detailLevel)
 				);
 			}
-			case USER_QUESTION -> new ValidatedPayload(
-				requiredText(payload, "message"),
-				null,
-				includeCurrentPage(payload)
-			);
+			case USER_QUESTION -> {
+				String message = requiredText(payload, "message");
+				boolean includeCurrentPage = includeCurrentPage(payload);
+				Map<String, Object> aiPayload = new LinkedHashMap<>();
+				aiPayload.put("message", message);
+				if (!includeCurrentPage) {
+					aiPayload.put("includeCurrentPage", false);
+				}
+				yield new ValidatedPayload(
+					message,
+					null,
+					includeCurrentPage,
+					aiPayload
+				);
+			}
 			case QUIZ_TYPE_SELECTED -> {
 				String quizType = requiredText(payload, "quizType");
 				if (!QUIZ_TYPES.contains(quizType)) {
@@ -471,11 +499,12 @@ public class SessionTurnService {
 						ErrorCode.VALIDATION_FAILED
 					);
 				}
-				yield new ValidatedPayload(
-					"퀴즈 유형 선택: " + quizType,
-					null,
-					true
-				);
+					yield new ValidatedPayload(
+						"퀴즈 유형 선택: " + quizType,
+						null,
+						true,
+						Map.of("quizType", quizType)
+					);
 			}
 			case DIAGNOSIS_ANSWER_SUBMITTED -> {
 				JsonNode diagnosisId = payload.get("diagnosisId");
@@ -486,10 +515,16 @@ public class SessionTurnService {
 						ErrorCode.VALIDATION_FAILED
 					);
 				}
+				String answer = requiredText(payload, "answer");
+				Long normalizedDiagnosisId = diagnosisId.longValue();
 				yield new ValidatedPayload(
-					requiredText(payload, "answer"),
-					diagnosisId.longValue(),
-					true
+					answer,
+					normalizedDiagnosisId,
+					true,
+					Map.of(
+						"diagnosisId", normalizedDiagnosisId,
+						"answer", answer
+					)
 				);
 			}
 		};
@@ -539,7 +574,8 @@ public class SessionTurnService {
 	private record ValidatedPayload(
 		String userContent,
 		Long diagnosisId,
-		boolean includeCurrentPage
+		boolean includeCurrentPage,
+		Map<String, Object> aiPayload
 	) {
 	}
 }

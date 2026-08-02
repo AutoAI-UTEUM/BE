@@ -3,6 +3,11 @@ spring:
     name: main-service
   profiles:
     default: local
+  datasource:
+    hikari:
+      data-source-properties:
+        connectionTimeZone: UTC
+        forceConnectionTimeZoneToSession: true
   jpa:
     hibernate:
       ddl-auto: validate

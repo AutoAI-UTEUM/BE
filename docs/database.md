@@ -62,7 +62,8 @@
 ## 2. 컬럼 원칙
 
 - 기본 키는 **BIGINT AUTO_INCREMENT**를 사용하고 외부 식별자도 동일 값을 노출합니다(DEC-007 Accepted — 외부 공개 확장 시 public ID 컬럼 추가로 개선).
-- `created_at`, `updated_at`은 UTC 기준으로 저장합니다.
+- `created_at`, `updated_at`을 포함한 모든 시각은 UTC 기준으로 저장합니다. MySQL 커넥션 세션에는 `connectionTimeZone=UTC`와 `forceConnectionTimeZoneToSession=true`를 적용해 DB의 `CURRENT_TIMESTAMP`도 UTC로 평가합니다.
+- Hibernate 타임스탬프 처리를 우회하는 벌크 JPQL·JDBC 쓰기는 UTC `Instant`를 명시적으로 전달하며, 정상 애플리케이션 쓰기에서 DB `CURRENT_TIMESTAMP`에만 의존하지 않습니다. JDBC URL은 `EDUPILOT_DB_URL` 환경변수로 주입되므로 URL의 시간대 옵션 유무와 관계없이 커넥션 프로퍼티를 적용합니다.
 - 논리 삭제가 필요한 테이블은 `status` 또는 `deleted_at` 중 하나의 일관된 방식을 선택합니다.
 - 비밀번호 컬럼명은 원문 `password` 대신 `password_hash`를 사용합니다.
 - 파일 URL 자체보다 저장소 독립적인 `storage_key` 저장을 우선 검토합니다.

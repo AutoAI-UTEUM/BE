@@ -15,11 +15,13 @@ public class SessionPageRecordRepository {
 		INSERT INTO session_page_records (
 		    session_id,
 		    page_number,
-		    explained_at
-		) VALUES (?, ?, ?)
+		    explained_at,
+		    created_at,
+		    updated_at
+		) VALUES (?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE
 		    explained_at = ?,
-		    updated_at = CURRENT_TIMESTAMP(6)
+		    updated_at = ?
 		""";
 
 	private static final String COUNT_BY_SESSION = """
@@ -54,6 +56,9 @@ public class SessionPageRecordRepository {
 			UPSERT_EXPLAINED_PAGE,
 			sessionId,
 			pageNumber,
+			timestamp,
+			timestamp,
+			timestamp,
 			timestamp,
 			timestamp
 		);

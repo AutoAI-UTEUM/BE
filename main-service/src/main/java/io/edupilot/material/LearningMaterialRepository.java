@@ -1,5 +1,6 @@
 package io.edupilot.material;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -34,9 +35,13 @@ public interface LearningMaterialRepository
 	@Modifying(clearAutomatically = true, flushAutomatically = true)
 	@Query("""
 		update LearningMaterial material
-		set material.status = io.edupilot.material.MaterialStatus.DELETED
+		set material.status = io.edupilot.material.MaterialStatus.DELETED,
+		    material.updatedAt = :updatedAt
 		where material.owner.id = :ownerId
 		  and material.status = io.edupilot.material.MaterialStatus.ACTIVE
 		""")
-	int deleteAllActiveByOwnerId(@Param("ownerId") Long ownerId);
+	int deleteAllActiveByOwnerId(
+		@Param("ownerId") Long ownerId,
+		@Param("updatedAt") Instant updatedAt
+	);
 }

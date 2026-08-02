@@ -64,6 +64,7 @@ class TurnClaimServiceTest {
 			1L,
 			"request-1",
 			NOW,
+			NOW,
 			NOW.minusSeconds(300)
 		)).thenReturn(1);
 
@@ -75,9 +76,10 @@ class TurnClaimServiceTest {
 			1L,
 			"request-1",
 			NOW,
+			NOW,
 			NOW.minusSeconds(300)
 		);
-		verify(sessionRepository).releaseTurn(100L, "request-1");
+		verify(sessionRepository).releaseTurn(100L, "request-1", NOW);
 	}
 
 	@Test
@@ -102,6 +104,7 @@ class TurnClaimServiceTest {
 			100L,
 			1L,
 			"request-2",
+			NOW,
 			NOW,
 			NOW.minusSeconds(300)
 		)).thenReturn(0);

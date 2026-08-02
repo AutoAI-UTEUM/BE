@@ -267,16 +267,19 @@ class SessionTurnServiceTest {
 		verify(aiClient, org.mockito.Mockito.times(3))
 			.executeTurn(requests.capture());
 		assertThat(requests.getAllValues())
-			.extracting(request -> request.event().get("payload").toString())
+			.extracting(request -> request.event().get("payload"))
 			.containsExactly(
-				"{\"message\":\"question\"}",
-				"{\"message\":\"question\",\"includeCurrentPage\":true}",
-				"{\"message\":\"question\",\"includeCurrentPage\":false}"
+				Map.of("message", "question"),
+				Map.of("message", "question"),
+				Map.of(
+					"message", "question",
+					"includeCurrentPage", false
+				)
 			);
 	}
 
 	@Test
-	void rejectsInvalidOrNonUserIncludeCurrentPageBeforeClaim()
+	void rejectsInvalidUserIncludeCurrentPageBeforeClaim()
 		throws Exception {
 		assertError(
 			() -> service().execute(
@@ -294,6 +297,16 @@ class SessionTurnServiceTest {
 			),
 			ErrorCode.VALIDATION_FAILED
 		);
+		verify(claimService, never()).claim(
+			org.mockito.ArgumentMatchers.anyLong(),
+			org.mockito.ArgumentMatchers.anyLong(),
+			anyString()
+		);
+	}
+
+	@Test
+	void rejectsExplainIncludeCurrentPageBeforeNormalization()
+		throws Exception {
 		assertError(
 			() -> service().execute(
 				1L,
@@ -308,10 +321,18 @@ class SessionTurnServiceTest {
 			),
 			ErrorCode.VALIDATION_FAILED
 		);
+
 		verify(claimService, never()).claim(
 			org.mockito.ArgumentMatchers.anyLong(),
 			org.mockito.ArgumentMatchers.anyLong(),
 			anyString()
+		);
+		verify(aiClient, never()).executeTurn(any());
+		verify(aiClient, never()).executeTurnStream(
+			any(),
+			any(),
+			any(),
+			any()
 		);
 	}
 
@@ -342,10 +363,184 @@ class SessionTurnServiceTest {
 	}
 
 	@Test
+	void rejectsUnsupportedDetailLevelBeforeClaim() throws Exception {
+		assertError(
+			() -> service().execute(
+				1L,
+				100L,
+				new TurnRequest(
+					"invalid-detail-request",
+					"EXPLAIN_CURRENT_PAGE",
+					objectMapper.readTree("{\"detailLevel\":\"BRIEF\"}")
+				)
+			),
+			ErrorCode.VALIDATION_FAILED
+		);
+
+		verify(claimService, never()).claim(
+			org.mockito.ArgumentMatchers.anyLong(),
+			org.mockito.ArgumentMatchers.anyLong(),
+			anyString()
+		);
+	}
+
+	@Test
 	void explainMapsStoredAnswerStyleWhenPayloadOmitsDetailLevel() throws Exception {
 		assertStoredStyleMapping(AiAnswerStyle.CONCISE, "NORMAL", "concise-request");
 		assertStoredStyleMapping(AiAnswerStyle.NORMAL, "NORMAL", "normal-request");
 		assertStoredStyleMapping(AiAnswerStyle.DETAILED, "DETAILED", "detailed-request");
+	}
+
+	@Test
+	void explainSendsResolvedDefaultAndExplicitDetailLevel() throws Exception {
+		User user = User.create("user@example.com", "hash", "학습자");
+		when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+		when(preparationService.prepare(
+			1L,
+			100L,
+			"default-request",
+			"현재 페이지 설명 요청: NORMAL",
+			null
+		)).thenReturn(new PreparedTurn(501L));
+		when(preparationService.prepare(
+			1L,
+			100L,
+			"explicit-request",
+			"현재 페이지 설명 요청: DETAILED",
+			null
+		)).thenReturn(new PreparedTurn(501L));
+		TurnSnapshot snapshot = new TurnSnapshot(
+			Map.of("sessionId", 100L),
+			Map.of(),
+			10L
+		);
+		when(snapshotService.build(1L, 100L, 501L, true))
+			.thenReturn(snapshot);
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.empty());
+		when(aiClient.executeTurn(any())).thenAnswer(invocation -> {
+			io.edupilot.ai.dto.TurnRequest aiRequest =
+				invocation.getArgument(0);
+			return aiResponse(aiRequest.turnId());
+		});
+		when(persistenceService.persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		)).thenReturn(persisted(publicResponse()));
+
+		service().execute(
+			1L,
+			100L,
+			new TurnRequest(
+				"default-request",
+				"EXPLAIN_CURRENT_PAGE",
+				objectMapper.createObjectNode()
+			)
+		);
+		service().execute(
+			1L,
+			100L,
+			new TurnRequest(
+				"explicit-request",
+				"EXPLAIN_CURRENT_PAGE",
+				objectMapper.readTree("{\"detailLevel\":\"DETAILED\"}")
+			)
+		);
+
+		ArgumentCaptor<io.edupilot.ai.dto.TurnRequest> requests =
+			ArgumentCaptor.forClass(io.edupilot.ai.dto.TurnRequest.class);
+		verify(aiClient, org.mockito.Mockito.times(2))
+			.executeTurn(requests.capture());
+		assertThat(requests.getAllValues())
+			.extracting(request -> request.event().get("payload"))
+			.containsExactly(
+				Map.of("detailLevel", "NORMAL"),
+				Map.of("detailLevel", "DETAILED")
+			);
+	}
+
+	@Test
+	void quizAndDiagnosisSendExactNormalizedPayloads() throws Exception {
+		when(preparationService.prepare(
+			1L,
+			100L,
+			"quiz-request",
+			"퀴즈 유형 선택: MCQ",
+			null
+		)).thenReturn(new PreparedTurn(501L));
+		when(preparationService.prepare(
+			1L,
+			100L,
+			"diagnosis-request",
+			"answer",
+			30L
+		)).thenReturn(new PreparedTurn(501L));
+		TurnSnapshot snapshot = new TurnSnapshot(
+			Map.of("sessionId", 100L, "currentPage", 2),
+			Map.of("currentPageText", "현재"),
+			10L
+		);
+		when(snapshotService.build(1L, 100L, 501L, true))
+			.thenReturn(snapshot);
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.empty());
+		when(aiClient.executeTurn(any())).thenAnswer(invocation -> {
+			io.edupilot.ai.dto.TurnRequest aiRequest =
+				invocation.getArgument(0);
+			return aiResponse(aiRequest.turnId());
+		});
+		when(persistenceService.persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		)).thenReturn(persisted(publicResponse()));
+
+		service().execute(
+			1L,
+			100L,
+			new TurnRequest(
+				"quiz-request",
+				"QUIZ_TYPE_SELECTED",
+				objectMapper.readTree("{\"quizType\":\" MCQ \"}")
+			)
+		);
+		service().execute(
+			1L,
+			100L,
+			new TurnRequest(
+				"diagnosis-request",
+				"DIAGNOSIS_ANSWER_SUBMITTED",
+				objectMapper.readTree(
+					"{\"diagnosisId\":30,\"answer\":\" answer \"}"
+				)
+			)
+		);
+
+		ArgumentCaptor<io.edupilot.ai.dto.TurnRequest> requests =
+			ArgumentCaptor.forClass(io.edupilot.ai.dto.TurnRequest.class);
+		verify(aiClient, org.mockito.Mockito.times(2))
+			.executeTurn(requests.capture());
+		assertThat(requests.getAllValues())
+			.extracting(request -> request.event().get("payload"))
+			.containsExactly(
+				Map.of("quizType", "MCQ"),
+				Map.of("diagnosisId", 30L, "answer", "answer")
+			);
 	}
 
 	@Test
@@ -366,6 +561,8 @@ class SessionTurnServiceTest {
 		)).thenAnswer(invocation -> {
 			io.edupilot.ai.dto.TurnRequest aiRequest =
 				invocation.getArgument(0);
+			assertThat(aiRequest.event().get("payload"))
+				.isEqualTo(Map.of("message", "질문"));
 			@SuppressWarnings("unchecked")
 			Consumer<TurnStreamEvent> listener = invocation.getArgument(1);
 			listener.accept(TurnStreamEvent.status("PLANNING"));
@@ -727,7 +924,7 @@ class SessionTurnServiceTest {
 				"request-1",
 				"USER_QUESTION",
 				objectMapper.readTree(
-					"{\"message\":\"question\"" + extraPayload + "}"
+					"{\"message\":\" question \"" + extraPayload + "}"
 				)
 			);
 		} catch (Exception exception) {

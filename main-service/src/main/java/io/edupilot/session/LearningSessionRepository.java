@@ -61,6 +61,7 @@ public interface LearningSessionRepository
 		update LearningSession session
 		set session.activeTurnRequestId = :requestId,
 		    session.activeTurnStartedAt = :startedAt,
+		    session.updatedAt = :updatedAt,
 		    session.version = session.version + 1
 		where session.id = :sessionId
 		  and session.user.id = :userId
@@ -75,6 +76,7 @@ public interface LearningSessionRepository
 		@Param("userId") Long userId,
 		@Param("requestId") String requestId,
 		@Param("startedAt") Instant startedAt,
+		@Param("updatedAt") Instant updatedAt,
 		@Param("staleBefore") Instant staleBefore
 	);
 
@@ -83,13 +85,15 @@ public interface LearningSessionRepository
 		update LearningSession session
 		set session.activeTurnRequestId = null,
 		    session.activeTurnStartedAt = null,
+		    session.updatedAt = :updatedAt,
 		    session.version = session.version + 1
 		where session.id = :sessionId
 		  and session.activeTurnRequestId = :requestId
 		""")
 	int releaseTurn(
 		@Param("sessionId") Long sessionId,
-		@Param("requestId") String requestId
+		@Param("requestId") String requestId,
+		@Param("updatedAt") Instant updatedAt
 	);
 
 	@Modifying(clearAutomatically = true, flushAutomatically = true)
@@ -98,9 +102,13 @@ public interface LearningSessionRepository
 		set session.status = io.edupilot.session.SessionStatus.DELETED,
 		    session.activeTurnRequestId = null,
 		    session.activeTurnStartedAt = null,
+		    session.updatedAt = :updatedAt,
 		    session.version = session.version + 1
 		where session.user.id = :userId
 		  and session.status <> io.edupilot.session.SessionStatus.DELETED
 		""")
-	int deleteAllByUserId(@Param("userId") Long userId);
+	int deleteAllByUserId(
+		@Param("userId") Long userId,
+		@Param("updatedAt") Instant updatedAt
+	);
 }
