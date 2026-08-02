@@ -1,7 +1,6 @@
 package io.edupilot.exam;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
@@ -26,7 +25,6 @@ import io.edupilot.classroom.ClassroomMemberRepository;
 import io.edupilot.classroom.ClassroomRepository;
 import io.edupilot.exam.dto.ExamAnswerRequest;
 import io.edupilot.exam.dto.SubmitExamRequest;
-import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
@@ -62,7 +60,7 @@ class ExamAiRequestInvalidJpaTest {
 	@MockitoBean private AiClient aiClient;
 
 	@Test
-	void deletesTemporarySubmissionAndAnswersBeforeReturningInternalError() {
+	void recordsFailedSubmissionWhenAsyncRequestViolatesAiContract() throws Exception {
 		User instructor = userRepository.save(User.create(
 			"invalid-instructor@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
 		));
@@ -100,17 +98,32 @@ class ExamAiRequestInvalidJpaTest {
 		));
 		Long examId = exam.getId();
 
-		assertThatThrownBy(() -> studentExamService.submit(
+		var submitted = studentExamService.submit(
 			learner.getId(), UserRole.LEARNER, examId,
 			new SubmitExamRequest(
 				"invalid-contract",
 				List.of(new ExamAnswerRequest("q1", "Answer"))
 			)
-		)).isInstanceOfSatisfying(BusinessException.class, exception ->
-			assertThat(exception.errorCode()).isEqualTo(ErrorCode.INTERNAL_SERVER_ERROR)
 		);
+		assertThat(submitted.status()).isEqualTo(SubmissionStatus.SUBMITTED);
 
-		assertThat(submissionRepository.countByExam_Id(examId)).isZero();
-		assertThat(answerRepository.count()).isZero();
+		ExamSubmission failed = awaitTerminal(examId, learner.getId());
+
+		assertThat(failed.getStatus()).isEqualTo(SubmissionStatus.GRADING_FAILED);
+		assertThat(submissionRepository.countByExam_Id(examId)).isEqualTo(1);
+		assertThat(answerRepository.count()).isEqualTo(1);
+	}
+
+	private ExamSubmission awaitTerminal(Long examId, Long userId) throws Exception {
+		for (int attempt = 0; attempt < 200; attempt++) {
+			ExamSubmission submission = submissionRepository
+				.findTopByExam_IdAndUser_IdOrderByAttemptNoDesc(examId, userId)
+				.orElseThrow();
+			if (submission.getStatus() != SubmissionStatus.SUBMITTED) {
+				return submission;
+			}
+			Thread.sleep(25);
+		}
+		throw new AssertionError("Async grading did not finish within 5 seconds");
 	}
 }

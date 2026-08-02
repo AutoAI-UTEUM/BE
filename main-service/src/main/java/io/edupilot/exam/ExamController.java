@@ -1,5 +1,7 @@
 package io.edupilot.exam;
 
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -131,14 +133,17 @@ public class ExamController {
 
 	@PostMapping("/{examId}/submissions")
 	@Operation(summary = "시험 제출")
-	public ApiResponse<ExamSubmissionResponse> submit(
+	public ResponseEntity<ApiResponse<ExamSubmissionResponse>> submit(
 		@AuthenticationPrincipal AuthenticatedUser user,
 		@PathVariable Long examId,
 		@Valid @RequestBody SubmitExamRequest request
 	) {
-		return ApiResponse.success(studentExamService.submit(
+		ExamSubmissionResponse response = studentExamService.submit(
 			user.userId(), user.role(), examId, request
-		));
+		);
+		HttpStatus status = response.status() == SubmissionStatus.SUBMITTED
+			? HttpStatus.ACCEPTED : HttpStatus.OK;
+		return ResponseEntity.status(status).body(ApiResponse.success(response));
 	}
 
 	@GetMapping("/{examId}/submissions/me")

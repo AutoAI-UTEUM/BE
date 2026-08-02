@@ -1,9 +1,7 @@
 package io.edupilot.exam;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -23,7 +21,6 @@ import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.AiFailureCategory;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
-import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 
 @ExtendWith(MockitoExtension.class)
@@ -46,9 +43,7 @@ class ExamAiGradingServiceTest {
 		when(aiClient.grade(any()))
 			.thenReturn(response("SHORT", "q1", "7.00"))
 			.thenThrow(new AiClientException(ErrorCode.AI_SERVICE_TIMEOUT));
-		when(persistenceService.applyAiGrading(any(), any())).thenReturn(null);
-
-		service.grade(10L);
+		ExamAiGradingOutcome outcome = service.grade(10L);
 
 		ArgumentCaptor<GradeRequest> requestCaptor = ArgumentCaptor.forClass(
 			GradeRequest.class
@@ -64,17 +59,13 @@ class ExamAiGradingServiceTest {
 			assertThat(request.studentAnswers()).isNotEmpty();
 		});
 
-		ArgumentCaptor<ExamAiGradingOutcome> outcomeCaptor = ArgumentCaptor.forClass(
-			ExamAiGradingOutcome.class
-		);
-		verify(persistenceService).applyAiGrading(any(), outcomeCaptor.capture());
-		assertThat(outcomeCaptor.getValue().failed()).isTrue();
-		assertThat(outcomeCaptor.getValue().grades()).containsKey("q1");
-		assertThat(outcomeCaptor.getValue().grades()).doesNotContainKey("q2");
+		assertThat(outcome.failed()).isTrue();
+		assertThat(outcome.grades()).containsKey("q1");
+		assertThat(outcome.grades()).doesNotContainKey("q2");
 	}
 
 	@Test
-	void compensatesAiRequestInvalidAfterStillCallingRemainingGroup() {
+	void marksAiRequestInvalidFailedAfterStillCallingRemainingGroup() {
 		when(persistenceService.prepareAiGrading(10L)).thenReturn(prepared());
 		when(aiClient.grade(any()))
 			.thenThrow(new AiClientException(
@@ -86,14 +77,11 @@ class ExamAiGradingServiceTest {
 			))
 			.thenReturn(response("ESSAY", "q2", "8.00"));
 
-		assertThatThrownBy(() -> service.grade(10L))
-			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode()).isEqualTo(ErrorCode.INTERNAL_SERVER_ERROR)
-			);
+		ExamAiGradingOutcome outcome = service.grade(10L);
 
 		verify(aiClient, times(2)).grade(any());
-		verify(persistenceService).deleteCompensation(10L);
-		verify(persistenceService, never()).applyAiGrading(any(), any());
+		assertThat(outcome.failed()).isTrue();
+		assertThat(outcome.grades()).containsKey("q2");
 	}
 
 	private PreparedExamAiGrading prepared() {

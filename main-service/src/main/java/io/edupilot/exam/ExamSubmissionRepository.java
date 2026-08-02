@@ -1,12 +1,17 @@
 package io.edupilot.exam;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.LockModeType;
 
 public interface ExamSubmissionRepository extends JpaRepository<ExamSubmission, Long> {
 
@@ -63,4 +68,23 @@ public interface ExamSubmissionRepository extends JpaRepository<ExamSubmission, 
 	);
 
 	Optional<ExamSubmission> findByIdAndExam_Id(Long id, Long examId);
+
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("update ExamSubmission submission "
+		+ "set submission.gradingLeaseToken = :leaseToken, "
+		+ "submission.gradingLeaseUntil = :leaseUntil, "
+		+ "submission.updatedAt = :now "
+		+ "where submission.id = :submissionId "
+		+ "and submission.status = io.edupilot.exam.SubmissionStatus.SUBMITTED "
+		+ "and submission.gradingLeaseUntil < :now")
+	int claimGradingLease(
+		@Param("submissionId") Long submissionId,
+		@Param("leaseToken") String leaseToken,
+		@Param("now") Instant now,
+		@Param("leaseUntil") Instant leaseUntil
+	);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select submission from ExamSubmission submission where submission.id = :submissionId")
+	Optional<ExamSubmission> findByIdForUpdate(@Param("submissionId") Long submissionId);
 }

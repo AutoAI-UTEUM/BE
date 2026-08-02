@@ -13,10 +13,13 @@ public record ExamAnswerResultResponse(
 	Verdict verdict,
 	String feedback
 ) {
-	public static ExamAnswerResultResponse from(ExamAnswer answer) {
+	public static ExamAnswerResultResponse from(ExamAnswer answer, boolean revealResult) {
 		return new ExamAnswerResultResponse(
-			"q" + answer.getQuestionNo(), answer.getAnswer(), answer.getScore(),
-			answer.getMaxScore(), answer.getVerdict(), answer.getFeedback()
+			"q" + answer.getQuestionNo(), answer.getAnswer(),
+			revealResult ? answer.getScore() : null,
+			answer.getMaxScore(),
+			revealResult ? answer.getVerdict() : null,
+			revealResult ? answer.getFeedback() : null
 		);
 	}
 }

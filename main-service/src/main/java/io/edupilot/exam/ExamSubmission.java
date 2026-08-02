@@ -117,6 +117,7 @@ public class ExamSubmission {
 		this.score = score;
 		this.normalizedScore = normalizedScore;
 		this.gradedAt = gradedAt;
+		clearGradingLease();
 	}
 
 	public void failGrading() {
@@ -124,6 +125,18 @@ public class ExamSubmission {
 		this.score = null;
 		this.normalizedScore = null;
 		this.gradedAt = null;
+		clearGradingLease();
+	}
+
+	public boolean hasGradingLease(String leaseToken) {
+		return this.status == SubmissionStatus.SUBMITTED
+			&& leaseToken != null
+			&& leaseToken.equals(this.gradingLeaseToken);
+	}
+
+	private void clearGradingLease() {
+		this.gradingLeaseToken = null;
+		this.gradingLeaseUntil = NO_GRADING_LEASE;
 	}
 
 	public Long getId() { return id; }

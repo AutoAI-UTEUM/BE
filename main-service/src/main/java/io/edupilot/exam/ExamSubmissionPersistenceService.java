@@ -3,6 +3,7 @@ package io.edupilot.exam;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -12,7 +13,6 @@ import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.annotation.Propagation;
 
 import io.edupilot.classroom.ClassroomService;
 import io.edupilot.classroom.ClassroomStatus;
@@ -42,6 +42,7 @@ public class ExamSubmissionPersistenceService {
 	private final ExamAnswerRepository answerRepository;
 	private final UserRepository userRepository;
 	private final DeterministicAnswerGrader deterministicAnswerGrader;
+	private final ExamGradingDispatcher gradingDispatcher;
 	private final Clock clock;
 
 	public ExamSubmissionPersistenceService(
@@ -52,6 +53,7 @@ public class ExamSubmissionPersistenceService {
 		ExamAnswerRepository answerRepository,
 		UserRepository userRepository,
 		DeterministicAnswerGrader deterministicAnswerGrader,
+		ExamGradingDispatcher gradingDispatcher,
 		Clock clock
 	) {
 		this.classroomService = classroomService;
@@ -61,6 +63,7 @@ public class ExamSubmissionPersistenceService {
 		this.answerRepository = answerRepository;
 		this.userRepository = userRepository;
 		this.deterministicAnswerGrader = deterministicAnswerGrader;
+		this.gradingDispatcher = gradingDispatcher;
 		this.clock = clock;
 	}
 
@@ -96,8 +99,11 @@ public class ExamSubmissionPersistenceService {
 		ExamSubmission latest = submissionRepository
 			.findTopByExam_IdAndUser_IdOrderByAttemptNoDesc(examId, userId)
 			.orElse(null);
-		if (latest != null && !exam.isAllowRetake()) {
-			throw new BusinessException(ErrorCode.EXAM_ALREADY_SUBMITTED);
+		if (latest != null) {
+			if (latest.getStatus() == SubmissionStatus.SUBMITTED
+				|| latest.getStatus() == SubmissionStatus.GRADED && !exam.isAllowRetake()) {
+				throw new BusinessException(ErrorCode.EXAM_ALREADY_SUBMITTED);
+			}
 		}
 		int attemptNo = latest == null ? 1 : latest.getAttemptNo() + 1;
 		List<ExamQuestion> questions = questionRepository
@@ -148,8 +154,22 @@ public class ExamSubmissionPersistenceService {
 				.reduce(BigDecimal.ZERO, BigDecimal::add);
 			submission.complete(score, normalized(score, submission.getMaxScore()), clock.instant());
 			submissionRepository.flush();
+		} else {
+			gradingDispatcher.dispatchAfterCommit(submission.getId(), exam.getId());
 		}
 		return ExamSubmissionResponse.from(submission, answers);
+	}
+
+	@Transactional
+	public boolean claimGradingLease(
+		Long submissionId,
+		String leaseToken,
+		Instant now,
+		Instant leaseUntil
+	) {
+		return submissionRepository.claimGradingLease(
+			submissionId, leaseToken, now, leaseUntil
+		) == 1;
 	}
 
 	@Transactional(readOnly = true)
@@ -186,12 +206,16 @@ public class ExamSubmissionPersistenceService {
 	}
 
 	@Transactional
-	public ExamSubmissionResponse applyAiGrading(
+	public boolean applyAiGrading(
 		Long submissionId,
+		String leaseToken,
 		ExamAiGradingOutcome outcome
 	) {
-		ExamSubmission submission = submissionRepository.findById(submissionId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.EXAM_NOT_FOUND));
+		ExamSubmission submission = submissionRepository.findByIdForUpdate(submissionId)
+			.orElse(null);
+		if (submission == null || !submission.hasGradingLease(leaseToken)) {
+			return false;
+		}
 		List<ExamAnswer> answers = answerRepository
 			.findBySubmission_IdOrderByQuestion_Id(submissionId);
 		for (ExamAnswer answer : answers) {
@@ -217,15 +241,19 @@ public class ExamSubmissionPersistenceService {
 		}
 		answerRepository.flush();
 		submissionRepository.flush();
-		return ExamSubmissionResponse.from(submission, answers);
+		return true;
 	}
 
-	@Transactional(propagation = Propagation.REQUIRES_NEW)
-	public void deleteCompensation(Long submissionId) {
-		answerRepository.deleteBySubmission_Id(submissionId);
-		answerRepository.flush();
-		submissionRepository.deleteById(submissionId);
+	@Transactional
+	public boolean failClaimedGrading(Long submissionId, String leaseToken) {
+		ExamSubmission submission = submissionRepository.findByIdForUpdate(submissionId)
+			.orElse(null);
+		if (submission == null || !submission.hasGradingLease(leaseToken)) {
+			return false;
+		}
+		submission.failGrading();
 		submissionRepository.flush();
+		return true;
 	}
 
 	private List<GradeRequest.Rubric> gradeRubric(ExamAnswer answer) {

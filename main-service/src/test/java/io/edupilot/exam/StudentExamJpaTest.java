@@ -65,6 +65,8 @@ class StudentExamJpaTest {
 	@Autowired private ExamQuestionRepository questionRepository;
 	@Autowired private ExamSubmissionRepository submissionRepository;
 	@Autowired private StudentExamService studentExamService;
+	@Autowired private ExamSubmissionPersistenceService persistenceService;
+	@Autowired private ExamAiGradingService aiGradingService;
 	private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 	@MockitoBean private AiClient aiClient;
 
@@ -246,13 +248,20 @@ class StudentExamJpaTest {
 			);
 		});
 
-		var result = studentExamService.submit(
+		var submitted = studentExamService.submit(
 			learner.getId(), UserRole.LEARNER, examId,
 			new SubmitExamRequest("subjective-1", List.of(
 				new ExamAnswerRequest("q1", "Short answer"),
 				new ExamAnswerRequest("q2", "Essay answer")
 			))
 		);
+		assertThat(submitted.status()).isEqualTo(SubmissionStatus.SUBMITTED);
+		assertThat(submitted.items()).allSatisfy(item -> {
+			assertThat(item.score()).isNull();
+			assertThat(item.verdict()).isNull();
+			assertThat(item.feedback()).isNull();
+		});
+		var result = grade(submitted.submissionId());
 
 		assertThat(result.status()).isEqualTo(SubmissionStatus.GRADED);
 		assertThat(result.score()).isEqualByComparingTo("15.00");
@@ -287,13 +296,15 @@ class StudentExamJpaTest {
 			))
 			.thenThrow(new AiClientException(ErrorCode.AI_SERVICE_TIMEOUT));
 
-		var result = studentExamService.submit(
+		var submitted = studentExamService.submit(
 			learner.getId(), UserRole.LEARNER, examId,
 			new SubmitExamRequest("partial-failure", List.of(
 				new ExamAnswerRequest("q1", "Short answer"),
 				new ExamAnswerRequest("q2", "Essay answer")
 			))
 		);
+		assertThat(submitted.status()).isEqualTo(SubmissionStatus.SUBMITTED);
+		var result = grade(submitted.submissionId());
 
 		assertThat(result.status()).isEqualTo(SubmissionStatus.GRADING_FAILED);
 		assertThat(result.score()).isNull();
@@ -303,6 +314,87 @@ class StudentExamJpaTest {
 		assertThat(result.items().get(1).score()).isNull();
 		assertThat(result.items().get(1).verdict()).isNull();
 		assertThat(result.items().get(1).feedback()).isNull();
+	}
+
+	@Test
+	void gradingFailureDoesNotConsumeNonRetakeAttempt() {
+		Exam exam = Exam.create(classroom, 1, "Retry failure", null, false);
+		exam.replaceTotalScore(new BigDecimal("10.00"));
+		exam.publish(Instant.parse("2026-08-03T00:00:00Z"));
+		exam = examRepository.saveAndFlush(exam);
+		questionRepository.saveAndFlush(shortQuestion(exam, 1));
+		when(aiClient.grade(any())).thenThrow(new AiClientException(ErrorCode.AI_SERVICE_TIMEOUT));
+
+		var first = studentExamService.submit(
+			learner.getId(), UserRole.LEARNER, exam.getId(),
+			new SubmitExamRequest(
+				"failed-attempt-1", List.of(new ExamAnswerRequest("q1", "Answer"))
+			)
+		);
+		var failed = grade(first.submissionId());
+		var retry = studentExamService.submit(
+			learner.getId(), UserRole.LEARNER, exam.getId(),
+			new SubmitExamRequest(
+				"failed-attempt-2", List.of(new ExamAnswerRequest("q1", "Answer"))
+			)
+		);
+
+		assertThat(failed.status()).isEqualTo(SubmissionStatus.GRADING_FAILED);
+		assertThat(retry.status()).isEqualTo(SubmissionStatus.SUBMITTED);
+		assertThat(retry.attemptNo()).isEqualTo(2);
+		assertThat(studentExamService.detail(
+			learner.getId(), UserRole.LEARNER, exam.getId()
+		).submittable()).isFalse();
+	}
+
+	@Test
+	void lateWorkerCannotApplyAfterLeaseWasReclaimed() {
+		Exam exam = Exam.create(classroom, 1, "Lease", null, false);
+		exam.replaceTotalScore(new BigDecimal("10.00"));
+		exam.publish(Instant.parse("2026-08-03T00:00:00Z"));
+		exam = examRepository.saveAndFlush(exam);
+		questionRepository.saveAndFlush(shortQuestion(exam, 1));
+		var submitted = studentExamService.submit(
+			learner.getId(), UserRole.LEARNER, exam.getId(),
+			new SubmitExamRequest(
+				"lease-1", List.of(new ExamAnswerRequest("q1", "Answer"))
+			)
+		);
+		Instant firstClaim = Instant.parse("2026-08-03T01:00:00Z");
+		String firstToken = "00000000-0000-0000-0000-000000000001";
+		String secondToken = "00000000-0000-0000-0000-000000000002";
+
+		assertThat(persistenceService.claimGradingLease(
+			submitted.submissionId(), firstToken, firstClaim, firstClaim.plusSeconds(300)
+		)).isTrue();
+		assertThat(persistenceService.claimGradingLease(
+			submitted.submissionId(), secondToken,
+			firstClaim.plusSeconds(301), firstClaim.plusSeconds(601)
+		)).isTrue();
+		assertThat(persistenceService.applyAiGrading(
+			submitted.submissionId(), firstToken,
+			new ExamAiGradingOutcome(java.util.Map.of(), true)
+		)).isFalse();
+		assertThat(persistenceService.applyAiGrading(
+			submitted.submissionId(), secondToken,
+			new ExamAiGradingOutcome(java.util.Map.of(), true)
+		)).isTrue();
+	}
+
+	private io.edupilot.exam.dto.ExamSubmissionResponse grade(Long submissionId) {
+		Instant now = Instant.parse("2026-08-03T01:00:00Z");
+		String token = "00000000-0000-0000-0000-000000000001";
+		assertThat(persistenceService.claimGradingLease(
+			submissionId, token, now, now.plusSeconds(300)
+		)).isTrue();
+		assertThat(persistenceService.applyAiGrading(
+			submissionId, token, aiGradingService.grade(submissionId)
+		)).isTrue();
+		return studentExamService.mySubmission(
+			learner.getId(), UserRole.LEARNER,
+			submissionRepository.findById(submissionId).orElseThrow().getExamId(),
+			null
+		);
 	}
 
 	private Exam publishedExam(boolean allowRetake) {

@@ -34,7 +34,6 @@ public class StudentExamService {
 	private final ExamSubmissionRepository submissionRepository;
 	private final ExamAnswerRepository answerRepository;
 	private final ExamSubmissionPersistenceService persistenceService;
-	private final ExamAiGradingService aiGradingService;
 
 	public StudentExamService(
 		ClassroomService classroomService,
@@ -42,8 +41,7 @@ public class StudentExamService {
 		ExamQuestionRepository questionRepository,
 		ExamSubmissionRepository submissionRepository,
 		ExamAnswerRepository answerRepository,
-		ExamSubmissionPersistenceService persistenceService,
-		ExamAiGradingService aiGradingService
+		ExamSubmissionPersistenceService persistenceService
 	) {
 		this.classroomService = classroomService;
 		this.examRepository = examRepository;
@@ -51,7 +49,6 @@ public class StudentExamService {
 		this.submissionRepository = submissionRepository;
 		this.answerRepository = answerRepository;
 		this.persistenceService = persistenceService;
-		this.aiGradingService = aiGradingService;
 	}
 
 	@Transactional(readOnly = true)
@@ -89,7 +86,9 @@ public class StudentExamService {
 			.orElse(null);
 		boolean submittable = exam.getStatus() == ExamStatus.PUBLISHED
 			&& exam.getClassroomStatus() == ClassroomStatus.ACTIVE
-			&& (latest == null || exam.isAllowRetake());
+			&& (latest == null
+				|| latest.getStatus() == SubmissionStatus.GRADING_FAILED
+				|| latest.getStatus() == SubmissionStatus.GRADED && exam.isAllowRetake());
 		return StudentExamDetailResponse.from(
 			exam,
 			questionRepository.findByExam_IdOrderByQuestionNo(examId),
@@ -112,25 +111,16 @@ public class StudentExamService {
 			return existing;
 		}
 		try {
-			ExamSubmissionResponse created = persistenceService.create(
+			return persistenceService.create(
 				userId, role, examId, request
 			);
-			return gradeIfNeeded(created);
 		} catch (DataIntegrityViolationException exception) {
 			ExamSubmissionResponse concurrent = findByRequest(examId, userId, requestId);
 			if (concurrent != null) {
 				return concurrent;
 			}
-			return gradeIfNeeded(
-				persistenceService.create(userId, role, examId, request)
-			);
+			return persistenceService.create(userId, role, examId, request);
 		}
-	}
-
-	private ExamSubmissionResponse gradeIfNeeded(ExamSubmissionResponse submission) {
-		return submission.status() == SubmissionStatus.SUBMITTED
-			? aiGradingService.grade(submission.submissionId())
-			: submission;
 	}
 
 	@Transactional(readOnly = true)
