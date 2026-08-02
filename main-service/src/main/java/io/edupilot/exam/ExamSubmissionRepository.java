@@ -21,6 +21,12 @@ public interface ExamSubmissionRepository extends JpaRepository<ExamSubmission, 
 		Long userId
 	);
 
+	Optional<ExamSubmission> findByExam_IdAndUser_IdAndAttemptNo(
+		Long examId,
+		Long userId,
+		int attemptNo
+	);
+
 	boolean existsByExam_IdAndUser_Id(Long examId, Long userId);
 
 	long countByExam_Id(Long examId);

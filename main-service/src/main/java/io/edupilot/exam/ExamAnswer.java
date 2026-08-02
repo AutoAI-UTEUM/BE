@@ -82,6 +82,12 @@ public class ExamAnswer {
 		return new ExamAnswer(submission, question, answer, maxScore);
 	}
 
+	public void recordGrade(BigDecimal score, Verdict verdict, String feedback) {
+		this.score = score;
+		this.verdict = verdict;
+		this.feedback = feedback;
+	}
+
 	public Long getId() { return id; }
 	public Long getSubmissionId() { return submission.getId(); }
 	public Long getQuestionId() { return question.getId(); }

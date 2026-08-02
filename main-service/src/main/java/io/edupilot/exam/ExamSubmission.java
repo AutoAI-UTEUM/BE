@@ -99,6 +99,24 @@ public class ExamSubmission {
 		return new ExamSubmission(exam, user, attemptNo, requestId, maxScore, submittedAt);
 	}
 
+	public void complete(
+		BigDecimal score,
+		BigDecimal normalizedScore,
+		Instant gradedAt
+	) {
+		this.status = SubmissionStatus.GRADED;
+		this.score = score;
+		this.normalizedScore = normalizedScore;
+		this.gradedAt = gradedAt;
+	}
+
+	public void failGrading() {
+		this.status = SubmissionStatus.GRADING_FAILED;
+		this.score = null;
+		this.normalizedScore = null;
+		this.gradedAt = null;
+	}
+
 	public Long getId() { return id; }
 	public Long getExamId() { return exam.getId(); }
 	public Long getUserId() { return user.getId(); }

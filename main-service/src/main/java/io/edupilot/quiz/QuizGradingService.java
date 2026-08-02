@@ -23,9 +23,14 @@ import io.edupilot.global.error.ErrorCode;
 public class QuizGradingService {
 
 	private final AiClient aiClient;
+	private final DeterministicAnswerGrader deterministicAnswerGrader;
 
-	public QuizGradingService(AiClient aiClient) {
+	public QuizGradingService(
+		AiClient aiClient,
+		DeterministicAnswerGrader deterministicAnswerGrader
+	) {
 		this.aiClient = aiClient;
+		this.deterministicAnswerGrader = deterministicAnswerGrader;
 	}
 
 	public GradingResult grade(PreparedQuizSubmission prepared) {
@@ -59,17 +64,19 @@ public class QuizGradingService {
 				throw invalidResult();
 			}
 			String answer = answersById.get(question.questionId());
-			boolean correct = switch (prepared.quizType()) {
-				case MCQ -> privateQuestion.answerChoiceId().equals(answer);
-				case OX -> Boolean.toString(privateQuestion.answerValue())
-					.equals(answer);
+			String expectedAnswer = switch (prepared.quizType()) {
+				case MCQ -> privateQuestion.answerChoiceId();
+				case OX -> Boolean.toString(privateQuestion.answerValue());
 				case SHORT, ESSAY -> throw invalidResult();
 			};
+			DeterministicAnswerGrader.Result grade = deterministicAnswerGrader.grade(
+				expectedAnswer, answer, question.points()
+			);
 			items.add(new GradingItem(
 				question.questionId(),
-				correct ? question.points() : BigDecimal.ZERO,
+				grade.score(),
 				question.points(),
-				correct ? GradingVerdict.CORRECT : GradingVerdict.WRONG,
+				grade.verdict(),
 				privateQuestion.explanation()
 			));
 		}

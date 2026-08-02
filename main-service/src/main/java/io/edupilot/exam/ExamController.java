@@ -16,6 +16,7 @@ import io.edupilot.auth.AuthenticatedUser;
 import io.edupilot.exam.dto.ExamSubmissionResponse;
 import io.edupilot.exam.dto.InstructorExamDetailResponse;
 import io.edupilot.exam.dto.InstructorSubmissionListResponse;
+import io.edupilot.exam.dto.SubmitExamRequest;
 import io.edupilot.exam.dto.UpdateExamRequest;
 import io.edupilot.global.response.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,17 +34,27 @@ import jakarta.validation.constraints.Min;
 public class ExamController {
 
 	private final InstructorExamService instructorExamService;
+	private final StudentExamService studentExamService;
 
-	public ExamController(InstructorExamService instructorExamService) {
+	public ExamController(
+		InstructorExamService instructorExamService,
+		StudentExamService studentExamService
+	) {
 		this.instructorExamService = instructorExamService;
+		this.studentExamService = studentExamService;
 	}
 
 	@GetMapping("/{examId}")
 	@Operation(summary = "강사 시험 상세 조회")
-	public ApiResponse<InstructorExamDetailResponse> detail(
+	public ApiResponse<?> detail(
 		@AuthenticationPrincipal AuthenticatedUser user,
 		@PathVariable Long examId
 	) {
+		if (user.role() == io.edupilot.user.UserRole.LEARNER) {
+			return ApiResponse.success(studentExamService.detail(
+				user.userId(), user.role(), examId
+			));
+		}
 		return ApiResponse.success(instructorExamService.detail(
 			user.userId(), user.role(), examId
 		));
@@ -115,6 +126,30 @@ public class ExamController {
 	) {
 		return ApiResponse.success(instructorExamService.submissionDetail(
 			user.userId(), user.role(), examId, submissionId
+		));
+	}
+
+	@PostMapping("/{examId}/submissions")
+	@Operation(summary = "시험 제출")
+	public ApiResponse<ExamSubmissionResponse> submit(
+		@AuthenticationPrincipal AuthenticatedUser user,
+		@PathVariable Long examId,
+		@Valid @RequestBody SubmitExamRequest request
+	) {
+		return ApiResponse.success(studentExamService.submit(
+			user.userId(), user.role(), examId, request
+		));
+	}
+
+	@GetMapping("/{examId}/submissions/me")
+	@Operation(summary = "내 시험 결과 조회")
+	public ApiResponse<ExamSubmissionResponse> mySubmission(
+		@AuthenticationPrincipal AuthenticatedUser user,
+		@PathVariable Long examId,
+		@RequestParam(required = false) @Min(1) Integer attemptNo
+	) {
+		return ApiResponse.success(studentExamService.mySubmission(
+			user.userId(), user.role(), examId, attemptNo
 		));
 	}
 }

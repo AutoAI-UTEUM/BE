@@ -1,6 +1,7 @@
 package io.edupilot.exam;
 
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -26,6 +27,13 @@ public interface ExamRepository extends JpaRepository<Exam, Long> {
 
 	@EntityGraph(attributePaths = "classroom")
 	Page<Exam> findByClassroom_Id(Long classroomId, Pageable pageable);
+
+	@EntityGraph(attributePaths = "classroom")
+	Page<Exam> findByClassroom_IdAndStatusIn(
+		Long classroomId,
+		Set<ExamStatus> statuses,
+		Pageable pageable
+	);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select exam from Exam exam join fetch exam.classroom where exam.id = :id")

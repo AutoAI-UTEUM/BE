@@ -30,9 +30,14 @@ import jakarta.validation.constraints.Min;
 public class ClassroomExamController {
 
 	private final InstructorExamService instructorExamService;
+	private final StudentExamService studentExamService;
 
-	public ClassroomExamController(InstructorExamService instructorExamService) {
+	public ClassroomExamController(
+		InstructorExamService instructorExamService,
+		StudentExamService studentExamService
+	) {
 		this.instructorExamService = instructorExamService;
+		this.studentExamService = studentExamService;
 	}
 
 	@PostMapping
@@ -49,13 +54,18 @@ public class ClassroomExamController {
 
 	@GetMapping
 	@Operation(summary = "강사 시험 목록 조회")
-	public ApiResponse<InstructorExamListResponse> list(
+	public ApiResponse<?> list(
 		@AuthenticationPrincipal AuthenticatedUser user,
 		@PathVariable Long classroomId,
 		@RequestParam(required = false) ExamStatus status,
 		@RequestParam(defaultValue = "0") @Min(0) int page,
 		@RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
 	) {
+		if (user.role() == io.edupilot.user.UserRole.LEARNER) {
+			return ApiResponse.success(studentExamService.list(
+				user.userId(), user.role(), classroomId, page, size
+			));
+		}
 		return ApiResponse.success(instructorExamService.list(
 			user.userId(), user.role(), classroomId, status, page, size
 		));
