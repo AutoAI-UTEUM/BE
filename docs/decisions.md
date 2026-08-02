@@ -391,9 +391,9 @@
 
 ### DEC-031 — 별도 시험 생성·응시·채점 계약
 
-- 상태: Proposed — [GitHub #133](https://github.com/AutoAI-EduPilot/BE/issues/133) 승인 기록과 담당자 확인 후 Accepted로 전환합니다. 제출 후 정답·해설 공개(D4)는 Deferred이며, 확정 전까지 비공개를 적용합니다.
-- 결정일: 2026-08-02
-- 결정자: 프로젝트 담당자. grade optional 필드 동작은 AI 담당자 확인을 완료 조건으로 둡니다.
+- 상태: Accepted — [GitHub #133](https://github.com/AutoAI-EduPilot/BE/issues/133)에서 프로젝트 담당자가 권장안을 승인했습니다. AI 담당자의 사전 설계 확인은 승인 게이트에서 제외하되 AI Service v0.6 구현·계약 테스트·재기동 검증은 후속 완료 게이트로 유지합니다. 제출 후 정답·해설 공개(D4)는 Deferred이며, 확정 전까지 비공개를 적용합니다.
+- 결정일: 2026-08-03
+- 결정자: 프로젝트 담당자. grade optional 필드와 정수 `quizId`는 본 결정으로 확정하며 AI 담당자는 구현·검증 결과를 보고합니다.
 - 선택:
   - **D1 — 출제**: MVP는 강사 직접 출제만 지원합니다. AI 시험 초안 생성(#135)은 Phase C로 이월하며 `exam_questions.source` 같은 선행 확장 컬럼을 두지 않습니다.
   - **D2 — 재응시**: `allow_retake=false`가 기본입니다. 허용 시 모든 시도를 `attempt_no` 순서로 보존하고, 목록·리포트의 대표값은 `MAX(attempt_no)`인 최신 제출로 파생합니다.

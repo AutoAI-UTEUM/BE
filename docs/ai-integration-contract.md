@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 상태 | v0.6 초안 — #133 승인·담당자 확인 대기 |
+| 상태 | v0.6 확정 — #133 승인 반영, AI Service 구현·배포 검증 대기 |
 | 작성일 | 2026-08-02 |
 | 역할 | Epic5 ⓐ(#27 턴 계약)·Epic6 ⓐ(퀴즈 계약)·Epic7 ⓐ(평가·진단·메모리 계약)의 AI측 상위 기준 문서 |
 | 선행 결정 | DEC-002 v2(모델), DEC-006(추출 책임), DEC-013(SSE 기본, 세부 잔여), DEC-014(X-Internal-Token), DEC-022(하이브리드) |
@@ -394,7 +394,7 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 
 ## 8. 확정 로그 및 문서 반영 대기
 
-**v0.6 초안의 승인 대상** (근거: #133·DEC-031 Proposed):
+**v0.6에서 확정된 사항** (근거: #133·DEC-031 Accepted):
 
 - grade의 `quizId` wire 타입은 integer이며 시험은 숫자 exam ID를 사용한다. `pageContext`와 `learnerMemoryDigest`는 optional·nullable이고 나머지 요청 필드는 required·non-null이다.
 - 응답이 있는 SHORT·ESSAY만 유형별 호출하며 한 유형 실패 후에도 나머지 유형을 호출한다. `AI_REQUEST_INVALID`은 표준 SCHEMA 봉투로 반환하고 Spring은 이를 내부 계약 결함으로 처리한다.
