@@ -381,6 +381,59 @@ class StudentExamJpaTest {
 		)).isTrue();
 	}
 
+	@Test
+	void absoluteCutoffFailsSubmissionEvenWithActiveLease() {
+		Exam exam = publishedExam(false);
+		Instant now = Instant.parse("2026-08-03T02:00:00Z");
+		ExamSubmission submission = submissionRepository.saveAndFlush(ExamSubmission.create(
+			exam,
+			learner,
+			1,
+			"cutoff-active-lease",
+			new BigDecimal("30.00"),
+			now.minusSeconds(31 * 60L)
+		));
+		assertThat(persistenceService.claimGradingLease(
+			submission.getId(),
+			"00000000-0000-0000-0000-000000000003",
+			now.minusSeconds(60),
+			now.plusSeconds(300)
+		)).isTrue();
+
+		assertThat(persistenceService.failExpiredSubmissions(
+			now.minusSeconds(30 * 60L), now, 100
+		)).isEqualTo(1);
+
+		ExamSubmission failed = submissionRepository.findById(submission.getId()).orElseThrow();
+		assertThat(failed.getStatus()).isEqualTo(SubmissionStatus.GRADING_FAILED);
+		assertThat(failed.getGradingLeaseToken()).isNull();
+		assertThat(failed.getGradingLeaseUntil()).isEqualTo(Instant.EPOCH);
+	}
+
+	@Test
+	void findsOnlyRecentSubmissionWithExpiredLeaseForRecovery() {
+		Exam exam = publishedExam(false);
+		Instant now = Instant.parse("2026-08-03T02:00:00Z");
+		ExamSubmission recoverable = submissionRepository.saveAndFlush(ExamSubmission.create(
+			exam,
+			learner,
+			1,
+			"recover-expired-lease",
+			new BigDecimal("30.00"),
+			now.minusSeconds(10 * 60L)
+		));
+		assertThat(persistenceService.claimGradingLease(
+			recoverable.getId(),
+			"00000000-0000-0000-0000-000000000004",
+			now.minusSeconds(6 * 60L),
+			now.minusSeconds(60)
+		)).isTrue();
+
+		assertThat(persistenceService.findRecoverableGradings(
+			now.minusSeconds(30 * 60L), now, 100
+		)).containsExactly(new ExamGradingCandidate(recoverable.getId(), exam.getId()));
+	}
+
 	private io.edupilot.exam.dto.ExamSubmissionResponse grade(Long submissionId) {
 		Instant now = Instant.parse("2026-08-03T01:00:00Z");
 		String token = "00000000-0000-0000-0000-000000000001";

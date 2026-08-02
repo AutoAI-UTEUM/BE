@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +31,7 @@ import io.edupilot.user.UserRole;
 
 @Service
 public class ExamSubmissionPersistenceService {
+	private static final Instant NO_GRADING_LEASE = Instant.EPOCH;
 
 	private static final List<GradeRequest.Rubric> DEFAULT_RUBRIC = List.of(
 		new GradeRequest.Rubric("모범 답안 부합도", BigDecimal.ONE)
@@ -254,6 +256,34 @@ public class ExamSubmissionPersistenceService {
 		submission.failGrading();
 		submissionRepository.flush();
 		return true;
+	}
+
+	@Transactional
+	public int failExpiredSubmissions(Instant cutoff, Instant now, int batchSize) {
+		List<Long> submissionIds = submissionRepository.findExpiredSubmissionIds(
+			cutoff, PageRequest.of(0, batchSize)
+		);
+		if (submissionIds.isEmpty()) {
+			return 0;
+		}
+		return submissionRepository.failExpiredSubmissions(
+			submissionIds, cutoff, NO_GRADING_LEASE, now
+		);
+	}
+
+	@Transactional(readOnly = true)
+	public List<ExamGradingCandidate> findRecoverableGradings(
+		Instant cutoff,
+		Instant now,
+		int batchSize
+	) {
+		return submissionRepository.findRecoverableSubmissions(
+			cutoff, now, PageRequest.of(0, batchSize)
+		).stream()
+			.map(submission -> new ExamGradingCandidate(
+				submission.getId(), submission.getExamId()
+			))
+			.toList();
 	}
 
 	private List<GradeRequest.Rubric> gradeRubric(ExamAnswer answer) {
