@@ -2,13 +2,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 상태 | GitHub 등록 전 초안 |
-| 마지막 갱신 | 2026-07-20 |
-| 기준 저장소 | `AutoAI-EduPilot/edupilot-be` |
+| 상태 | MVP Epic 초안 + 리포트 Epic GitHub 등록 완료 |
+| 마지막 갱신 | 2026-08-01 |
+| 기준 저장소 | `AutoAI-EduPilot/BE` |
 
 이 디렉터리는 실제 GitHub 부모 이슈로 사용할 **짧은 Epic 초안**과 구현 시 참고할 **상세 작업 분해 자료**를 분리해 관리한다.
 
-- 실제 GitHub에 등록: [`epics/`](epics/)의 8개 문서
+- MVP GitHub Epic 초안: [`epics/`](epics/)의 8개 핵심 문서
+- 후속 리포트 기획: FE·Main·AI 영역별 3개 Draft Epic
 - 기능별 상세 흐름·예외·계약 검토: [상세 작업 분해 계획](../issue-plan.md)
 - 최종 기능 명세와 API 계약: `docs/feature-spec.md`, OpenAPI, `docs/api-spec.md`
 
@@ -26,6 +27,17 @@ Epic 본문에는 목적, 범위, 제외 범위, 핵심 하위 작업, 완료 �
 | 6 | [퀴즈 생성·제출·채점](epics/06-quiz.md) | High | 학습 세션, AI 학습 턴 |
 | 7 | [평가·진단·오개념 교정·학습자 메모리](epics/07-learning-support.md) | High | 퀴즈 채점, QA |
 | 8 | [배포·운영·관측](epics/08-operations.md) | High | 기반부터 병행, MVP 통합 후 완료 |
+
+### 후속 리포트 기획 Epic
+
+| 영역 | Epic | 상태 | 선행 관계 |
+| --- | --- | --- | --- |
+| FE | [강사 학습 리포트 UI](epics/09-report-frontend.md) · [FE#34](https://github.com/AutoAI-EduPilot/FE/issues/34) | Blocked | Main Report API, #102 |
+| Main | [리포트 데이터·권한·저장·API](epics/10-report-main-service.md) · [BE#115](https://github.com/AutoAI-EduPilot/BE/issues/115) | Blocked | #102, 강의실·시험 계약 |
+| AI | [ReportAgent 생성·근거 검증·질의응답](epics/11-report-ai-service.md) · [BE#116](https://github.com/AutoAI-EduPilot/BE/issues/116) | Blocked | Main evidence contract |
+
+세 Epic은 현재 MVP 완료 범위에 포함하지 않습니다. 구현 시작 전 #102와
+[리포트 시스템 설계](../report-agent-design.md)의 승인 필요 결정을 먼저 해소합니다.
 
 `AI 스트리밍`과 `장기 학습자 메모리`는 MVP Must 범위다. 일정 부족을 이유로 비스트리밍 응답이나 평가·진단 기록만 구현하고 Epic을 완료 처리하지 않는다. 사용자용 메모리 조회 화면(`LEARN-006`)은 별도 Could 범위로 유지한다.
 
@@ -53,15 +65,16 @@ Epic 본문에는 목적, 범위, 제외 범위, 핵심 하위 작업, 완료 �
 
 `DEC-001` 같은 값은 [결정 대기 목록](../decisions.md)의 문서 식별자이며 GitHub 이슈 번호가 아니다. 기본적으로 Epic의 `결정 필요` 체크박스로 관리하고, 여러 팀의 합의가 필요하거나 개발을 실제로 막는 결정만 별도 `[Decision]` 이슈로 만든다.
 
-## 현재 만들지 않는 Epic
+## 현재 MVP에서 구현하지 않는 기능
 
 - 상세 관리자 기능
 - Course, Lecture, Assignment와 실제 강사 전용 기능·차등 권한 (#102에서 범위 확정)
 - Notification
-- 리포트·통계 대시보드
+- 리포트·통계 대시보드의 구현 — Draft Epic과 설계만 준비
 - 결제, 실시간 화상 강의, 교사-학생 실시간 채팅
 
-위 항목은 현재 MVP 요구사항에 포함되지 않는다. 범위가 승인되면 요구사항 문서를 먼저 갱신한 뒤 Epic을 추가한다.
+위 항목은 현재 MVP 요구사항에 포함되지 않는다. 범위가 승인되면 요구사항과 계약 문서를
+먼저 갱신한 뒤 구현 상태로 전환한다.
 
 ## 관련 문서
 

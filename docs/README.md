@@ -52,6 +52,9 @@
 - [GitHub Epic 초안](issues/README.md)
 - [상세 작업 분해 계획](issue-plan.md)
 - [에이전트 시스템 명세](agent-system-spec.md)
+- [통합 에이전트 설계 참고 원안](agent-system-reference-draft.md) — 초기 구상 보존 자료
+- [리포트 에이전트 설계 참고 원안](report-agent-reference-draft.md) — 최초 요구 보존 자료
+- [리포트 에이전트 시스템 설계](report-agent-design.md) — FE·Main·AI 후속 Draft
 - [AI 서비스 테스트 전략](test-strategy.md)
 - [결정 대기 목록](decisions.md)
 - [DEC-002 Python·Grok 모델 결정](DEC-002-python-grok-model.md) — DEC-002 v2 전문
