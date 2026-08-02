@@ -161,10 +161,10 @@ FastAPI 내부 API가 직접 반환하는 현재 오류 code는 다음 3종입�
 | code | HTTP | category | 의미 |
 | --- | ---: | --- | --- |
 | `AI_INTERNAL_AUTH_FAILED` | 401 | `AUTH` | `X-Internal-Token` 누락 또는 불일치 |
-| `AI_REQUEST_INVALID` | 422 | `SCHEMA` | 내부 요청 body·DTO 검증 실패 |
+| `AI_REQUEST_INVALID` | 400 / 422 | `SCHEMA` | `422`: 내부 요청의 필수 필드·타입 등 body·DTO 검증 실패, `400`: `questionId` 집합 불일치 등 필드 간 의미 검증 실패 |
 | `AI_INTERNAL_ERROR` | 500 | `INTERNAL` | 분류되지 않은 AI Service 내부 오류 |
 
-Spring 비동기 시험 채점 worker가 grade 호출에서 `AI_REQUEST_INVALID`을 받으면 재시도하지 않고 제출을 `GRADING_FAILED`로 종결합니다. 학생 입력 오류나 일반 AI 장애와 구분할 수 있도록 `submissionId`, `examId`, 오류 code를 ERROR 로그에 남기며, 이미 커밋된 제출을 보상 삭제하거나 원 POST에 500을 반환하지 않습니다(DEC-032).
+두 HTTP 상태 모두 `category=SCHEMA`, `retryable=false`인 동일한 표준 오류 봉투를 사용합니다. Spring 비동기 시험 채점 worker가 grade 호출에서 `AI_REQUEST_INVALID`을 받으면 HTTP 상태와 무관하게 재시도하지 않고 제출을 `GRADING_FAILED`로 종결합니다. 학생 입력 오류나 일반 AI 장애와 구분할 수 있도록 `submissionId`, `examId`, 오류 code를 ERROR 로그에 남기며, 이미 커밋된 제출을 보상 삭제하거나 원 POST에 500을 반환하지 않습니다(DEC-032).
 
 새 오류 code는 구현보다 먼저 이 문서에 추가합니다.
 
