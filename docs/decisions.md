@@ -389,6 +389,29 @@
 - 대안과 trade-off: 세션에 `classroom_id`를 저장하면 강의실별 학습 출처를 엄격히 분리할 수 있지만 동일 자료의 중복 세션·진도와 API 변경이 발생해 MVP에서 제외합니다. 학습자 개인 업로드 금지는 기존 자유 학습 흐름을 깨므로 채택하지 않습니다.
 - 후속 변경 문서: [API 명세](api-spec.md), [데이터베이스](database.md), [에러 코드](error-code.md), [도메인 모델](domain-model.md), [화면-API 매핑](screen-api-map.md)
 
+### DEC-031 — 별도 시험 생성·응시·채점 계약
+
+- 상태: Proposed — [GitHub #133](https://github.com/AutoAI-EduPilot/BE/issues/133) 승인 기록과 담당자 확인 후 Accepted로 전환합니다. 제출 후 정답·해설 공개(D4)는 Deferred이며, 확정 전까지 비공개를 적용합니다.
+- 결정일: 2026-08-02
+- 결정자: 프로젝트 담당자. grade optional 필드 동작은 AI 담당자 확인을 완료 조건으로 둡니다.
+- 선택:
+  - **D1 — 출제**: MVP는 강사 직접 출제만 지원합니다. AI 시험 초안 생성(#135)은 Phase C로 이월하며 `exam_questions.source` 같은 선행 확장 컬럼을 두지 않습니다.
+  - **D2 — 재응시**: `allow_retake=false`가 기본입니다. 허용 시 모든 시도를 `attempt_no` 순서로 보존하고, 목록·리포트의 대표값은 `MAX(attempt_no)`인 최신 제출로 파생합니다.
+  - **D3 — 주관식 루브릭**: SHORT의 `referenceAnswer`와 ESSAY의 `modelAnswer`는 필수이고 rubric은 선택입니다. `null`과 빈 배열은 모두 미입력으로 취급해 grade 호출 시 `[{"criterion":"모범 답안 부합도","weight":1.0}]`을 주입합니다. DRAFT에는 불완전한 weight 합도 저장할 수 있고, 공개 시 입력된 rubric의 weight 합이 1.0인지 검증합니다.
+  - **D4 — 정답·해설 공개**: 정책 확정 전에는 제출 후에도 정답, 해설, 모범 답안과 rubric을 학생 응답에 포함하지 않습니다. 공개 전환은 별도 결정으로 추가하며 기존 공개 문항 조회 경로에는 조건부 정답 직렬화를 넣지 않습니다.
+  - **D5 — AI 채점**: SHORT/ESSAY는 기존 `/internal/ai/grade`를 재사용합니다. 시험은 `pageContext`와 `learnerMemoryDigest`를 생략하고, 동일 답안의 채점이 학습자 메모리에 따라 달라지지 않게 합니다. grade `quizId`에는 숫자 `examId`를 사용하며 wire 타입 변경은 후속 계약 버전에서 다룹니다. 응답이 있는 SHORT와 ESSAY를 유형별로 묶어 각 최대 1회 호출하고, 한 유형 호출이 실패해도 나머지 유형은 계속 호출해 성공 결과를 보존합니다.
+  - **D6 — 미응답**: 누락 답안은 `answer=NULL`, `score=0`, `verdict=WRONG`, `feedback=NULL`로 저장하고 AI 채점 요청에서 제외합니다. 전 문항 미응답 제출도 유효한 0점 시도로 보존합니다.
+  - **D7 — 채점 실패**: AI 대상 답안은 채점 완료 전과 실패 시 `score`, `verdict`, `feedback`을 `NULL`로 둡니다. 제출 총점·정규화 점수도 완전한 채점 전에는 `NULL`이며, 결정적 채점 결과와 미응답 결과는 유지합니다.
+  - **D8 — 빈 DRAFT**: 문항이 없는 DRAFT와 `total_score=0`을 허용합니다. 공개 시점에만 문항 1개 이상, 양수 총점, 유형별 비공개 정답과 rubric 불변식을 검증합니다.
+  - 시험 상태는 `DRAFT → PUBLISHED → CLOSED` 단방향입니다. 공개는 PUBLISHED에서, 마감은 CLOSED에서만 멱등입니다. DRAFT 마감은 `EXAM_NOT_PUBLISHED`, CLOSED 공개는 `EXAM_NOT_EDITABLE`로 거부합니다.
+  - 완료 강의실은 신규 학습 활동인 시험 생성·수정·공개·제출만 `CLASSROOM_COMPLETED`로 차단합니다. 기존 PUBLISHED 시험의 마감과 DRAFT 시험의 물리 삭제는 정리 작업으로 허용합니다.
+  - 동일 제출의 네트워크 재시도는 같은 `requestId`를 사용해 기존 제출을 반환하고, 재응시는 반드시 새 `requestId`를 발급합니다.
+  - 응답이 있는 SHORT/ESSAY 문항이 하나도 없으면 AI를 호출하지 않고 결정적 결과만으로 `GRADED`를 확정합니다. 실제 AI 호출이 하나 이상 발생하고 일반 채점 오류가 하나라도 생긴 경우에만 `GRADING_FAILED`로 저장합니다.
+  - AI가 `AI_REQUEST_INVALID`을 반환하면 Spring의 내부 계약 위반으로 간주합니다. 재시도하거나 `GRADING_FAILED`로 저장하지 않고, 임시 제출·답안이 있다면 보상 삭제한 뒤 기존 공통 `INTERNAL_SERVER_ERROR`(500)를 반환하고 민감정보 없는 오류 로그를 남깁니다.
+- 이유: 별도 시험은 통합 학습 퀴즈와 데이터를 분리하면서 기존 결정적 채점과 GraderAgent 검증을 재사용해야 합니다. 공개 전 편집 자유도, 채점 실패의 정확한 표현, 전 시도 보존을 보장해야 리포트의 최신·누적 추세가 왜곡되지 않습니다.
+- 대안과 trade-off: 정답·해설 즉시 공개는 학습 피드백이 빠르지만 재응시 시험의 정답 노출 문제가 있어 보류했습니다. AI 출제 초안은 편의성이 있으나 ReportAgent보다 우선하지 않아 Phase C로 이월합니다.
+- 후속 변경 문서: [API 명세](api-spec.md) §6.2, [데이터베이스](database.md), [도메인 모델](domain-model.md), [에러 코드](error-code.md), [화면-API 매핑](screen-api-map.md), [AI 연동 계약](ai-integration-contract.md) v0.6
+
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 
 - 상태: Accepted

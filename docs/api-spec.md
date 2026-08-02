@@ -82,6 +82,17 @@
 | GET | `/api/sessions/{sessionId}/quizzes` | 퀴즈 기록 조회 | Y | 세션 소유자 |
 | GET | `/api/quizzes/{quizId}` | 퀴즈 공개 문항 조회 | Y | 세션 소유자 |
 | POST | `/api/quizzes/{quizId}/submit` | 퀴즈 제출 | Y | 세션 소유자 |
+| POST | `/api/classrooms/{classroomId}/exams` | 별도 시험 DRAFT 생성 | Y | 소유 INSTRUCTOR |
+| GET | `/api/classrooms/{classroomId}/exams` | 역할별 시험 목록 조회 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
+| GET | `/api/exams/{examId}` | 역할별 시험 상세 조회 | Y | 소유 INSTRUCTOR 또는 공개 시험의 승인 멤버 |
+| PATCH | `/api/exams/{examId}` | DRAFT 시험 수정 | Y | 소유 INSTRUCTOR |
+| POST | `/api/exams/{examId}/publish` | 시험 공개 | Y | 소유 INSTRUCTOR |
+| POST | `/api/exams/{examId}/close` | 시험 마감 | Y | 소유 INSTRUCTOR |
+| DELETE | `/api/exams/{examId}` | DRAFT 시험 삭제 | Y | 소유 INSTRUCTOR |
+| POST | `/api/exams/{examId}/submissions` | 별도 시험 제출 | Y | 승인 멤버 |
+| GET | `/api/exams/{examId}/submissions` | 시험별 최신 대표 제출 목록 | Y | 소유 INSTRUCTOR |
+| GET | `/api/exams/{examId}/submissions/{submissionId}` | 특정 시험 제출 상세 | Y | 소유 INSTRUCTOR |
+| GET | `/api/exams/{examId}/submissions/me` | 본인 시험 제출 결과 조회 | Y | 제출한 승인 멤버 |
 | GET | `/api/users/me/memory?materialId={materialId}` | 학습자 메모리 조회(자료별) | Y | 본인 |
 | POST | `/api/sessions/{sessionId}/complete` | 세션 종료 | Y | 세션 소유자 |
 | POST | `/api/classrooms` | 강의실 개설 | Y | INSTRUCTOR |
@@ -692,9 +703,11 @@ Query:
 
 본인 노트를 물리 삭제합니다. 존재하지 않거나 다른 사용자의 노트는 모두 `NOTE_NOT_FOUND`(404)로 은닉합니다.
 
-## 6. 퀴즈 API
+## 6. 퀴즈·시험 API
 
-### GET `/api/quizzes/{quizId}`
+### 6.1 통합 학습 퀴즈
+
+#### GET `/api/quizzes/{quizId}`
 
 퀴즈의 공개 문항을 반환합니다. FE는 퀴즈 생성 턴 응답의 `state.activeQuizId`를 받아 이 API로 문항을 조회하며, 풀이 중 새로고침 후 재진입 시에도 같은 API로 문항을 복원합니다.
 
@@ -719,7 +732,7 @@ Query:
 - 권한은 퀴즈가 속한 세션의 소유자입니다. 소유권 위반은 `QUIZ_NOT_FOUND`로 은닉 처리합니다.
 - 문항 수는 기본 5개, 5~10개 범위입니다(QUIZ-003). `questionCount`는 `questions` 배열 길이와 항상 일치합니다.
 
-### 유형별 문항 스키마 (공개/비공개 분리 확정안)
+#### 유형별 문항 스키마 (공개/비공개 분리 확정안)
 
 외부 `questions[]`의 문항 공통 필드(공개)는 `questionId`(퀴즈 내 유일,
 예: "q1"), `questionText`, `maxScore`입니다. 내부 turn 응답과
@@ -733,7 +746,7 @@ Query:
 | SHORT | 공통 | `referenceAnswer`, `gradingCriteria: []` |
 | ESSAY | 공통 | `modelAnswer`, `rubric: [{ "criterion": "...", "weight": 0.5 }]` — **weight 합계 = 1.0 검증**(DEC-002 D4, 위반 시 생성 실패 처리) |
 
-- 내부 생성·저장 필드명은 [AI 연동 계약](ai-integration-contract.md) v0.5
+- 내부 생성·저장 필드명은 [AI 연동 계약](ai-integration-contract.md) v0.6
   §6.2를 따릅니다. Spring은 AI가 생성한 JSON을 공개/비공개로 분리 저장하고,
   외부 GET DTO에서만 `points/choices/choiceId`를
   `maxScore/options/optionId`로 변환합니다. 비공개 필드는 외부 DTO에 매핑하지
@@ -741,7 +754,7 @@ Query:
 - 유형별 답안 형식(submit의 `answers[].answer`): MCQ = `optionId` 문자열, OX = `"true"`/`"false"`, SHORT/ESSAY = 자유 텍스트. 문항 누락·알 수 없는 questionId는 `INVALID_QUIZ_ANSWER`(400).
 - 이 확정안은 BE·AI·FE 3자 리뷰 대상이며, 승인 후 AI 생성 JSON Schema(구조 검증용)의 기준이 됩니다.
 
-### POST `/api/quizzes/{quizId}/submit`
+#### POST `/api/quizzes/{quizId}/submit`
 
 ```json
 {
@@ -802,6 +815,120 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 ```
 
 `uiActions`의 `MOVE_NEXT_PAGE`는 turns 이벤트가 아닙니다. FE는 이 액션 선택 시 `PATCH /api/sessions/{sessionId}/page`를 호출합니다(화면-API 매핑 §3 확정 규칙).
+
+### 6.2 별도 시험
+
+별도 시험 계약은 DEC-031을 따릅니다. 시험은 강의실에 귀속하며 강사가 직접 출제합니다. 페이지네이션은 `page=0`, `size=20`, 최대 100입니다.
+
+#### 권한·노출 기준
+
+- 소유 `INSTRUCTOR`는 본인 강의실의 DRAFT·PUBLISHED·CLOSED 시험을 관리하고 정답·모범 답안·rubric을 포함한 강사 뷰를 조회합니다. 역할 부족은 `ACCESS_DENIED`(403), 다른 강사 소유권은 `CLASSROOM_NOT_FOUND`(404)로 처리합니다.
+- 승인 멤버는 PUBLISHED·CLOSED 시험만 목록·상세 조회할 수 있습니다. DRAFT 시험은 상세와 제출 경로에서도 `EXAM_NOT_FOUND`(404)로 은닉합니다.
+- 시험 노출은 `exams.status`만으로 결정합니다. `weekNumber`는 표시·집계 라벨이며 주차 공개 상태에 종속되지 않습니다.
+- 완료 강의실은 시험 생성·수정·공개·학생 제출을 `CLASSROOM_COMPLETED`(409)로 차단합니다. 기존 PUBLISHED 시험 close와 DRAFT 시험 삭제는 정리 작업으로 허용합니다.
+
+#### 강사 API
+
+| Method | URL | 계약 |
+| --- | --- | --- |
+| POST | `/api/classrooms/{classroomId}/exams` | DRAFT 생성. 문항 배열은 비어 있을 수 있습니다. |
+| GET | `/api/classrooms/{classroomId}/exams?status&page&size` | 소유 강사는 전 상태와 제출자 수를 조회합니다. |
+| GET | `/api/exams/{examId}` | 소유 강사 뷰는 정답·모범 답안·rubric을 포함합니다. |
+| PATCH | `/api/exams/{examId}` | DRAFT만 수정. 필드 생략은 유지, `questions` 전달 시 전체 교체입니다. |
+| POST | `/api/exams/{examId}/publish` | DRAFT→PUBLISHED. PUBLISHED에서는 멱등입니다. |
+| POST | `/api/exams/{examId}/close` | PUBLISHED→CLOSED. CLOSED에서는 멱등입니다. |
+| DELETE | `/api/exams/{examId}` | DRAFT만 물리 삭제합니다. |
+| GET | `/api/exams/{examId}/submissions?page&size` | 학생별 최신 대표 제출과 attempt 수를 조회합니다. |
+| GET | `/api/exams/{examId}/submissions/{submissionId}` | 특정 제출의 답안·점수·판정·피드백을 조회합니다. |
+
+생성·수정 요청의 공통 형태:
+
+```json
+{
+  "title": "중간 점검 시험",
+  "description": "1~4주차 핵심 개념",
+  "weekNumber": 4,
+  "allowRetake": false,
+  "questions": [
+    {
+      "questionType": "SHORT",
+      "questionText": "표준편차의 의미를 설명하세요.",
+      "points": 20,
+      "referenceAnswer": "자료가 평균에서 퍼진 정도를 나타낸다.",
+      "rubric": []
+    }
+  ]
+}
+```
+
+- `title`은 공백이 아닌 최대 200자, `description`은 nullable 최대 500자입니다. `weekNumber`는 nullable이며 값이 있으면 `1 <= weekNumber <= weekCount`입니다.
+- DRAFT 저장에서는 문항 0개와 불완전한 rubric weight 합을 허용합니다. publish 시 문항 1개 이상, `totalScore > 0`, 유형별 정답·모범 답안 비공백, 입력된 rubric의 weight 합 1.0을 검증합니다.
+- rubric 키 생략, null, 빈 배열은 모두 미입력입니다. 미입력 SHORT/ESSAY는 grade 호출 시 서버가 `[{"criterion":"모범 답안 부합도","weight":1.0}]`을 주입합니다.
+- publish를 CLOSED에서 호출하거나 공개 이후 수정·삭제하면 `EXAM_NOT_EDITABLE`(409)입니다. close를 DRAFT에서 호출하면 `EXAM_NOT_PUBLISHED`(409)입니다.
+
+#### 학생 API
+
+| Method | URL | 계약 |
+| --- | --- | --- |
+| GET | `/api/classrooms/{classroomId}/exams?page&size` | PUBLISHED·CLOSED 목록과 본인 최신 제출 요약을 반환합니다. |
+| GET | `/api/exams/{examId}` | 공개 문항과 `submittable`만 반환합니다. |
+| POST | `/api/exams/{examId}/submissions` | PUBLISHED 시험을 동기 채점해 제출 결과를 반환합니다. |
+| GET | `/api/exams/{examId}/submissions/me?attemptNo=` | 본인 결과를 조회하며 attemptNo 생략 시 최신 시도입니다. |
+
+학생 문항 DTO는 `questionId`, `questionText`, `maxScore`, `questionType`, `options`만 포함합니다. 정답·해설·모범 답안·rubric은 DEC-031 D4 확정 전까지 제출 후에도 반환하지 않습니다.
+
+제출 요청:
+
+```json
+{
+  "requestId": "01K2...",
+  "answers": [
+    {"questionId": "q1", "answer": "a"},
+    {"questionId": "q2", "answer": "자유 서술 답안"}
+  ]
+}
+```
+
+- 답안 형식은 MCQ=`optionId`, OX=`"true"|"false"`, SHORT/ESSAY=자유 텍스트입니다.
+- 누락 questionId는 미응답으로 처리합니다. 알 수 없거나 중복된 questionId, 유형에 맞지 않는 답안은 `INVALID_EXAM_ANSWER`(400)입니다.
+- 같은 제출의 통신 재시도는 동일 requestId를 사용하며 기존 제출을 반환합니다. 새로운 재응시는 반드시 새 requestId를 사용합니다.
+- `allowRetake=false`에서 새 requestId로 다시 제출하면 `EXAM_ALREADY_SUBMITTED`(409), `allowRetake=true`이면 다음 attemptNo를 생성합니다.
+- DRAFT 제출은 `EXAM_NOT_FOUND`(404)로 은닉하고 CLOSED 제출은 `EXAM_NOT_PUBLISHED`(409)로 거부합니다.
+
+제출·본인 결과 응답의 공통 형태:
+
+```json
+{
+  "submissionId": 300,
+  "attemptNo": 1,
+  "status": "GRADED",
+  "score": 80.00,
+  "maxScore": 100.00,
+  "normalizedScore": 80.00,
+  "submittedAt": "2026-08-02T12:00:00Z",
+  "gradedAt": "2026-08-02T12:00:01Z",
+  "items": [
+    {
+      "questionId": "q1",
+      "answer": "a",
+      "score": 20.00,
+      "maxScore": 20.00,
+      "verdict": "CORRECT",
+      "feedback": null
+    }
+  ]
+}
+```
+
+#### 채점·실패 계약
+
+- MCQ/OX는 Spring이 결정적으로 채점합니다. 미응답은 `answer=null`, `score=0`, `verdict=WRONG`, `feedback=null`이며 AI 요청에 포함하지 않습니다.
+- 응답이 있는 SHORT가 하나 이상이면 SHORT grade를 1회, 응답이 있는 ESSAY가 하나 이상이면 ESSAY grade를 1회 호출합니다. 해당 문항이 없으면 그 유형을 호출하지 않습니다.
+- MCQ/OX만 있는 시험, SHORT/ESSAY가 모두 미응답인 시험과 전 문항 미응답 시험은 AI 호출 없이 `GRADED`로 완료합니다.
+- 한 AI 유형 호출이 일반 채점 오류로 실패해도 다른 유형 호출은 계속합니다. 성공한 AI·결정적 결과와 미응답 결과는 보존하며, 실제 AI 호출이 하나 이상 실패하면 제출을 `GRADING_FAILED`로 둡니다.
+- `GRADING_FAILED`에서는 제출 `score`, `normalizedScore`, `gradedAt`이 null입니다. 실패한 AI 문항의 `score`, `verdict`, `feedback`도 null이며 `answer`, `maxScore`는 유지합니다.
+- 내부 AI가 `AI_REQUEST_INVALID`을 반환하면 Spring 계약 결함입니다. 재시도·GRADING_FAILED 저장 없이 임시 제출을 보상 삭제하고 외부 `INTERNAL_SERVER_ERROR`(500)를 반환하며 traceId와 안전한 메타데이터만 오류 로그에 남깁니다.
+- AI 응답 점수는 문항 범위·소수 자릿수·questionId·verdict를 Spring이 재검증합니다. 총점과 `ROUND(score/maxScore*100,2)` 정규화 점수는 Spring이 계산합니다. 시험 결과는 quiz-assessment·diagnosis 파이프라인을 호출하지 않습니다.
 
 ## 7. 학습 환경설정·학습자 메모리 API
 
@@ -1226,11 +1353,15 @@ MVP에서는 공지를 물리 삭제하고 `data:null`을 반환합니다.
 | --- | --- | --- | --- |
 | POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (LLM 판단 없는 결정적 전처리 — DEC-006) | 자료 업로드 후 비동기 처리 |
 | POST | `/internal/ai/turn` | 자유 학습 턴 계획·실행 (설명, QA, 퀴즈 생성, 교정, 메모리 후보·승격 포함) | turns 이벤트 수신 시 |
-| POST | `/internal/ai/grade` | SHORT/ESSAY 채점 — 결정성 설정(temperature 최저 등)으로 동일 답안 재채점 편차를 최소화 | 퀴즈 제출 파이프라인 1단계 (SHORT/ESSAY만) |
+| POST | `/internal/ai/grade` | SHORT/ESSAY 채점 — 결정성 설정(temperature 최저 등)으로 동일 답안 재채점 편차를 최소화 | 통합 퀴즈 또는 별도 시험에서 응답이 있는 SHORT/ESSAY 유형별 1회 |
 | POST | `/internal/ai/quiz-assessment` | 퀴즈 내부 평가 생성 | 퀴즈 제출 파이프라인 2단계 (채점 완료 후 항상) |
 | POST | `/internal/ai/diagnosis` | 진단 질문 생성 | 퀴즈 제출 파이프라인 3단계 (기준 점수 미달 시) |
 
 `extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)을 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
+
+별도 시험 grade는 숫자 `examId`를 `quizId`로 사용합니다. `pageContext`와 `learnerMemoryDigest`는 생략·null을 허용하고 나머지 grade 요청 필드는 필수·non-null입니다. 응답이 있는 SHORT와 ESSAY는 각각 묶어 호출하며 한 유형이 실패해도 나머지 유형은 계속 호출합니다. 실제 호출의 `items`와 `studentAnswers`는 비어 있지 않아야 합니다. 상세 필드 강제력과 표준 오류 봉투는 `ai-integration-contract.md` v0.6 §6.2를 따릅니다.
+
+grade 호출의 `AI_REQUEST_INVALID`은 Spring 요청 계약 결함입니다. Spring은 재시도하지 않고 오류 로그를 남기며 외부 `INTERNAL_SERVER_ERROR`(500)를 반환합니다. 이 경우 제출을 `GRADING_FAILED`로 저장하지 않고 임시 데이터가 있다면 보상 삭제합니다.
 
 일반 턴 요청 최소 구조:
 
@@ -1271,7 +1402,7 @@ MVP에서는 공지를 물리 삭제하고 `data:null`을 반환합니다.
 }
 ```
 
-`learnerLevel`은 `learner_memories.target_difficulty`이며 데이터가 없으면 `null`입니다. `learnerConfidence`는 같은 사용자×자료의 최근 assessment 5개 통과 비율로 파생합니다. 비율이 0.4 미만이면 `LOW`, 0.4 이상 0.7 이하면 `MEDIUM`, 0.7 초과면 `HIGH`이며 평가가 없으면 `null`입니다. `conversationSummary`는 MVP에서 생성하지 않으며 내부 턴 스냅샷에 포함하지 않습니다(`ai-integration-contract.md` v0.5 §3.1).
+`learnerLevel`은 `learner_memories.target_difficulty`이며 데이터가 없으면 `null`입니다. `learnerConfidence`는 같은 사용자×자료의 최근 assessment 5개 통과 비율로 파생합니다. 비율이 0.4 미만이면 `LOW`, 0.4 이상 0.7 이하면 `MEDIUM`, 0.7 초과면 `HIGH`이며 평가가 없으면 `null`입니다. `conversationSummary`는 MVP에서 생성하지 않으며 내부 턴 스냅샷에 포함하지 않습니다(`ai-integration-contract.md` v0.6 §3.1).
 
 `currentPageText`는 `string | null`이며 null은 `USER_QUESTION`의 `includeCurrentPage=false`일 때만 허용합니다. 이 경우 `previousPageText`와 `nextPageText`도 null이고 context 12키는 그대로 유지합니다. `EXPLAIN_CURRENT_PAGE`와 `QUIZ_TYPE_SELECTED`에서는 `currentPageText`가 필수이며 AI Service가 eventType과 context를 교차 검증합니다. `includeCurrentPage=false`인데 페이지 텍스트가 전달되면 AI Service는 전달된 context를 사용하고 Spring이 정합 책임을 집니다.
 
@@ -1318,7 +1449,7 @@ MVP에서는 공지를 물리 삭제하고 `data:null`을 반환합니다.
 
 세션 `status` 전이(`ACTIVE`/`COMPLETED`/`DELETED`)는 statePatch로 허용하지 않으며 Spring 외부 API(complete/delete)로만 변경합니다. 목록의 세부 값은 구현 시 domain-model과 함께 확정합니다.
 
-DTO 상세·타임아웃·재시도·`usage` 필드는 [docs/ai-integration-contract.md](ai-integration-contract.md) v0.5가 기준입니다(turn 요청/응답 구조, grade/quiz-assessment/diagnosis/extract DTO, 오류 category 5종 AUTH/TIMEOUT/SCHEMA/POLICY/INTERNAL과 Spring 매핑 포함).
+DTO 상세·타임아웃·재시도·`usage` 필드는 [docs/ai-integration-contract.md](ai-integration-contract.md) v0.6이 기준입니다(turn 요청/응답 구조, grade/quiz-assessment/diagnosis/extract DTO, 오류 category 5종 AUTH/TIMEOUT/SCHEMA/POLICY/INTERNAL과 Spring 매핑 포함).
 
 내부 API 필수 정책:
 

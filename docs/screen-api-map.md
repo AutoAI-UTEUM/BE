@@ -31,6 +31,12 @@
 | 강의실 자료 학습 | 공개 자료 열기·통합학습 시작 | `GET /api/materials/{materialId}`, `GET .../file`, `POST /api/sessions` | PDF 뷰어와 사용자×자료 공유 세션으로 이동 | 공개 취소·연결 해제·멤버십 |
 | 공지 | 목록·즉시 게시·수정·삭제 | `GET·POST /api/classrooms/{id}/notices`, `PATCH·DELETE .../notices/{noticeId}` | 최신 공지 목록 갱신 | 강사 권한, 완료 상태 |
 | 캘린더 | 기간·강의실 필터 조회 | `GET /api/users/me/schedule?from&to&classroomId` | 주차 공개·공지 게시 일정을 시간순 표시 | 날짜 범위, 강의실 접근권 |
+| 시험 관리 | 시험 생성·목록·상세·수정 | `POST·GET /api/classrooms/{classroomId}/exams`, `GET·PATCH /api/exams/{examId}` | DRAFT 편집기와 전체 상태 목록 표시. rubric 편집기는 기본 접힘·미입력 상태 | 강사 권한, 완료 강의실, DRAFT 편집 상태 |
+| 시험 관리 | 공개·마감·DRAFT 삭제 | `POST /api/exams/{examId}/publish`, `POST .../close`, `DELETE /api/exams/{examId}` | 상태 배지와 응시 가능 여부 갱신 | `EXAM_NOT_EDITABLE`, `EXAM_NOT_PUBLISHED` |
+| 시험 결과 관리 | 학생별 최신 제출·특정 시도 조회 | `GET /api/exams/{examId}/submissions`, `GET .../submissions/{submissionId}` | 최신 attempt 대표값과 전체 attempt 수, 채점 상세 표시 | 시험 소유권, 페이지네이션 |
+| 시험 응시 | 공개·마감 시험 목록과 상세 조회 | `GET /api/classrooms/{classroomId}/exams`, `GET /api/exams/{examId}` | PUBLISHED는 응시 UI, CLOSED는 읽기 전용 결과 UI | DRAFT는 `EXAM_NOT_FOUND`로 은닉 |
+| 시험 응시 | 답안 제출·통신 재시도·재응시 | `POST /api/exams/{examId}/submissions` | 같은 제출 재시도는 같은 `requestId`로 기존 결과 복원. 재응시는 새 `requestId`로 다음 attempt 생성 | CLOSED, 재응시 불가, 답안 형식 오류 |
+| 시험 결과 | 내 최신 또는 지정 시도 조회 | `GET /api/exams/{examId}/submissions/me?attemptNo=` | 점수·판정·피드백 표시. 미채점 항목과 전체 점수는 nullable 처리 | 접근 권한, 시도 없음 |
 | 전역 | access 만료(401) 시 | `POST /api/auth/refresh` (credentials 포함) | 새 access로 원요청 재시도 | TOKEN_INVALID → 로그인 이동 |
 | 헤더/메뉴 | 로그아웃 버튼 | `POST /api/auth/logout` | 메모리 access 삭제 후 로그인 화면 | 없음(멱등) |
 | 계정 설정 | 탈퇴 버튼 → 비밀번호 확인 모달 | `DELETE /api/users/me` | 토큰 정리 후 로그인 화면 이동 | 비밀번호 불일치 (DEC-028) |
@@ -109,6 +115,7 @@ turn 응답의 `state.activeQuizId`는 nullable입니다. 퀴즈 생성 턴에�
 - Orchestrator의 세부 Plan 또는 비공개 reason
 - Grok 프롬프트와 내부 추론
 - 퀴즈 제출 전 정답·루브릭
+- 별도 시험의 정답·해설·모범 답안·rubric은 DEC-031 D4 확정 전까지 제출 후에도 비노출
 - 장기 메모리 승격 내부 점수/근거 원문
 
 ## 5. 공동 합의 필요
@@ -118,7 +125,8 @@ turn 응답의 `state.activeQuizId`는 nullable입니다. 퀴즈 생성 턴에�
 - 메시지와 퀴즈 목록 페이지네이션
 - SSE 이벤트 schema와 heartbeat·취소·`Last-Event-ID` 재연결 (인증은 fetch 스트림 + Authorization 헤더로 확정 — DEC-021)
 - 처리 중 PDF와 AI 장시간 작업 표시
-- 퀴즈 재제출 및 결과 공개 정책
+- 통합 학습 퀴즈 재제출 정책
+- 별도 시험 정답·해설 공개 시점(현재 임시 비공개)
 - 오류별 사용자 문구와 재시도 버튼 정책
 - 타 사용자 아바타가 필요한 Epic 10 강의실 범위에서 공개 또는 사용자 ID 기반 아바타 endpoint 검토
 - 강의실 색상은 `BLUE | GREEN | PURPLE | ORANGE | RED | GRAY`와 DEC-030의 고정 hex 매핑을 사용

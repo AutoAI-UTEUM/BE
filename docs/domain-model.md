@@ -16,6 +16,7 @@
 | Learning | LearningSession, ChatMessage | 현재 학습 상태와 대화 기록 |
 | QA | QaThread, QaMessage | 이어지는 질문 문맥 |
 | Quiz | Quiz, QuizSubmission, QuizAssessment | 문제 원본, 제출·채점, 내부 평가 |
+| Exam | Exam, ExamQuestion, ExamSubmission, ExamAnswer | 강사 출제 시험, 재응시, 문항별 채점 결과 |
 | Repair | Diagnosis, RepairResult | 진단 질문과 오개념 교정 |
 | Personalization | LearnerMemory | 반복 근거 기반 장기 개인화 정보 |
 
@@ -32,11 +33,13 @@ erDiagram
   USER ||--o{ CLASSROOM : instructs
   USER ||--o{ CLASSROOM_MEMBER : joins
   USER ||--o{ CLASSROOM_JOIN_REQUEST : requests
+  USER ||--o{ EXAM_SUBMISSION : submits
 
   CLASSROOM ||--o{ CLASSROOM_MEMBER : contains
   CLASSROOM ||--o{ CLASSROOM_JOIN_REQUEST : receives
   CLASSROOM ||--o{ CLASSROOM_WEEK : schedules
   CLASSROOM ||--o{ CLASSROOM_NOTICE : publishes
+  CLASSROOM ||--o{ EXAM : holds
   CLASSROOM_WEEK ||--o{ CLASSROOM_WEEK_MATERIAL : links
   LEARNING_MATERIAL ||--o{ CLASSROOM_WEEK_MATERIAL : assigned_as
 
@@ -53,6 +56,11 @@ erDiagram
   QUIZ_SUBMISSION ||--o| QUIZ_ASSESSMENT : assessed_as
   QUIZ_SUBMISSION ||--o| DIAGNOSIS : may_trigger
   DIAGNOSIS ||--o| REPAIR_RESULT : repaired_by
+
+  EXAM ||--o{ EXAM_QUESTION : contains
+  EXAM ||--o{ EXAM_SUBMISSION : receives
+  EXAM_SUBMISSION ||--o{ EXAM_ANSWER : contains
+  EXAM_QUESTION ||--o{ EXAM_ANSWER : answered_as
 ```
 
 ## 3. 핵심 모델
@@ -150,6 +158,24 @@ erDiagram
 - 학습자에게 직접 보여주는 피드백과 구분합니다.
 - 단일 Assessment를 장기 성향으로 확정하지 않습니다.
 
+### Exam / ExamQuestion
+
+- 시험은 강의실에 귀속하며 `weekNumber`는 nullable 표시·집계 라벨입니다. 주차 번호가 있으면 강의실의 계산된 `weekCount` 안에 있어야 하지만 `ClassroomWeek` 행 존재는 요구하지 않습니다.
+- 상태는 `DRAFT → PUBLISHED → CLOSED` 단방향입니다. DRAFT는 문항 0개와 불완전한 rubric을 허용하고, 공개 시 문항·총점·비공개 정답·rubric 불변식을 검증합니다.
+- 강사가 전달한 문항 배열은 DRAFT에서만 전체 교체합니다. 공개 이후 문항·설정 수정과 삭제는 금지하고 CLOSED 전환으로 종료합니다.
+- 공개 문항 JSON과 정답·모범 답안·rubric이 담긴 비공개 JSON을 분리합니다. 학생 조회와 제출 결과에는 DEC-031 D4 확정 전까지 비공개 필드를 포함하지 않습니다.
+- 완료 강의실에서는 생성·수정·공개를 차단하지만, 기존 PUBLISHED 시험 마감과 DRAFT 시험 삭제는 정리 작업으로 허용합니다.
+
+### ExamSubmission / ExamAnswer
+
+- 제출은 `(examId,userId,attemptNo)`로 시도를 보존합니다. 재응시가 허용되면 attemptNo를 1부터 증가시키고 대표값은 가장 큰 attemptNo인 최신 제출입니다.
+- 같은 `requestId`는 같은 제출을 반환합니다. 새 재응시는 반드시 새 requestId를 사용합니다.
+- 상태는 `SUBMITTED → GRADED | GRADING_FAILED`입니다. 완전한 채점 전에는 제출 총점·정규화 점수를 확정하지 않습니다.
+- MCQ/OX는 Spring이 결정적으로 채점합니다. 응답이 있는 SHORT/ESSAY는 기존 grade 내부 API를 유형별 최대 1회씩 호출하고, 한 유형이 실패해도 나머지 유형 호출을 계속합니다. 점수 합계와 0~100 정규화는 Spring이 계산합니다.
+- grade의 `AI_REQUEST_INVALID`은 Spring 계약 결함이므로 재시도·`GRADING_FAILED` 저장 없이 제출을 실패시키고 임시 영속 데이터를 보상 삭제한 뒤 외부 500으로 처리합니다.
+- AI 대상 답안은 채점 완료 전·실패 시 점수와 판정이 없습니다. 미응답 문항만 `answer=null`, 0점, `WRONG`으로 즉시 확정하며 AI 호출에서 제외합니다.
+- 시험 결과는 QuizAssessment·Diagnosis 파이프라인을 시작하지 않습니다. 모든 시도와 문항 결과는 리포트가 최신·누적 추세를 분리할 수 있도록 보존합니다.
+
 ### Diagnosis / RepairResult
 
 - 통과 기준 미달 제출만 진단을 시작할 수 있습니다.
@@ -219,6 +245,17 @@ MVP는 세션 단일 `pageStatus`를 유지하고 페이지 이동 시 초기화
 
 `SCHEDULED | PUBLISHED`. 영속 컬럼이 아니며 `releaseAt`과 현재 UTC 시각으로 계산합니다.
 
+### Exam.status
+
+`DRAFT → PUBLISHED → CLOSED`
+
+- publish는 PUBLISHED에서, close는 CLOSED에서만 멱등입니다.
+- DRAFT에서 close하면 `EXAM_NOT_PUBLISHED`, CLOSED에서 publish하면 `EXAM_NOT_EDITABLE`입니다.
+
+### ExamSubmission.status
+
+`SUBMITTED → GRADED | GRADING_FAILED`
+
 ## 5. 주요 비즈니스 규칙
 
 1. 모든 세션·퀴즈·진단 접근은 소유권을 검증합니다.
@@ -233,4 +270,7 @@ MVP는 세션 단일 `pageStatus`를 유지하고 페이지 이동 시 초기화
 10. 강의실 소유권 위반은 `CLASSROOM_NOT_FOUND`로 숨기고, 강사 전용 행위에 대한 역할 부족은 `ACCESS_DENIED`로 처리합니다.
 11. 강의실 진도율은 공개 주차에 연결된 고유 READY 자료의 사용자×자료 설명 완료 이력을 합산하며, 동일 자료가 여러 주차에 연결돼도 한 번만 계산합니다.
 12. 자료 연결 해제 또는 공개 취소 후 다른 소유권·공개 주차 접근 경로가 없으면 강의실 권한에 의한 신규 접근과 추가 학습 턴을 차단하고 기존 사용자 학습 기록은 보존합니다.
+13. 시험의 DRAFT 저장은 편집 중 불완전 상태를 허용하고 공개 시점에만 전체 불변식을 검증합니다.
+14. 시험의 재응시는 전부 보존하고 최신 시도를 대표값으로 사용하며, 같은 제출 재시도와 새 attempt는 requestId로 구분합니다.
+15. 시험 AI 채점 실패를 오답으로 기록하지 않습니다. 미채점 결과는 null로 유지하고 미응답만 결정적 0점으로 처리합니다.
 
