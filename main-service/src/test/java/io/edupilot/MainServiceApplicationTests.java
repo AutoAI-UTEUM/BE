@@ -270,6 +270,21 @@ class MainServiceApplicationTests {
 				"$.paths['/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}'].delete"
 			).exists())
 			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/notices'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/notices'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/notices/{noticeId}'].patch"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/notices/{noticeId}'].delete"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/users/me/schedule'].get"
+			).exists())
+			.andExpect(jsonPath(
 				"$.components.schemas.CreateFeedbackRequest.required"
 			).value(org.hamcrest.Matchers.hasItems("category", "message")))
 			.andExpect(jsonPath(

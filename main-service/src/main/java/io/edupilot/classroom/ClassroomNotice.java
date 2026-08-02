@@ -16,8 +16,8 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "classroom_weeks")
-public class ClassroomWeek {
+@Table(name = "classroom_notices")
+public class ClassroomNotice {
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -27,14 +27,14 @@ public class ClassroomWeek {
 	@JoinColumn(name = "classroom_id", nullable = false)
 	private Classroom classroom;
 
-	@Column(name = "week_number", nullable = false)
-	private int weekNumber;
-
-	@Column(nullable = false, length = 100)
+	@Column(nullable = false, length = 200)
 	private String title;
 
-	@Column(name = "release_at")
-	private Instant releaseAt;
+	@Column(nullable = false, columnDefinition = "TEXT")
+	private String content;
+
+	@Column(name = "published_at", nullable = false)
+	private Instant publishedAt;
 
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
@@ -44,52 +44,37 @@ public class ClassroomWeek {
 	@Column(name = "updated_at", nullable = false)
 	private Instant updatedAt;
 
-	protected ClassroomWeek() {
+	protected ClassroomNotice() {
 	}
 
-	private ClassroomWeek(
+	private ClassroomNotice(
 		Classroom classroom,
-		int weekNumber,
 		String title,
-		Instant releaseAt
+		String content,
+		Instant publishedAt
 	) {
 		this.classroom = classroom;
-		this.weekNumber = weekNumber;
 		this.title = title;
-		this.releaseAt = releaseAt;
+		this.content = content;
+		this.publishedAt = publishedAt;
 	}
 
-	public static ClassroomWeek create(
+	public static ClassroomNotice create(
 		Classroom classroom,
-		int weekNumber,
 		String title,
-		Instant releaseAt
+		String content,
+		Instant publishedAt
 	) {
-		return new ClassroomWeek(classroom, weekNumber, title, releaseAt);
+		return new ClassroomNotice(classroom, title, content, publishedAt);
 	}
 
-	public void update(
-		boolean titlePresent,
-		String title,
-		boolean releaseAtPresent,
-		Instant releaseAt
-	) {
-		if (titlePresent) {
+	public void update(String title, String content) {
+		if (title != null) {
 			this.title = title;
 		}
-		if (releaseAtPresent) {
-			this.releaseAt = releaseAt;
+		if (content != null) {
+			this.content = content;
 		}
-	}
-
-	public boolean isReleased(Instant now) {
-		return releaseAt == null || !releaseAt.isAfter(now);
-	}
-
-	public ClassroomWeekStatus statusAt(Instant now) {
-		return isReleased(now)
-			? ClassroomWeekStatus.PUBLISHED
-			: ClassroomWeekStatus.SCHEDULED;
 	}
 
 	public Long getId() {
@@ -100,23 +85,23 @@ public class ClassroomWeek {
 		return classroom;
 	}
 
-	public Long getClassroomId() {
-		return classroom.getId();
-	}
-
-	public int getWeekNumber() {
-		return weekNumber;
-	}
-
 	public String getTitle() {
 		return title;
 	}
 
-	public Instant getReleaseAt() {
-		return releaseAt;
+	public String getContent() {
+		return content;
+	}
+
+	public Instant getPublishedAt() {
+		return publishedAt;
 	}
 
 	public Instant getCreatedAt() {
 		return createdAt;
+	}
+
+	public Instant getUpdatedAt() {
+		return updatedAt;
 	}
 }

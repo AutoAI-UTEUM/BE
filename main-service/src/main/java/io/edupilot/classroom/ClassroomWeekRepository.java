@@ -1,5 +1,7 @@
 package io.edupilot.classroom;
 
+import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -35,4 +37,18 @@ public interface ClassroomWeekRepository extends JpaRepository<ClassroomWeek, Lo
 
 	@Query("select max(week.weekNumber) from ClassroomWeek week where week.classroom.id = :classroomId")
 	Integer findMaximumWeekNumber(@Param("classroomId") Long classroomId);
+
+	@Query("""
+		select week
+		from ClassroomWeek week
+		join fetch week.classroom
+		where week.classroom.id in :classroomIds
+		  and coalesce(week.releaseAt, week.createdAt) >= :from
+		  and coalesce(week.releaseAt, week.createdAt) < :toExclusive
+		""")
+	List<ClassroomWeek> findScheduleWeeks(
+		@Param("classroomIds") Collection<Long> classroomIds,
+		@Param("from") Instant from,
+		@Param("toExclusive") Instant toExclusive
+	);
 }
