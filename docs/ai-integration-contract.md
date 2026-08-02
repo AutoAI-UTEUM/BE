@@ -353,7 +353,7 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 - 응답: `quizId, quizType, score, maxScore, items[]{questionId, score, maxScore, verdict(CORRECT|PARTIAL|WRONG), feedback}` + `usage`
 - 응답은 기존처럼 `quizId`를 에코하며 요청의 정수 값을 그대로 유지합니다. 별도 에코 필드는 추가하지 않습니다. 요청 로그에도 원문 답안을 제외한 정수 `quizId`를 상관관계 값으로 기록할 수 있습니다.
 - 규칙: **questionId 기반 매칭**(index 금지), rubric weight 합 검증, 항목별 점수 산출 후 **합산은 코드에서**(DEC-002 D4), 점수 불변식(0≤score≤maxScore) 자체 검증 → Spring 재검증(GRADING_RESULT_INVALID). verdict는 만점 비율 `CORRECT >= 0.8`, `WRONG <= 0.2`, 그 사이는 `PARTIAL`. reasoning_effort=high.
-- 필수 필드 누락과 DTO 검증 실패는 FastAPI 기본 `{"detail":[...]}` 응답을 노출하지 않고 `{"schemaVersion":"1.0","error":{"code":"AI_REQUEST_INVALID","category":"SCHEMA","message":"...","retryable":false},"traceId":"..."}` 표준 봉투로 반환합니다. Spring은 grade에서 이 오류를 받으면 계약 결함으로 간주해 재시도하거나 `GRADING_FAILED`로 저장하지 않고, 오류 로그 후 외부 `INTERNAL_SERVER_ERROR`(500)로 매핑합니다.
+- 필수 필드 누락·타입 오류 같은 body·DTO 검증 실패는 HTTP 422, `items`와 `studentAnswers`의 `questionId` 집합 불일치 같은 필드 간 의미 검증 실패는 HTTP 400입니다. 두 경우 모두 FastAPI 기본 `{"detail":[...]}` 응답을 노출하지 않고 `{"schemaVersion":"1.0","error":{"code":"AI_REQUEST_INVALID","category":"SCHEMA","message":"...","retryable":false},"traceId":"..."}` 표준 봉투로 반환합니다. Spring의 통합 학습 퀴즈 동기 파이프라인은 기존 오류 변환을 유지합니다. 별도 시험 비동기 worker는 HTTP 상태와 무관하게 이 code를 Spring-AI 계약 결함으로 기록하고, 재시도 없이 제출을 `GRADING_FAILED`로 종결합니다. 이미 커밋된 제출을 보상 삭제하거나 원 POST에 500을 반환하지 않습니다(DEC-032).
 
 ### 6.3 POST /internal/ai/quiz-assessment
 
@@ -397,7 +397,7 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 **v0.6에서 확정된 사항** (근거: #133·DEC-031 Accepted):
 
 - grade의 `quizId` wire 타입은 integer이며 시험은 숫자 exam ID를 사용한다. `pageContext`와 `learnerMemoryDigest`는 optional·nullable이고 나머지 요청 필드는 required·non-null이다.
-- 응답이 있는 SHORT·ESSAY만 유형별 호출하며 한 유형 실패 후에도 나머지 유형을 호출한다. `AI_REQUEST_INVALID`은 표준 SCHEMA 봉투로 반환하고 Spring은 이를 내부 계약 결함으로 처리한다.
+- 응답이 있는 SHORT·ESSAY만 유형별 호출하며 한 유형 실패 후에도 나머지 유형을 호출한다. `AI_REQUEST_INVALID`은 body·DTO 검증 실패 시 HTTP 422, 필드 간 의미 검증 실패 시 HTTP 400의 표준 SCHEMA 봉투로 반환하고 Spring은 두 경우 모두 내부 계약 결함으로 처리한다.
 
 **v0.5에서 확정된 사항** (근거: #108 합의):
 

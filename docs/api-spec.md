@@ -933,7 +933,7 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 - MCQ/OX만 있는 시험, SHORT/ESSAY가 모두 미응답인 시험과 전 문항 미응답 시험은 AI 호출 없이 `GRADED`로 완료합니다.
 - 한 AI 유형 호출이 일반 채점 오류로 실패해도 다른 유형 호출은 계속합니다. 성공한 AI·결정적 결과와 미응답 결과는 보존하며, 실제 AI 호출이 하나 이상 실패하면 제출을 `GRADING_FAILED`로 둡니다.
 - `GRADING_FAILED`에서는 제출 `score`, `normalizedScore`, `gradedAt`이 null입니다. 실패한 AI 문항의 `score`, `verdict`, `feedback`도 null이며 성공한 결정적·AI 결과와 미응답 결과는 보존합니다.
-- 내부 AI가 `AI_REQUEST_INVALID`을 반환하면 Spring 계약 결함입니다. 비동기 worker는 재시도하지 않고 제출을 `GRADING_FAILED`로 종결하며 traceId와 안전한 메타데이터만 ERROR 로그에 남깁니다.
+- 내부 AI가 `AI_REQUEST_INVALID`을 반환하면 Spring 계약 결함입니다. 비동기 worker는 HTTP 400·422를 동일하게 재시도하지 않고 제출을 `GRADING_FAILED`로 종결하며 `submissionId`, `examId`, 오류 code만 ERROR 로그에 남깁니다.
 - 채점 worker는 5분 lease를 사용하고 scheduler는 30초마다 최대 100건을 회수합니다. 제출 후 30분이 지나면 active lease보다 우선해 `GRADING_FAILED`로 종결하며, 그보다 최신인 만료 lease만 재전달합니다.
 - AI 응답 점수는 문항 범위·소수 자릿수·questionId·verdict를 Spring이 재검증합니다. 총점과 `ROUND(score/maxScore*100,2)` 정규화 점수는 Spring이 계산합니다. 시험 결과는 quiz-assessment·diagnosis 파이프라인을 호출하지 않습니다.
 - 운영용 최신 제출과 학생 결과 조회는 상태와 무관한 `MAX(attemptNo)`를 사용합니다. 성적·리포트 대표값은 `MAX(attemptNo WHERE status=GRADED)`이며, `GRADED 80점 → GRADING_FAILED` 순서라면 이전 80점 제출이 대표 성적입니다.
