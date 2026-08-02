@@ -72,4 +72,8 @@ public class QaThread {
 	public QaThreadStatus getStatus() {
 		return status;
 	}
+
+	public Instant getCreatedAt() {
+		return createdAt;
+	}
 }

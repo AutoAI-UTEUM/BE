@@ -1,5 +1,6 @@
 package io.edupilot.session;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -115,9 +116,16 @@ public class TurnSnapshotService {
 		);
 		context.put(
 			"recentMessages",
-			recentMessages(sessionId, currentRequestMessageId)
+			recentMessages(
+				sessionId,
+				currentRequestMessageId,
+				session.getConversationResetAt()
+			)
 		);
-		context.put("qaThreadDigest", qaThreadDigest(sessionId));
+		context.put(
+			"qaThreadDigest",
+			qaThreadDigest(sessionId, session.getConversationResetAt())
+		);
 		context.put(
 			"quizAssessments",
 			recentAssessmentsForSession(sessionId)
@@ -138,7 +146,10 @@ public class TurnSnapshotService {
 			"pendingDiagnosis",
 			pendingDiagnosis(sessionId, session.getPendingDiagnosisId())
 		);
-		context.put("latestRepair", latestRepair(sessionId));
+		context.put(
+			"latestRepair",
+			latestRepair(sessionId, session.getConversationResetAt())
+		);
 		context.put(
 			"memory",
 			Map.of(
@@ -158,7 +169,8 @@ public class TurnSnapshotService {
 
 	private List<Map<String, Object>> recentMessages(
 		Long sessionId,
-		Long excludedMessageId
+		Long excludedMessageId,
+		Instant conversationResetAt
 	) {
 		List<ChatMessage> messages = new ArrayList<>(
 			messageRepository.findBySession_IdOrderByCreatedAtDescIdDesc(
@@ -167,7 +179,11 @@ public class TurnSnapshotService {
 			)
 		);
 		messages.removeIf(message ->
-			message.getId().equals(excludedMessageId));
+			message.getId().equals(excludedMessageId)
+				|| isBeforeOrAtReset(
+					message.getCreatedAt(),
+					conversationResetAt
+				));
 		if (messages.size() > MESSAGE_LIMIT) {
 			messages = new ArrayList<>(messages.subList(0, MESSAGE_LIMIT));
 		}
@@ -184,14 +200,20 @@ public class TurnSnapshotService {
 			.toList();
 	}
 
-	private Map<String, Object> qaThreadDigest(Long sessionId) {
+	private Map<String, Object> qaThreadDigest(
+		Long sessionId,
+		Instant conversationResetAt
+	) {
 		QaThread thread = qaThreadRepository
 			.findTopBySession_IdAndStatusOrderByUpdatedAtDescIdDesc(
 				sessionId,
 				QaThreadStatus.ACTIVE
 			)
 			.orElse(null);
-		if (thread == null) {
+		if (thread == null || isBeforeOrAtReset(
+		thread.getCreatedAt(),
+		conversationResetAt
+		)) {
 			return null;
 		}
 		List<QaMessage> messages = new ArrayList<>(
@@ -285,11 +307,17 @@ public class TurnSnapshotService {
 		return value;
 	}
 
-	private Map<String, Object> latestRepair(Long sessionId) {
+	private Map<String, Object> latestRepair(
+		Long sessionId,
+		Instant conversationResetAt
+	) {
 		RepairResult repair = repairRepository
 			.findTopBySession_IdOrderByCreatedAtDescIdDesc(sessionId)
 			.orElse(null);
-		if (repair == null) {
+		if (repair == null || isBeforeOrAtReset(
+			repair.getCreatedAt(),
+			conversationResetAt
+		)) {
 			return null;
 		}
 		return Map.of(
@@ -337,5 +365,13 @@ public class TurnSnapshotService {
 			return value;
 		}
 		return value.substring(0, maximumLength);
+	}
+
+	private boolean isBeforeOrAtReset(
+		Instant createdAt,
+		Instant conversationResetAt
+	) {
+		return conversationResetAt != null
+			&& (createdAt == null || !createdAt.isAfter(conversationResetAt));
 	}
 }

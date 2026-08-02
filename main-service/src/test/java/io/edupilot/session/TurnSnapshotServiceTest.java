@@ -5,7 +5,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
@@ -16,8 +18,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.edupilot.assessment.QuizAssessment;
+import io.edupilot.assessment.QuizAssessmentData;
 import io.edupilot.assessment.QuizAssessmentRepository;
+import io.edupilot.diagnosis.Diagnosis;
 import io.edupilot.diagnosis.DiagnosisRepository;
+import io.edupilot.diagnosis.DiagnosisStatus;
+import io.edupilot.diagnosis.RepairResult;
 import io.edupilot.diagnosis.RepairResultRepository;
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.MaterialPage;
@@ -133,7 +140,7 @@ class TurnSnapshotServiceTest {
 	}
 
 	@Test
-	void contextUsesExactlyV04ContractKeys() {
+	void contextUsesExactlyV05ContractKeys() {
 		LearningSession session = session();
 		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
 			.thenReturn(Optional.of(session));
@@ -188,6 +195,153 @@ class TurnSnapshotServiceTest {
 		);
 		assertThat(snapshot.context().get("learnerMemoryDigest"))
 			.isEqualTo("promoted digest");
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	void conversationResetExcludesOldConversationContextOnly() {
+		Instant resetAt = Instant.parse("2026-07-25T10:00:00Z");
+		LearningSession session = session();
+		session.startNewConversation(resetAt);
+		session.startDiagnosis(
+			30L,
+			UiAction.diagnosisQuestion("진단 질문", 30L)
+		);
+
+		ChatMessage oldMessage = ChatMessage.ai(
+			session,
+			MessageType.QA,
+			"이전 대화"
+		);
+		ReflectionTestUtils.setField(oldMessage, "id", 500L);
+		ReflectionTestUtils.setField(
+			oldMessage,
+			"createdAt",
+			resetAt.minusSeconds(1)
+		);
+		ChatMessage markerTimeMessage = ChatMessage.ai(
+			session,
+			MessageType.QA,
+			"마커 시각 대화"
+		);
+		ReflectionTestUtils.setField(markerTimeMessage, "id", 503L);
+		ReflectionTestUtils.setField(
+			markerTimeMessage,
+			"createdAt",
+			resetAt
+		);
+		ChatMessage newMessage = ChatMessage.ai(
+			session,
+			MessageType.QA,
+			"새 대화"
+		);
+		ReflectionTestUtils.setField(newMessage, "id", 501L);
+		ReflectionTestUtils.setField(
+			newMessage,
+			"createdAt",
+			resetAt.plusSeconds(1)
+		);
+		ChatMessage current = ChatMessage.user(
+			session,
+			"현재 질문",
+			"request-1"
+		);
+		ReflectionTestUtils.setField(current, "id", 502L);
+		ReflectionTestUtils.setField(
+			current,
+			"createdAt",
+			resetAt.plusSeconds(2)
+		);
+
+		QaThread oldThread = mock(QaThread.class);
+		when(oldThread.getCreatedAt()).thenReturn(resetAt.minusSeconds(1));
+		RepairResult oldRepair = mock(RepairResult.class);
+		when(oldRepair.getCreatedAt()).thenReturn(resetAt.minusSeconds(1));
+		Diagnosis diagnosis = mock(Diagnosis.class);
+		when(diagnosis.getId()).thenReturn(30L);
+		when(diagnosis.getSessionId()).thenReturn(100L);
+		when(diagnosis.getDiagnosticPrompt()).thenReturn("진단 질문");
+		when(diagnosis.getStatus()).thenReturn(DiagnosisStatus.PENDING);
+
+		QuizAssessment assessment = mock(QuizAssessment.class);
+		when(assessment.getId()).thenReturn(70L);
+		when(assessment.isPassed()).thenReturn(true);
+		when(assessment.getAssessment()).thenReturn(new QuizAssessmentData(
+			"1.0",
+			"평가 요약",
+			List.of("강점"),
+			List.of("약점"),
+			List.of(),
+			"다음 학습",
+			List.of(),
+			List.of("근거")
+		));
+		LearnerMemoryCandidate candidate = candidate(session, 1L, 100L);
+
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(messageRepository
+			.findBySession_IdOrderByCreatedAtDescIdDesc(
+				org.mockito.ArgumentMatchers.eq(100L),
+				org.mockito.ArgumentMatchers.any(Pageable.class)
+			))
+			.thenReturn(List.of(
+				current,
+				newMessage,
+				markerTimeMessage,
+				oldMessage
+			));
+		when(qaThreadRepository
+			.findTopBySession_IdAndStatusOrderByUpdatedAtDescIdDesc(
+				100L,
+				QaThreadStatus.ACTIVE
+			))
+			.thenReturn(Optional.of(oldThread));
+		when(assessmentRepository
+			.findTop5BySession_IdOrderByCreatedAtDescIdDesc(100L))
+			.thenReturn(List.of(assessment));
+		when(assessmentRepository.findRecentByUserAndMaterial(
+			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(10L),
+			org.mockito.ArgumentMatchers.any(Pageable.class)
+		)).thenReturn(List.of(assessment));
+		when(memoryRepository.findByUser_IdAndMaterial_Id(1L, 10L))
+			.thenReturn(Optional.of(memory(session)));
+		when(candidateRepository
+			.findByUser_IdAndMaterial_IdAndStatusOrderByCreatedAtDescIdDesc(
+				1L,
+				10L,
+				MemoryCandidateStatus.CANDIDATE
+			))
+			.thenReturn(List.of(candidate));
+		when(diagnosisRepository.findById(30L))
+			.thenReturn(Optional.of(diagnosis));
+		when(repairRepository
+			.findTopBySession_IdOrderByCreatedAtDescIdDesc(100L))
+			.thenReturn(Optional.of(oldRepair));
+
+		TurnSnapshot snapshot = service().build(1L, 100L, 502L);
+
+		assertThat((List<?>) snapshot.context().get("recentMessages"))
+			.singleElement()
+			.asString()
+			.contains("새 대화")
+			.doesNotContain("이전 대화", "마커 시각 대화", "현재 질문");
+		assertThat(snapshot.context().get("qaThreadDigest")).isNull();
+		assertThat(snapshot.context().get("latestRepair")).isNull();
+		assertThat((Map<String, Object>) snapshot.context()
+			.get("pendingDiagnosis"))
+			.containsEntry("diagnosisId", 30L);
+		assertThat((List<?>) snapshot.context().get("quizAssessments"))
+			.singleElement();
+		assertThat(snapshot.context().get("learnerMemoryDigest"))
+			.isEqualTo("promoted digest");
+		assertThat(snapshot.context().get("learnerConfidence"))
+			.isEqualTo("HIGH");
+		assertThat((List<?>) ((Map<?, ?>) snapshot.context().get("memory"))
+			.get("temporaryCandidates"))
+			.singleElement();
+		assertThat(snapshot.context()).hasSize(12);
 	}
 
 	@Test
