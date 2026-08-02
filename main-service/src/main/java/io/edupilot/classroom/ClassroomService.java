@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.classroom.dto.ClassroomDetailResponse;
 import io.edupilot.classroom.dto.ClassroomJoinRequestListResponse;
+import io.edupilot.classroom.dto.ClassroomLastStudiedResponse;
 import io.edupilot.classroom.dto.ClassroomListResponse;
 import io.edupilot.classroom.dto.ClassroomSummaryResponse;
 import io.edupilot.classroom.dto.CreateClassroomRequest;
@@ -25,6 +26,11 @@ import io.edupilot.classroom.dto.JoinRequestResponse;
 import io.edupilot.classroom.dto.UpdateClassroomRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.material.MaterialProcessingStatus;
+import io.edupilot.material.MaterialStatus;
+import io.edupilot.session.LearningProgressService;
+import io.edupilot.session.LearningSessionRepository;
+import io.edupilot.session.SessionStatus;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
@@ -38,6 +44,10 @@ public class ClassroomService {
 	private final ClassroomRepository classroomRepository;
 	private final ClassroomMemberRepository memberRepository;
 	private final ClassroomJoinRequestRepository joinRequestRepository;
+	private final ClassroomWeekRepository weekRepository;
+	private final ClassroomWeekMaterialRepository weekMaterialRepository;
+	private final LearningProgressService progressService;
+	private final LearningSessionRepository sessionRepository;
 	private final UserRepository userRepository;
 	private final ClassroomInviteCodeGenerator inviteCodeGenerator;
 	private final Clock clock;
@@ -46,6 +56,10 @@ public class ClassroomService {
 		ClassroomRepository classroomRepository,
 		ClassroomMemberRepository memberRepository,
 		ClassroomJoinRequestRepository joinRequestRepository,
+		ClassroomWeekRepository weekRepository,
+		ClassroomWeekMaterialRepository weekMaterialRepository,
+		LearningProgressService progressService,
+		LearningSessionRepository sessionRepository,
 		UserRepository userRepository,
 		ClassroomInviteCodeGenerator inviteCodeGenerator,
 		Clock clock
@@ -53,6 +67,10 @@ public class ClassroomService {
 		this.classroomRepository = classroomRepository;
 		this.memberRepository = memberRepository;
 		this.joinRequestRepository = joinRequestRepository;
+		this.weekRepository = weekRepository;
+		this.weekMaterialRepository = weekMaterialRepository;
+		this.progressService = progressService;
+		this.sessionRepository = sessionRepository;
 		this.userRepository = userRepository;
 		this.inviteCodeGenerator = inviteCodeGenerator;
 		this.clock = clock;
@@ -81,7 +99,7 @@ public class ClassroomService {
 			description,
 			uniqueInviteCode()
 		));
-		return detailResponse(classroom, true);
+		return detailResponse(userId, classroom, true);
 	}
 
 	@Transactional(readOnly = true)
@@ -104,12 +122,19 @@ public class ClassroomService {
 		);
 		Page<ClassroomSummaryResponse> responses = classrooms.map(classroom -> {
 			boolean ownerView = classroom.getInstructorId().equals(userId);
+			ClassroomLearnerMetrics metrics = learnerMetrics(
+				userId,
+				classroom,
+				ownerView
+			);
 			return ClassroomSummaryResponse.from(
 				classroom,
 				ownerView,
 				currentWeek(classroom),
 				memberRepository.countByClassroom_Id(classroom.getId()),
-				ownerView ? pendingCount(classroom.getId()) : 0
+				ownerView ? pendingCount(classroom.getId()) : 0,
+				metrics.progressRate(),
+				metrics.lastStudied()
 			);
 		});
 		return new ClassroomListResponse(
@@ -130,6 +155,7 @@ public class ClassroomService {
 		requireClassroomRole(role);
 		Classroom classroom = visibleClassroom(userId, classroomId);
 		return detailResponse(
+			userId,
 			classroom,
 			classroom.getInstructorId().equals(userId)
 		);
@@ -155,7 +181,7 @@ public class ClassroomService {
 				: null
 		);
 		classroomRepository.flush();
-		return detailResponse(classroom, true);
+		return detailResponse(userId, classroom, true);
 	}
 
 	@Transactional
@@ -167,7 +193,7 @@ public class ClassroomService {
 		Classroom classroom = ownedClassroomForUpdate(userId, role, classroomId);
 		classroom.complete();
 		classroomRepository.flush();
-		return detailResponse(classroom, true);
+		return detailResponse(userId, classroom, true);
 	}
 
 	@Transactional(readOnly = true)
@@ -331,15 +357,54 @@ public class ClassroomService {
 	}
 
 	private ClassroomDetailResponse detailResponse(
+		Long userId,
 		Classroom classroom,
 		boolean ownerView
 	) {
+		ClassroomLearnerMetrics metrics = learnerMetrics(
+			userId,
+			classroom,
+			ownerView
+		);
 		return ClassroomDetailResponse.from(
 			classroom,
 			ownerView,
 			currentWeek(classroom),
 			memberRepository.countByClassroom_Id(classroom.getId()),
-			ownerView ? pendingCount(classroom.getId()) : 0
+			ownerView ? pendingCount(classroom.getId()) : 0,
+			metrics.progressRate(),
+			metrics.lastStudied()
+		);
+	}
+
+	private ClassroomLearnerMetrics learnerMetrics(
+		Long userId,
+		Classroom classroom,
+		boolean ownerView
+	) {
+		if (ownerView) {
+			return new ClassroomLearnerMetrics(null, null);
+		}
+		var materials = weekMaterialRepository.findDistinctReleasedReadyMaterials(
+			classroom.getId(),
+			clock.instant(),
+			MaterialStatus.ACTIVE,
+			MaterialProcessingStatus.READY
+		);
+		var materialIds = materials.stream().map(material -> material.getId()).toList();
+		ClassroomLastStudiedResponse lastStudied = materialIds.isEmpty()
+			? null
+			: sessionRepository
+				.findFirstByUser_IdAndMaterial_IdInAndStatusInOrderByUpdatedAtDescIdDesc(
+					userId,
+					materialIds,
+					java.util.List.of(SessionStatus.ACTIVE, SessionStatus.COMPLETED)
+				)
+				.map(ClassroomLastStudiedResponse::from)
+				.orElse(null);
+		return new ClassroomLearnerMetrics(
+			progressService.calculateClassroomProgressRate(userId, classroom.getId()),
+			lastStudied
 		);
 	}
 
@@ -413,7 +478,52 @@ public class ClassroomService {
 		}
 		if (request.isEndDatePresent()) {
 			validateDates(classroom.getStartDate(), request.getEndDate());
+			long inclusiveDays = ChronoUnit.DAYS.between(
+				classroom.getStartDate(),
+				request.getEndDate()
+			) + 1;
+			int newWeekCount = Math.toIntExact((inclusiveDays + 6) / 7);
+			Integer maximumWeekNumber = weekRepository.findMaximumWeekNumber(
+				classroom.getId()
+			);
+			if (maximumWeekNumber != null && maximumWeekNumber > newWeekCount) {
+				throw new BusinessException(
+					ErrorCode.CLASSROOM_WEEK_RANGE_CONFLICT
+				);
+			}
 		}
+	}
+
+	@Transactional(readOnly = true)
+	public Classroom requireVisible(
+		Long userId,
+		UserRole role,
+		Long classroomId
+	) {
+		requireClassroomRole(role);
+		return visibleClassroom(userId, classroomId);
+	}
+
+	@Transactional(readOnly = true)
+	public Classroom requireOwner(
+		Long userId,
+		UserRole role,
+		Long classroomId
+	) {
+		return ownedClassroom(userId, role, classroomId);
+	}
+
+	@Transactional
+	public Classroom requireOwnerForUpdate(
+		Long userId,
+		UserRole role,
+		Long classroomId
+	) {
+		return ownedClassroomForUpdate(userId, role, classroomId);
+	}
+
+	public void assertWritable(Classroom classroom) {
+		assertActive(classroom);
 	}
 
 	private void validateDates(LocalDate startDate, LocalDate endDate) {
@@ -501,5 +611,11 @@ public class ClassroomService {
 		if (role != UserRole.LEARNER && role != UserRole.INSTRUCTOR) {
 			throw new BusinessException(ErrorCode.ACCESS_DENIED);
 		}
+	}
+
+	private record ClassroomLearnerMetrics(
+		Integer progressRate,
+		ClassroomLastStudiedResponse lastStudied
+	) {
 	}
 }

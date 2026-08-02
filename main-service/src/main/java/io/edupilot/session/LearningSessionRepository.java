@@ -34,6 +34,13 @@ public interface LearningSessionRepository
 	@EntityGraph(attributePaths = "material")
 	Optional<LearningSession> findByIdAndUser_Id(Long id, Long userId);
 
+	@EntityGraph(attributePaths = "material")
+	Optional<LearningSession> findFirstByUser_IdAndMaterial_IdInAndStatusInOrderByUpdatedAtDescIdDesc(
+		Long userId,
+		Collection<Long> materialIds,
+		Collection<SessionStatus> statuses
+	);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 		select session

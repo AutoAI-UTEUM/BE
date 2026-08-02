@@ -26,7 +26,9 @@ public record ClassroomSummaryResponse(
 		boolean ownerView,
 		int currentWeek,
 		long learnerCount,
-		long pendingRequestCount
+		long pendingRequestCount,
+		Integer progressRate,
+		ClassroomLastStudiedResponse lastStudied
 	) {
 		return new ClassroomSummaryResponse(
 			classroom.getId(),
@@ -39,8 +41,8 @@ public record ClassroomSummaryResponse(
 			classroom.getStatus(),
 			currentWeek,
 			learnerCount,
-			ownerView ? null : 0, // TODO(#129): 공개 주차 자료 진도율 연결
-			null, // TODO(#129): 공개 주차 자료의 최근 학습 세션 연결
+			ownerView ? null : progressRate,
+			ownerView ? null : lastStudied,
 			ownerView ? pendingRequestCount : null
 		);
 	}

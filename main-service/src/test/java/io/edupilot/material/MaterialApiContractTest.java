@@ -46,6 +46,7 @@ import io.edupilot.quiz.QuizRepository;
 import io.edupilot.quiz.QuizSubmissionRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
+import io.edupilot.user.UserRole;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -132,8 +133,11 @@ class MaterialApiContractTest {
 
 		when(materialService.upload(
 			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(UserRole.LEARNER),
 			org.mockito.ArgumentMatchers.any(),
-			org.mockito.ArgumentMatchers.eq("자료")
+			org.mockito.ArgumentMatchers.eq("자료"),
+			org.mockito.ArgumentMatchers.isNull(),
+			org.mockito.ArgumentMatchers.isNull()
 		)).thenReturn(new MaterialSummaryResponse(
 			10L,
 			"자료",

@@ -3,6 +3,7 @@ package io.edupilot.material;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -29,9 +30,11 @@ import org.springframework.web.multipart.MultipartFile;
 
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.classroom.ClassroomWeekService;
 import io.edupilot.material.storage.FileStorage;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
+import io.edupilot.user.UserRole;
 
 @ExtendWith(MockitoExtension.class)
 class MaterialServiceTest {
@@ -53,6 +56,10 @@ class MaterialServiceTest {
 
 	@Mock
 	private ApplicationEventPublisher eventPublisher;
+	@Mock
+	private MaterialAccessService accessService;
+	@Mock
+	private ClassroomWeekService weekService;
 
 	private MaterialService materialService;
 	private User owner;
@@ -66,7 +73,9 @@ class MaterialServiceTest {
 			fileStorage,
 			new MaterialProperties(45, 300),
 			deletionGuard,
-			eventPublisher
+			eventPublisher,
+			accessService,
+			weekService
 		);
 		owner = User.create("owner@example.com", "hash", "소유자");
 		ReflectionTestUtils.setField(owner, "id", 1L);
@@ -78,7 +87,7 @@ class MaterialServiceTest {
 		when(fileStorage.store(any(InputStream.class)))
 			.thenReturn("materials/00000000-0000-0000-0000-000000000001.pdf");
 		when(userRepository.getReferenceById(1L)).thenReturn(owner);
-		when(materialRepository.save(any(LearningMaterial.class))).thenAnswer(invocation -> {
+		when(materialRepository.saveAndFlush(any(LearningMaterial.class))).thenAnswer(invocation -> {
 			LearningMaterial material = invocation.getArgument(0);
 			ReflectionTestUtils.setField(material, "id", 10L);
 			ReflectionTestUtils.setField(
@@ -127,6 +136,63 @@ class MaterialServiceTest {
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.INVALID_PDF_FILE)
 			);
+	}
+
+	@Test
+	void classroomUploadLinksMaterialAndRequiresBothTargetParts() {
+		MockMultipartFile file = pdf("%PDF-valid");
+		when(fileStorage.store(any(InputStream.class))).thenReturn("materials/class.pdf");
+		when(userRepository.getReferenceById(1L)).thenReturn(owner);
+		when(materialRepository.saveAndFlush(any(LearningMaterial.class)))
+			.thenAnswer(invocation -> {
+				LearningMaterial saved = invocation.getArgument(0);
+				ReflectionTestUtils.setField(saved, "id", 10L);
+				return saved;
+			});
+
+		materialService.upload(
+			1L, UserRole.INSTRUCTOR, file, "Class material", 30L, 1
+		);
+
+		verify(weekService).linkUploadedMaterial(
+			eq(1L),
+			eq(UserRole.INSTRUCTOR),
+			eq(30L),
+			eq(1),
+			any(LearningMaterial.class)
+		);
+		assertThatThrownBy(() -> materialService.upload(
+			1L, UserRole.INSTRUCTOR, file, "Class material", 30L, null
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED)
+		);
+	}
+
+	@Test
+	void classroomLinkFailureCompensatesStoredFileOutsideTransactionProxy() {
+		MockMultipartFile file = pdf("%PDF-valid");
+		when(fileStorage.store(any(InputStream.class))).thenReturn("materials/class.pdf");
+		when(userRepository.getReferenceById(1L)).thenReturn(owner);
+		when(materialRepository.saveAndFlush(any(LearningMaterial.class)))
+			.thenAnswer(invocation -> {
+				LearningMaterial saved = invocation.getArgument(0);
+				ReflectionTestUtils.setField(saved, "id", 10L);
+				return saved;
+			});
+		org.mockito.Mockito.doThrow(
+			new BusinessException(ErrorCode.WEEK_NOT_FOUND)
+		).when(weekService).linkUploadedMaterial(
+			eq(1L),
+			eq(UserRole.INSTRUCTOR),
+			eq(30L),
+			eq(1),
+			any(LearningMaterial.class)
+		);
+
+		assertThatThrownBy(() -> materialService.upload(
+			1L, UserRole.INSTRUCTOR, file, "Class material", 30L, 1
+		)).isInstanceOf(BusinessException.class);
+		verify(fileStorage).delete("materials/class.pdf");
 	}
 
 	@Test
@@ -192,11 +258,7 @@ class MaterialServiceTest {
 			"자료",
 			"materials/00000000-0000-0000-0000-000000000001.pdf"
 		);
-		when(materialRepository.findByIdAndOwner_IdAndStatus(
-			10L,
-			1L,
-			MaterialStatus.ACTIVE
-		)).thenReturn(Optional.of(material));
+		when(accessService.requireAccessible(1L, 10L)).thenReturn(material);
 
 		assertThatThrownBy(() -> materialService.page(1L, 10L, 1))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->

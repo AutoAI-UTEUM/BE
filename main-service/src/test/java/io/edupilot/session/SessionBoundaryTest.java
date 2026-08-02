@@ -13,6 +13,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.classroom.ClassroomWeekMaterialRepository;
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.user.User;
 
@@ -21,11 +22,14 @@ class SessionBoundaryTest {
 
 	@Mock
 	private LearningSessionRepository sessionRepository;
+	@Mock
+	private ClassroomWeekMaterialRepository weekMaterialRepository;
 
 	@Test
 	void activeSessionBlocksMaterialDeletionAndWithdrawalDeletesAll() {
 		SessionMaterialDeletionGuard guard = new SessionMaterialDeletionGuard(
-			sessionRepository
+			sessionRepository,
+			weekMaterialRepository
 		);
 		when(sessionRepository.existsByMaterial_IdAndStatus(
 			10L,
@@ -40,6 +44,21 @@ class SessionBoundaryTest {
 
 		new SessionWithdrawalHook(sessionRepository).onWithdraw(1L);
 		verify(sessionRepository).deleteAllByUserId(1L);
+	}
+
+	@Test
+	void classroomLinkBlocksMaterialDeletion() {
+		SessionMaterialDeletionGuard guard = new SessionMaterialDeletionGuard(
+			sessionRepository,
+			weekMaterialRepository
+		);
+		when(weekMaterialRepository.existsByMaterial_Id(10L)).thenReturn(true);
+
+		assertThatThrownBy(() -> guard.assertDeletable(10L))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.MATERIAL_LINKED_TO_CLASSROOM)
+			);
 	}
 
 	@Test

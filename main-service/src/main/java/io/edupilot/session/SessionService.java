@@ -15,7 +15,7 @@ import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.material.LearningMaterial;
-import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.material.MaterialProcessingStatus;
 import io.edupilot.session.dto.PageStateResponse;
 import io.edupilot.session.dto.SessionCreateResponse;
@@ -30,34 +30,34 @@ public class SessionService {
 	static final Duration TURN_CLAIM_TTL = Duration.ofMinutes(5);
 
 	private final LearningSessionRepository sessionRepository;
-	private final LearningMaterialRepository materialRepository;
 	private final UserRepository userRepository;
 	private final StateReducer stateReducer;
 	private final Clock clock;
 	private final DiagnosisService diagnosisService;
+	private final MaterialAccessService materialAccessService;
 
 	public SessionService(
 		LearningSessionRepository sessionRepository,
-		LearningMaterialRepository materialRepository,
 		UserRepository userRepository,
 		StateReducer stateReducer,
 		Clock clock,
-		DiagnosisService diagnosisService
+		DiagnosisService diagnosisService,
+		MaterialAccessService materialAccessService
 	) {
 		this.sessionRepository = sessionRepository;
-		this.materialRepository = materialRepository;
 		this.userRepository = userRepository;
 		this.stateReducer = stateReducer;
 		this.clock = clock;
 		this.diagnosisService = diagnosisService;
+		this.materialAccessService = materialAccessService;
 	}
 
 	@Transactional
 	public SessionCreateResponse create(Long userId, Long materialId) {
-		LearningMaterial material = materialRepository.findByIdForUpdate(materialId)
-			.filter(LearningMaterial::isActive)
-			.filter(candidate -> candidate.getOwnerId().equals(userId))
-			.orElseThrow(() -> new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
+		LearningMaterial material = materialAccessService.requireAccessibleForUpdate(
+			userId,
+			materialId
+		);
 		validateReady(material);
 
 		return sessionRepository.findByUser_IdAndMaterial_IdAndStatus(
@@ -122,6 +122,7 @@ public class SessionService {
 		if (session.getStatus() != SessionStatus.ACTIVE) {
 			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
 		}
+		materialAccessService.assertAccessible(userId, session.getMaterialId());
 		assertNoLiveTurn(session);
 		session.complete();
 		sessionRepository.flush();
@@ -148,6 +149,7 @@ public class SessionService {
 		if (session.getStatus() != SessionStatus.ACTIVE) {
 			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
 		}
+		materialAccessService.assertAccessible(userId, session.getMaterialId());
 		Integer pageCount = session.getMaterialPageCount();
 		if (pageNumber < 1 || pageCount == null || pageNumber > pageCount) {
 			throw new BusinessException(ErrorCode.PAGE_OUT_OF_RANGE);

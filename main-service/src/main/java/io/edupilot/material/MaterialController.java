@@ -45,10 +45,19 @@ public class MaterialController {
 	public ApiResponse<MaterialSummaryResponse> upload(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@RequestPart("file") MultipartFile file,
-		@RequestPart("title") String title
+		@RequestPart("title") String title,
+		@RequestPart(value = "classroomId", required = false) Long classroomId,
+		@RequestPart(value = "weekNumber", required = false) Integer weekNumber
 	) {
 		return ApiResponse.success(
-			materialService.upload(authenticatedUser.userId(), file, title)
+			materialService.upload(
+				authenticatedUser.userId(),
+				authenticatedUser.role(),
+				file,
+				title,
+				classroomId,
+				weekNumber
+			)
 		);
 	}
 

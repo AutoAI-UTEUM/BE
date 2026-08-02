@@ -24,7 +24,7 @@ import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterial;
-import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.session.dto.PendingDiagnosisResponse;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
@@ -38,7 +38,7 @@ class SessionServiceTest {
 	private LearningSessionRepository sessionRepository;
 
 	@Mock
-	private LearningMaterialRepository materialRepository;
+	private MaterialAccessService materialAccessService;
 
 	@Mock
 	private UserRepository userRepository;
@@ -54,11 +54,11 @@ class SessionServiceTest {
 	void setUp() {
 		sessionService = new SessionService(
 			sessionRepository,
-			materialRepository,
 			userRepository,
 			new StateReducer(),
 			Clock.fixed(NOW, ZoneOffset.UTC),
-			diagnosisService
+			diagnosisService,
+			materialAccessService
 		);
 		owner = User.create("owner@example.com", "hash", "소유자");
 		ReflectionTestUtils.setField(owner, "id", 1L);
@@ -69,8 +69,8 @@ class SessionServiceTest {
 	@Test
 	void createsReadySessionAndReusesExistingActiveSession() {
 		material.markReady(3);
-		when(materialRepository.findByIdForUpdate(10L))
-			.thenReturn(Optional.of(material));
+		when(materialAccessService.requireAccessibleForUpdate(1L, 10L))
+			.thenReturn(material);
 		when(userRepository.getReferenceById(1L)).thenReturn(owner);
 		when(sessionRepository.findByUser_IdAndMaterial_IdAndStatus(
 			1L,
@@ -169,8 +169,8 @@ class SessionServiceTest {
 
 	@Test
 	void rejectsProcessingAndOtherOwnersMaterials() {
-		when(materialRepository.findByIdForUpdate(10L))
-			.thenReturn(Optional.of(material));
+		when(materialAccessService.requireAccessibleForUpdate(1L, 10L))
+			.thenReturn(material);
 
 		assertThatThrownBy(() -> sessionService.create(1L, 10L))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
@@ -178,8 +178,8 @@ class SessionServiceTest {
 					.isEqualTo(ErrorCode.MATERIAL_PROCESSING)
 			);
 
-		when(materialRepository.findByIdForUpdate(10L))
-			.thenReturn(Optional.empty());
+		when(materialAccessService.requireAccessibleForUpdate(1L, 10L))
+			.thenThrow(new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
 		assertThatThrownBy(() -> sessionService.create(1L, 10L))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode())
