@@ -29,6 +29,10 @@ _OPTIONAL_FIELDS = (
     "model",
     "attempt",
     "failureKind",
+    "reportId",
+    "generationId",
+    "criterionCount",
+    "evidenceCount",
 )
 
 
