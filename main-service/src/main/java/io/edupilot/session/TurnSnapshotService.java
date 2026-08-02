@@ -74,7 +74,8 @@ public class TurnSnapshotService {
 	public TurnSnapshot build(
 		Long userId,
 		Long sessionId,
-		Long currentRequestMessageId
+		Long currentRequestMessageId,
+		boolean includeCurrentPage
 	) {
 		LearningSession session = sessionRepository
 			.findByIdAndUser_Id(sessionId, userId)
@@ -99,17 +100,20 @@ public class TurnSnapshotService {
 		Map<String, Object> context = new LinkedHashMap<>();
 		context.put(
 			"currentPageText",
-			pageText(materialId, session.getCurrentPage())
+			includeCurrentPage
+				? pageText(materialId, session.getCurrentPage())
+				: null
 		);
 		context.put(
 			"previousPageText",
-			session.getCurrentPage() == 1
+			!includeCurrentPage || session.getCurrentPage() == 1
 				? null
 				: pageText(materialId, session.getCurrentPage() - 1)
 		);
 		context.put(
 			"nextPageText",
-			session.getMaterialPageCount() == null
+			!includeCurrentPage
+				|| session.getMaterialPageCount() == null
 				|| session.getCurrentPage() >= session.getMaterialPageCount()
 				? null
 				: pageText(materialId, session.getCurrentPage() + 1)
