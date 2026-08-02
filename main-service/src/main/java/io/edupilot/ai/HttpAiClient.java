@@ -1040,6 +1040,7 @@ public class HttpAiClient implements AiClient {
 			errorCode,
 			AiFailureCategory.valueOf(response.error().category().name()),
 			retryable,
+			response.error().code(),
 			exception
 		);
 	}

@@ -7,6 +7,7 @@ public class AiClientException extends BusinessException {
 
 	private final AiFailureCategory category;
 	private final boolean retryable;
+	private final String upstreamCode;
 
 	public AiClientException(ErrorCode errorCode) {
 		this(errorCode, false, null);
@@ -21,7 +22,7 @@ public class AiClientException extends BusinessException {
 		boolean retryable,
 		Throwable cause
 	) {
-		this(errorCode, categoryFor(errorCode), retryable, cause);
+		this(errorCode, categoryFor(errorCode), retryable, null, cause);
 	}
 
 	public AiClientException(
@@ -30,9 +31,20 @@ public class AiClientException extends BusinessException {
 		boolean retryable,
 		Throwable cause
 	) {
+		this(errorCode, category, retryable, null, cause);
+	}
+
+	public AiClientException(
+		ErrorCode errorCode,
+		AiFailureCategory category,
+		boolean retryable,
+		String upstreamCode,
+		Throwable cause
+	) {
 		super(errorCode);
 		this.category = category;
 		this.retryable = retryable;
+		this.upstreamCode = upstreamCode;
 		if (cause != null) {
 			initCause(cause);
 		}
@@ -44,6 +56,10 @@ public class AiClientException extends BusinessException {
 
 	public boolean retryable() {
 		return retryable;
+	}
+
+	public String upstreamCode() {
+		return upstreamCode;
 	}
 
 	private static AiFailureCategory categoryFor(ErrorCode errorCode) {
