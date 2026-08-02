@@ -1,13 +1,15 @@
-# ai-integration-contract v0.4 — Spring ↔ AI Service 통합 계약
+# ai-integration-contract v0.5 — Spring ↔ AI Service 통합 계약
 
 | 항목 | 내용 |
 | --- | --- |
-| 상태 | v0.4 — #27 서면 확정 반영 |
-| 작성일 | 2026-07-23 |
+| 상태 | v0.5 — #108 확정안 반영 |
+| 작성일 | 2026-08-02 |
 | 역할 | Epic5 ⓐ(#27 턴 계약)·Epic6 ⓐ(퀴즈 계약)·Epic7 ⓐ(평가·진단·메모리 계약)의 AI측 상위 기준 문서 |
 | 선행 결정 | DEC-002 v2(모델), DEC-006(추출 책임), DEC-013(SSE 기본, 세부 잔여), DEC-014(X-Internal-Token), DEC-022(하이브리드) |
 
 > v0.2 → v0.3 주요 변경: 이벤트명·스트림 이벤트를 팀 표준으로 개명, 내부 엔드포인트를 api-spec §10의 5종 체계로 재편, statePatch 허용목록을 api-spec 표와 통일, 오류를 category 5종 체계로 교체, RuleRouter 개념을 DEC-022 하이브리드(규칙은 Spring, 판단은 FastAPI Orchestrator)로 재배치.
+>
+> v0.4 → v0.5 주요 변경: `USER_QUESTION`의 선택 `includeCurrentPage`와 페이지 텍스트 3필드의 조건부 null 규칙을 추가하고, 새 대화 마커 이후의 대화 문맥 경계를 확정했다. 내부 `schemaVersion`은 `"1.0"`을 유지한다.
 
 ---
 
@@ -62,7 +64,7 @@
   "schemaVersion": "1.0",
   "turnId": "turn-123",
   "session": { "sessionId": 100, "userId": 1, "materialId": 10, "currentPage": 3, "pageStatus": "NOT_EXPLAINED" },
-  "event": { "eventType": "USER_QUESTION", "payload": { "message": "편차가 뭔지 모르겠어" } },
+  "event": { "eventType": "USER_QUESTION", "payload": { "message": "편차가 뭔지 모르겠어", "includeCurrentPage": true } },
   "context": {
     "currentPageText": "...", "previousPageText": "...", "nextPageText": "...",
     "recentMessages": [], "qaThreadDigest": null,
@@ -77,17 +79,22 @@
 - `quizAssessments`: 세션 스코프 최근 5개 (DEC-011). 승격 판단용 교차 조회는 Spring 별도 경로.
 - `learnerLevel`/`learnerConfidence`: Spring이 learner_memories·최근 평가에서 파생. null이면 기본 수준 동작.
 - `latestRepair`: 직전 교정 답변 원문 포함 — 교정 후 USER_QUESTION에서 QaAgent가 문맥 승계.
+- `currentPageText`의 타입은 `string | null`이다. null은 `USER_QUESTION`이면서 `includeCurrentPage=false`인 턴에서만 허용한다. `EXPLAIN_CURRENT_PAGE`와 `QUIZ_TYPE_SELECTED`에서는 계속 필수이며, AI Service는 eventType과 context를 교차 검증해 위반 요청을 category `SCHEMA`로 거부한다.
+- `includeCurrentPage=false`이면 Spring은 `currentPageText`, `previousPageText`, `nextPageText`를 모두 null로 전달한다. 세 필드 자체를 생략하지 않으므로 context의 12키 구조는 유지한다.
+- `includeCurrentPage=false`인데 페이지 텍스트가 전달된 경우 AI Service는 해당 context를 무시하지 않고 사용한다. 이 조합의 정합 책임은 Spring에 있다.
 
 ### 3.2 이벤트 타입 (자유 턴 4종)
 
 | eventType | payload | Orchestrator 기대 동작 |
 | --- | --- | --- |
 | `EXPLAIN_CURRENT_PAGE` | `{ "detailLevel": "NORMAL\|DETAILED" }` | ExplainerAgent — 현재 페이지 중심 설명 |
-| `USER_QUESTION` | `{ "message": "..." }` | QaAgent — START_NEW/FOLLOW_UP 판단, latestRepair 있으면 교정 문맥 승계 |
+| `USER_QUESTION` | `{ "message": "...", "includeCurrentPage": true\|false }` (`includeCurrentPage` 선택, 생략 시 `true`) | QaAgent — START_NEW/FOLLOW_UP 판단, latestRepair 있으면 교정 문맥 승계 |
 | `QUIZ_TYPE_SELECTED` | `{ "quizType": "MCQ\|OX\|SHORT\|ESSAY" }` | QuizAgent (GENERATE_QUIZ_* 도구) |
 | `DIAGNOSIS_ANSWER_SUBMITTED` | `{ "diagnosisId": 30, "answer": "..." }` | RepairAgent — 진단 답변 기반 짧은 교정 |
 
 - `REPAIR_FOLLOWUP_QUESTION_SUBMITTED`는 **삭제 확정** — 교정 후 질문은 `USER_QUESTION` 재사용 + `latestRepair` 문맥 승계로 커버 (Epic5 ⓐ 결정). api-spec §5 표에서 제거할 것.
+- `includeCurrentPage=false`이면 QaAgent는 페이지 근거 제약을 완화해 일반 학습 지식으로 답변할 수 있다. 단, 업로드 자료에 실제로 어떤 내용이 있는지 추측하거나 지어내지 않으며 학습과 무관한 요청에는 기존 한계 안내를 적용한다.
+- QA thread와 `latestRepair` 문맥 승계는 `includeCurrentPage`의 true/false와 무관하게 유지한다.
 
 ### 3.3 응답
 
@@ -354,6 +361,12 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 
 ## 8. 확정 로그 및 문서 반영 대기
 
+**v0.5에서 확정된 사항** (근거: #108 합의):
+
+- `USER_QUESTION.payload.includeCurrentPage`는 선택 boolean이며 생략 시 `true`다. `false`이면 페이지 텍스트 3키를 null로 전달하되 context 12키 구조는 유지한다. `currentPageText`의 null은 `USER_QUESTION`+`false`에서만 허용하고 `EXPLAIN_CURRENT_PAGE`·`QUIZ_TYPE_SELECTED`에서는 AI Service가 교차 검증한다.
+- `includeCurrentPage=false`인 QaAgent는 일반 학습 지식으로 답변할 수 있지만 업로드 자료 내용을 추측하지 않고 학습 도우미 범위를 유지한다. QA thread와 `latestRepair` 승계는 플래그와 무관하다.
+- 새 대화 마커 이후 스냅샷은 `recentMessages`를 마커 이후 메시지로 제한하고, 마커 이전 `qaThreadDigest`와 `latestRepair`를 null로 처리한다. `pendingDiagnosis`는 진단 회피를 막기 위해 유지하며 temporary memory candidates, quiz assessments, long-term learner memory도 유지한다. context 구조와 키는 변경하지 않는다.
+
 **v0.4에서 확정된 사항** (근거: DEC-011·012·024 정합 + MVP 단순화):
 
 - **학습자 메모리 스코프**: 수집(후보·quizAssessments 윈도우)=**세션 스코프**, 승격된 장기 메모리(learner_memories)·digest=**사용자×자료(user×material)**. DEC-024(자료당 ACTIVE 세션 1개)로 실사용상 두 스코프가 거의 일치하며, 세션 완료 후 새 세션에서도 개인화 유지가 장기 메모리의 존재 이유. → Epic7 ⓐ 계약에 명문화.
@@ -365,4 +378,4 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 
 - 평가 리포트 PDF 출력 — MVP 이후. 재개 시 책임 분리안: 리포트 내용 JSON은 AI 서비스, PDF 렌더링은 Spring/FE (AI 서비스에 PDF 생성 책임 없음). 별도 이슈 + DEC 신규 항목으로 등록.
 
-**타 문서 반영 대기 목록**: api-spec §5(이벤트 삭제)·§9(SSE 세부), Epic5 ⓐ·Epic7 ⓐ 이슈 본문에 위 확정값 기입.
+**타 문서 반영 대기 목록**: api-spec §9(SSE 세부), Epic5 ⓐ·Epic7 ⓐ 이슈 본문에 v0.4 확정값 기입. v0.5의 api-spec §5 payload 규칙은 이 문서 개정과 함께 동기화한다.
