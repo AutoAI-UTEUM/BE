@@ -1,7 +1,7 @@
 """Confirmed #30 DTOs for POST /internal/ai/grade."""
 
 from math import isclose
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
@@ -52,8 +52,8 @@ class GradeRequest(ContractModel):
     quiz_type: QuizType
     items: Annotated[list[GradeItem], Field(min_length=1)]
     student_answers: Annotated[list[StudentAnswer], Field(min_length=1)]
-    page_context: GradePageContext
-    learner_memory_digest: dict[str, Any] | str | None
+    page_context: GradePageContext | None = None
+    learner_memory_digest: str | None = None
 
     @model_validator(mode="after")
     def validate_quiz(self) -> GradeRequest:

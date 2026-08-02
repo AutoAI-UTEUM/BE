@@ -112,7 +112,7 @@ class ContextSnapshot(ContractModel):
     recent_messages: list[dict[str, Any]]
     qa_thread_digest: dict[str, Any] | str | None
     quiz_assessments: list[dict[str, Any]]
-    learner_memory_digest: dict[str, Any] | str | None
+    learner_memory_digest: str | None
     learner_level: str | None
     learner_confidence: Literal["LOW", "MEDIUM", "HIGH"] | None
     pending_diagnosis: dict[str, Any] | str | None
