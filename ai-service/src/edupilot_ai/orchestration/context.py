@@ -28,7 +28,7 @@ class AgentContext(BaseModel):
     session: SessionSnapshot
     event_type: EventType
     event_payload: EventPayload
-    current_page_text: str
+    current_page_text: str | None
     previous_page_text: str | None
     next_page_text: str | None
     recent_messages: list[dict[str, Any]]
@@ -40,6 +40,11 @@ class AgentContext(BaseModel):
     pending_diagnosis: dict[str, Any] | str | None
     latest_repair: dict[str, Any] | str | None
     memory: MemoryContext
+
+    @property
+    def page_attached(self) -> bool:
+        """Return false only when the learner explicitly detached the current page."""
+        return self.event_payload.include_current_page is not False
 
     def qa_thread_ref(self) -> str | None:
         if isinstance(self.qa_thread_digest, dict):
@@ -147,7 +152,7 @@ class PlanContext(PlanContextModel):
             ),
             event_type=context.event_type,
             event_payload=event_payload,
-            page_text_preview=context.current_page_text[:500],
+            page_text_preview=(context.current_page_text or "")[:500],
             has_previous_page_text=context.previous_page_text is not None,
             has_next_page_text=context.next_page_text is not None,
             recent_messages=recent_messages,

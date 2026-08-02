@@ -104,6 +104,7 @@ def qa_messages(
 ) -> Sequence[Mapping[str, str]]:
     payload = {
         "question": context.event_payload.message,
+        "includeCurrentPage": context.page_attached,
         "page": context.session.current_page,
         "currentPageText": context.current_page_text,
         "previousPageText": context.previous_page_text,
@@ -119,15 +120,22 @@ def qa_messages(
         if structured
         else "Return only the learner-facing Markdown answer."
     )
+    system = (
+        "Answer from supplied page evidence in Markdown. START_NEW ignores old QA "
+        "context; FOLLOW_UP must connect it. Use latestRepair only as follow-up "
+        "context. If evidence is insufficient, clearly state the limitation. "
+        f"{LEARNER_KOREAN_INSTRUCTION} {output_instruction}"
+    )
+    if not context.page_attached:
+        system += (
+            " 페이지를 첨부하지 않은 질문이다. 일반적인 학습 지식으로 답해도 된다. "
+            "단, 업로드된 강의 자료에 어떤 내용이 있는지 추측하거나 지어내지 마라. "
+            "학습 도우미 범위를 벗어난 요청에는 기존 한계 안내를 적용하라."
+        )
     return [
         {
             "role": "system",
-            "content": (
-                "Answer from supplied page evidence in Markdown. START_NEW ignores old QA "
-                "context; FOLLOW_UP must connect it. Use latestRepair only as follow-up "
-                "context. If evidence is insufficient, clearly state the limitation. "
-                f"{LEARNER_KOREAN_INSTRUCTION} {output_instruction}"
-            ),
+            "content": system,
         },
         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
     ]
