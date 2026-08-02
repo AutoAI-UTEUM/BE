@@ -11,12 +11,13 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
-import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.MaterialAccessService;
 import io.edupilot.material.MaterialProcessingStatus;
+import io.edupilot.session.dto.ConversationStartResponse;
 import io.edupilot.session.dto.PageStateResponse;
 import io.edupilot.session.dto.SessionCreateResponse;
 import io.edupilot.session.dto.SessionDetailResponse;
@@ -171,6 +172,25 @@ public class SessionService {
 		return PageStateResponse.from(session);
 	}
 
+	@Transactional
+	public ConversationStartResponse startNewConversation(
+		Long userId,
+		Long sessionId
+	) {
+		LearningSession session = ownedSessionForUpdate(userId, sessionId);
+		if (session.getStatus() == SessionStatus.DELETED) {
+			throw new BusinessException(ErrorCode.SESSION_NOT_FOUND);
+		}
+		if (session.getStatus() != SessionStatus.ACTIVE) {
+			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
+		}
+		Instant startedAt = clock.instant();
+		assertNoLiveTurn(session, startedAt);
+		int conversationNumber = session.startNewConversation(startedAt);
+		sessionRepository.flush();
+		return ConversationStartResponse.of(conversationNumber, startedAt);
+	}
+
 	private void validateReady(LearningMaterial material) {
 		if (material.getProcessingStatus() == MaterialProcessingStatus.PROCESSING) {
 			throw new BusinessException(ErrorCode.MATERIAL_PROCESSING);
@@ -192,7 +212,11 @@ public class SessionService {
 	}
 
 	private void assertNoLiveTurn(LearningSession session) {
-		Instant staleBefore = clock.instant().minus(TURN_CLAIM_TTL);
+		assertNoLiveTurn(session, clock.instant());
+	}
+
+	private void assertNoLiveTurn(LearningSession session, Instant now) {
+		Instant staleBefore = now.minus(TURN_CLAIM_TTL);
 		if (session.hasLiveTurn(staleBefore)) {
 			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
 		}

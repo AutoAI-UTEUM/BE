@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -240,6 +241,93 @@ class SessionServiceTest {
 		assertError(
 			() -> sessionService.movePage(1L, 100L, 1),
 			ErrorCode.SESSION_NOT_ACTIVE
+		);
+	}
+
+	@Test
+	void startsSequentialConversationsAndClearsStaleTurn() {
+		material.markReady(2);
+		LearningSession session = persisted(
+			LearningSession.create(owner, material),
+			100L
+		);
+		ReflectionTestUtils.setField(
+			session,
+			"activeTurnRequestId",
+			"stale-request"
+		);
+		ReflectionTestUtils.setField(
+			session,
+			"activeTurnStartedAt",
+			NOW.minusSeconds(301)
+		);
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(session));
+
+		var first = sessionService.startNewConversation(1L, 100L);
+
+		assertThat(first.conversationId()).isEqualTo("conversation-1");
+		assertThat(first.startedAt()).isEqualTo(NOW);
+		assertThat(session.getActiveTurnRequestId()).isNull();
+		assertThat(session.getConversationResetAt()).isEqualTo(NOW);
+		assertThat(session.getConversationResetCount()).isEqualTo(1);
+
+		Instant nextStartedAt = NOW.plusSeconds(1);
+		SessionService nextService = new SessionService(
+			sessionRepository,
+			userRepository,
+			new StateReducer(),
+			Clock.fixed(nextStartedAt, ZoneOffset.UTC),
+			diagnosisService,
+			materialAccessService
+		);
+		var second = nextService.startNewConversation(1L, 100L);
+
+		assertThat(second.conversationId()).isEqualTo("conversation-2");
+		assertThat(second.startedAt()).isEqualTo(nextStartedAt);
+		assertThat(session.getConversationResetAt()).isEqualTo(nextStartedAt);
+		assertThat(session.getConversationResetCount()).isEqualTo(2);
+		verify(sessionRepository, times(2)).flush();
+	}
+
+	@Test
+	void rejectsNewConversationForLiveTurnInactiveDeletedAndMissingSession() {
+		material.markReady(2);
+		LearningSession session = persisted(
+			LearningSession.create(owner, material),
+			100L
+		);
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(session));
+		ReflectionTestUtils.setField(
+			session,
+			"activeTurnRequestId",
+			"live-request"
+		);
+		ReflectionTestUtils.setField(session, "activeTurnStartedAt", NOW);
+
+		assertError(
+			() -> sessionService.startNewConversation(1L, 100L),
+			ErrorCode.SESSION_STATE_CONFLICT
+		);
+
+		session.complete();
+		assertError(
+			() -> sessionService.startNewConversation(1L, 100L),
+			ErrorCode.SESSION_NOT_ACTIVE
+		);
+
+		session.delete();
+		assertError(
+			() -> sessionService.startNewConversation(1L, 100L),
+			ErrorCode.SESSION_NOT_FOUND
+		);
+
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.empty());
+		assertError(
+			() -> sessionService.startNewConversation(1L, 100L),
+			ErrorCode.SESSION_NOT_FOUND
 		);
 	}
 

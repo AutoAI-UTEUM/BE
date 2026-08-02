@@ -23,7 +23,7 @@
 | `classroom_weeks` | id, classroom_id, week_number, title, release_at(nullable), timestamps | `FK(classroom_id)`, `UK(classroom_id,week_number)`, `CHECK(week_number >= 1)` |
 | `classroom_week_materials` | id, week_id, material_id, added_at, timestamps | `FK(week_id)`, `FK(material_id)`, `UK(week_id,material_id)`, `IDX(material_id)` |
 | `classroom_notices` | id, classroom_id, title, content, published_at, timestamps | `FK(classroom_id)`, `IDX(classroom_id,published_at,id)` |
-| `learning_sessions` | id, user_id, material_id, current_page, page_status, status, conversation_summary, last_ui_actions_json, active_quiz_id, pending_diagnosis_id, active_turn_request_id, active_turn_started_at, version, timestamps | `FK(user_id)`, `FK(material_id)`, `IDX(user_id,status,updated_at)` |
+| `learning_sessions` | id, user_id, material_id, current_page, page_status, status, conversation_summary, last_ui_actions_json, active_quiz_id, pending_diagnosis_id, active_turn_request_id, active_turn_started_at, conversation_reset_at, conversation_reset_count, version, timestamps | `FK(user_id)`, `FK(material_id)`, `IDX(user_id,status,updated_at)`, `CHECK(conversation_reset_count >= 0)` |
 | `session_page_records` | id, session_id, page_number, explained_at, timestamps | `FK(session_id)`, `UK(session_id,page_number)`, `CHECK(page_number >= 1)` |
 | `chat_messages` | id, session_id, sender_type, message_type, content, page_number, request_id, status, created_at | `FK(session_id)`, `UK(session_id,request_id)`, `IDX(session_id,created_at,id)` |
 | `notes` | id, user_id, material_id, session_id(nullable), page_number(nullable), source_message_id(nullable), content, timestamps | `FK(user_id)`, `FK(material_id)`, `FK(session_id)`, `FK(source_message_id)`, `IDX(user_id)`, `IDX(material_id,created_at,id)` |
@@ -42,6 +42,7 @@
 - `quiz_assessments`는 삭제 없이 전량 보존합니다(DEC-011 Accepted). "평가 큐"는 물리 큐가 아니라 조회 윈도우입니다 — turn 스냅샷용은 세션 스코프 최근 5개(`IDX(session_id, created_at)`), 메모리 승격 판단용은 `quiz_submissions` 조인으로 user×material 교차 세션 최근 20개를 사용합니다.
 - `learning_materials.processing_status`는 `PROCESSING`, `READY`, `FAILED` 3값을 사용하고 `status`는 `ACTIVE`, `DELETED`를 사용합니다. `page_count`는 처리 전·실패 시 `NULL`, READY일 때 1 이상입니다.
 - `learning_sessions.conversation_summary`는 내부 AI 턴 스냅샷 전용이며 외부 세션 상세 응답에는 노출하지 않습니다. `last_ui_actions_json`, `active_quiz_id`, `pending_diagnosis_id`는 재진입 UI 복원용입니다. `active_quiz_id`와 `pending_diagnosis_id`에는 FK를 추가하지 않습니다. 세션이 하위 퀴즈·진단보다 먼저 생성되는 순환 참조 부담을 피하고 Spring이 생성·제출·진단 소유권과 상태를 검증합니다.
+- `learning_sessions.conversation_reset_at`은 AI 문맥 경계 시각이며 `conversation_reset_count`는 외부 `conversation-{n}` 표기의 순번입니다. 새 대화 이후 내부 턴 스냅샷은 마커보다 늦게 생성된 메시지만 `recentMessages`에 포함하고, 마커 이전 `qaThreadDigest`와 `latestRepair`를 null로 처리합니다. `pendingDiagnosis`, 임시 메모리 후보, 평가, 장기 메모리는 유지하며 메시지 조회 API는 마커와 무관하게 전체 이력을 반환합니다.
 - `session_page_records`는 성공한 `EXPLAIN_CURRENT_PAGE` 턴이 `pageStatus=EXPLAINED`로 확정된 페이지를 기록합니다. 같은 페이지를 재설명하면 행을 추가하지 않고 `explained_at`을 갱신합니다. 진도율은 **설명 완료된 고유 페이지 수 ÷ 자료 `page_count` × 100을 정수 반올림**하며, 자료별 진도는 사용자×자료 범위의 ACTIVE·COMPLETED 세션 합집합으로 계산합니다. 이력이 없는 기존 세션은 `current_page`로 추정하지 않고 0으로 집계합니다.
 - 강의실 진도율은 학습자가 볼 수 있는 `PUBLISHED` 주차에 연결된 고유 READY 자료를 대상으로 계산합니다. 분자는 사용자×자료 ACTIVE·COMPLETED 세션 합집합의 고유 `(material_id, page_number)` 설명 완료 수, 분모는 고유 자료의 `page_count` 합이며 정수 반올림합니다. 같은 자료가 여러 주차·강의실에 연결돼도 해당 사용자의 자료 학습 이력은 공유하고, 강의실 내 중복 자료는 한 번만 계산합니다. 이력 또는 유효한 분모가 없으면 0입니다.
 - `learning_sessions`에는 `classroom_id`를 추가하지 않습니다. 강의실에서 시작한 통합학습도 기존 사용자×자료 ACTIVE 세션 재사용 규칙을 적용합니다.
@@ -73,6 +74,7 @@
 - `material_pages.page_number >= 1`
 - `learning_materials.page_count IS NULL OR page_count >= 1`
 - `learning_sessions.current_page >= 1`이며 애플리케이션에서 자료 `page_count` 이하인지 검증
+- `learning_sessions.conversation_reset_count >= 0`
 - `session_page_records.page_number >= 1`
 - `notes.page_number IS NULL OR page_number >= 1`
 - `feedbacks.category IN (BUG, FEATURE_REQUEST, GENERAL)`
@@ -140,6 +142,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V13__classroom_core.sql`은 강의실, 승인 멤버, 참여 요청과 초대 코드·상태·기간 제약을 추가합니다.
 - `V14__classroom_weeks_materials.sql`은 강의실 주차와 주차별 자료 연결, 공개 시각·중복 연결 제약을 추가합니다.
 - `V15__classroom_notices.sql`은 즉시 게시 강의실 공지와 강의실별 게시 시각 인덱스를 추가합니다.
+- `V16__conversation_reset.sql`은 새 대화의 AI 문맥 경계 시각과 세션별 순번을 추가합니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.

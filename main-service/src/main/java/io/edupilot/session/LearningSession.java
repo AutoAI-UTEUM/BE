@@ -70,6 +70,12 @@ public class LearningSession {
 	@Column(name = "active_turn_started_at")
 	private Instant activeTurnStartedAt;
 
+	@Column(name = "conversation_reset_at")
+	private Instant conversationResetAt;
+
+	@Column(name = "conversation_reset_count", nullable = false)
+	private int conversationResetCount;
+
 	@Version
 	@Column(nullable = false)
 	private long version;
@@ -167,6 +173,12 @@ public class LearningSession {
 		}
 	}
 
+	public int startNewConversation(Instant startedAt) {
+		this.conversationResetAt = Objects.requireNonNull(startedAt);
+		this.conversationResetCount += 1;
+		return this.conversationResetCount;
+	}
+
 	public Long getId() {
 		return id;
 	}
@@ -213,6 +225,14 @@ public class LearningSession {
 
 	public String getActiveTurnRequestId() {
 		return activeTurnRequestId;
+	}
+
+	public Instant getConversationResetAt() {
+		return conversationResetAt;
+	}
+
+	public int getConversationResetCount() {
+		return conversationResetCount;
 	}
 
 	public Instant getUpdatedAt() {

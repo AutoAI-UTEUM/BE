@@ -76,6 +76,7 @@
 | DELETE | `/api/sessions/{sessionId}` | 세션 논리 삭제 | Y | 세션 소유자 |
 | PATCH | `/api/sessions/{sessionId}/page` | 페이지 이동 | Y | 세션 소유자 |
 | POST | `/api/sessions/{sessionId}/turns` | 학습 턴 처리 | Y | 세션 소유자 |
+| POST | `/api/sessions/{sessionId}/conversations` | LLM 호출 없는 새 대화 시작 | Y | ACTIVE 세션 소유자 |
 | GET | `/api/sessions/{sessionId}/stream` | SSE 스트림 (fetch + Bearer — DEC-021) | Y | 세션 소유자 |
 | GET | `/api/sessions/{sessionId}/messages` | 메시지 조회 | Y | 세션 소유자 |
 | GET | `/api/sessions/{sessionId}/quizzes` | 퀴즈 기록 조회 | Y | 세션 소유자 |
@@ -556,6 +557,21 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 ```
 
 퀴즈 생성 턴(`QUIZ_TYPE_SELECTED`)의 응답에는 문항 본문을 싣지 않습니다. 대신 `state.activeQuizId`에 생성된 퀴즈의 `quizId`를 포함하고, FE는 `GET /api/quizzes/{quizId}`로 공개 문항을 조회해 풀이 UI를 엽니다. 저득점 진단에서 `uiActions`에 `diagnosisId`를 싣는 방식과 같은 참조 전달 원칙입니다.
+
+### POST `/api/sessions/{sessionId}/conversations`
+
+현재 ACTIVE 세션에서 LLM 호출 없이 새 대화 경계를 시작합니다. 요청 body는 없습니다. 세션 행을 잠그고 5분 이내의 진행 중 턴이 있으면 `SESSION_STATE_CONFLICT`, 완료 세션이면 `SESSION_NOT_ACTIVE`, 타인·삭제·존재하지 않는 세션이면 `SESSION_NOT_FOUND`로 처리합니다. 5분이 지난 stale turn은 정리한 뒤 새 대화를 시작합니다.
+
+`data`:
+
+```json
+{
+  "conversationId": "conversation-1",
+  "startedAt": "2026-08-02T05:30:00Z"
+}
+```
+
+`conversationId`의 숫자는 세션별 새 대화 호출 횟수이며 첫 호출은 1부터 시작합니다. 호출 시각보다 **늦게 생성된** 메시지만 다음 내부 턴의 `recentMessages`에 포함하고, 마커 이전에 생성된 활성 QA thread의 `qaThreadDigest`와 교정 결과의 `latestRepair`는 null로 전달합니다. `pendingDiagnosis`, `memory.temporaryCandidates`, `quizAssessments`, `learnerMemoryDigest`는 유지하며 context 12키 구조도 바뀌지 않습니다. 이 마커는 AI 문맥에만 적용되므로 아래 메시지 조회 API는 새 대화 전후의 전체 이력을 계속 반환합니다.
 
 ### GET `/api/sessions/{sessionId}/messages`
 
