@@ -122,7 +122,7 @@ class TurnSnapshotServiceTest {
 			.findTopBySession_IdOrderByCreatedAtDescIdDesc(100L))
 			.thenReturn(Optional.empty());
 
-		TurnSnapshot snapshot = service().build(1L, 100L, 501L);
+		TurnSnapshot snapshot = service().build(1L, 100L, 501L, true);
 
 		assertThat(snapshot.context().get("previousPageText")).isNull();
 		assertThat((String) snapshot.context().get("currentPageText"))
@@ -177,7 +177,7 @@ class TurnSnapshotServiceTest {
 			.findTopBySession_IdOrderByCreatedAtDescIdDesc(100L))
 			.thenReturn(Optional.empty());
 
-		TurnSnapshot snapshot = service().build(1L, 100L, 501L);
+		TurnSnapshot snapshot = service().build(1L, 100L, 501L, true);
 
 		assertThat(snapshot.context()).containsOnlyKeys(
 			"currentPageText",
@@ -195,6 +195,22 @@ class TurnSnapshotServiceTest {
 		);
 		assertThat(snapshot.context().get("learnerMemoryDigest"))
 			.isEqualTo("promoted digest");
+	}
+
+	@Test
+	void excludesAllPageTextsWithoutLoadingPages() {
+		LearningSession session = session();
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+
+		TurnSnapshot snapshot = service().build(1L, 100L, 501L, false);
+
+		assertThat(snapshot.context())
+			.containsEntry("currentPageText", null)
+			.containsEntry("previousPageText", null)
+			.containsEntry("nextPageText", null)
+			.hasSize(12);
+		org.mockito.Mockito.verifyNoInteractions(pageRepository);
 	}
 
 	@Test
@@ -320,7 +336,7 @@ class TurnSnapshotServiceTest {
 			.findTopBySession_IdOrderByCreatedAtDescIdDesc(100L))
 			.thenReturn(Optional.of(oldRepair));
 
-		TurnSnapshot snapshot = service().build(1L, 100L, 502L);
+		TurnSnapshot snapshot = service().build(1L, 100L, 502L, true);
 
 		assertThat((List<?>) snapshot.context().get("recentMessages"))
 			.singleElement()
@@ -390,7 +406,7 @@ class TurnSnapshotServiceTest {
 			.findTopBySession_IdOrderByCreatedAtDescIdDesc(100L))
 			.thenReturn(Optional.empty());
 
-		TurnSnapshot snapshot = service().build(1L, 100L, 501L);
+		TurnSnapshot snapshot = service().build(1L, 100L, 501L, true);
 
 		@SuppressWarnings("unchecked")
 		List<java.util.Map<String, Object>> temporaryCandidates =

@@ -148,7 +148,8 @@ public class SessionTurnService {
 			TurnSnapshot snapshot = snapshotService.build(
 				userId,
 				sessionId,
-				prepared.userMessageId()
+				prepared.userMessageId(),
+				payload.includeCurrentPage()
 			);
 			AiStreamCancellation cancellation = new AiStreamCancellation();
 			Optional<SessionStreamConnection> activeStream =
@@ -437,6 +438,10 @@ public class SessionTurnService {
 		if (!payload.isObject()) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}
+		if (eventType != TurnEventType.USER_QUESTION
+			&& payload.has("includeCurrentPage")) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+		}
 		return switch (eventType) {
 			case EXPLAIN_CURRENT_PAGE -> {
 				String detailLevel = optionalText(payload, "detailLevel");
@@ -450,12 +455,14 @@ public class SessionTurnService {
 				}
 				yield new ValidatedPayload(
 					"현재 페이지 설명 요청: " + detailLevel,
-					null
+					null,
+					true
 				);
 			}
 			case USER_QUESTION -> new ValidatedPayload(
 				requiredText(payload, "message"),
-				null
+				null,
+				includeCurrentPage(payload)
 			);
 			case QUIZ_TYPE_SELECTED -> {
 				String quizType = requiredText(payload, "quizType");
@@ -466,7 +473,8 @@ public class SessionTurnService {
 				}
 				yield new ValidatedPayload(
 					"퀴즈 유형 선택: " + quizType,
-					null
+					null,
+					true
 				);
 			}
 			case DIAGNOSIS_ANSWER_SUBMITTED -> {
@@ -480,10 +488,22 @@ public class SessionTurnService {
 				}
 				yield new ValidatedPayload(
 					requiredText(payload, "answer"),
-					diagnosisId.longValue()
+					diagnosisId.longValue(),
+					true
 				);
 			}
 		};
+	}
+
+	private boolean includeCurrentPage(JsonNode payload) {
+		JsonNode value = payload.get("includeCurrentPage");
+		if (value == null) {
+			return true;
+		}
+		if (!value.isBoolean()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+		}
+		return value.booleanValue();
 	}
 
 	private String optionalText(JsonNode payload, String field) {
@@ -518,7 +538,8 @@ public class SessionTurnService {
 
 	private record ValidatedPayload(
 		String userContent,
-		Long diagnosisId
+		Long diagnosisId,
+		boolean includeCurrentPage
 	) {
 	}
 }

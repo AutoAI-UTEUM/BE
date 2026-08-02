@@ -96,7 +96,7 @@ class SessionTurnServiceTest {
 			"질문",
 			null
 		)).thenReturn(new PreparedTurn(501L));
-		when(snapshotService.build(1L, 100L, 501L))
+		when(snapshotService.build(1L, 100L, 501L, true))
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L),
 				Map.of(
@@ -197,6 +197,113 @@ class SessionTurnServiceTest {
 					"request-2",
 					"USER_QUESTION",
 					objectMapper.createObjectNode()
+				)
+			),
+			ErrorCode.VALIDATION_FAILED
+		);
+		verify(claimService, never()).claim(
+			org.mockito.ArgumentMatchers.anyLong(),
+			org.mockito.ArgumentMatchers.anyLong(),
+			anyString()
+		);
+	}
+
+	@Test
+	void userQuestionPropagatesDefaultExplicitTrueAndFalsePageContextFlag()
+		throws Exception {
+		when(preparationService.prepare(
+			1L,
+			100L,
+			"request-1",
+			"question",
+			null
+		)).thenReturn(new PreparedTurn(501L));
+		TurnSnapshot snapshot = new TurnSnapshot(
+			Map.of("sessionId", 100L),
+			Map.of(),
+			10L
+		);
+		when(snapshotService.build(1L, 100L, 501L, true))
+			.thenReturn(snapshot);
+		when(snapshotService.build(1L, 100L, 501L, false))
+			.thenReturn(snapshot);
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.empty());
+		when(aiClient.executeTurn(any())).thenAnswer(invocation -> {
+			io.edupilot.ai.dto.TurnRequest aiRequest =
+				invocation.getArgument(0);
+			return aiResponse(aiRequest.turnId());
+		});
+		when(persistenceService.persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		)).thenReturn(persisted(publicResponse()));
+
+		service().execute(1L, 100L, questionPayload(""));
+		service().execute(
+			1L,
+			100L,
+			questionPayload(",\"includeCurrentPage\":true")
+		);
+		service().execute(
+			1L,
+			100L,
+			questionPayload(",\"includeCurrentPage\":false")
+		);
+
+		verify(snapshotService, org.mockito.Mockito.times(2))
+			.build(1L, 100L, 501L, true);
+		verify(snapshotService).build(1L, 100L, 501L, false);
+		ArgumentCaptor<io.edupilot.ai.dto.TurnRequest> requests =
+			ArgumentCaptor.forClass(io.edupilot.ai.dto.TurnRequest.class);
+		verify(aiClient, org.mockito.Mockito.times(3))
+			.executeTurn(requests.capture());
+		assertThat(requests.getAllValues())
+			.extracting(request -> request.event().get("payload").toString())
+			.containsExactly(
+				"{\"message\":\"question\"}",
+				"{\"message\":\"question\",\"includeCurrentPage\":true}",
+				"{\"message\":\"question\",\"includeCurrentPage\":false}"
+			);
+	}
+
+	@Test
+	void rejectsInvalidOrNonUserIncludeCurrentPageBeforeClaim()
+		throws Exception {
+		assertError(
+			() -> service().execute(
+				1L,
+				100L,
+				questionPayload(",\"includeCurrentPage\":null")
+			),
+			ErrorCode.VALIDATION_FAILED
+		);
+		assertError(
+			() -> service().execute(
+				1L,
+				100L,
+				questionPayload(",\"includeCurrentPage\":\"false\"")
+			),
+			ErrorCode.VALIDATION_FAILED
+		);
+		assertError(
+			() -> service().execute(
+				1L,
+				100L,
+				new TurnRequest(
+					"request-1",
+					"EXPLAIN_CURRENT_PAGE",
+					objectMapper.readTree(
+						"{\"includeCurrentPage\":false}"
+					)
 				)
 			),
 			ErrorCode.VALIDATION_FAILED
@@ -311,7 +418,7 @@ class SessionTurnServiceTest {
 			"퀴즈 유형 선택: MCQ",
 			null
 		)).thenReturn(new PreparedTurn(501L));
-		when(snapshotService.build(1L, 100L, 501L))
+		when(snapshotService.build(1L, 100L, 501L, true))
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L, "currentPage", 3),
 				Map.of(
@@ -598,7 +705,7 @@ class SessionTurnServiceTest {
 			"질문",
 			null
 		)).thenReturn(new PreparedTurn(501L));
-		when(snapshotService.build(1L, 100L, 501L))
+		when(snapshotService.build(1L, 100L, 501L, true))
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L),
 				Map.of(),
@@ -612,6 +719,20 @@ class SessionTurnServiceTest {
 			"USER_QUESTION",
 			objectMapper.readTree("{\"message\":\"질문\"}")
 		);
+	}
+
+	private TurnRequest questionPayload(String extraPayload) {
+		try {
+			return new TurnRequest(
+				"request-1",
+				"USER_QUESTION",
+				objectMapper.readTree(
+					"{\"message\":\"question\"" + extraPayload + "}"
+				)
+			);
+		} catch (Exception exception) {
+			throw new IllegalStateException(exception);
+		}
 	}
 
 	private TurnRequest quizRequest() throws Exception {
