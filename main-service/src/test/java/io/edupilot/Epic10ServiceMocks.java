@@ -16,6 +16,8 @@ import io.edupilot.exam.ExamAiGradingService;
 import io.edupilot.exam.ExamSubmissionPersistenceService;
 import io.edupilot.exam.StudentExamService;
 import io.edupilot.material.MaterialAccessService;
+import io.edupilot.report.ReportCriterionCatalog;
+import io.edupilot.report.ReportSnapshotBuilder;
 import io.edupilot.session.LearningProgressService;
 import io.edupilot.schedule.ScheduleService;
 
@@ -32,7 +34,9 @@ import io.edupilot.schedule.ScheduleService;
 	InstructorExamService.class,
 	StudentExamService.class,
 	ExamAiGradingService.class,
-	ExamSubmissionPersistenceService.class
+	ExamSubmissionPersistenceService.class,
+	ReportCriterionCatalog.class,
+	ReportSnapshotBuilder.class
 })
 public @interface Epic10ServiceMocks {
 }

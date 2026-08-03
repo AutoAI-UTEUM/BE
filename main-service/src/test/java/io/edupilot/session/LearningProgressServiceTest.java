@@ -144,6 +144,23 @@ class LearningProgressServiceTest {
 			.isEqualTo(3);
 	}
 
+	@Test
+	void reportProgressUsesDistinctExplainedPagesWithoutInferringSkippedPages() {
+		LearningMaterial material = org.mockito.Mockito.mock(LearningMaterial.class);
+		when(material.getId()).thenReturn(20L);
+		when(material.getPageCount()).thenReturn(5);
+		when(pageRecordRepository.countDistinctByUserIdAndMaterialId(1L, 20L))
+			.thenReturn(2L);
+
+		LearningProgressService.ReportProgress progress = service()
+			.calculateReportProgress(1L, List.of(material));
+
+		assertThat(progress.explainedPages()).isEqualTo(2);
+		assertThat(progress.totalPages()).isEqualTo(5);
+		assertThat(progress.progressRate()).isEqualTo(40);
+		assertThat(progress.progressDataAvailable()).isTrue();
+	}
+
 	private LearningProgressService service() {
 		return new LearningProgressService(
 			sessionRepository,
