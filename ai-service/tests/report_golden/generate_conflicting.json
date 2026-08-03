@@ -1,0 +1,68 @@
+{
+  "request": {
+    "schemaVersion": "1.0",
+    "reportId": "golden-report-conflicting",
+    "generationId": "golden-generation-conflicting",
+    "scope": {"label": "가상 HTTP 개념 관찰", "periodStart": "2026-07-01", "periodEnd": "2026-07-31"},
+    "metrics": [
+      {"key": "quizAccuracy", "label": "HTTP 퀴즈 정답률", "value": "50%", "window": "RECENT"}
+    ],
+    "dataQuality": {
+      "policyVersion": "report-quality-v1",
+      "availableSources": ["QUIZ", "QA"],
+      "missingSources": ["EXAM"],
+      "criterionEligibility": [
+        {"criterionKey": "concept-understanding", "eligible": true}
+      ]
+    },
+    "criteria": [
+      {
+        "key": "concept-understanding",
+        "name": "개념 이해도",
+        "description": "HTTP 상태 코드의 의미를 정확히 설명하는지 평가",
+        "rubric": "서로 다른 관찰을 함께 검토하고 상충하면 확정하지 않는다",
+        "allowedSourceTypes": ["QUIZ", "QA"],
+        "minimumEvidence": 2,
+        "version": 1
+      }
+    ],
+    "evidence": [
+      {"evidenceId": "conf-quiz-1", "sourceType": "QUIZ", "occurredAt": "2026-07-12T09:00:00Z", "label": "HTTP 상태 코드 퀴즈", "fact": "404를 요청한 리소스를 찾을 수 없는 상태라고 정확히 선택함"},
+      {"evidenceId": "conf-qa-1", "sourceType": "QA", "occurredAt": "2026-07-13T10:00:00Z", "label": "HTTP 오류 질문", "fact": "404는 서버 내부 코드 오류가 발생했다는 뜻인지 질문함"}
+    ],
+    "previousReport": null
+  },
+  "llmOutput": {
+    "criterionResults": [
+      {
+        "criterionKey": "concept-understanding",
+        "status": "ASSESSED",
+        "score": 55,
+        "narrative": "HTTP 상태 코드 퀴즈에서는 404의 의미를 정확히 선택했지만 HTTP 오류 질문에서는 서버 내부 오류와 연결해 물어 상충하는 관찰이 있으므로 추가 확인이 필요합니다.",
+        "evidenceIds": ["conf-quiz-1", "conf-qa-1"]
+      }
+    ],
+    "summary": {
+      "overview": "이번 관찰에서는 404 의미에 대해 서로 다른 반응이 기록되어 추가 확인이 필요합니다.",
+      "strengths": [],
+      "improvements": [
+        {"content": "404와 500의 차이를 실제 응답 예시로 다시 비교할 필요가 있습니다.", "evidenceIds": ["conf-quiz-1", "conf-qa-1"]}
+      ],
+      "misconceptionCandidates": [],
+      "recommendedActions": [
+        {"content": "404와 500 응답 상황을 한 개씩 작성하고 원인을 구분합니다.", "evidenceIds": ["conf-quiz-1", "conf-qa-1"]}
+      ]
+    },
+    "warnings": [
+      {"type": "CONFLICTING_EVIDENCE", "message": "404 의미에 대한 관찰이 상충하여 추가 확인이 필요합니다.", "evidenceIds": ["conf-quiz-1", "conf-qa-1"]}
+    ]
+  },
+  "expected": {
+    "statusCode": 200,
+    "criterionCount": 1,
+    "assessedCount": 1,
+    "insufficientCount": 0,
+    "warningTypes": ["CONFLICTING_EVIDENCE"],
+    "forbiddenOutputFields": ["totalScore", "stage", "trend"]
+  }
+}

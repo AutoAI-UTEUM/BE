@@ -1,0 +1,106 @@
+{
+  "request": {
+    "schemaVersion": "1.0",
+    "reportId": "golden-report-typical",
+    "generationId": "golden-generation-typical",
+    "scope": {
+      "label": "가상 네트워크 기초 과정 누적 리포트",
+      "periodStart": "2026-07-01",
+      "periodEnd": "2026-07-31"
+    },
+    "metrics": [
+      {"key": "quizAccuracy", "label": "퀴즈 정답률", "value": "82%", "window": "CUMULATIVE"},
+      {"key": "completionRate", "label": "학습 진도율", "value": "76%", "window": "CUMULATIVE"}
+    ],
+    "dataQuality": {
+      "policyVersion": "report-quality-v1",
+      "availableSources": ["QUIZ", "QA", "DIAGNOSIS", "REPAIR", "MEMORY", "EXAM"],
+      "missingSources": [],
+      "criterionEligibility": [
+        {"criterionKey": "concept-understanding", "eligible": true},
+        {"criterionKey": "question-specificity", "eligible": true},
+        {"criterionKey": "problem-solving", "eligible": true},
+        {"criterionKey": "application-transfer", "eligible": true},
+        {"criterionKey": "quiz-exam-accuracy", "eligible": true},
+        {"criterionKey": "learning-persistence", "eligible": true},
+        {"criterionKey": "error-reflection", "eligible": true},
+        {"criterionKey": "class-participation", "eligible": true},
+        {"criterionKey": "growth-flow", "eligible": true}
+      ]
+    },
+    "criteria": [
+      {"key": "concept-understanding", "name": "개념 이해도", "description": "핵심 개념을 정확히 설명하는지 평가", "rubric": "정의와 원리를 근거에 맞게 연결한다", "allowedSourceTypes": ["QUIZ", "QA", "EXAM"], "minimumEvidence": 2, "version": 1},
+      {"key": "question-specificity", "name": "질문 구체성", "description": "모르는 지점을 구체적으로 표현하는지 평가", "rubric": "대상 개념과 막힌 단계를 명시한다", "allowedSourceTypes": ["QA"], "minimumEvidence": 2, "version": 1},
+      {"key": "problem-solving", "name": "문제 해결력", "description": "문제 조건을 해석하고 풀이를 완성하는지 평가", "rubric": "조건 분석과 해결 절차가 일관된다", "allowedSourceTypes": ["QUIZ", "EXAM", "REPAIR"], "minimumEvidence": 2, "version": 1},
+      {"key": "application-transfer", "name": "응용 및 전이력", "description": "학습 개념을 새로운 상황에 적용하는지 평가", "rubric": "새 사례에 원리를 옮겨 설명한다", "allowedSourceTypes": ["QA", "QUIZ", "EXAM"], "minimumEvidence": 2, "version": 1},
+      {"key": "quiz-exam-accuracy", "name": "퀴즈 및 시험 정확도", "description": "평가 문항에서 정확한 답을 도출하는지 평가", "rubric": "Spring이 제공한 정답률과 문항 근거를 해석한다", "allowedSourceTypes": ["QUIZ", "EXAM"], "minimumEvidence": 2, "version": 1},
+      {"key": "learning-persistence", "name": "학습 지속성", "description": "여러 관찰에서 학습 활동을 이어가는지 평가", "rubric": "서로 다른 세션의 학습 완료 근거를 확인한다", "allowedSourceTypes": ["MEMORY", "REPAIR", "QUIZ"], "minimumEvidence": 2, "version": 1},
+      {"key": "error-reflection", "name": "오답 성찰력", "description": "오답 원인을 확인하고 교정하는지 평가", "rubric": "진단과 교정 이후 설명 변화를 확인한다", "allowedSourceTypes": ["DIAGNOSIS", "REPAIR", "QA"], "minimumEvidence": 2, "version": 1},
+      {"key": "class-participation", "name": "수업 참여도", "description": "수업 자료와 상호작용한 근거를 평가", "rubric": "질문·퀴즈·복습 활동의 구체적 관찰을 사용한다", "allowedSourceTypes": ["QA", "QUIZ", "MEMORY"], "minimumEvidence": 2, "version": 1},
+      {"key": "growth-flow", "name": "성장 흐름", "description": "직전 관찰과 현재 결과의 변화를 비교", "rubric": "서버가 제공한 현재·이전 결과만 비교하고 추세를 판정하지 않는다", "allowedSourceTypes": ["QUIZ", "EXAM", "REPAIR"], "minimumEvidence": 2, "version": 1}
+    ],
+    "evidence": [
+      {"evidenceId": "typ-quiz-1", "sourceType": "QUIZ", "occurredAt": "2026-07-08T09:00:00Z", "label": "네트워크 계층 퀴즈", "fact": "OSI 계층 역할 문항 5개 중 4개를 정확히 해결함"},
+      {"evidenceId": "typ-qa-1", "sourceType": "QA", "occurredAt": "2026-07-10T10:00:00Z", "label": "TCP 연결 질문", "fact": "3-way handshake에서 두 번째 단계의 응답 플래그를 구체적으로 질문함"},
+      {"evidenceId": "typ-exam-1", "sourceType": "EXAM", "occurredAt": "2026-07-15T09:00:00Z", "label": "중간 점검 시험", "fact": "서브넷 계산과 라우팅 원리 문항에서 84점을 기록함"},
+      {"evidenceId": "typ-diag-1", "sourceType": "DIAGNOSIS", "occurredAt": "2026-07-18T11:00:00Z", "label": "주소 변환 진단", "fact": "NAT와 DNS의 역할을 혼동한 답변이 관찰됨"},
+      {"evidenceId": "typ-repair-1", "sourceType": "REPAIR", "occurredAt": "2026-07-18T11:10:00Z", "label": "주소 변환 교정", "fact": "교정 후 NAT는 사설 주소 변환, DNS는 이름 해석이라고 구분해 설명함"},
+      {"evidenceId": "typ-qa-2", "sourceType": "QA", "occurredAt": "2026-07-22T10:00:00Z", "label": "HTTP 캐시 응용 질문", "fact": "브라우저 캐시와 프록시 캐시의 차이를 실제 서비스 배포 상황에 연결해 질문함"},
+      {"evidenceId": "typ-memory-1", "sourceType": "MEMORY", "occurredAt": "2026-07-25T09:00:00Z", "label": "반복 학습 관찰", "fact": "서로 다른 3개 학습 세션에서 네트워크 복습 활동을 완료한 기록이 있음"},
+      {"evidenceId": "typ-quiz-2", "sourceType": "QUIZ", "occurredAt": "2026-07-29T09:00:00Z", "label": "HTTP 상태 코드 퀴즈", "fact": "상태 코드 의미와 장애 대응 문항 5개를 모두 정확히 해결함"}
+    ],
+    "previousReport": {
+      "version": 1,
+      "criterionResults": [
+        {"criterionKey": "concept-understanding", "status": "ASSESSED", "score": 72},
+        {"criterionKey": "question-specificity", "status": "ASSESSED", "score": 70},
+        {"criterionKey": "problem-solving", "status": "ASSESSED", "score": 68},
+        {"criterionKey": "application-transfer", "status": "ASSESSED", "score": 65},
+        {"criterionKey": "quiz-exam-accuracy", "status": "ASSESSED", "score": 75},
+        {"criterionKey": "learning-persistence", "status": "ASSESSED", "score": 70},
+        {"criterionKey": "error-reflection", "status": "ASSESSED", "score": 60},
+        {"criterionKey": "class-participation", "status": "ASSESSED", "score": 67},
+        {"criterionKey": "growth-flow", "status": "ASSESSED", "score": 66}
+      ]
+    }
+  },
+  "llmOutput": {
+    "criterionResults": [
+      {"criterionKey": "concept-understanding", "status": "ASSESSED", "score": 82, "narrative": "네트워크 계층 퀴즈에서 OSI 역할 5개 중 4개를 해결했고, 주소 변환 교정에서 NAT와 DNS를 구분해 설명했습니다.", "evidenceIds": ["typ-quiz-1", "typ-repair-1"]},
+      {"criterionKey": "question-specificity", "status": "ASSESSED", "score": 86, "narrative": "TCP 연결 질문에서 응답 플래그가 필요한 단계를 짚었고, HTTP 캐시 응용 질문에서도 비교 대상을 명확히 제시했습니다.", "evidenceIds": ["typ-qa-1", "typ-qa-2"]},
+      {"criterionKey": "problem-solving", "status": "ASSESSED", "score": 81, "narrative": "중간 점검 시험에서 서브넷 계산과 라우팅 원리를 적용했고, HTTP 상태 코드 퀴즈에서도 장애 대응 문항을 해결했습니다.", "evidenceIds": ["typ-exam-1", "typ-quiz-2"]},
+      {"criterionKey": "application-transfer", "status": "ASSESSED", "score": 79, "narrative": "HTTP 캐시 응용 질문에서 배포 상황으로 개념을 확장했고, 중간 점검 시험에서 라우팅 원리를 계산 문제에 적용했습니다.", "evidenceIds": ["typ-qa-2", "typ-exam-1"]},
+      {"criterionKey": "quiz-exam-accuracy", "status": "ASSESSED", "score": 84, "narrative": "중간 점검 시험의 84점 기록과 HTTP 상태 코드 퀴즈 5문항 전부 정답이라는 제공 근거를 함께 확인했습니다.", "evidenceIds": ["typ-exam-1", "typ-quiz-2"]},
+      {"criterionKey": "learning-persistence", "status": "ASSESSED", "score": 78, "narrative": "반복 학습 관찰에서 서로 다른 3개 세션의 복습 완료가 기록됐고, 이후 HTTP 상태 코드 퀴즈까지 학습 활동을 이어갔습니다.", "evidenceIds": ["typ-memory-1", "typ-quiz-2"]},
+      {"criterionKey": "error-reflection", "status": "ASSESSED", "score": 83, "narrative": "주소 변환 진단에서 NAT와 DNS 혼동이 관찰됐으나, 주소 변환 교정 후 두 역할을 구분해 다시 설명했습니다.", "evidenceIds": ["typ-diag-1", "typ-repair-1"]},
+      {"criterionKey": "class-participation", "status": "ASSESSED", "score": 80, "narrative": "TCP 연결과 HTTP 캐시에 대해 구체적으로 질문했고, 서로 다른 세션에서 복습 활동도 완료했습니다.", "evidenceIds": ["typ-qa-1", "typ-memory-1"]},
+      {"criterionKey": "growth-flow", "status": "ASSESSED", "score": 80, "narrative": "직전 리포트의 개념 이해도 72점과 현재 퀴즈·교정 관찰을 비교하면 설명에 활용한 근거가 더 구체적입니다.", "evidenceIds": ["typ-quiz-1", "typ-repair-1"]}
+    ],
+    "summary": {
+      "overview": "이번 관찰에서는 네트워크 개념을 질문과 평가에 연결하고, 오개념을 교정한 과정이 구체적으로 확인됩니다.",
+      "strengths": [
+        {"content": "TCP 연결 질문과 HTTP 캐시 응용 질문에서 확인하려는 단계와 비교 대상을 구체적으로 표현했습니다.", "evidenceIds": ["typ-qa-1", "typ-qa-2"]},
+        {"content": "주소 변환 교정 후 NAT와 DNS의 역할을 구분해 설명했습니다.", "evidenceIds": ["typ-diag-1", "typ-repair-1"]}
+      ],
+      "improvements": [
+        {"content": "서브넷 계산 풀이를 라우팅 선택 과정과 함께 말로 설명하는 연습을 추가하면 좋습니다.", "evidenceIds": ["typ-exam-1", "typ-qa-2"]}
+      ],
+      "misconceptionCandidates": [
+        {"content": "NAT와 DNS의 역할 구분은 이후 문제에서도 다시 확인할 필요가 있습니다.", "evidenceIds": ["typ-diag-1", "typ-repair-1"]}
+      ],
+      "recommendedActions": [
+        {"content": "서브넷 예제 하나를 선택해 계산 과정과 라우팅 결정을 세 문장으로 정리합니다.", "evidenceIds": ["typ-exam-1", "typ-quiz-1"]},
+        {"content": "NAT와 DNS가 각각 동작하는 요청 흐름을 화살표로 비교합니다.", "evidenceIds": ["typ-diag-1", "typ-repair-1"]}
+      ]
+    },
+    "warnings": []
+  },
+  "expected": {
+    "statusCode": 200,
+    "criterionCount": 9,
+    "assessedCount": 9,
+    "insufficientCount": 0,
+    "warningTypes": [],
+    "forbiddenOutputFields": ["totalScore", "stage", "trend"]
+  }
+}
