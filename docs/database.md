@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 논리 설계 초안 |
-| 마지막 갱신 | 2026-08-02 |
+| 마지막 갱신 | 2026-08-03 |
 | DB | MySQL |
 | Migration | Flyway (DEC-003 Accepted) |
 
@@ -27,6 +27,11 @@
 | `exam_questions` | id, exam_id, question_no, question_type, points, public_question_json, private_answer_json, schema_version, timestamps | `FK(exam_id)`, `UK(exam_id,question_no)`, 유형·점수 CHECK |
 | `exam_submissions` | id, exam_id, user_id, attempt_no, request_id, status, submitted_at, graded_at(nullable), score(nullable), max_score, normalized_score(nullable), grading_lease_token(nullable), grading_lease_until, timestamps | `FK(exam_id)`, `FK(user_id)`, 시도·멱등 UK, 상태·점수 CHECK, 상태+lease·제출시각 인덱스 |
 | `exam_answers` | id, submission_id, question_id, answer(nullable), score(nullable), max_score, verdict(nullable), feedback(nullable), timestamps | `FK(submission_id)`, `FK(question_id)`, `UK(submission_id,question_id)`, 점수·판정 CHECK |
+| `report_criteria` | id, classroom_id, criterion_key, name, description(nullable), rubric_json, allowed_sources_json, min_evidence, weight, version, active, timestamps | `FK(classroom_id)`, `UK(classroom_id,criterion_key,version)`, `IDX(classroom_id,active)`, 최소 근거·weight·version CHECK |
+| `report_generations` | id, classroom_id, student_id, requested_by, request_id, scope_type, week_number(nullable), scope_hash, snapshot_hash(nullable), criterion_catalog_json(nullable), policy_version, source_data_as_of(nullable), status, failure_code(nullable), model(nullable), prompt_version(nullable), generation lease, timestamps | 강의실·학생·요청자 FK, `UK(classroom_id,student_id,request_id)`, status+lease·학생별 상태 인덱스, 범위·주차·상태 CHECK |
+| `student_reports` | id, generation_id, classroom_id, student_id, version, previous_report_id(nullable), overall_score(nullable), overall_stage(nullable), summary(nullable), data_quality_json, model, prompt_version, timestamps | generation·강의실·학생·이전 리포트 FK, `UK(generation_id)`, `UK(classroom_id,student_id,version)`, version·점수 CHECK |
+| `report_criterion_results` | id, report_id, criterion_key, criterion_version, score(nullable), trend(nullable), status, narrative(nullable), evidence_ids_json, timestamps | `FK(report_id)`, `UK(report_id,criterion_key)`, 점수·trend·status·ASSESSED 점수 필수 CHECK |
+| `report_evidence_snapshots` | id, generation_id, evidence_id, source_type, source_ref, occurred_at, public_label, minimal_fact_json, source_hash, timestamps | `FK(generation_id)`, `UK(generation_id,evidence_id)`, `IDX(generation_id,source_type)` |
 | `learning_sessions` | id, user_id, material_id, current_page, page_status, status, conversation_summary, last_ui_actions_json, active_quiz_id, pending_diagnosis_id, active_turn_request_id, active_turn_started_at, conversation_reset_at, conversation_reset_count, version, timestamps | `FK(user_id)`, `FK(material_id)`, `IDX(user_id,status,updated_at)`, `CHECK(conversation_reset_count >= 0)` |
 | `session_page_records` | id, session_id, page_number, explained_at, timestamps | `FK(session_id)`, `UK(session_id,page_number)`, `CHECK(page_number >= 1)` |
 | `chat_messages` | id, session_id, sender_type, message_type, content, page_number, request_id, status, created_at | `FK(session_id)`, `UK(session_id,request_id)`, `IDX(session_id,created_at,id)` |
@@ -48,6 +53,7 @@
 - `learning_sessions.conversation_summary`는 내부 AI 턴 스냅샷 전용이며 외부 세션 상세 응답에는 노출하지 않습니다. `last_ui_actions_json`, `active_quiz_id`, `pending_diagnosis_id`는 재진입 UI 복원용입니다. `active_quiz_id`와 `pending_diagnosis_id`에는 FK를 추가하지 않습니다. 세션이 하위 퀴즈·진단보다 먼저 생성되는 순환 참조 부담을 피하고 Spring이 생성·제출·진단 소유권과 상태를 검증합니다.
 - `learning_sessions.conversation_reset_at`은 AI 문맥 경계 시각이며 `conversation_reset_count`는 외부 `conversation-{n}` 표기의 순번입니다. 새 대화 이후 내부 턴 스냅샷은 마커보다 늦게 생성된 메시지만 `recentMessages`에 포함하고, 마커 이전 `qaThreadDigest`와 `latestRepair`를 null로 처리합니다. `pendingDiagnosis`, 임시 메모리 후보, 평가, 장기 메모리는 유지하며 메시지 조회 API는 마커와 무관하게 전체 이력을 반환합니다.
 - `session_page_records`는 성공한 `EXPLAIN_CURRENT_PAGE` 턴이 `pageStatus=EXPLAINED`로 확정된 페이지를 기록합니다. 같은 페이지를 재설명하면 행을 추가하지 않고 `explained_at`을 갱신합니다. 진도율은 **설명 완료된 고유 페이지 수 ÷ 자료 `page_count` × 100을 정수 반올림**하며, 자료별 진도는 사용자×자료 범위의 ACTIVE·COMPLETED 세션 합집합으로 계산합니다. 이력이 없는 기존 세션은 `current_page`로 추정하지 않고 0으로 집계합니다.
+- 리포트 페이지 진도는 DEC-033에 따라 V9 `session_page_records`를 그대로 사용합니다. 동등한 설명 완료 근거가 이미 있으므로 `session_page_progress` 테이블은 새로 만들지 않습니다.
 - 강의실 진도율은 학습자가 볼 수 있는 `PUBLISHED` 주차에 연결된 고유 READY 자료를 대상으로 계산합니다. 분자는 사용자×자료 ACTIVE·COMPLETED 세션 합집합의 고유 `(material_id, page_number)` 설명 완료 수, 분모는 고유 자료의 `page_count` 합이며 정수 반올림합니다. 같은 자료가 여러 주차·강의실에 연결돼도 해당 사용자의 자료 학습 이력은 공유하고, 강의실 내 중복 자료는 한 번만 계산합니다. 이력 또는 유효한 분모가 없으면 0입니다.
 - `learning_sessions`에는 `classroom_id`를 추가하지 않습니다. 강의실에서 시작한 통합학습도 기존 사용자×자료 ACTIVE 세션 재사용 규칙을 적용합니다.
 - `classroom_weeks.status`와 `classrooms.week_count/current_week`는 저장하지 않습니다. 주차 상태는 `release_at`과 현재 UTC 시각, 주차 수·현재 주차는 강의실 날짜와 `Asia/Seoul`의 오늘로 파생합니다.
@@ -61,6 +67,9 @@
 - 비동기 채점 lease는 `grading_lease_token VARCHAR(36) NULL`과 `grading_lease_until DATETIME(6) NOT NULL`을 사용합니다. lease 없음은 token null과 epoch 시각으로 표현합니다. claim은 `status=SUBMITTED AND grading_lease_until < now`, 결과 반영은 `status=SUBMITTED AND grading_lease_token=:token` 조건입니다. terminal 전환 시 lease를 초기화하며 제출 후 30분 컷오프가 active lease보다 우선합니다.
 - AI 채점 전·실패 상태에서는 제출 `score`, `normalized_score`, `graded_at`과 해당 AI 답안의 `score`, `verdict`, `feedback`이 NULL입니다. 결정적 MCQ/OX 결과는 즉시 저장하고, 미응답은 `answer=NULL`, `score=0`, `verdict=WRONG`, `feedback=NULL`로 확정합니다. 따라서 답안 점수 제약은 `score IS NULL OR (score >= 0 AND score <= max_score)` 형태입니다.
 - 시험과 문항 FK에는 자동 cascade를 두지 않습니다. DRAFT 물리 삭제와 문항 전체 교체는 하위 `exam_questions`를 서비스 트랜잭션에서 먼저 제거하며 PUBLISHED 이후에는 삭제·교체하지 않습니다.
+- 기본 평가 기준 9종은 버전 상수를 포함한 코드 카탈로그로 관리합니다. `report_criteria`는 강의실 커스텀 기준 전용이며, 기본 기준을 DB seed로 넣지 않습니다. 기본 9종과 활성 커스텀 기준의 합계 20개 상한 및 정규화 이름 중복은 criterion CRUD 서비스가 검증합니다.
+- `report_generations`는 비동기 생성 회수를 위해 시험 채점과 같은 token·epoch lease 표현을 사용합니다. 완료 generation당 리포트 1건과 학생별 리포트 version 중복은 UNIQUE로 막고, FAILED generation 승격 금지와 완료 버전 불변성은 서비스 불변식으로 검증합니다.
+- `report_criterion_results.trend`는 Spring이 점수 이력으로 결정적으로 계산해 저장하며 AI 요청·응답에는 포함하지 않습니다. `report_questions`는 Phase 3에서 별도 migration으로 추가합니다.
 - `classroom_join_requests`는 사용자×강의실당 한 행입니다. `REJECTED` 재요청은 같은 행을 `PENDING`으로 갱신하고 `requested_at`을 새로 기록하며 `processed_at=NULL`로 되돌립니다.
 - 강의실 자료 업로드 시 `learning_materials` 행과 `classroom_week_materials` 연결은 한 DB 트랜잭션으로 저장합니다. 파일 storage는 DB 트랜잭션에 참여하지 않으므로 DB 실패 시 저장 파일을 보상 삭제합니다.
 - `notes`는 사용자와 자료에 귀속하며 세션·페이지·원본 채팅 메시지는 nullable 참조입니다. 목록은 사용자×ACTIVE 자료 범위로 조회하므로 자료가 논리 삭제되면 노트 행은 보존하되 API 목록에서는 제외합니다. 최신순은 `(created_at DESC, id DESC)`로 고정합니다.
@@ -102,6 +111,12 @@
 - `exam_submissions.score IS NULL OR (score >= 0 AND score <= max_score)`
 - `exam_submissions.normalized_score IS NULL OR (normalized_score >= 0 AND normalized_score <= 100)`
 - `exam_answers.score IS NULL OR (score >= 0 AND score <= max_score)`
+- `report_criteria.min_evidence >= 1`, `report_criteria.weight > 0`, `report_criteria.version >= 1`
+- `report_generations.scope_type IN (FULL, WEEK)`, `week_number IS NULL OR week_number >= 1`, `status IN (PENDING, PROCESSING, COMPLETED, FAILED)`
+- `student_reports.version >= 1`, `overall_score IS NULL OR (overall_score >= 0 AND overall_score <= 100)`
+- `report_criterion_results.score IS NULL OR (score >= 0 AND score <= 100)`
+- `report_criterion_results.trend IS NULL OR trend IN (UP, FLAT, DOWN)`
+- `report_criterion_results.status IN (ASSESSED, INSUFFICIENT_DATA)`이며 ASSESSED이면 score 필수
 - 퀴즈 범위는 `1 <= coverage_start_page <= coverage_end_page <= page_count`
 - `quiz_submissions.score >= 0`
 - `quiz_submissions.max_score > 0`
@@ -151,6 +166,10 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - 시험 제출 멱등성: `exam_submissions(exam_id, user_id, request_id)` UNIQUE
 - 시험 채점 회수: `exam_submissions(status, grading_lease_until)`
 - 시험 절대 컷오프: `exam_submissions(status, submitted_at)`
+- 커스텀 리포트 기준: `report_criteria(classroom_id, active)`
+- 리포트 생성 회수: `report_generations(status, generation_lease_until)`
+- 학생별 리포트 생성 상태: `report_generations(classroom_id, student_id, status)`
+- 생성 근거 유형: `report_evidence_snapshots(generation_id, source_type)`
 
 실제 쿼리와 실행 계획을 확인하기 전 인덱스를 과도하게 추가하지 않습니다.
 
@@ -168,6 +187,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V16__conversation_reset.sql`은 새 대화의 AI 문맥 경계 시각과 세션별 순번을 추가합니다.
 - `V17__exam.sql`은 `exams`, `exam_questions`, `exam_submissions`, `exam_answers` 4개 테이블과 시험 계약 제약을 추가합니다.
 - `V18__exam_grading_lease.sql`은 기존 V17 checksum을 변경하지 않고 시험 제출의 lease 컬럼 2개와 회수 인덱스 2개만 추가합니다.
+- `V19__report.sql`은 커스텀 평가 기준, 비동기 생성, 학생 리포트 버전, 기준별 결과, 생성 시점 근거 snapshot의 5개 테이블과 generation lease를 추가합니다. 기본 평가 기준 9종은 seed하지 않으며 페이지 진도 테이블도 추가하지 않습니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.
