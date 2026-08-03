@@ -1,17 +1,23 @@
 package io.edupilot.report;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.edupilot.ai.dto.ReportGenerateResponse;
 import io.edupilot.classroom.Classroom;
 import io.edupilot.classroom.ClassroomRepository;
+import io.edupilot.global.error.ErrorCode;
 import io.edupilot.user.UserRepository;
 import tools.jackson.databind.ObjectMapper;
 
@@ -29,6 +35,9 @@ public class ReportGenerationPersistenceService {
 	private final ReportSnapshotBuilder snapshotBuilder;
 	private final ReportCriterionCatalog criterionCatalog;
 	private final ReportGenerationDispatcher dispatcher;
+	private final StudentReportRepository reportRepository;
+	private final ReportCriterionResultRepository resultRepository;
+	private final ReportScoreCalculator scoreCalculator;
 	private final ObjectMapper objectMapper;
 
 	public ReportGenerationPersistenceService(
@@ -39,6 +48,9 @@ public class ReportGenerationPersistenceService {
 		ReportSnapshotBuilder snapshotBuilder,
 		ReportCriterionCatalog criterionCatalog,
 		ReportGenerationDispatcher dispatcher,
+		StudentReportRepository reportRepository,
+		ReportCriterionResultRepository resultRepository,
+		ReportScoreCalculator scoreCalculator,
 		ObjectMapper objectMapper
 	) {
 		this.generationRepository = generationRepository;
@@ -48,7 +60,166 @@ public class ReportGenerationPersistenceService {
 		this.snapshotBuilder = snapshotBuilder;
 		this.criterionCatalog = criterionCatalog;
 		this.dispatcher = dispatcher;
+		this.reportRepository = reportRepository;
+		this.resultRepository = resultRepository;
+		this.scoreCalculator = scoreCalculator;
 		this.objectMapper = objectMapper;
+	}
+
+	@Transactional
+	public boolean claimGenerationLease(
+		Long generationId,
+		String leaseToken,
+		Instant now,
+		Instant leaseUntil
+	) {
+		return generationRepository.claimGenerationLease(
+			generationId,
+			leaseToken,
+			now,
+			leaseUntil
+		) == 1;
+	}
+
+	@Transactional
+	public boolean applyGeneratedReport(
+		Long generationId,
+		String leaseToken,
+		ReportAiGenerationService.GeneratedReport generated
+	) {
+		ReportGeneration generation = generationRepository
+			.findByIdForUpdate(generationId)
+			.orElse(null);
+		if (generation == null || !generation.hasGenerationLease(leaseToken)) {
+			return false;
+		}
+		FrozenInput input = objectMapper.convertValue(
+			generation.getGenerationInput(),
+			FrozenInput.class
+		);
+		StudentReport previous = reportRepository
+			.findFirstByClassroom_IdAndStudent_IdOrderByVersionDesc(
+				generation.getClassroomId(),
+				generation.getStudentId()
+			)
+			.orElse(null);
+		Map<String, ReportCriterionResult> previousResults = new HashMap<>();
+		if (previous != null) {
+			resultRepository.findByReport_IdOrderByCriterionKey(previous.getId())
+				.forEach(result -> previousResults.put(
+					result.getCriterionKey(),
+					result
+				));
+		}
+		Map<String, FrozenCriterion> criteria = new LinkedHashMap<>();
+		input.criteria().forEach(criterion -> criteria.put(criterion.key(), criterion));
+		ReportGenerateResponse response = generated.response();
+		List<ReportScoreCalculator.CriterionScore> scores = response
+			.criterionResults().stream()
+			.map(result -> {
+				FrozenCriterion criterion = criteria.get(result.criterionKey());
+				return new ReportScoreCalculator.CriterionScore(
+					result.criterionKey(),
+					decimal(result.score()),
+					status(result.status()),
+					criterion.weight()
+				);
+			})
+			.toList();
+		ReportScoreCalculator.OverallResult overall = scoreCalculator.overall(scores);
+		int version = previous == null ? 1 : previous.getVersion() + 1;
+		StudentReport report = reportRepository.saveAndFlush(StudentReport.create(
+			generation,
+			generation.classroom(),
+			generation.student(),
+			version,
+			previous,
+			overall.score(),
+			overall.stage(),
+			summary(response),
+			dataQuality(input.dataQuality()),
+			response.usage().model(),
+			"1.0"
+		));
+		List<ReportCriterionResult> results = response.criterionResults().stream()
+			.map(result -> {
+				FrozenCriterion criterion = criteria.get(result.criterionKey());
+				BigDecimal currentScore = decimal(result.score());
+				ReportCriterionResult previousResult = previousResults.get(
+					result.criterionKey()
+				);
+				return ReportCriterionResult.create(
+					report,
+					result.criterionKey(),
+					criterionVersion(criterion.version()),
+					currentScore,
+					scoreCalculator.trend(
+						previousResult == null ? null : previousResult.getScore(),
+						currentScore
+					),
+					status(result.status()),
+					result.narrative(),
+					List.copyOf(result.evidenceIds())
+				);
+			})
+			.toList();
+		resultRepository.saveAll(results);
+		resultRepository.flush();
+		generation.complete(response.usage().model(), "1.0");
+		generationRepository.flush();
+		return true;
+	}
+
+	@Transactional
+	public boolean failClaimedGeneration(
+		Long generationId,
+		String leaseToken,
+		String failureCode
+	) {
+		ReportGeneration generation = generationRepository
+			.findByIdForUpdate(generationId)
+			.orElse(null);
+		if (generation == null || !generation.hasGenerationLease(leaseToken)) {
+			return false;
+		}
+		generation.fail(failureCode);
+		generationRepository.flush();
+		return true;
+	}
+
+	@Transactional
+	public int failExpiredGenerations(
+		Instant cutoff,
+		Instant now,
+		int batchSize
+	) {
+		List<Long> generationIds = generationRepository.findExpiredGenerationIds(
+			cutoff,
+			PageRequest.of(0, batchSize)
+		);
+		if (generationIds.isEmpty()) {
+			return 0;
+		}
+		return generationRepository.failExpiredGenerations(
+			generationIds,
+			cutoff,
+			ErrorCode.AI_SERVICE_TIMEOUT.code(),
+			Instant.EPOCH,
+			now
+		);
+	}
+
+	@Transactional(readOnly = true)
+	public List<Long> findRecoverableGenerations(
+		Instant cutoff,
+		Instant now,
+		int batchSize
+	) {
+		return generationRepository.findRecoverableGenerations(
+			cutoff,
+			now,
+			PageRequest.of(0, batchSize)
+		).stream().map(ReportGeneration::getId).toList();
 	}
 
 	@Transactional
@@ -154,5 +325,52 @@ public class ReportGenerationPersistenceService {
 		} catch (NoSuchAlgorithmException exception) {
 			throw new IllegalStateException("SHA-256 is unavailable", exception);
 		}
+	}
+
+	private String summary(ReportGenerateResponse response) {
+		Map<String, Object> value = new LinkedHashMap<>();
+		value.put("summary", response.summary());
+		value.put("warnings", response.warnings());
+		return objectMapper.writeValueAsString(value);
+	}
+
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> dataQuality(ReportSnapshot.DataQuality quality) {
+		return objectMapper.convertValue(
+			objectMapper.valueToTree(quality),
+			Map.class
+		);
+	}
+
+	private BigDecimal decimal(Integer score) {
+		return score == null ? null : BigDecimal.valueOf(score);
+	}
+
+	private ReportCriterionStatus status(
+		ReportGenerateResponse.CriterionStatus status
+	) {
+		return ReportCriterionStatus.valueOf(status.name());
+	}
+
+	private int criterionVersion(String version) {
+		return new BigDecimal(version).intValueExact();
+	}
+
+	private record FrozenInput(
+		List<FrozenCriterion> criteria,
+		ReportSnapshot.Metrics metrics,
+		ReportSnapshot.DataQuality dataQuality
+	) {
+	}
+
+	private record FrozenCriterion(
+		String key,
+		String name,
+		String rubricSummary,
+		java.util.Set<ReportSourceType> allowedSources,
+		int minEvidence,
+		BigDecimal weight,
+		String version
+	) {
 	}
 }

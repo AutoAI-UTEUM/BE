@@ -25,32 +25,4 @@ public record AiClientProperties(
 	@NotNull Duration reportReadTimeout,
 	@NotBlank String healthPath
 ) {
-	public AiClientProperties(
-		URI baseUrl,
-		String internalToken,
-		Duration connectTimeout,
-		Duration healthTimeout,
-		Duration readTimeout,
-		Duration turnReadTimeout,
-		Duration streamIdleTimeout,
-		Duration gradeReadTimeout,
-		Duration pipelineReadTimeout,
-		Duration extractReadTimeout,
-		String healthPath
-	) {
-		this(
-			baseUrl,
-			internalToken,
-			connectTimeout,
-			healthTimeout,
-			readTimeout,
-			turnReadTimeout,
-			streamIdleTimeout,
-			gradeReadTimeout,
-			pipelineReadTimeout,
-			extractReadTimeout,
-			Duration.ofSeconds(180),
-			healthPath
-		);
-	}
 }

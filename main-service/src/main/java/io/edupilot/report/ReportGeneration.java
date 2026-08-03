@@ -190,6 +190,18 @@ public class ReportGeneration {
 		clearGenerationLease();
 	}
 
+	public void complete(String model, String promptVersion) {
+		this.model = model;
+		this.promptVersion = promptVersion;
+		complete();
+	}
+
+	public boolean hasGenerationLease(String leaseToken) {
+		return status == ReportGenerationStatus.PROCESSING
+			&& leaseToken != null
+			&& leaseToken.equals(generationLeaseToken);
+	}
+
 	public void fail(String failureCode) {
 		this.status = ReportGenerationStatus.FAILED;
 		this.failureCode = failureCode;
@@ -219,4 +231,7 @@ public class ReportGeneration {
 	public String getPromptVersion() { return promptVersion; }
 	public String getGenerationLeaseToken() { return generationLeaseToken; }
 	public Instant getGenerationLeaseUntil() { return generationLeaseUntil; }
+	public Instant getCreatedAt() { return createdAt; }
+	Classroom classroom() { return classroom; }
+	User student() { return student; }
 }
