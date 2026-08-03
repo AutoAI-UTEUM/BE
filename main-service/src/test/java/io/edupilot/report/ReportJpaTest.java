@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,10 +22,13 @@ import org.springframework.transaction.annotation.Transactional;
 import io.edupilot.classroom.Classroom;
 import io.edupilot.classroom.ClassroomColor;
 import io.edupilot.classroom.ClassroomRepository;
+import io.edupilot.ai.dto.AiUsage;
+import io.edupilot.ai.dto.ReportGenerateResponse;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
 import jakarta.persistence.EntityManager;
+import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest(
 	webEnvironment = SpringBootTest.WebEnvironment.MOCK,
@@ -52,8 +56,10 @@ class ReportJpaTest {
 	@Autowired private StudentReportRepository reportRepository;
 	@Autowired private ReportCriterionResultRepository resultRepository;
 	@Autowired private ReportEvidenceSnapshotRepository evidenceRepository;
+	@Autowired private ReportGenerationPersistenceService persistenceService;
 	@Autowired private EntityManager entityManager;
 	@Autowired private JdbcTemplate jdbcTemplate;
+	@Autowired private ObjectMapper objectMapper;
 
 	private User instructor;
 	private User student;
@@ -214,6 +220,100 @@ class ReportJpaTest {
 		);
 	}
 
+	@Test
+	void lateWorkerCannotApplyAfterLeaseIsReclaimed() {
+		ReportGeneration generation = generation(student, "late-worker");
+		Instant firstClaim = Instant.now();
+		assertThat(persistenceService.claimGenerationLease(
+			generation.getId(),
+			"first-token",
+			firstClaim,
+			firstClaim.plusSeconds(300)
+		)).isTrue();
+		assertThat(persistenceService.claimGenerationLease(
+			generation.getId(),
+			"second-token",
+			firstClaim.plusSeconds(301),
+			firstClaim.plusSeconds(601)
+		)).isTrue();
+
+		boolean applied = persistenceService.applyGeneratedReport(
+			generation.getId(),
+			"first-token",
+			new ReportAiGenerationService.GeneratedReport(validResponse(80))
+		);
+
+		assertThat(applied).isFalse();
+		assertThat(reportRepository.count()).isZero();
+		assertThat(resultRepository.count()).isZero();
+	}
+
+	@Test
+	void absoluteCutoffFailsGenerationEvenWithActiveLease() {
+		ReportGeneration generation = generation(student, "absolute-cutoff");
+		Instant claimedAt = Instant.now();
+		assertThat(persistenceService.claimGenerationLease(
+			generation.getId(),
+			"active-token",
+			claimedAt,
+			claimedAt.plusSeconds(3600)
+		)).isTrue();
+
+		assertThat(persistenceService.failExpiredGenerations(
+			claimedAt.plusSeconds(1),
+			claimedAt.plusSeconds(2),
+			100
+		)).isEqualTo(1);
+
+		ReportGeneration failed = generationRepository.findById(generation.getId())
+			.orElseThrow();
+		assertThat(failed.getStatus()).isEqualTo(ReportGenerationStatus.FAILED);
+		assertThat(failed.getFailureCode()).isEqualTo("AI_SERVICE_TIMEOUT");
+		assertThat(reportRepository.count()).isZero();
+	}
+
+	@Test
+	void storesNewVersionPreviousTrendAndSpringOverall() {
+		ReportGeneration first = frozenGeneration("versioned-1");
+		assertThat(persistenceService.claimGenerationLease(
+			first.getId(), "token-1", Instant.now(), Instant.now().plusSeconds(300)
+		)).isTrue();
+		assertThat(persistenceService.applyGeneratedReport(
+			first.getId(),
+			"token-1",
+			new ReportAiGenerationService.GeneratedReport(validResponse(80))
+		)).isTrue();
+
+		ReportGeneration second = frozenGeneration("versioned-2");
+		assertThat(persistenceService.claimGenerationLease(
+			second.getId(), "token-2", Instant.now(), Instant.now().plusSeconds(300)
+		)).isTrue();
+		assertThat(persistenceService.applyGeneratedReport(
+			second.getId(),
+			"token-2",
+			new ReportAiGenerationService.GeneratedReport(validResponse(90))
+		)).isTrue();
+
+		List<StudentReport> reports = reportRepository
+			.findByClassroom_IdAndStudent_IdOrderByVersionDesc(
+				classroom.getId(), student.getId()
+			);
+		assertThat(reports).extracting(StudentReport::getVersion)
+			.containsExactly(2, 1);
+		assertThat(reports.getFirst().getPreviousReportId())
+			.isEqualTo(reports.get(1).getId());
+		assertThat(reports.getFirst().getOverallScore())
+			.isEqualByComparingTo("90.00");
+		assertThat(reports.getFirst().getOverallStage()).isEqualTo("우수");
+		assertThat(reports.get(1).getOverallScore()).isEqualByComparingTo("80.00");
+		List<ReportCriterionResult> latestResults = resultRepository
+			.findByReport_IdOrderByCriterionKey(reports.getFirst().getId());
+		assertThat(latestResults).singleElement().satisfies(result -> {
+			assertThat(result.getTrend()).isEqualTo(ReportTrend.UP);
+			assertThat(result.getScore()).isEqualByComparingTo("90.00");
+		});
+	}
+
 	private ReportGeneration generation(User targetStudent, String requestId) {
 		return generationRepository.saveAndFlush(ReportGeneration.create(
 			classroom,
@@ -225,6 +325,101 @@ class ReportJpaTest {
 			"scope-hash-" + requestId,
 			"1.0"
 		));
+	}
+
+	private ReportGeneration frozenGeneration(String requestId) {
+		ReportGeneration generation = ReportGeneration.create(
+			classroom,
+			student,
+			instructor,
+			requestId,
+			ReportScopeType.FULL,
+			null,
+			"scope-hash-" + requestId,
+			"1.0"
+		);
+		generation.freezeSnapshot(
+			"snapshot-hash-" + requestId,
+			generationInput(),
+			Instant.now()
+		);
+		generationRepository.saveAndFlush(generation);
+		evidenceRepository.saveAndFlush(evidence(generation, "evidence-1"));
+		return generation;
+	}
+
+	private Map<String, Object> generationInput() {
+		ReportCriterionDefinition criterion = new ReportCriterionDefinition(
+			"question_specificity",
+			"질문 구체성",
+			"질문의 구체성을 평가",
+			Set.of(ReportSourceType.QA_QUESTION),
+			1,
+			BigDecimal.ONE,
+			"1.0"
+		);
+		ReportSnapshot.ScoreAggregate aggregate =
+			new ReportSnapshot.ScoreAggregate(0, null);
+		ReportSnapshot.ScoreWindow window =
+			new ReportSnapshot.ScoreWindow(aggregate, aggregate);
+		ReportSnapshot.Metrics metrics = new ReportSnapshot.Metrics(
+			new ReportSnapshot.Progress(1, 1, 100, true),
+			window,
+			window,
+			new ReportSnapshot.Questions(1, 1),
+			new ReportSnapshot.Activity(1, Instant.now())
+		);
+		ReportSnapshot.DataQuality quality = new ReportSnapshot.DataQuality(
+			"1.0",
+			Set.of(ReportSourceType.QA_QUESTION),
+			Set.of(),
+			Map.of(
+				"question_specificity",
+				new ReportSnapshot.Eligibility(true, null, 1, 1)
+			)
+		);
+		Map<String, Object> input = new java.util.LinkedHashMap<>();
+		input.put("criteria", convert(List.of(criterion)));
+		input.put("metrics", convert(metrics));
+		input.put("dataQuality", convert(quality));
+		return input;
+	}
+
+	private Object convert(Object value) {
+		return objectMapper.convertValue(
+			objectMapper.valueToTree(value),
+			Object.class
+		);
+	}
+
+	private ReportGenerateResponse validResponse(int score) {
+		ReportGenerateResponse.EvidencedStatement statement =
+			new ReportGenerateResponse.EvidencedStatement(
+				"근거가 있는 서술",
+				List.of("evidence-1")
+			);
+		return new ReportGenerateResponse(
+			"1.0",
+			"unused-by-persistence",
+			List.of(new ReportGenerateResponse.CriterionResult(
+				"question_specificity",
+				ReportGenerateResponse.CriterionStatus.ASSESSED,
+				score,
+				"평가 서술",
+				List.of("evidence-1")
+			)),
+			new ReportGenerateResponse.Summary(
+				"요약",
+				List.of(statement),
+				List.of(statement),
+				List.of(),
+				List.of(statement)
+			),
+			List.of(),
+			new AiUsage("test-model", 10L, 20L, null),
+			new BigDecimal("1.00"),
+			"보완 필요"
+		);
 	}
 
 	private StudentReport report(

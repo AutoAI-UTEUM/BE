@@ -133,7 +133,8 @@ public class ReportSnapshotBuilder {
 		));
 	}
 
-	private void validateAccess(
+	@Transactional(readOnly = true)
+	public void validateAccess(
 		Long instructorId,
 		Long classroomId,
 		Long studentId,
