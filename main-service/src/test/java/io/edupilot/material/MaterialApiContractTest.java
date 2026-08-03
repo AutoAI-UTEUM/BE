@@ -23,6 +23,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.mock.web.MockPart;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -118,16 +119,16 @@ class MaterialApiContractTest {
 			"application/pdf",
 			"%PDF-test".getBytes()
 		);
-		MockMultipartFile title = new MockMultipartFile(
+		MockPart title = new MockPart(
 			"title",
-			"",
-			"text/plain",
-			"자료".getBytes(StandardCharsets.UTF_8)
+			"자료.pdf".getBytes(StandardCharsets.UTF_8)
 		);
+		MockPart classroomId = new MockPart("classroomId", "12".getBytes());
+		MockPart weekNumber = new MockPart("weekNumber", "1".getBytes());
 
 		mockMvc.perform(multipart("/api/materials")
 				.file(pdf)
-				.file(title))
+				.part(title, classroomId, weekNumber))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.error.code").value("AUTHENTICATION_REQUIRED"));
 
@@ -135,12 +136,12 @@ class MaterialApiContractTest {
 			org.mockito.ArgumentMatchers.eq(1L),
 			org.mockito.ArgumentMatchers.eq(UserRole.LEARNER),
 			org.mockito.ArgumentMatchers.any(),
-			org.mockito.ArgumentMatchers.eq("자료"),
-			org.mockito.ArgumentMatchers.isNull(),
-			org.mockito.ArgumentMatchers.isNull()
+			org.mockito.ArgumentMatchers.eq("자료.pdf"),
+			org.mockito.ArgumentMatchers.eq(12L),
+			org.mockito.ArgumentMatchers.eq(1)
 		)).thenReturn(new MaterialSummaryResponse(
 			10L,
-			"자료",
+			"자료.pdf",
 			null,
 			MaterialProcessingStatus.PROCESSING,
 			Instant.parse("2026-07-25T00:00:00Z")
@@ -148,7 +149,7 @@ class MaterialApiContractTest {
 
 		mockMvc.perform(multipart("/api/materials")
 				.file(pdf)
-				.file(title)
+				.part(title, classroomId, weekNumber)
 				.header(HttpHeaders.AUTHORIZATION, bearer()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.materialId").value(10))

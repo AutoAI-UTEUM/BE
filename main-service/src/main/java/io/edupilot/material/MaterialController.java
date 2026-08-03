@@ -23,6 +23,11 @@ import io.edupilot.material.dto.MaterialDetailResponse;
 import io.edupilot.material.dto.MaterialListResponse;
 import io.edupilot.material.dto.MaterialSummaryResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.media.SchemaProperty;
+import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Min;
@@ -42,12 +47,42 @@ public class MaterialController {
 
 	@PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	@Operation(summary = "PDF 학습 자료 업로드")
+	@RequestBody(
+		required = true,
+		content = @Content(
+			mediaType = MediaType.MULTIPART_FORM_DATA_VALUE,
+			schema = @Schema(
+				type = "object",
+				requiredProperties = {"file", "title"}
+			),
+			schemaProperties = {
+				@SchemaProperty(
+					name = "file",
+					schema = @Schema(type = "string", format = "binary")
+				),
+				@SchemaProperty(
+					name = "title",
+					schema = @Schema(type = "string")
+				),
+				@SchemaProperty(
+					name = "classroomId",
+					schema = @Schema(type = "integer", format = "int64")
+				),
+				@SchemaProperty(
+					name = "weekNumber",
+					schema = @Schema(type = "integer", format = "int32")
+				)
+			}
+		)
+	)
 	public ApiResponse<MaterialSummaryResponse> upload(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@RequestPart("file") MultipartFile file,
-		@RequestPart("title") String title,
-		@RequestPart(value = "classroomId", required = false) Long classroomId,
-		@RequestPart(value = "weekNumber", required = false) Integer weekNumber
+		@Parameter(hidden = true) @RequestParam("title") String title,
+		@Parameter(hidden = true)
+		@RequestParam(value = "classroomId", required = false) Long classroomId,
+		@Parameter(hidden = true)
+		@RequestParam(value = "weekNumber", required = false) Integer weekNumber
 	) {
 		return ApiResponse.success(
 			materialService.upload(
