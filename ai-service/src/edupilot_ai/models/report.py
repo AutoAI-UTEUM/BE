@@ -68,7 +68,6 @@ class PreviousCriterionResult(ContractModel):
     score: int | None = Field(default=None, ge=0, le=100)
 
 
-# TODO(#121 §7-4): previousReport 범위 Spring 회신 대기
 class PreviousReportSummary(ContractModel):
     version: int = Field(ge=1)
     criterion_results: list[PreviousCriterionResult]
@@ -81,8 +80,8 @@ class ReportGenerateRequest(ContractModel):
     scope: ReportScope
     metrics: list[ReportMetric]
     data_quality: ReportDataQuality
-    criteria: list[ReportCriterion] = Field(min_length=1)
-    evidence: list[ReportEvidence]
+    criteria: list[ReportCriterion] = Field(min_length=1, max_length=20)
+    evidence: list[ReportEvidence] = Field(max_length=200)
     previous_report: PreviousReportSummary | None = None
 
     @model_validator(mode="after")
@@ -136,7 +135,6 @@ class ReportWarning(ContractModel):
     evidence_ids: list[str]
 
 
-# TODO(#121 §7-5): trend 필드의 Spring 결정값 전달 범위 회신 대기
 class ReportGenerateOutput(ContractModel):
     criterion_results: list[ReportCriterionResult] = Field(min_length=1)
     summary: ReportSummary
@@ -156,7 +154,7 @@ class ReportQueryRequest(ContractModel):
     question: str = Field(min_length=1)
     report_summary: ReportSummary
     criterion_results: list[ReportCriterionResult]
-    evidence: list[ReportEvidence]
+    evidence: list[ReportEvidence] = Field(max_length=200)
 
 
 class ReportQueryOutput(ContractModel):

@@ -66,6 +66,8 @@ def validate_generate_output(
     for result in output.criterion_results:
         if (result.status == "ASSESSED") != (result.score is not None):
             raise ReportValidationError("SCORE_STATUS_CONFLICT")
+        if result.status == "ASSESSED" and not result.evidence_ids:
+            raise ReportValidationError("ASSESSED_WITHOUT_EVIDENCE")
         if result.status == "ASSESSED":
             if len(result.evidence_ids) < criteria[result.criterion_key].minimum_evidence:
                 raise ReportValidationError("INSUFFICIENT_EVIDENCE_COUNT")

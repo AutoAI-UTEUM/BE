@@ -370,6 +370,7 @@
           "items": {
             "$ref": "#/$defs/ReportCriterion"
           },
+          "maxItems": 20,
           "minItems": 1,
           "title": "Criteria",
           "type": "array"
@@ -378,6 +379,7 @@
           "items": {
             "$ref": "#/$defs/ReportEvidence"
           },
+          "maxItems": 200,
           "title": "Evidence",
           "type": "array"
         },
@@ -1045,6 +1047,7 @@
           "items": {
             "$ref": "#/$defs/ReportEvidence"
           },
+          "maxItems": 200,
           "title": "Evidence",
           "type": "array"
         }
