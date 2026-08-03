@@ -1,7 +1,6 @@
 package io.edupilot.report;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Map;
 
 import org.hibernate.annotations.Check;
@@ -85,7 +84,7 @@ public class ReportGeneration {
 
 	@JdbcTypeCode(SqlTypes.JSON)
 	@Column(name = "criterion_catalog_json", columnDefinition = "json")
-	private List<Map<String, Object>> criterionCatalog;
+	private Map<String, Object> generationInput;
 
 	@Column(name = "policy_version", nullable = false, length = 20)
 	private String policyVersion;
@@ -172,6 +171,19 @@ public class ReportGeneration {
 		this.failureCode = null;
 	}
 
+	public void freezeSnapshot(
+		String snapshotHash,
+		Map<String, Object> generationInput,
+		Instant sourceDataAsOf
+	) {
+		if (this.snapshotHash != null || this.generationInput != null) {
+			throw new IllegalStateException("Report snapshot is already frozen");
+		}
+		this.snapshotHash = snapshotHash;
+		this.generationInput = Map.copyOf(generationInput);
+		this.sourceDataAsOf = sourceDataAsOf;
+	}
+
 	public void complete() {
 		this.status = ReportGenerationStatus.COMPLETED;
 		this.failureCode = null;
@@ -198,7 +210,7 @@ public class ReportGeneration {
 	public Integer getWeekNumber() { return weekNumber; }
 	public String getScopeHash() { return scopeHash; }
 	public String getSnapshotHash() { return snapshotHash; }
-	public List<Map<String, Object>> getCriterionCatalog() { return criterionCatalog; }
+	public Map<String, Object> getGenerationInput() { return generationInput; }
 	public String getPolicyVersion() { return policyVersion; }
 	public Instant getSourceDataAsOf() { return sourceDataAsOf; }
 	public ReportGenerationStatus getStatus() { return status; }
