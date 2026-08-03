@@ -1,0 +1,84 @@
+{
+  "request": {
+    "schemaVersion": "1.0",
+    "reportId": "golden-report-insufficient",
+    "generationId": "golden-generation-insufficient",
+    "scope": {"label": "가상 자료구조 과정 초기 리포트", "periodStart": "2026-07-20", "periodEnd": "2026-07-31"},
+    "metrics": [
+      {"key": "completionRate", "label": "학습 진도율", "value": "24%", "window": "RECENT"}
+    ],
+    "dataQuality": {
+      "policyVersion": "report-quality-v1",
+      "availableSources": ["QUIZ", "QA", "DIAGNOSIS", "REPAIR", "MEMORY"],
+      "missingSources": ["EXAM"],
+      "criterionEligibility": [
+        {"criterionKey": "concept-understanding", "eligible": true},
+        {"criterionKey": "question-specificity", "eligible": true},
+        {"criterionKey": "problem-solving", "eligible": true},
+        {"criterionKey": "application-transfer", "eligible": false, "reason": "응용 문항 관찰이 아직 없음"},
+        {"criterionKey": "quiz-exam-accuracy", "eligible": false, "reason": "시험 근거가 없음"},
+        {"criterionKey": "learning-persistence", "eligible": true},
+        {"criterionKey": "error-reflection", "eligible": true},
+        {"criterionKey": "class-participation", "eligible": false, "reason": "관찰 기간이 짧음"},
+        {"criterionKey": "growth-flow", "eligible": false, "reason": "이전 리포트가 없음"}
+      ]
+    },
+    "criteria": [
+      {"key": "concept-understanding", "name": "개념 이해도", "description": "핵심 개념 이해", "rubric": "정의와 원리를 근거에 맞게 연결한다", "allowedSourceTypes": ["QUIZ", "QA"], "minimumEvidence": 2, "version": 1},
+      {"key": "question-specificity", "name": "질문 구체성", "description": "질문의 구체성", "rubric": "막힌 단계와 대상을 명시한다", "allowedSourceTypes": ["QA"], "minimumEvidence": 2, "version": 1},
+      {"key": "problem-solving", "name": "문제 해결력", "description": "풀이 과정의 일관성", "rubric": "조건과 해결 절차를 연결한다", "allowedSourceTypes": ["QUIZ", "REPAIR"], "minimumEvidence": 2, "version": 1},
+      {"key": "application-transfer", "name": "응용 및 전이력", "description": "새 상황 적용", "rubric": "새 사례에 개념을 적용한다", "allowedSourceTypes": ["QUIZ", "QA", "EXAM"], "minimumEvidence": 2, "version": 1},
+      {"key": "quiz-exam-accuracy", "name": "퀴즈 및 시험 정확도", "description": "평가 정확도", "rubric": "제공된 평가 지표를 해석한다", "allowedSourceTypes": ["QUIZ", "EXAM"], "minimumEvidence": 2, "version": 1},
+      {"key": "learning-persistence", "name": "학습 지속성", "description": "여러 관찰의 학습 지속", "rubric": "서로 다른 학습 활동을 확인한다", "allowedSourceTypes": ["MEMORY", "QUIZ"], "minimumEvidence": 2, "version": 1},
+      {"key": "error-reflection", "name": "오답 성찰력", "description": "오답 교정 과정", "rubric": "진단과 교정의 변화를 확인한다", "allowedSourceTypes": ["DIAGNOSIS", "REPAIR"], "minimumEvidence": 2, "version": 1},
+      {"key": "class-participation", "name": "수업 참여도", "description": "학습 상호작용", "rubric": "질문과 활동 근거를 확인한다", "allowedSourceTypes": ["QA", "QUIZ", "MEMORY"], "minimumEvidence": 2, "version": 1},
+      {"key": "growth-flow", "name": "성장 흐름", "description": "이전 결과와 비교", "rubric": "현재와 이전 결과만 비교한다", "allowedSourceTypes": ["QUIZ", "EXAM", "REPAIR"], "minimumEvidence": 2, "version": 1}
+    ],
+    "evidence": [
+      {"evidenceId": "ins-quiz-1", "sourceType": "QUIZ", "occurredAt": "2026-07-22T09:00:00Z", "label": "스택 기본 퀴즈", "fact": "후입선출 개념 문항 3개 중 2개를 정확히 해결함"},
+      {"evidenceId": "ins-qa-1", "sourceType": "QA", "occurredAt": "2026-07-23T10:00:00Z", "label": "스택 포인터 질문", "fact": "push 이후 top 인덱스가 바뀌는 순서를 구체적으로 질문함"},
+      {"evidenceId": "ins-diag-1", "sourceType": "DIAGNOSIS", "occurredAt": "2026-07-25T11:00:00Z", "label": "큐 연산 진단", "fact": "dequeue가 뒤쪽 원소를 제거한다고 답한 관찰이 있음"},
+      {"evidenceId": "ins-repair-1", "sourceType": "REPAIR", "occurredAt": "2026-07-25T11:10:00Z", "label": "큐 연산 교정", "fact": "교정 후 dequeue는 앞쪽 원소를 제거한다고 다시 설명함"},
+      {"evidenceId": "ins-memory-1", "sourceType": "MEMORY", "occurredAt": "2026-07-28T09:00:00Z", "label": "복습 활동 기록", "fact": "스택과 큐 비교 복습을 서로 다른 2개 세션에서 완료함"},
+      {"evidenceId": "ins-qa-2", "sourceType": "QA", "occurredAt": "2026-07-30T10:00:00Z", "label": "큐 사용 사례 질문", "fact": "작업 대기열에서 먼저 들어온 요청을 먼저 처리하는 이유를 질문함"}
+    ],
+    "previousReport": null
+  },
+  "llmOutput": {
+    "criterionResults": [
+      {"criterionKey": "concept-understanding", "status": "ASSESSED", "score": 68, "narrative": "스택 기본 퀴즈와 스택 포인터 질문에서 후입선출 개념과 top 변경 순서를 확인했습니다.", "evidenceIds": ["ins-quiz-1", "ins-qa-1"]},
+      {"criterionKey": "question-specificity", "status": "ASSESSED", "score": 76, "narrative": "스택 포인터 질문과 큐 사용 사례 질문에서 연산 순서와 처리 이유를 구체적으로 물었습니다.", "evidenceIds": ["ins-qa-1", "ins-qa-2"]},
+      {"criterionKey": "problem-solving", "status": "ASSESSED", "score": 66, "narrative": "스택 기본 퀴즈를 해결했고 큐 연산 교정 후 제거 위치를 정확히 다시 설명했습니다.", "evidenceIds": ["ins-quiz-1", "ins-repair-1"]},
+      {"criterionKey": "application-transfer", "status": "INSUFFICIENT_DATA", "score": null, "narrative": "아직 관찰 중이며 응용 문항 데이터가 쌓이면 평가하겠습니다.", "evidenceIds": []},
+      {"criterionKey": "quiz-exam-accuracy", "status": "INSUFFICIENT_DATA", "score": null, "narrative": "아직 관찰 중이며 시험 데이터가 추가되면 평가하겠습니다.", "evidenceIds": []},
+      {"criterionKey": "learning-persistence", "status": "ASSESSED", "score": 72, "narrative": "복습 활동 기록의 서로 다른 2개 세션과 이후 큐 사용 사례 질문에서 학습 활동이 이어졌습니다.", "evidenceIds": ["ins-memory-1", "ins-qa-2"]},
+      {"criterionKey": "error-reflection", "status": "ASSESSED", "score": 74, "narrative": "큐 연산 진단의 오답 이후 교정에서 dequeue의 제거 위치를 바로잡아 설명했습니다.", "evidenceIds": ["ins-diag-1", "ins-repair-1"]},
+      {"criterionKey": "class-participation", "status": "INSUFFICIENT_DATA", "score": null, "narrative": "아직 관찰 중이며 더 긴 기간의 상호작용 데이터가 쌓이면 평가하겠습니다.", "evidenceIds": []},
+      {"criterionKey": "growth-flow", "status": "INSUFFICIENT_DATA", "score": null, "narrative": "아직 관찰 중이며 다음 리포트와 비교할 데이터가 쌓이면 평가하겠습니다.", "evidenceIds": []}
+    ],
+    "summary": {
+      "overview": "현재 관찰에서는 스택·큐 기본 개념 질문과 오답 교정 과정이 확인되며, 네 기준은 데이터를 더 관찰해야 합니다.",
+      "strengths": [
+        {"content": "연산 순서에서 막힌 지점을 구체적으로 질문했습니다.", "evidenceIds": ["ins-qa-1", "ins-qa-2"]}
+      ],
+      "improvements": [
+        {"content": "스택과 큐의 제거 위치를 작은 배열 예제로 비교하면 좋습니다.", "evidenceIds": ["ins-diag-1", "ins-repair-1"]}
+      ],
+      "misconceptionCandidates": [],
+      "recommendedActions": [
+        {"content": "스택과 큐에 원소 3개를 넣고 제거 순서를 표로 기록합니다.", "evidenceIds": ["ins-quiz-1", "ins-repair-1"]}
+      ]
+    },
+    "warnings": [
+      {"type": "SPARSE_EVIDENCE", "message": "네 평가 기준은 아직 관찰 중입니다.", "evidenceIds": []}
+    ]
+  },
+  "expected": {
+    "statusCode": 200,
+    "criterionCount": 9,
+    "assessedCount": 5,
+    "insufficientCount": 4,
+    "warningTypes": ["SPARSE_EVIDENCE"],
+    "forbiddenOutputFields": ["totalScore", "stage", "trend"]
+  }
+}
