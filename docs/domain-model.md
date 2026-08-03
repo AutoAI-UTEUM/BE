@@ -168,12 +168,15 @@ erDiagram
 
 ### ExamSubmission / ExamAnswer
 
-- 제출은 `(examId,userId,attemptNo)`로 시도를 보존합니다. 재응시가 허용되면 attemptNo를 1부터 증가시키고 대표값은 가장 큰 attemptNo인 최신 제출입니다.
+- 제출은 `(examId,userId,attemptNo)`로 시도를 보존합니다. attemptNo는 상태와 무관하게 증가합니다. 운영 조회·polling의 최신 시도는 전체 `MAX(attemptNo)`, 성적·리포트 대표값은 `MAX(attemptNo WHERE status=GRADED)`입니다. `GRADED 80점 → GRADING_FAILED`이면 이전 80점이 대표 성적입니다.
 - 같은 `requestId`는 같은 제출을 반환합니다. 새 재응시는 반드시 새 requestId를 사용합니다.
-- 상태는 `SUBMITTED → GRADED | GRADING_FAILED`입니다. 완전한 채점 전에는 제출 총점·정규화 점수를 확정하지 않습니다.
+- 상태는 `SUBMITTED → GRADED | GRADING_FAILED`입니다. 응답 있는 SHORT/ESSAY가 있으면 202/SUBMITTED로 먼저 반환하고, 결정적 채점만 필요하면 200/GRADED로 반환합니다. 두 응답의 DTO 스키마는 같습니다.
+- SUBMITTED 동안 제출 총점·정규화·채점 시각과 모든 문항의 점수·판정·피드백을 null로 마스킹합니다. 내부에서 완료된 MCQ/OX 결과도 terminal 상태 전에는 공개하지 않아 재응시 정보 이득을 막습니다.
 - MCQ/OX는 Spring이 결정적으로 채점합니다. 응답이 있는 SHORT/ESSAY는 기존 grade 내부 API를 유형별 최대 1회씩 호출하고, 한 유형이 실패해도 나머지 유형 호출을 계속합니다. 점수 합계와 0~100 정규화는 Spring이 계산합니다.
-- grade의 `AI_REQUEST_INVALID`은 Spring 계약 결함이므로 재시도·`GRADING_FAILED` 저장 없이 제출을 실패시키고 임시 영속 데이터를 보상 삭제한 뒤 외부 500으로 처리합니다.
+- grade의 `AI_REQUEST_INVALID`은 Spring 계약 결함입니다. 비동기 worker는 재시도하지 않고 `GRADING_FAILED`로 종결하며 ERROR 로그로 일반 AI 실패와 구분합니다.
 - AI 대상 답안은 채점 완료 전·실패 시 점수와 판정이 없습니다. 미응답 문항만 `answer=null`, 0점, `WRONG`으로 즉시 확정하며 AI 호출에서 제외합니다.
+- GRADING_FAILED는 응시권을 소모하지 않으며 allowRetake와 무관하게 새 requestId로 다음 시도를 허용합니다. SUBMITTED인 최신 시도가 있으면 새 제출을 차단합니다.
+- worker는 조건부 lease claim과 token 일치 결과 반영을 사용합니다. scheduler는 30초마다 30분 초과 SUBMITTED를 먼저 실패 종결하고, 30분 미만의 만료 lease만 최대 100건 재전달합니다.
 - 시험 결과는 QuizAssessment·Diagnosis 파이프라인을 시작하지 않습니다. 모든 시도와 문항 결과는 리포트가 최신·누적 추세를 분리할 수 있도록 보존합니다.
 
 ### Diagnosis / RepairResult

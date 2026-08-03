@@ -11,6 +11,10 @@ import io.edupilot.classroom.ClassroomService;
 import io.edupilot.classroom.ClassroomWeekService;
 import io.edupilot.classroom.ClassroomWeekMaterialRepository;
 import io.edupilot.classroom.ClassroomNoticeService;
+import io.edupilot.exam.InstructorExamService;
+import io.edupilot.exam.ExamAiGradingService;
+import io.edupilot.exam.ExamSubmissionPersistenceService;
+import io.edupilot.exam.StudentExamService;
 import io.edupilot.material.MaterialAccessService;
 import io.edupilot.session.LearningProgressService;
 import io.edupilot.schedule.ScheduleService;
@@ -24,7 +28,11 @@ import io.edupilot.schedule.ScheduleService;
 	LearningProgressService.class,
 	ClassroomWeekMaterialRepository.class,
 	ClassroomNoticeService.class,
-	ScheduleService.class
+	ScheduleService.class,
+	InstructorExamService.class,
+	StudentExamService.class,
+	ExamAiGradingService.class,
+	ExamSubmissionPersistenceService.class
 })
 public @interface Epic10ServiceMocks {
 }

@@ -181,6 +181,31 @@ public enum ErrorCode {
 		HttpStatus.CONFLICT,
 		"현재 제출할 수 없는 퀴즈입니다."
 	),
+	EXAM_NOT_FOUND(
+		"EXAM_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"시험을 찾을 수 없습니다."
+	),
+	EXAM_NOT_PUBLISHED(
+		"EXAM_NOT_PUBLISHED",
+		HttpStatus.CONFLICT,
+		"공개된 시험이 아닙니다."
+	),
+	EXAM_NOT_EDITABLE(
+		"EXAM_NOT_EDITABLE",
+		HttpStatus.CONFLICT,
+		"수정 가능한 시험이 아닙니다."
+	),
+	EXAM_ALREADY_SUBMITTED(
+		"EXAM_ALREADY_SUBMITTED",
+		HttpStatus.CONFLICT,
+		"이미 제출한 시험입니다."
+	),
+	INVALID_EXAM_ANSWER(
+		"INVALID_EXAM_ANSWER",
+		HttpStatus.BAD_REQUEST,
+		"시험 답안을 확인해 주세요."
+	),
 	GRADING_RESULT_INVALID(
 		"GRADING_RESULT_INVALID",
 		HttpStatus.BAD_GATEWAY,

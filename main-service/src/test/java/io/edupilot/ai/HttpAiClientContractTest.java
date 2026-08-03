@@ -233,6 +233,45 @@ class HttpAiClientContractTest {
 	}
 
 	@Test
+	void gradePreservesUpstreamRequestInvalidCode() {
+		server.enqueue(jsonResponse(422, """
+			{
+			  "schemaVersion":"1.0",
+			  "error":{
+			    "code":"AI_REQUEST_INVALID",
+			    "category":"SCHEMA",
+			    "message":"invalid request",
+			    "retryable":false
+			  },
+			  "traceId":"ai-trace"
+			}
+			"""));
+
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).grade(gradeRequest()))
+			.isInstanceOfSatisfying(AiClientException.class, exception -> {
+				assertThat(exception.upstreamCode()).isEqualTo("AI_REQUEST_INVALID");
+				assertThat(exception.retryable()).isFalse();
+			});
+		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
+	@Test
+	void gradeOmitsAbsentOptionalContextFields() throws Exception {
+		server.enqueue(jsonResponse(200, gradeSuccessBody()));
+		GradeRequest base = gradeRequest();
+		client(Duration.ofSeconds(1)).grade(new GradeRequest(
+			base.schemaVersion(), base.quizId(), base.quizType(), base.items(),
+			base.studentAnswers(), null, null
+		));
+
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getBody().readUtf8())
+			.doesNotContain("pageContext")
+			.doesNotContain("learnerMemoryDigest");
+	}
+
+	@Test
 	void gradeTransportTimeoutWithoutRemoteFlagIsNotRetried() {
 		server.enqueue(jsonResponse(200, gradeSuccessBody())
 			.setBodyDelay(500, TimeUnit.MILLISECONDS));

@@ -143,7 +143,7 @@
 | `EXAM_NOT_FOUND` | 404 | 시험이 없거나 접근할 수 없음. 학생의 DRAFT 목록·상세·제출 접근도 이 코드로 은닉 |
 | `EXAM_NOT_PUBLISHED` | 409 | 학생이 CLOSED 시험에 제출하거나 강사가 DRAFT 시험을 close하는 등 공개 상태가 아닌 대상에 상태 작업을 요청 |
 | `EXAM_NOT_EDITABLE` | 409 | CLOSED 시험을 publish하거나 공개 이후 수정·삭제하는 등 편집 가능한 상태가 아님 |
-| `EXAM_ALREADY_SUBMITTED` | 409 | 재응시가 허용되지 않은 시험에 새 `requestId`로 다시 제출 |
+| `EXAM_ALREADY_SUBMITTED` | 409 | 재응시가 허용되지 않은 GRADED 시험 또는 채점 중인 SUBMITTED 시험에 새 `requestId`로 다시 제출. SUBMITTED일 수 있으므로 FE는 기존 결과·polling 화면으로 유도 |
 | `INVALID_EXAM_ANSWER` | 400 | 알 수 없거나 중복된 문항 ID 또는 문항 유형과 맞지 않는 답안 |
 
 ### AI 연동
@@ -161,10 +161,10 @@ FastAPI 내부 API가 직접 반환하는 현재 오류 code는 다음 3종입�
 | code | HTTP | category | 의미 |
 | --- | ---: | --- | --- |
 | `AI_INTERNAL_AUTH_FAILED` | 401 | `AUTH` | `X-Internal-Token` 누락 또는 불일치 |
-| `AI_REQUEST_INVALID` | 422 | `SCHEMA` | 내부 요청 body·DTO 검증 실패 |
+| `AI_REQUEST_INVALID` | 400 / 422 | `SCHEMA` | `422`: 내부 요청의 필수 필드·타입 등 body·DTO 검증 실패, `400`: `questionId` 집합 불일치 등 필드 간 의미 검증 실패 |
 | `AI_INTERNAL_ERROR` | 500 | `INTERNAL` | 분류되지 않은 AI Service 내부 오류 |
 
-Spring이 grade 호출에서 `AI_REQUEST_INVALID`을 받으면 학생 입력이나 일반적인 AI 채점 실패로 처리하지 않습니다. 이는 Spring이 v0.6 계약을 위반한 내부 결함이므로 재시도하지 않고 안전한 요청 메타데이터와 `traceId`를 오류 로그에 남긴 뒤 기존 공통 `INTERNAL_SERVER_ERROR`(500)로 매핑합니다. 임시 제출이 만들어졌다면 보상 삭제하며 `GRADING_FAILED` 제출로 저장하지 않습니다.
+두 HTTP 상태 모두 `category=SCHEMA`, `retryable=false`인 동일한 표준 오류 봉투를 사용합니다. Spring 비동기 시험 채점 worker가 grade 호출에서 `AI_REQUEST_INVALID`을 받으면 HTTP 상태와 무관하게 재시도하지 않고 제출을 `GRADING_FAILED`로 종결합니다. 학생 입력 오류나 일반 AI 장애와 구분할 수 있도록 `submissionId`, `examId`, 오류 code를 ERROR 로그에 남기며, 이미 커밋된 제출을 보상 삭제하거나 원 POST에 500을 반환하지 않습니다(DEC-032).
 
 새 오류 code는 구현보다 먼저 이 문서에 추가합니다.
 
