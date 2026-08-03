@@ -189,6 +189,7 @@ INSUFFICIENT_DATA로 처리합니다.
 - ReportGeneration: requestId, scope, criterion version, snapshot hash, status, failure
 - StudentReport: generation, student, version, previous report, data quality, summary, model
 - ReportCriterionResult: score, trend, status, narrative, evidence IDs
+  - trend는 Spring이 점수 이력으로 결정적 계산해 저장하는 값이며, AI 요청·응답 스키마에는 포함되지 않는다(§4).
 - ReportEvidenceSnapshot: evidence ID, source type, public label, minimal fact, source hash
 - ReportQuestion: report, instructor, question, answer, evidence IDs
 
