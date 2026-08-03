@@ -25,6 +25,7 @@ import io.edupilot.ai.dto.DiagnosisRequest;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
 import io.edupilot.ai.dto.QuizAssessmentResponse;
+import io.edupilot.ai.dto.ReportGenerateRequest;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
 import okhttp3.mockwebserver.MockResponse;
@@ -641,6 +642,46 @@ class HttpAiClientContractTest {
 			.containsEntry("retried", "true");
 	}
 
+	@Test
+	void reportRejectsUnknownResponseField() {
+		server.enqueue(jsonResponse(200, reportSuccessBody().replace(
+			"\"usage\":",
+			"\"unexpected\": true, \"usage\":"
+		)));
+
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1))
+			.generateReport(reportRequest()))
+			.isInstanceOf(AiClientException.class)
+			.satisfies(exception -> assertThat(
+				((AiClientException)exception).errorCode()
+			).isEqualTo(ErrorCode.AI_RESPONSE_INVALID));
+	}
+
+	@Test
+	void reportRejectsInvalidJson() {
+		server.enqueue(jsonResponse(200, "{invalid-json"));
+
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1))
+			.generateReport(reportRequest()))
+			.isInstanceOf(AiClientException.class)
+			.satisfies(exception -> assertThat(
+				((AiClientException)exception).errorCode()
+			).isEqualTo(ErrorCode.AI_RESPONSE_INVALID));
+	}
+
+	@Test
+	void reportUsesDedicatedReadTimeout() {
+		server.enqueue(jsonResponse(200, reportSuccessBody())
+			.setBodyDelay(500, TimeUnit.MILLISECONDS));
+
+		assertThatThrownBy(() -> client(Duration.ofMillis(100))
+			.generateReport(reportRequest()))
+			.isInstanceOf(AiClientException.class)
+			.satisfies(exception -> assertThat(
+				((AiClientException)exception).errorCode()
+			).isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT));
+	}
+
 	private HttpAiClient client(Duration readTimeout) {
 		return new HttpAiClient(properties(server.url("/").uri(), readTimeout));
 	}
@@ -650,6 +691,7 @@ class HttpAiClientContractTest {
 			baseUrl,
 			INTERNAL_TOKEN,
 			Duration.ofMillis(300),
+			readTimeout,
 			readTimeout,
 			readTimeout,
 			readTimeout,
@@ -669,6 +711,71 @@ class HttpAiClientContractTest {
 			Map.of("eventType", "USER_QUESTION", "payload", Map.of()),
 			Map.of()
 		);
+	}
+
+	private ReportGenerateRequest reportRequest() {
+		return new ReportGenerateRequest(
+			"1.0",
+			"report-1",
+			"generation-1",
+			new ReportGenerateRequest.Scope("전체 기간", null, null),
+			List.of(),
+			new ReportGenerateRequest.DataQuality(
+				"1.0",
+				List.of(ReportGenerateRequest.EvidenceSourceType.QA),
+				List.of(ReportGenerateRequest.EvidenceSourceType.EXAM),
+				List.of(new ReportGenerateRequest.CriterionEligibility(
+					"question_specificity", true, null
+				))
+			),
+			List.of(new ReportGenerateRequest.Criterion(
+				"question_specificity",
+				"질문 구체성",
+				"질문의 구체성을 평가",
+				"질문의 구체성을 평가",
+				List.of(ReportGenerateRequest.EvidenceSourceType.QA),
+				1,
+				1
+			)),
+			List.of(new ReportGenerateRequest.Evidence(
+				"evidence-1",
+				ReportGenerateRequest.EvidenceSourceType.QA,
+				"2026-08-03T00:00:00Z",
+				"구체적인 질문",
+				"{\"characterCount\":20}"
+			)),
+			null
+		);
+	}
+
+	private String reportSuccessBody() {
+		return """
+			{
+			  "schemaVersion": "1.0",
+			  "reportId": "report-1",
+			  "criterionResults": [{
+			    "criterionKey": "question_specificity",
+			    "status": "ASSESSED",
+			    "score": 80,
+			    "narrative": "평가 서술",
+			    "evidenceIds": ["evidence-1"]
+			  }],
+			  "summary": {
+			    "overview": "요약",
+			    "strengths": [],
+			    "improvements": [],
+			    "misconceptionCandidates": [],
+			    "recommendedActions": []
+			  },
+			  "warnings": [],
+			  "usage": {
+			    "model": "test-model",
+			    "inputTokens": 10,
+			    "outputTokens": 20,
+			    "reasoningTokens": null
+			  }
+			}
+			""";
 	}
 
 	private GradeRequest gradeRequest() {
