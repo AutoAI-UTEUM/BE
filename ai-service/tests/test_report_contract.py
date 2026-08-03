@@ -290,6 +290,11 @@ def _request_with_eligibility(eligible: bool) -> ReportGenerateRequest:
             report_output(),
         ),
         (
+            "ASSESSED_WITHOUT_EVIDENCE",
+            _request_with_minimum_evidence(0),
+            report_output(evidence_ids=[]),
+        ),
+        (
             "MISCONCEPTION_SINGLE_EVIDENCE",
             report_request(),
             report_output(misconception_evidence=["ev-1"]),
