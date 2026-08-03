@@ -2,6 +2,7 @@ package io.edupilot.session;
 
 import java.time.Instant;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -39,6 +40,28 @@ public interface LearningSessionRepository
 		Long userId,
 		Collection<Long> materialIds,
 		Collection<SessionStatus> statuses
+	);
+
+	@Query("""
+		select distinct session
+		from LearningSession session
+		join fetch session.material material
+		where session.user.id = :studentId
+		  and session.status in :statuses
+		  and exists (
+		    select link.id
+		    from ClassroomWeekMaterial link
+		    where link.material = material
+		      and link.week.classroom.id = :classroomId
+		      and (:weekNumber is null or link.week.weekNumber = :weekNumber)
+		  )
+		order by session.updatedAt, session.id
+		""")
+	List<LearningSession> findReportSessions(
+		@Param("classroomId") Long classroomId,
+		@Param("studentId") Long studentId,
+		@Param("weekNumber") Integer weekNumber,
+		@Param("statuses") Collection<SessionStatus> statuses
 	);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)

@@ -64,4 +64,22 @@ public interface ClassroomWeekMaterialRepository
 		@Param("materialStatus") MaterialStatus materialStatus,
 		@Param("processingStatus") MaterialProcessingStatus processingStatus
 	);
+
+	@Query("""
+		select distinct link.material
+		from ClassroomWeekMaterial link
+		where link.week.classroom.id = :classroomId
+		  and (:weekNumber is null or link.week.weekNumber = :weekNumber)
+		  and (link.week.releaseAt is null or link.week.releaseAt <= :now)
+		  and link.material.status = :materialStatus
+		  and link.material.processingStatus = :processingStatus
+		order by link.material.id
+		""")
+	List<LearningMaterial> findReportMaterials(
+		@Param("classroomId") Long classroomId,
+		@Param("weekNumber") Integer weekNumber,
+		@Param("now") Instant now,
+		@Param("materialStatus") MaterialStatus materialStatus,
+		@Param("processingStatus") MaterialProcessingStatus processingStatus
+	);
 }

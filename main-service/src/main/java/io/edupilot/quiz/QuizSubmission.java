@@ -117,6 +117,10 @@ public class QuizSubmission {
 		return user.getId();
 	}
 
+	public int getAttemptNo() {
+		return attemptNo;
+	}
+
 	public QuizType getQuizType() {
 		return quiz.getQuizType();
 	}

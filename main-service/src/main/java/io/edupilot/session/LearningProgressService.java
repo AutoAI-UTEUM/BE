@@ -100,6 +100,30 @@ public class LearningProgressService {
 		return progressRate(explainedPages, totalPages);
 	}
 
+	@Transactional(readOnly = true)
+	public ReportProgress calculateReportProgress(
+		Long userId,
+		List<LearningMaterial> materials
+	) {
+		long explainedPages = 0;
+		long totalPages = 0;
+		for (LearningMaterial material : materials) {
+			Integer pageCount = material.getPageCount();
+			if (pageCount == null || pageCount < 1) {
+				continue;
+			}
+			totalPages += pageCount;
+			explainedPages += pageRecordRepository
+				.countDistinctByUserIdAndMaterialId(userId, material.getId());
+		}
+		return new ReportProgress(
+			explainedPages,
+			totalPages,
+			progressRate(explainedPages, totalPages),
+			explainedPages > 0
+		);
+	}
+
 	private int progressRate(long explainedPageCount, Integer pageCount) {
 		return progressRate(
 			explainedPageCount,
@@ -112,5 +136,13 @@ public class LearningProgressService {
 			return 0;
 		}
 		return (int) Math.round(explainedPageCount * 100.0 / pageCount);
+	}
+
+	public record ReportProgress(
+		long explainedPages,
+		long totalPages,
+		int progressRate,
+		boolean progressDataAvailable
+	) {
 	}
 }

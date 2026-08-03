@@ -124,4 +124,27 @@ public interface ExamSubmissionRepository extends JpaRepository<ExamSubmission, 
 		@Param("now") Instant now,
 		Pageable pageable
 	);
+
+	@Query("""
+		select submission
+		from ExamSubmission submission
+		join fetch submission.exam exam
+		where exam.classroom.id = :classroomId
+		  and submission.user.id = :studentId
+		  and (:weekNumber is null or exam.weekNumber = :weekNumber)
+		  and submission.status = io.edupilot.exam.SubmissionStatus.GRADED
+		  and submission.attemptNo = (
+		    select max(candidate.attemptNo)
+		    from ExamSubmission candidate
+		    where candidate.exam.id = exam.id
+		      and candidate.user.id = :studentId
+		      and candidate.status = io.edupilot.exam.SubmissionStatus.GRADED
+		  )
+		order by submission.gradedAt, submission.id
+		""")
+	List<ExamSubmission> findRepresentativeReportSubmissions(
+		@Param("classroomId") Long classroomId,
+		@Param("studentId") Long studentId,
+		@Param("weekNumber") Integer weekNumber
+	);
 }
