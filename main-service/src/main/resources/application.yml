@@ -46,6 +46,7 @@ edupilot:
     grade-read-timeout: ${EDUPILOT_AI_GRADE_READ_TIMEOUT:90s}
     pipeline-read-timeout: ${EDUPILOT_AI_PIPELINE_READ_TIMEOUT:45s}
     extract-read-timeout: ${EDUPILOT_AI_EXTRACT_READ_TIMEOUT:120s}
+    report-read-timeout: ${EDUPILOT_AI_REPORT_READ_TIMEOUT:180s}
     health-path: /health
   quiz:
     pass-ratio: ${EDUPILOT_QUIZ_PASS_RATIO:0.6}
@@ -68,6 +69,13 @@ edupilot:
     stage-good: 70
     stage-fair: 50
     policy-version: "1.0"
+    generation:
+      lease-duration: PT5M
+      cutoff: PT10M
+      executor:
+        core-size: 1
+        max-size: 2
+        queue-capacity: 50
   jwt:
     secret: ${EDUPILOT_JWT_SECRET}
     access-token-ttl: 1h

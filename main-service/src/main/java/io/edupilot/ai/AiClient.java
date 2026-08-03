@@ -11,6 +11,8 @@ import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
 import io.edupilot.ai.dto.QuizAssessmentResponse;
+import io.edupilot.ai.dto.ReportGenerateRequest;
+import io.edupilot.ai.dto.ReportGenerateResponse;
 import io.edupilot.ai.dto.TurnRequest;
 import io.edupilot.ai.dto.TurnResponse;
 import org.springframework.core.io.Resource;
@@ -35,4 +37,6 @@ public interface AiClient {
 	QuizAssessmentResponse quizAssessment(QuizAssessmentRequest request);
 
 	DiagnosisResponse diagnosis(DiagnosisRequest request);
+
+	ReportGenerateResponse generateReport(ReportGenerateRequest request);
 }

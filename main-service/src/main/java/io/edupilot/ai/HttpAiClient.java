@@ -55,6 +55,8 @@ import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
 import io.edupilot.ai.dto.QuizAssessmentResponse;
+import io.edupilot.ai.dto.ReportGenerateRequest;
+import io.edupilot.ai.dto.ReportGenerateResponse;
 import io.edupilot.ai.dto.TurnRequest;
 import io.edupilot.ai.dto.TurnResponse;
 import io.edupilot.global.error.ErrorCode;
@@ -73,6 +75,8 @@ public class HttpAiClient implements AiClient {
 	private static final String QUIZ_ASSESSMENT_PATH =
 		"/internal/ai/quiz-assessment";
 	private static final String DIAGNOSIS_PATH = "/internal/ai/diagnosis";
+	private static final String REPORT_GENERATE_PATH =
+		"/internal/ai/reports/generate";
 	private static final String SCHEMA_VERSION = "1.0";
 	private static final MediaType NDJSON =
 		MediaType.parseMediaType("application/x-ndjson");
@@ -89,6 +93,7 @@ public class HttpAiClient implements AiClient {
 	private final RestClient extractRestClient;
 	private final RestClient gradeRestClient;
 	private final RestClient pipelineRestClient;
+	private final RestClient reportRestClient;
 	private final String healthPath;
 	private final Duration streamIdleTimeout;
 	private final ObjectMapper objectMapper = new ObjectMapper();
@@ -119,6 +124,10 @@ public class HttpAiClient implements AiClient {
 		this.pipelineRestClient = buildRestClient(
 			properties,
 			properties.pipelineReadTimeout()
+		);
+		this.reportRestClient = buildRestClient(
+			properties,
+			properties.reportReadTimeout()
 		);
 		this.healthPath = properties.healthPath();
 		this.streamIdleTimeout = properties.streamIdleTimeout();
@@ -761,6 +770,140 @@ public class HttpAiClient implements AiClient {
 			}
 		}
 		throw new AiClientException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+	}
+
+	@Override
+	public ReportGenerateResponse generateReport(ReportGenerateRequest request) {
+		return executeAttempt(
+			new AiCallContext(
+				REPORT_GENERATE_PATH,
+				1,
+				false,
+				null,
+				null,
+				null
+			),
+			() -> {
+				String body = reportRestClient.post()
+					.uri(REPORT_GENERATE_PATH)
+					.contentType(MediaType.APPLICATION_JSON)
+					.body(request)
+					.retrieve()
+					.body(String.class);
+				return parseReportResponse(body);
+			}
+		);
+	}
+
+	private ReportGenerateResponse parseReportResponse(String body) {
+		try {
+			JsonNode root = objectMapper.readTree(body);
+			requireReportFields(
+				root,
+				Set.of(
+					"schemaVersion",
+					"reportId",
+					"criterionResults",
+					"summary",
+					"warnings",
+					"usage",
+					"overallScore",
+					"overallStage"
+				),
+				Set.of(
+					"schemaVersion",
+					"reportId",
+					"criterionResults",
+					"summary",
+					"warnings",
+					"usage"
+				)
+			);
+			for (JsonNode result : requiredArray(root, "criterionResults")) {
+				requireReportFields(
+					result,
+					Set.of("criterionKey", "status", "score", "narrative", "evidenceIds")
+				);
+			}
+			JsonNode summary = requiredObject(root, "summary");
+			requireReportFields(
+				summary,
+				Set.of(
+					"overview",
+					"strengths",
+					"improvements",
+					"misconceptionCandidates",
+					"recommendedActions"
+				)
+			);
+			for (String field : List.of(
+				"strengths",
+				"improvements",
+				"misconceptionCandidates",
+				"recommendedActions"
+			)) {
+				for (JsonNode statement : requiredArray(summary, field)) {
+					requireReportFields(
+						statement,
+						Set.of("content", "evidenceIds")
+					);
+				}
+			}
+			for (JsonNode warning : requiredArray(root, "warnings")) {
+				requireReportFields(
+					warning,
+					Set.of("type", "message", "evidenceIds")
+				);
+			}
+			requireReportFields(
+				requiredObject(root, "usage"),
+				Set.of("model", "inputTokens", "outputTokens", "reasoningTokens")
+			);
+			return objectMapper.treeToValue(root, ReportGenerateResponse.class);
+		} catch (RuntimeException exception) {
+			throw new AiClientException(
+				ErrorCode.AI_RESPONSE_INVALID,
+				AiFailureCategory.SCHEMA,
+				false,
+				exception
+			);
+		}
+	}
+
+	private void requireReportFields(JsonNode node, Set<String> expected) {
+		requireReportFields(node, expected, expected);
+	}
+
+	private void requireReportFields(
+		JsonNode node,
+		Set<String> allowed,
+		Set<String> required
+	) {
+		if (node == null || !node.isObject()) {
+			throw new IllegalArgumentException("report response object required");
+		}
+		@SuppressWarnings("unchecked")
+		Map<String, Object> values = objectMapper.convertValue(node, Map.class);
+		if (!allowed.containsAll(values.keySet())
+			|| !values.keySet().containsAll(required)) {
+			throw new IllegalArgumentException("invalid report response fields");
+		}
+	}
+
+	private JsonNode requiredObject(JsonNode parent, String field) {
+		JsonNode value = parent.get(field);
+		if (value == null || !value.isObject()) {
+			throw new IllegalArgumentException("report response object required");
+		}
+		return value;
+	}
+
+	private JsonNode requiredArray(JsonNode parent, String field) {
+		JsonNode value = parent.get(field);
+		if (value == null || !value.isArray()) {
+			throw new IllegalArgumentException("report response array required");
+		}
+		return value;
 	}
 
 	private <T> T executeAttempt(
