@@ -80,6 +80,23 @@ def _base_system_prompt() -> str:
     )
 
 
+_GENERATE_NARRATIVE_INSTRUCTION = (
+    " 각 criterion의 narrative는 해당 criterion의 rubric 관점에서 작성하고, 연결한 "
+    "evidence의 label과 fact를 구체적으로 언급하라. evidence에 없는 사건이나 행동을 "
+    "서술하지 마라. 수치는 요청 metrics의 value 문자열과 evidence fact에 이미 있는 "
+    "숫자만 그대로 인용하고, 비율·평균·증감률을 포함한 어떤 수치도 새로 계산하거나 "
+    "유도하지 마라. previousReport가 있으면 변화는 이전 결과와의 비교로만 서술하고 "
+    "상승세·하락세 같은 추세를 새로 판정하지 마라. 추세 판정은 서버 몫이다. status가 "
+    "INSUFFICIENT_DATA이면 점수나 확정 평가 없이 아직 관찰 중이며 데이터가 쌓이면 "
+    "평가하겠다는 톤으로 쓰고, 부족하다거나 못한다는 결핍을 단정하지 마라. 서로 "
+    "상충하는 evidence를 연결하면 판단을 확정하지 말고 '추가 확인이 필요하다'고 "
+    "표현하며 CONFLICTING_EVIDENCE warning을 함께 반환하라. 단일 시험·단일 질문·단일 "
+    "세션의 evidence만으로 성향·감정·장기 능력을 확정하지 말고 '이번 관찰에서는'으로 "
+    "한정하라. 강점과 보완점은 교사가 학생 지도에 바로 사용할 수 있게 구체적으로 "
+    "서술하고 recommendedActions는 실행 가능한 행동 단위로 작성하라."
+)
+
+
 def generate_messages(
     request: ReportGenerateRequest,
     *,
@@ -88,7 +105,7 @@ def generate_messages(
 ) -> Sequence[Mapping[str, str]]:
     system = (
         "너는 EduPilot의 ReportAgent다. 요청 criterion마다 계약 JSON 결과를 생성하라. "
-        f"{_base_system_prompt()}"
+        f"{_base_system_prompt()}{_GENERATE_NARRATIVE_INSTRUCTION}"
     )
     if retry:
         system += " 이전 출력이 계약을 위반했다. 이전 본문을 재사용하지 말고 재생성하라."
