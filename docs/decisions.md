@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | Open |
-| 마지막 갱신 | 2026-08-02 |
+| 마지막 갱신 | 2026-08-03 |
 
 확정된 선택은 날짜, 결정자, 이유를 기록하고 관련 문서를 함께 갱신합니다. 마감일은 팀 일정 확정 후 입력합니다.
 
 `DEC-001` 같은 값은 이 문서 안에서 결정을 추적하기 위한 ID이며 GitHub 이슈 번호가 아닙니다. 기본적으로 관련 Epic의 `결정 필요` 체크박스로 관리합니다. 여러 팀의 합의가 필요하거나 실제 개발을 막는 항목만 별도 `[Decision]` 이슈로 만들고, 이 표에 GitHub 이슈 링크를 추가합니다.
 
-**현재 Open 상태의 결정이 없습니다** — DEC-001~028 전체 Accepted. 마지막 잔여였던 DEC-013 세부 계약(이벤트 스키마·heartbeat·취소·재연결·저장 시점)은 [API 명세](api-spec.md) §9 "SSE 스트리밍 계약 (확정)"으로 해소됐습니다. 새 결정이 필요해지면 이 표 형식으로 다시 등재합니다.
+**현재 별도 Open 상태로 등록된 DEC는 없습니다.** DEC-001~034의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC-033의 잔여 TBD 목록에서 추적합니다. 새 결정이 필요해지면 이 표 형식으로 다시 등재합니다.
 
 | ID | 결정 항목 | 현재 후보/질문 | 영향 | 소유자 | 목표 시점 |
 | --- | --- | --- | --- | --- | --- |
@@ -428,6 +428,43 @@
 - 이유: 외부 AI 호출을 요청 트랜잭션과 분리하면서 프로세스 종료·executor 포화·늦은 worker에도 제출을 회수할 수 있어야 합니다. 채점 실패는 시스템 장애이므로 이미 확정된 학생 성적을 지우거나 응시권을 영구 소모해서는 안 됩니다.
 - 대안과 trade-off: 동기 채점은 구현이 단순하지만 요청 지연과 고아 제출 복구가 어렵습니다. 재채점 API·시도 카운터는 운영 복잡도가 커 MVP에서 제외하고 lease와 절대 컷오프를 채택합니다.
 - 후속 변경 문서: [API 명세](api-spec.md) §6.2, [데이터베이스](database.md), [도메인 모델](domain-model.md), [에러 코드](error-code.md), [화면-API 매핑](screen-api-map.md), [리포트 설계](report-agent-design.md)
+
+### DEC-033 — 리포트 범위·평가 정책
+
+- 상태: Accepted — [GitHub #117](https://github.com/AutoAI-EduPilot/BE/issues/117) 결정
+- 결정일: 2026-08-03
+- 결정자: 프로젝트 담당자, Main Service 담당자
+- 선택:
+  - MVP 리포트 생성·조회·질의응답은 강의실 관리 `INSTRUCTOR` 전용입니다. 학생 본인 조회는 허용하지 않으며, 문구 수위와 심리적 영향을 검토한 뒤 도입 여부를 다시 결정하는 명시적 TBD로 둡니다.
+  - 분석 범위는 **전체 기간**과 **주차 선택** 두 종류입니다. 세션 단위와 시험 단위의 개별 선택은 TBD입니다.
+  - 누적 지표와 비교할 최근 window는 **14일**입니다.
+  - 생성 진행 확인은 시험 비동기 채점과 같은 **HTTP 202 응답 + status polling** 패턴을 사용합니다. SSE 진행 이벤트는 TBD입니다.
+  - 기본 평가 기준은 초안 10종에서 `학습 자신감`을 제외한 **9종**입니다. 자기보고 데이터가 없어 항상 `INSUFFICIENT_DATA`가 되기 때문이며, 자기보고 기능을 도입할 때 다시 추가합니다. 기본 weight는 균등하고 criterion별 최소 근거는 **2건**입니다.
+  - 종합 단계는 **우수 / 양호 / 보통 / 보완 필요**의 4단계입니다. 종합 점수와 단계는 Spring이 충분한 항목만 대상으로 결정적으로 계산합니다.
+  - 페이지 진도는 `progressDataAvailable=true`로 포함합니다. V9 `session_page_records`가 성공한 `EXPLAIN_CURRENT_PAGE` 턴이 `EXPLAINED`로 완료된 페이지만 기록하므로 설계 §3.2의 설명 완료 근거 요건을 충족합니다. 기록은 `TurnPersistenceService`, 집계는 `SessionPageRecordRepository.countDistinctByUserIdAndMaterialId`, 진도율은 `LearningProgressService`를 재사용합니다.
+  - 별도 시험 도메인의 병합·배포가 완료됐으므로 리포트는 처음부터 별도 시험을 포함하고 Phase 1과 Phase 2를 통합 착수합니다.
+  - 리포트 snapshot과 리포트 QA는 무기한 보관하고 학생 탈퇴 시 기존 `UserWithdrawalHook` 패턴에 연동해 삭제합니다. 보관 기한 단축은 TBD입니다.
+  - evidence는 공개 가능한 label과 최소 fact만 노출합니다. 전체 원문·정답·루브릭은 노출하지 않습니다.
+  - 리포트 생성용 read timeout은 구현 이슈에서 `edupilot.ai.report-read-timeout=180s` 프로퍼티로 신설합니다.
+  - 잔여 TBD는 SSE 진행 이벤트, 세션·시험 단위 범위 선택, 학생 본인 조회, 보관 기한 단축, 강의실 전체 경향 리포트의 최소 인원입니다.
+- 이유: 현재 강의실·별도 시험·페이지 설명 완료 근거를 재사용하면 추정 진도나 미확정 시험 계약 없이 강사 지도용 리포트를 시작할 수 있습니다. 자기보고가 없는 평가 기준과 과도한 원문 노출은 데이터 품질·심리·보안 위험이 있어 제외합니다.
+- 대안과 trade-off: 학생 조회와 세밀한 범위 선택, SSE, 장기 보관 단축은 사용성과 운영 효율을 높일 수 있지만 문구 정책·개인정보·계약 복잡도 검토가 선행돼야 합니다. 학습 자신감을 행동 데이터로 추론하면 구현은 가능하지만 근거 없는 심리 판단이 되므로 채택하지 않습니다.
+- 후속 변경 문서: [요구사항 명세](requirements.md), [리포트 설계](report-agent-design.md), [리포트 작업 분해](issues/13-report-agent.md)
+
+### DEC-034 — 리포트 내부 AI 계약 5건
+
+- 상태: Accepted — [GitHub #118](https://github.com/AutoAI-EduPilot/BE/issues/118) 중 내부 AI 계약 5건 확정. 외부 Report API 계약은 계속 진행합니다.
+- 결정일: 2026-08-03
+- 결정자: 프로젝트 담당자, Main Service 담당자
+- 선택:
+  - `reportId`와 `generationId`의 wire 타입은 Spring 내부 타입과 무관하게 **string**으로 고정하며 union 타입을 허용하지 않습니다.
+  - evidence 상한은 **200개**입니다. Spring `ReportSnapshotBuilder`가 결정적 선별 규칙으로 상한 안의 evidence를 구성하는 1차 방어를 담당하고, AI Service는 `max_length=200` 초과 요청을 HTTP 422로 거부하는 2차 방어를 담당합니다.
+  - criteria 상한은 **20개**입니다. Spring criterion CRUD가 강의실당 활성 기준 20개 초과 등록을 거부하는 1차 강제 지점이고, AI Service의 `max_length=20`은 이중 안전망입니다.
+  - `previousReport`는 직전 **1개 version**의 `criterionKey`, `score`, `status`만 전달하며 narrative는 포함하지 않습니다.
+  - `trend`는 Spring이 점수 이력으로 결정적으로 계산해 저장합니다. AI 요청·응답 스키마에는 포함하지 않으며, 도메인의 `ReportCriterionResult.trend`는 Spring 계산값의 저장 컬럼으로 유지합니다.
+- 이유: 단일 wire 타입과 양쪽 상한 검증으로 계약 분기와 프롬프트 비대화를 막고, 이전 narrative의 자기복제 및 AI 추세 재계산을 차단합니다.
+- 대안과 trade-off: 숫자·문자열 union ID는 Spring 구현 선택을 노출해 소비자 검증을 복잡하게 합니다. AI가 trend를 생성하면 서술 유연성은 높지만 동일 이력의 재현성이 떨어지므로 채택하지 않습니다.
+- 후속 변경 문서: [리포트 설계](report-agent-design.md), [리포트 작업 분해](issues/13-report-agent.md). 실제 DTO·AI 계약 반영은 #121 및 후속 구현 이슈에서 수행합니다.
 
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 
