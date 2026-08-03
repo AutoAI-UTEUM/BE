@@ -48,7 +48,7 @@ class AssessmentRequest(ContractModel):
     quiz_items: list[dict[str, Any]]
     student_answers: list[dict[str, Any]]
     page_context: SupportPageContext
-    learner_memory_digest: dict[str, Any] | str | None
+    learner_memory_digest: str | None
 
 
 class AssessmentOutput(ContractModel):
@@ -80,7 +80,7 @@ class DiagnosisRequest(ContractModel):
     quiz_result: QuizResult
     wrong_items: Annotated[list[WrongItem], Field(min_length=1)]
     page_context: SupportPageContext
-    learner_memory_digest: dict[str, Any] | str | None
+    learner_memory_digest: str | None
 
 
 class DiagnosisOutput(ContractModel):

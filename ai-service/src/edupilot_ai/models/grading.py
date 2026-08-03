@@ -1,7 +1,7 @@
 """Confirmed #30 DTOs for POST /internal/ai/grade."""
 
 from math import isclose
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
@@ -48,22 +48,17 @@ class GradePageContext(ContractModel):
 
 class GradeRequest(ContractModel):
     schema_version: Literal["1.0"]
-    quiz_id: int | str
+    quiz_id: int = Field(strict=True, gt=0)
     quiz_type: QuizType
     items: Annotated[list[GradeItem], Field(min_length=1)]
     student_answers: Annotated[list[StudentAnswer], Field(min_length=1)]
-    page_context: GradePageContext
-    learner_memory_digest: dict[str, Any] | str | None
+    page_context: GradePageContext | None = None
+    learner_memory_digest: str | None = None
 
     @model_validator(mode="after")
     def validate_quiz(self) -> GradeRequest:
         if self.quiz_type not in {QuizType.SHORT, QuizType.ESSAY}:
             raise ValueError("only SHORT and ESSAY are graded by AI")
-        if isinstance(self.quiz_id, int):
-            if self.quiz_id <= 0:
-                raise ValueError("quizId must be positive")
-        elif not self.quiz_id.strip():
-            raise ValueError("quizId must not be blank")
         return self
 
 
@@ -94,7 +89,7 @@ class GradeResultItem(ContractModel):
 
 class GradeResponse(ContractModel):
     schema_version: Literal["1.0"] = "1.0"
-    quiz_id: int | str
+    quiz_id: int
     quiz_type: QuizType
     score: float = Field(ge=0)
     max_score: float = Field(gt=0)

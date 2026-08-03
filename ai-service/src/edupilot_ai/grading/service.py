@@ -26,9 +26,14 @@ def grader_messages(
     *,
     retry: bool,
 ) -> Sequence[Mapping[str, str]]:
+    grading_basis = (
+        "문제 의도, modelAnswer, rubric, 강의 자료 근거에 따라"
+        if request.page_context is not None
+        else "문제 의도, modelAnswer, rubric에 따라"
+    )
     system = (
-        "당신은 EduPilot의 전문 채점관입니다. SHORT/ESSAY 답변을 문제 의도, "
-        "modelAnswer, rubric, 강의 자료 근거에 따라 공정하고 엄격하게 채점하세요. "
+        f"당신은 EduPilot의 전문 채점관입니다. SHORT/ESSAY 답변을 {grading_basis} "
+        "공정하고 엄격하게 채점하세요. "
         "루브릭 항목별 scoreRatio(0~1)를 제시하고 score와 verdict도 함께 "
         "반환하세요. 합산과 판정은 시스템이 다시 검증합니다. 표현이 달라도 핵심 "
         "의미가 정확하면 인정하되, 핵심 원리 누락은 부분 점수, 무관하거나 빈 "
@@ -38,11 +43,20 @@ def grader_messages(
         "대상 텍스트(설명, 답변, 교정, 문항·보기, 피드백, thoughtSummary)는 "
         "한국어로 작성한다."
     )
+    if request.page_context is None:
+        system += (
+            " 이 요청에는 강의 자료 문맥이 제공되지 않았다. 제공된 문항·"
+            "modelAnswer·rubric·학생 답안만으로 채점하고, 자료에 어떤 내용이 "
+            "있었는지 추측하지 마라."
+        )
     if retry:
         system += " 이전 결과가 점수 또는 판정 불변식을 위반했습니다. 정확히 한 번 재생성하세요."
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": request.model_dump_json(by_alias=True)},
+        {
+            "role": "user",
+            "content": request.model_dump_json(by_alias=True, exclude_none=True),
+        },
     ]
 
 
