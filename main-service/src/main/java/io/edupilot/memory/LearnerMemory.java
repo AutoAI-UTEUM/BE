@@ -119,6 +119,10 @@ public class LearnerMemory {
 		return List.copyOf(weaknesses);
 	}
 
+	public List<String> getMisconceptions() {
+		return List.copyOf(misconceptions);
+	}
+
 	public List<String> getExplanationPreferences() {
 		return List.copyOf(explanationPreferences);
 	}
@@ -133,6 +137,10 @@ public class LearnerMemory {
 
 	public String getTargetDifficulty() {
 		return targetDifficulty;
+	}
+
+	public List<String> getNextCoachingGoals() {
+		return List.copyOf(nextCoachingGoals);
 	}
 
 	public Instant getUpdatedAt() {

@@ -60,6 +60,14 @@ edupilot:
         core-size: 2
         max-size: 4
         queue-capacity: 100
+  report:
+    recent-window: P14D
+    evidence-limit: 200
+    trend-threshold: 5.0
+    stage-excellent: 85
+    stage-good: 70
+    stage-fair: 50
+    policy-version: "1.0"
   jwt:
     secret: ${EDUPILOT_JWT_SECRET}
     access-token-ttl: 1h

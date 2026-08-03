@@ -135,4 +135,8 @@ public class Diagnosis {
 	public DiagnosisStatus getStatus() {
 		return status;
 	}
+
+	public Instant getCreatedAt() {
+		return createdAt;
+	}
 }

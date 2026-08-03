@@ -4,11 +4,39 @@ import java.util.List;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface QaMessageRepository extends JpaRepository<QaMessage, Long> {
 
 	List<QaMessage> findByThread_IdOrderByCreatedAtDescIdDesc(
 		Long threadId,
 		Pageable pageable
+	);
+
+	@Query("""
+		select message
+		from QaMessage message
+		join message.thread thread
+		join thread.session session
+		where session.user.id = :studentId
+		  and message.senderType = io.edupilot.session.SenderType.USER
+		  and session.status in (
+		    io.edupilot.session.SessionStatus.ACTIVE,
+		    io.edupilot.session.SessionStatus.COMPLETED
+		  )
+		  and exists (
+		    select link.id
+		    from ClassroomWeekMaterial link
+		    where link.material = session.material
+		      and link.week.classroom.id = :classroomId
+		      and (:weekNumber is null or link.week.weekNumber = :weekNumber)
+		  )
+		order by message.createdAt, message.id
+		""")
+	List<QaMessage> findReportQuestions(
+		@Param("classroomId") Long classroomId,
+		@Param("studentId") Long studentId,
+		@Param("weekNumber") Integer weekNumber
 	);
 }
