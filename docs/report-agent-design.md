@@ -2,14 +2,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 상태 | Draft — 범위·계약 승인 전 |
-| 기준일 | 2026-08-01 |
+| 상태 | 승인됨(범위: DEC-033·034) |
+| 기준일 | 2026-08-03 |
 | 대상 | Frontend · Spring Main Service · FastAPI AI Service |
-| 선행 결정 | GitHub #102 강사 전용 기능·차등 권한, 강의실·수강·별도 시험 도메인 |
+| 선행 결정 | DEC-029~034 역할·강의실·별도 시험·리포트 정책과 내부 AI 계약 |
 | 원안 | [리포트 에이전트 설계 참고 원안](report-agent-reference-draft.md) |
 
-> 이 문서는 구현 방향을 정리한 설계 초안입니다. 아직 requirements, API/OpenAPI,
-> DB migration에 승인된 계약으로 반영되지 않았으므로 구현 완료 상태로 해석하지 않습니다.
+> DEC-033·034 범위의 리포트 정책과 내부 AI 미결 5건은 승인됐습니다. 외부 Report API와
+> DB migration은 후속 이슈에서 확정·구현하므로 이 문서를 구현 완료 상태로 해석하지 않습니다.
 
 ## 1. 목표
 
@@ -40,9 +40,8 @@ ReportAgent는 한 학습자의 여러 학습 기록을 근거 ID와 함께 해�
 
 | 단계 | 범위 | 상태 |
 | --- | --- | --- |
-| Phase 0 | 강의실·수강 관계·별도 시험·강사 인가·공개 정책 승인 | #102 및 Decision 필요 |
-| Phase 1 | 기존 세션·퀴즈·평가·진단·교정·메모리 기반 학생 리포트 | 구현 후보 |
-| Phase 2 | 강의실/주차 범위, 별도 시험, 강의실별 사용자 기준 | 선행 도메인 후 |
+| Phase 0 | 강의실·수강 관계·별도 시험·강사 인가·공개 정책 승인 | 완료 — DEC-029~033 |
+| Phase 1+2 | 기존 학습 기록, 강의실/주차 범위, 별도 시험, 강의실별 사용자 기준을 포함한 학생 리포트 | 통합 착수 |
 | Phase 3 | 근거 질의응답, 강의실 전체 경향 요약 | 학생 리포트 안정화 후 |
 
 ## 3. 핵심 결정
@@ -64,13 +63,14 @@ Orchestrator는 사용하지 않습니다.
 
 ### 3.2 페이지별 근거 기반 진도
 
-현재 세션은 단일 currentPage와 pageStatus만 저장하므로 마지막 설명 페이지를 전체
-페이지 수로 나누면 건너뛴 페이지를 학습한 것으로 과대계산할 수 있습니다. 리포트에는
-session_page_progress와 같은 페이지별 설명 완료 근거가 필요합니다.
+V9 `session_page_records`는 성공한 `EXPLAIN_CURRENT_PAGE` 턴이 `EXPLAINED`로 완료된
+페이지만 기록하므로 페이지별 설명 완료 근거 요건을 충족합니다. 기록은
+`TurnPersistenceService`, 학습자·자료별 distinct page 집계는
+`SessionPageRecordRepository.countDistinctByUserIdAndMaterialId`, 진도율 계산은
+`LearningProgressService`를 재사용합니다.
 
-진도율은 학습자·자료 범위에서 설명 완료된 distinct page 수를 material page 수로 나눠
-계산합니다. 페이지별 근거가 승인되지 않으면 progressDataAvailable=false로 제공하며
-채팅 이력으로 소급 추정하지 않습니다.
+리포트는 `progressDataAvailable=true`와 함께 이 결정적 진도율을 제공합니다. 건너뛴
+페이지나 기존 채팅 이력을 진도로 소급 추정하지 않습니다.
 
 ### 3.3 버전형 저장
 
@@ -85,7 +85,7 @@ session_page_progress와 같은 페이지별 설명 완료 근거가 필요합�
 - 모든 항목 평가, 강점, 약점, 오개념 후보, 추천에는 evidenceIds가 필요합니다.
 - Spring은 모든 ID가 요청 snapshot에 존재하는지 검증합니다.
 - 데이터가 부족하면 score=null, status=INSUFFICIENT_DATA로 반환합니다.
-- 종합 점수와 단계는 충분한 항목만 대상으로 Spring이 계산합니다.
+- 종합 점수와 4단계(우수, 양호, 보통, 보완 필요)는 충분한 항목만 대상으로 Spring이 계산합니다.
 
 ## 4. 전체 구조
 
@@ -113,12 +113,12 @@ Spring은 인증·권한·원천 조회·통계·충분성·저장 기준 서버
 - quiz_assessments, diagnoses, repair_results
 - learner_memories, learner_memory_candidates
 - learning_materials, material_pages
+- classrooms, classroom_members, classroom_weeks, classroom_week_materials
+- exams, exam_questions, exam_submissions, exam_answers
+- session_page_records (V9)
 
-선행 또는 신규 데이터:
+신규 데이터:
 
-- Classroom, Course/Lecture 또는 week, instructor membership, learner enrollment
-- 별도 Exam, ExamSubmission, ExamItemResult
-- session_page_progress
 - report criterion, generation, version, evidence snapshot, report question
 
 각 EvidenceRef는 Spring이 만든 불투명 evidenceId, sourceType, occurredAt, 소속 식별자,
@@ -130,12 +130,12 @@ Spring은 인증·권한·원천 조회·통계·충분성·저장 기준 서버
 ReportSnapshotBuilder는 다음을 수행합니다.
 
 1. instructor membership과 student enrollment 검증
-2. 기간·강의·세션·시험 범위 검증
+2. 전체 기간 또는 주차 범위 검증
 3. studentId와 classroomId가 모두 일치하는 데이터만 조회
 4. 동일 source identity 중복 제거
 5. 서로 다른 배점을 0~100 비율로 정규화
 6. 통합 학습 퀴즈와 별도 시험 분리 집계
-7. 누적 window와 최근 window 분리
+7. 누적 window와 최근 14일 window 분리
 8. 페이지별 진도와 활동 지표 계산
 9. versioned data sufficiency 적용
 10. FastAPI에 전달할 최소 evidence snapshot 구성
@@ -158,7 +158,7 @@ missingSources, criterionEligibility를 Spring이 계산합니다. 반복 패턴
 
 ## 7. 평가 기준
 
-기본 기준 Draft:
+기본 기준 9종(DEC-033):
 
 1. 개념 이해도
 2. 질문 구체성
@@ -168,17 +168,17 @@ missingSources, criterionEligibility를 Spring이 계산합니다. 반복 패턴
 6. 학습 지속성
 7. 오답 성찰력
 8. 수업 참여도
-9. 학습 자신감
-10. 성장 흐름
+9. 성장 흐름
 
 각 기준에는 key, 설명, rubric, 허용 source, 최소 근거, weight, version이 필요합니다.
-학습 자신감처럼 감정 추론 위험이 있는 기준은 자기보고나 승인된 행동 근거가 없으면
-INSUFFICIENT_DATA로 처리합니다.
+기본 weight는 균등하고 criterion별 최소 근거는 2건입니다. `학습 자신감`은 자기보고
+데이터 부재로 제외하며 자기보고 기능을 도입할 때 다시 추가합니다.
 
 사용자 정의 기준:
 
 - 강의실 관리 INSTRUCTOR만 생성·수정·비활성화합니다.
 - 이름·설명·rubric·허용 source와 version을 저장합니다.
+- 강의실당 활성 기준은 20개 이하이며 Spring criterion CRUD가 초과 등록을 거부합니다.
 - 정규화 이름의 정확한 중복은 Spring이 거부합니다.
 - 의미 중복은 AI가 경고할 수 있지만 자동 삭제하지 않습니다.
 - 강사가 명시적으로 확인한 기준만 다음 report version에 포함합니다.
@@ -188,7 +188,7 @@ INSUFFICIENT_DATA로 처리합니다.
 - ReportCriterion: classroom, key, rubric, source types, minimum evidence, weight, version
 - ReportGeneration: requestId, scope, criterion version, snapshot hash, status, failure
 - StudentReport: generation, student, version, previous report, data quality, summary, model
-- ReportCriterionResult: score, trend, status, narrative, evidence IDs
+- ReportCriterionResult: score, trend, status, narrative, evidence IDs. trend는 Spring이 점수 이력으로 결정적으로 계산해 저장하며, AI 요청·응답 스키마에는 포함되지 않습니다.
 - ReportEvidenceSnapshot: evidence ID, source type, public label, minimal fact, source hash
 - ReportQuestion: report, instructor, question, answer, evidence IDs
 
@@ -216,8 +216,16 @@ requestId는 같은 결과를 반환합니다. 같은 학생·scope hash에 acti
 - POST /internal/ai/reports/generate
 - POST /internal/ai/reports/query
 
-입력에는 schemaVersion, reportId, scope, deterministic metrics, data quality,
-criterion catalog, evidence snapshot, 필요 시 이전 report 공개 요약만 포함합니다.
+`reportId`와 `generationId`의 wire 타입은 string으로 고정하고 union을 허용하지 않습니다.
+입력에는 schemaVersion, reportId, generationId, scope, deterministic metrics, data quality,
+criterion catalog, evidence snapshot과 선택적인 `previousReport`만 포함합니다.
+`previousReport`는 직전 1개 version의 `criterionKey`, `score`, `status`만 전달하고 narrative와
+trend는 포함하지 않습니다. 리포트 생성 호출의 read timeout은 180초이며 구현 프로퍼티는
+`edupilot.ai.report-read-timeout`입니다.
+
+Spring `ReportSnapshotBuilder`는 결정적 선별 규칙으로 evidence를 200개 이하로 구성하고,
+criterion CRUD는 강의실당 활성 criteria를 20개 이하로 제한합니다. AI Service는 각각
+`max_length=200`, `max_length=20`을 적용하고 초과 요청을 HTTP 422로 거부합니다.
 
 AI 출력 검증:
 
@@ -226,6 +234,8 @@ AI 출력 검증:
 - ASSESSED는 최소 1개 evidence ID를 가집니다.
 - 모든 evidence ID는 요청 snapshot에 존재해야 합니다.
 - 알 수 없는 필드·enum·중복 criterion·중복 evidence를 거부합니다.
+- evidence는 최대 200개, criteria는 최대 20개여야 합니다.
+- trend는 AI 요청·응답에서 거부하고 Spring 계산값만 저장합니다.
 - 종합 점수와 stage는 Spring이 계산합니다.
 
 ## 10. ReportAgent 원칙
@@ -257,6 +267,7 @@ AI 출력 검증:
 - 실패해도 Spring이 계산한 사실 요약은 표시할 수 있습니다.
 - 다른 학생 데이터 혼입과 허용되지 않은 classroom 접근 테스트를 필수로 둡니다.
 - 로그에는 전체 답안·질문·report 본문·API key를 남기지 않습니다.
+- 리포트 snapshot과 QA는 무기한 보관하며 학생 탈퇴 시 `UserWithdrawalHook` 패턴으로 삭제합니다.
 
 ## 13. Frontend
 
@@ -306,18 +317,26 @@ Frontend:
 - 타 학생 evidence 혼입 응답 거부
 - AI timeout 재시도와 중복 report 방지
 
-## 15. 승인 필요 결정
+## 15. 승인 결정과 잔여 TBD
 
-1. Classroom/Course/Lecture/Enrollment 최소 도메인과 강사 권한
-2. 별도 시험 도메인의 소유권·채점 결과 계약
-3. 학생 본인 report 조회 허용 여부
-4. 기본 rubric·weight·최소 근거·data quality threshold
-5. 최근 window 정의
-6. snapshot·질의응답 보관/삭제 정책
-7. 학습 자신감 기준 유지 여부와 허용 근거
-8. 강의실 전체 경향 report의 개인정보 최소 인원 기준
-9. polling과 향후 SSE 진행 이벤트
-10. 비용·timeout·최대 evidence 수·긴 데이터 요약 전략
+확정(DEC-033·034):
+
+1. 강사 권한, 강의실·주차, 별도 시험 선행 도메인 완료
+2. 강사 전용 리포트와 전체 기간·주차 범위, 최근 14일 window
+3. 기본 평가 기준 9종, 균등 weight, criterion별 최소 근거 2건, 종합 4단계
+4. `session_page_records` 기반 `progressDataAvailable=true`
+5. HTTP 202 + status polling, snapshot·QA 무기한 보관과 탈퇴 시 삭제
+6. evidence 공개 label·최소 fact 정책과 생성 read timeout 180초
+7. string `reportId`·`generationId`, evidence 200개·criteria 20개 상한
+8. 직전 1개 version의 `previousReport` 제한과 Spring의 결정적 trend 계산
+
+잔여 TBD:
+
+1. SSE 진행 이벤트
+2. 세션·시험 단위 범위 선택
+3. 학생 본인 조회(문구 수위·심리 영향 검토 선행)
+4. 보관 기한 단축
+5. 강의실 전체 경향 리포트의 개인정보 최소 인원
 
 ## 16. 이슈 구조
 
