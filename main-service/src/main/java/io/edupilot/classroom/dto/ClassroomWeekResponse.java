@@ -10,6 +10,7 @@ public record ClassroomWeekResponse(
 	String title,
 	ClassroomWeekStatus status,
 	Instant releaseAt,
+	int averageProgressRate,
 	List<ClassroomWeekMaterialResponse> materials
 ) {
 }

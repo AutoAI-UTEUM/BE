@@ -32,6 +32,7 @@ class SessionPageRecordRepositoryTest {
 	void clearTables() {
 		jdbcTemplate.update("DELETE FROM session_page_records");
 		jdbcTemplate.update("DELETE FROM learning_sessions");
+		jdbcTemplate.update("DELETE FROM classroom_members");
 	}
 
 	@Test
@@ -89,6 +90,37 @@ class SessionPageRecordRepositoryTest {
 
 		assertThat(repository.countDistinctByUserIdAndMaterialId(1L, 20L))
 			.isEqualTo(3);
+	}
+
+	@Test
+	void classroomProgressBatchExcludesOtherClassroomsAndMaterials() {
+		insertMember(30L, 1L);
+		insertMember(30L, 2L);
+		insertMember(31L, 3L);
+		insertSession(100L, 1L, 20L, "ACTIVE");
+		insertSession(101L, 2L, 20L, "COMPLETED");
+		insertSession(102L, 3L, 20L, "ACTIVE");
+		insertSession(103L, 1L, 30L, "ACTIVE");
+		Instant now = Instant.parse("2026-08-04T03:00:00Z");
+		repository.upsertExplainedPage(100L, 1, now);
+		repository.upsertExplainedPage(100L, 2, now);
+		repository.upsertExplainedPage(101L, 1, now);
+		repository.upsertExplainedPage(102L, 3, now);
+		repository.upsertExplainedPage(103L, 4, now);
+
+		assertThat(repository.findClassroomProgressCounts(30L, java.util.Set.of(20L)))
+			.containsExactlyInAnyOrder(
+				new SessionPageRecordRepository.UserMaterialProgressCount(1L, 20L, 2L),
+				new SessionPageRecordRepository.UserMaterialProgressCount(2L, 20L, 1L)
+			);
+	}
+
+	private void insertMember(Long classroomId, Long userId) {
+		jdbcTemplate.update(
+			"INSERT INTO classroom_members (classroom_id, user_id) VALUES (?, ?)",
+			classroomId,
+			userId
+		);
 	}
 
 	private void insertSession(

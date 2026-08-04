@@ -21,6 +21,7 @@
 | 강의실 목록 | 화면 진입·검색·정렬·페이지 이동 | `GET /api/classrooms` | 역할별 소유/참여 강의실, 진도·최근 학습 또는 승인 대기 수 표시 | 권한, 페이지네이션 |
 | 강의실 개설 | 생성 폼 제출 | `POST /api/classrooms` | 계산된 주차 수·초대 코드가 포함된 상세로 이동 | INSTRUCTOR 권한, 날짜·색상 검증 |
 | 강의실 상세 | 화면 진입 | `GET /api/classrooms/{id}` | 기간·현재 주차·인원·역할별 상세 표시 | `CLASSROOM_NOT_FOUND` |
+| 강의자 학습 현황 | 대시보드 진입·새로고침 | `GET /api/classrooms/{id}/analytics` | 멤버·진도·최근 7일 질문/비활성·자료별 조회율·페이지별 질문 수 표시 | 소유 INSTRUCTOR, `CLASSROOM_NOT_FOUND` 은닉 |
 | 강의실 설정 | 정보 수정·완료 전환 | `PATCH·DELETE /api/classrooms/{id}` | 수정 상세 또는 COMPLETED 읽기 전용 상태 반영 | 주차 범위 충돌, 완료 상태 |
 | 초대 관리 | 코드 확인·재발급 | `GET /api/classrooms/{id}/invite-code`, `POST .../regenerate` | 새 코드를 복사·공유 | 소유권, 완료 상태 |
 | 강의실 참여 | 초대 코드 제출·내 요청 조회 | `POST /api/classroom-join-requests`, `GET /api/classroom-join-requests/me` | PENDING 상태와 처리 결과 표시 | 무효 코드, 멤버/대기 요청 중복 |

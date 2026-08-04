@@ -161,6 +161,38 @@ class LearningProgressServiceTest {
 		assertThat(progress.progressDataAvailable()).isTrue();
 	}
 
+	@Test
+	void classroomAverageProgressUsesOneBatchForAllLearnersAndMaterials() {
+		LearningMaterial first = org.mockito.Mockito.mock(LearningMaterial.class);
+		LearningMaterial second = org.mockito.Mockito.mock(LearningMaterial.class);
+		when(first.getId()).thenReturn(10L);
+		when(first.getPageCount()).thenReturn(100);
+		when(second.getId()).thenReturn(20L);
+		when(second.getPageCount()).thenReturn(50);
+		when(pageRecordRepository.findClassroomProgressCounts(
+			30L,
+			java.util.Set.of(10L, 20L)
+		)).thenReturn(List.of(
+			new SessionPageRecordRepository.UserMaterialProgressCount(1L, 10L, 50L),
+			new SessionPageRecordRepository.UserMaterialProgressCount(2L, 10L, 25L),
+			new SessionPageRecordRepository.UserMaterialProgressCount(1L, 20L, 50L)
+		));
+
+		var snapshot = service().calculateClassroomProgressSnapshot(
+			30L,
+			List.of(first, second),
+			3L
+		);
+
+		assertThat(snapshot.averageProgressRate(List.of(first, second))).isEqualTo(28);
+		assertThat(snapshot.materialAverageProgressRate(first)).isEqualTo(25);
+		assertThat(snapshot.materialAverageProgressRate(second)).isEqualTo(33);
+		verify(pageRecordRepository).findClassroomProgressCounts(
+			30L,
+			java.util.Set.of(10L, 20L)
+		);
+	}
+
 	private LearningProgressService service() {
 		return new LearningProgressService(
 			sessionRepository,

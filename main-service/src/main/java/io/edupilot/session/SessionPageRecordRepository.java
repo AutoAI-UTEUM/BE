@@ -2,6 +2,9 @@ package io.edupilot.session;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -38,6 +41,21 @@ public class SessionPageRecordRepository {
 		WHERE session.user_id = ?
 		  AND session.material_id = ?
 		  AND session.status IN ('ACTIVE', 'COMPLETED')
+		""";
+
+	private static final String CLASSROOM_PROGRESS_COUNTS = """
+		SELECT member.user_id,
+		       session.material_id,
+		       COUNT(DISTINCT record.page_number) AS explained_page_count
+		FROM classroom_members member
+		JOIN learning_sessions session
+		  ON session.user_id = member.user_id
+		JOIN session_page_records record
+		  ON record.session_id = session.id
+		WHERE member.classroom_id = ?
+		  AND session.material_id IN (%s)
+		  AND session.status IN ('ACTIVE', 'COMPLETED')
+		GROUP BY member.user_id, session.material_id
 		""";
 
 	private final JdbcTemplate jdbcTemplate;
@@ -84,5 +102,40 @@ public class SessionPageRecordRepository {
 			materialId
 		);
 		return count == null ? 0 : count;
+	}
+
+	public List<UserMaterialProgressCount> findClassroomProgressCounts(
+		Long classroomId,
+		Collection<Long> materialIds
+	) {
+		if (materialIds.isEmpty()) {
+			return List.of();
+		}
+		String placeholders = String.join(
+			", ",
+			Collections.nCopies(materialIds.size(), "?")
+		);
+		Object[] arguments = new Object[materialIds.size() + 1];
+		arguments[0] = classroomId;
+		int index = 1;
+		for (Long materialId : materialIds) {
+			arguments[index++] = materialId;
+		}
+		return jdbcTemplate.query(
+			CLASSROOM_PROGRESS_COUNTS.formatted(placeholders),
+			(rs, rowNum) -> new UserMaterialProgressCount(
+				rs.getLong("user_id"),
+				rs.getLong("material_id"),
+				rs.getLong("explained_page_count")
+			),
+			arguments
+		);
+	}
+
+	public record UserMaterialProgressCount(
+		Long userId,
+		Long materialId,
+		long explainedPageCount
+	) {
 	}
 }

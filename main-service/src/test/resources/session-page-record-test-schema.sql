@@ -5,6 +5,12 @@ CREATE TABLE IF NOT EXISTS learning_sessions (
     status VARCHAR(20) NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS classroom_members (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    classroom_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS session_page_records (
     id BIGINT NOT NULL AUTO_INCREMENT,
     session_id BIGINT NOT NULL,
