@@ -117,6 +117,14 @@ public class ClassroomWeek {
 			&& (status != ClassroomWeekStatus.SCHEDULED || releaseAt != null);
 	}
 
+	public void changeStatus(ClassroomWeekStatus status) {
+		this.status = status;
+	}
+
+	public void changeDisplayOrder(int displayOrder) {
+		this.displayOrder = displayOrder;
+	}
+
 	public Long getId() {
 		return id;
 	}

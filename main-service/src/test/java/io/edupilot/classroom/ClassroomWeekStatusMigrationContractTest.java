@@ -1,9 +1,11 @@
 package io.edupilot.classroom;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -39,6 +41,33 @@ class ClassroomWeekStatusMigrationContractTest {
 		)).isSortedAccordingTo((left, right) ->
 			Integer.compare(version(left), version(right))
 		);
+	}
+
+	@Test
+	void d3BackfillPreservesLegacyLearnerVisibility() {
+		Instant migrationTime = Instant.parse("2026-08-04T00:00:00Z");
+		for (Instant releaseAt : java.util.Arrays.asList(
+			null,
+			migrationTime.minusSeconds(1),
+			migrationTime.plusSeconds(1)
+		)) {
+			boolean legacyVisible = releaseAt == null
+				|| !releaseAt.isAfter(migrationTime);
+			ClassroomWeekStatus backfilledStatus = legacyVisible
+				? ClassroomWeekStatus.PUBLISHED
+				: ClassroomWeekStatus.SCHEDULED;
+			ClassroomWeek week = ClassroomWeek.create(
+				mock(Classroom.class),
+				1,
+				"Week 1",
+				releaseAt,
+				backfilledStatus,
+				1
+			);
+
+			assertThat(week.isVisibleToLearner(migrationTime))
+				.isEqualTo(legacyVisible);
+		}
 	}
 
 	private String migration(String filename) throws Exception {

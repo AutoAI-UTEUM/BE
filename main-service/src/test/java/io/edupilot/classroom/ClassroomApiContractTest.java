@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDate;
+import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +32,10 @@ import io.edupilot.Epic10ServiceMocks;
 import io.edupilot.auth.JwtTokenProvider;
 import io.edupilot.auth.RefreshTokenRepository;
 import io.edupilot.classroom.dto.ClassroomDetailResponse;
+import io.edupilot.classroom.dto.ClassroomWeekListResponse;
+import io.edupilot.classroom.dto.ClassroomWeekResponse;
+import io.edupilot.classroom.dto.ReorderClassroomWeeksRequest;
+import io.edupilot.classroom.dto.UpdateClassroomWeekStatusRequest;
 import io.edupilot.classroom.dto.UpdateClassroomRequest;
 import io.edupilot.feedback.FeedbackRepository;
 import io.edupilot.global.error.BusinessException;
@@ -60,6 +65,8 @@ class ClassroomApiContractTest {
 	private JwtTokenProvider jwtTokenProvider;
 	@Autowired
 	private ClassroomService classroomService;
+	@Autowired
+	private ClassroomWeekService classroomWeekService;
 
 	@MockitoBean
 	private UserRepository userRepository;
@@ -172,6 +179,95 @@ class ClassroomApiContractTest {
 			.isNull();
 	}
 
+	@Test
+	void weekStatusAndReorderContractsExposeStableIdsAndOrder() throws Exception {
+		ClassroomWeekResponse privateWeek = weekResponse(
+			10L,
+			1,
+			ClassroomWeekStatus.PRIVATE,
+			2
+		);
+		when(classroomWeekService.changeStatus(
+			eq(1L),
+			eq(UserRole.INSTRUCTOR),
+			eq(30L),
+			eq(10L),
+			any()
+		)).thenReturn(privateWeek);
+
+		mockMvc.perform(patch("/api/classrooms/30/weeks/10/status")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"status\":\"PRIVATE\"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.weekId").value(10))
+			.andExpect(jsonPath("$.data.weekNumber").value(1))
+			.andExpect(jsonPath("$.data.status").value("PRIVATE"))
+			.andExpect(jsonPath("$.data.displayOrder").value(2));
+
+		ClassroomWeekListResponse reordered = new ClassroomWeekListResponse(List.of(
+			weekResponse(20L, 2, ClassroomWeekStatus.PUBLISHED, 1),
+			weekResponse(10L, 1, ClassroomWeekStatus.PRIVATE, 2)
+		));
+		when(classroomWeekService.reorder(
+			eq(1L),
+			eq(UserRole.INSTRUCTOR),
+			eq(30L),
+			any()
+		)).thenReturn(reordered);
+
+		mockMvc.perform(patch("/api/classrooms/30/weeks/reorder")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"orderedWeekIds\":[20,10]}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items[0].weekId").value(20))
+			.andExpect(jsonPath("$.data.items[0].displayOrder").value(1))
+			.andExpect(jsonPath("$.data.items[1].weekId").value(10))
+			.andExpect(jsonPath("$.data.items[1].displayOrder").value(2));
+
+		ArgumentCaptor<UpdateClassroomWeekStatusRequest> statusCaptor =
+			ArgumentCaptor.forClass(UpdateClassroomWeekStatusRequest.class);
+		verify(classroomWeekService).changeStatus(
+			eq(1L),
+			eq(UserRole.INSTRUCTOR),
+			eq(30L),
+			eq(10L),
+			statusCaptor.capture()
+		);
+		org.assertj.core.api.Assertions.assertThat(statusCaptor.getValue().status())
+			.isEqualTo(ClassroomWeekStatus.PRIVATE);
+
+		ArgumentCaptor<ReorderClassroomWeeksRequest> reorderCaptor =
+			ArgumentCaptor.forClass(ReorderClassroomWeeksRequest.class);
+		verify(classroomWeekService).reorder(
+			eq(1L),
+			eq(UserRole.INSTRUCTOR),
+			eq(30L),
+			reorderCaptor.capture()
+		);
+		org.assertj.core.api.Assertions.assertThat(
+			reorderCaptor.getValue().orderedWeekIds()
+		).containsExactly(20L, 10L);
+	}
+
+	@Test
+	void weekStatusAndReorderRejectMalformedBodies() throws Exception {
+		mockMvc.perform(patch("/api/classrooms/30/weeks/10/status")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"status\":\"OPEN\"}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("MALFORMED_REQUEST"));
+
+		mockMvc.perform(patch("/api/classrooms/30/weeks/reorder")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"orderedWeekIds\":[]}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+	}
+
 	private ClassroomDetailResponse detailResponse() {
 		return new ClassroomDetailResponse(
 			30L,
@@ -189,6 +285,23 @@ class ClassroomApiContractTest {
 			null,
 			0L,
 			"7KMX-9QTR"
+		);
+	}
+
+	private ClassroomWeekResponse weekResponse(
+		Long weekId,
+		int weekNumber,
+		ClassroomWeekStatus status,
+		int displayOrder
+	) {
+		return new ClassroomWeekResponse(
+			weekId,
+			weekNumber,
+			"Week " + weekNumber,
+			status,
+			displayOrder,
+			null,
+			List.of()
 		);
 	}
 

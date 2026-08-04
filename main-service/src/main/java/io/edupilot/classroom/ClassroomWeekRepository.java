@@ -26,6 +26,29 @@ public interface ClassroomWeekRepository extends JpaRepository<ClassroomWeek, Lo
 		select week
 		from ClassroomWeek week
 		where week.classroom.id = :classroomId
+		  and week.id = :weekId
+		""")
+	Optional<ClassroomWeek> findByIdForUpdate(
+		@Param("classroomId") Long classroomId,
+		@Param("weekId") Long weekId
+	);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		select week
+		from ClassroomWeek week
+		where week.classroom.id = :classroomId
+		order by week.id
+		""")
+	List<ClassroomWeek> findAllForUpdateByClassroomId(
+		@Param("classroomId") Long classroomId
+	);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		select week
+		from ClassroomWeek week
+		where week.classroom.id = :classroomId
 		  and week.weekNumber = :weekNumber
 		""")
 	Optional<ClassroomWeek> findForUpdate(

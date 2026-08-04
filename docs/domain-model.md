@@ -103,9 +103,9 @@ erDiagram
 
 ### ClassroomWeek / ClassroomWeekMaterial
 
-- 주차 번호는 `1 <= weekNumber <= weekCount`이고 `(classroomId, weekNumber)`는 유일합니다.
-- 주차 상태는 저장하지 않습니다. `releaseAt=null` 또는 도래한 시각은 `PUBLISHED`, 미래 시각은 `SCHEDULED`로 파생합니다.
-- 학습자는 `PUBLISHED` 주차만 조회합니다. 강사는 전체 주차와 파생 상태를 조회합니다.
+- 주차 번호는 `1 <= weekNumber <= weekCount`이고 `(classroomId, weekNumber)`는 유일합니다. 시험·리포트·자료가 참조하는 의미 식별자이므로 표시 순서 변경으로 수정하지 않습니다.
+- 주차 상태는 `PRIVATE | SCHEDULED | PUBLISHED | BREAK` 정본으로 저장하고 `displayOrder`를 별도로 관리합니다.
+- 학습자는 `PRIVATE`을 조회할 수 없고, `SCHEDULED`는 `releaseAt`이 도래한 경우에만 조회합니다. `PUBLISHED`와 `BREAK`는 공개하며 강사는 전체 주차를 조회합니다.
 - 자료 연결은 `(weekId, materialId)`당 하나입니다. 주차 삭제는 연결을 제거하지만 자료 자체를 삭제하지 않습니다.
 
 ### ClassroomNotice

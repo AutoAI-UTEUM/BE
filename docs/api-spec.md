@@ -1219,15 +1219,17 @@ PENDING 요청만 처리합니다. 승인은 같은 트랜잭션에서 `classroo
 
 ### GET `/api/classrooms/{id}/weeks`
 
-강사는 전체 주차, 학습자는 `PUBLISHED` 주차만 조회합니다. 주차 상태는 저장하지 않고 현재 UTC 시각과 `releaseAt`으로 계산합니다.
+강사는 전체 주차, 학습자는 `PRIVATE`을 제외하고 `PUBLISHED`·`BREAK` 및 공개일이 지난 `SCHEDULED` 주차만 조회합니다. `status`는 `PRIVATE | SCHEDULED | PUBLISHED | BREAK` 정본이며, `SCHEDULED`만 `releaseAt`과 현재 UTC 시각으로 노출 여부를 조회 시점에 판정합니다. 목록은 `displayOrder ASC`로 정렬합니다.
 
 ```json
 {
   "items": [
     {
+      "weekId": 101,
       "weekNumber": 1,
       "title": "회귀분석 개요",
       "status": "PUBLISHED",
+      "displayOrder": 1,
       "releaseAt": null,
       "materials": [
         {
@@ -1253,7 +1255,7 @@ PENDING 요청만 처리합니다. 승인은 같은 트랜잭션에서 `classroo
 }
 ```
 
-`1 <= weekNumber <= weekCount`이며 중복 번호는 `WEEK_ALREADY_EXISTS`입니다. `releaseAt` 생략 또는 `null`은 즉시 공개입니다. 성공 시 위 주차 항목을 반환합니다.
+`1 <= weekNumber <= weekCount`이며 중복 번호는 `WEEK_ALREADY_EXISTS`입니다. 생성 시 `releaseAt`이 없거나 이미 경과했으면 `PUBLISHED`, 미래이면 `SCHEDULED`로 초기화하고 기존 마지막 `displayOrder` 뒤에 추가합니다. 성공 시 위 주차 항목을 반환합니다.
 
 ### PATCH `/api/classrooms/{id}/weeks/{weekNumber}`
 
@@ -1264,7 +1266,27 @@ PENDING 요청만 처리합니다. 승인은 같은 트랜잭션에서 `classroo
 }
 ```
 
-필드 생략은 변경 없음, `releaseAt:null`은 즉시 공개입니다. 자료 공개가 취소되고 다른 소유권·공개 주차 접근 경로도 없으면 신규 자료·파일 조회, 세션 생성과 기존 세션의 추가 턴을 차단하고 기존 학습 기록은 보존합니다.
+필드 생략은 변경 없음입니다. `releaseAt` 변경은 정본 `status`를 변경하지 않으며 공개 상태는 별도 status API로 전환합니다. 자료 공개가 취소되고 다른 소유권·공개 주차 접근 경로도 없으면 신규 자료·파일 조회, 세션 생성과 기존 세션의 추가 턴을 차단하고 기존 학습 기록은 보존합니다.
+
+### PATCH `/api/classrooms/{id}/weeks/{weekId}/status`
+
+```json
+{
+  "status": "BREAK"
+}
+```
+
+강사 본인 강의실의 주차만 변경할 수 있고 상태 간 전이 제한은 없습니다. 타 강의실 또는 없는 주차는 `WEEK_NOT_FOUND`/`CLASSROOM_NOT_FOUND`로 은닉하며 완료 강의실은 `CLASSROOM_COMPLETED`입니다. 성공 시 갱신된 주차 항목을 반환합니다.
+
+### PATCH `/api/classrooms/{id}/weeks/reorder`
+
+```json
+{
+  "orderedWeekIds": [103, 101, 102]
+}
+```
+
+`orderedWeekIds`는 해당 강의실 전체 `weekId` 집합과 누락·중복 없이 정확히 일치해야 합니다. 검증 성공 후 한 트랜잭션에서 `displayOrder`를 1부터 다시 부여하며 `weekNumber`는 변경하지 않습니다. 불일치·중복·타 강의실 ID는 `VALIDATION_FAILED`이고 부분 적용하지 않습니다. 성공 시 새 순서의 주차 목록을 반환합니다.
 
 ### DELETE `/api/classrooms/{id}/weeks/{weekNumber}`
 
