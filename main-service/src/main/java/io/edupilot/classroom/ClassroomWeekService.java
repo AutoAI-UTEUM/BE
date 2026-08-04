@@ -56,9 +56,9 @@ public class ClassroomWeekService {
 		boolean ownerView = classroom.getInstructorId().equals(userId);
 		var now = clock.instant();
 		List<ClassroomWeekResponse> items = weekRepository
-			.findByClassroom_IdOrderByWeekNumberAsc(classroomId)
+			.findByClassroom_IdOrderByDisplayOrderAscIdAsc(classroomId)
 			.stream()
-			.filter(week -> ownerView || week.isReleased(now))
+			.filter(week -> ownerView || week.isVisibleToLearner(now))
 			.map(this::response)
 			.toList();
 		return new ClassroomWeekListResponse(items);
@@ -81,11 +81,21 @@ public class ClassroomWeekService {
 			throw new BusinessException(ErrorCode.WEEK_ALREADY_EXISTS);
 		}
 		try {
+			var now = clock.instant();
+			ClassroomWeekStatus status = request.releaseAt() == null
+				|| !request.releaseAt().isAfter(now)
+				? ClassroomWeekStatus.PUBLISHED
+				: ClassroomWeekStatus.SCHEDULED;
+			Integer maximumDisplayOrder = weekRepository.findMaximumDisplayOrder(
+				classroomId
+			);
 			ClassroomWeek week = weekRepository.saveAndFlush(ClassroomWeek.create(
 				classroom,
 				request.weekNumber(),
 				title,
-				request.releaseAt()
+				request.releaseAt(),
+				status,
+				maximumDisplayOrder == null ? 1 : maximumDisplayOrder + 1
 			));
 			return response(week);
 		} catch (DataIntegrityViolationException exception) {
@@ -218,7 +228,7 @@ public class ClassroomWeekService {
 		return new ClassroomWeekResponse(
 			week.getWeekNumber(),
 			week.getTitle(),
-			week.statusAt(clock.instant()),
+			week.getStatus(),
 			week.getReleaseAt(),
 			weekMaterialRepository.findByWeek_IdOrderByAddedAtAscIdAsc(week.getId())
 				.stream()

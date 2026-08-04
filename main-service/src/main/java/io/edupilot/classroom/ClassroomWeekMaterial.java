@@ -72,6 +72,10 @@ public class ClassroomWeekMaterial {
 		return material;
 	}
 
+	public ClassroomWeek getWeek() {
+		return week;
+	}
+
 	public Instant getAddedAt() {
 		return addedAt;
 	}

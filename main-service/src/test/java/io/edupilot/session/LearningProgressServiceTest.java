@@ -129,7 +129,7 @@ class LearningProgressServiceTest {
 			.thenReturn(Optional.of(classroom));
 		when(memberRepository.existsByClassroom_IdAndUser_Id(30L, 1L))
 			.thenReturn(true);
-		when(weekMaterialRepository.findDistinctReleasedReadyMaterials(
+		when(weekMaterialRepository.findDistinctVisibleReadyMaterials(
 			30L,
 			Instant.parse("2026-08-02T00:00:00Z"),
 			io.edupilot.material.MaterialStatus.ACTIVE,

@@ -14,7 +14,7 @@ import jakarta.persistence.LockModeType;
 
 public interface ClassroomWeekRepository extends JpaRepository<ClassroomWeek, Long> {
 
-	List<ClassroomWeek> findByClassroom_IdOrderByWeekNumberAsc(Long classroomId);
+	List<ClassroomWeek> findByClassroom_IdOrderByDisplayOrderAscIdAsc(Long classroomId);
 
 	Optional<ClassroomWeek> findByClassroom_IdAndWeekNumber(
 		Long classroomId,
@@ -37,6 +37,9 @@ public interface ClassroomWeekRepository extends JpaRepository<ClassroomWeek, Lo
 
 	@Query("select max(week.weekNumber) from ClassroomWeek week where week.classroom.id = :classroomId")
 	Integer findMaximumWeekNumber(@Param("classroomId") Long classroomId);
+
+	@Query("select max(week.displayOrder) from ClassroomWeek week where week.classroom.id = :classroomId")
+	Integer findMaximumDisplayOrder(@Param("classroomId") Long classroomId);
 
 	@Query("""
 		select week

@@ -76,7 +76,7 @@ class ClassroomWeekServiceTest {
 		ClassroomWeek scheduled = week(2, NOW.plusSeconds(60));
 		when(classroomService.requireVisible(2L, UserRole.LEARNER, 30L))
 			.thenReturn(classroom);
-		when(weekRepository.findByClassroom_IdOrderByWeekNumberAsc(30L))
+		when(weekRepository.findByClassroom_IdOrderByDisplayOrderAscIdAsc(30L))
 			.thenReturn(List.of(released, scheduled));
 		when(weekMaterialRepository.findByWeek_IdOrderByAddedAtAscIdAsc(any()))
 			.thenReturn(List.of());
@@ -106,7 +106,7 @@ class ClassroomWeekServiceTest {
 	}
 
 	@Test
-	void explicitNullReleaseAtPublishesImmediately() {
+	void releaseAtUpdateDoesNotChangeCanonicalStatus() {
 		ClassroomWeek week = week(1, NOW.plusSeconds(60));
 		when(classroomService.requireOwnerForUpdate(1L, UserRole.INSTRUCTOR, 30L))
 			.thenReturn(classroom);
@@ -121,13 +121,16 @@ class ClassroomWeekServiceTest {
 		);
 
 		assertThat(response.releaseAt()).isNull();
-		assertThat(response.status()).isEqualTo(ClassroomWeekStatus.PUBLISHED);
+		assertThat(response.status()).isEqualTo(ClassroomWeekStatus.SCHEDULED);
 		verify(weekRepository).flush();
 	}
 
 	private ClassroomWeek week(int number, Instant releaseAt) {
+		ClassroomWeekStatus status = releaseAt == null || !releaseAt.isAfter(NOW)
+			? ClassroomWeekStatus.PUBLISHED
+			: ClassroomWeekStatus.SCHEDULED;
 		ClassroomWeek week = ClassroomWeek.create(
-			classroom, number, "Week " + number, releaseAt
+			classroom, number, "Week " + number, releaseAt, status, number
 		);
 		ReflectionTestUtils.setField(week, "id", (long) number);
 		return week;

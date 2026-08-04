@@ -385,7 +385,7 @@ public class ClassroomService {
 		if (ownerView) {
 			return new ClassroomLearnerMetrics(null, null);
 		}
-		var materials = weekMaterialRepository.findDistinctReleasedReadyMaterials(
+		var materials = weekMaterialRepository.findDistinctVisibleReadyMaterials(
 			classroom.getId(),
 			clock.instant(),
 			MaterialStatus.ACTIVE,

@@ -73,7 +73,10 @@ public class ScheduleService {
 					classroomIds,
 					fromInstant,
 					toExclusive
-				).stream().map(ScheduleItemResponse::from),
+				).stream()
+					.filter(week -> week.getClassroom().getInstructorId().equals(userId)
+						|| week.isShownOnLearnerSchedule())
+					.map(ScheduleItemResponse::from),
 				noticeRepository.findScheduleNotices(
 					classroomIds,
 					fromInstant,
