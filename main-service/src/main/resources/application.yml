@@ -72,6 +72,7 @@ edupilot:
     generation:
       lease-duration: PT5M
       cutoff: PT10M
+      poll-after-seconds: 5
       executor:
         core-size: 1
         max-size: 2

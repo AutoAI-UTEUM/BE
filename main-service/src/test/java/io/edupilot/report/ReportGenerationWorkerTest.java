@@ -34,6 +34,7 @@ class ReportGenerationWorkerTest {
 		ReportGenerationProperties properties = new ReportGenerationProperties(
 			Duration.ofMinutes(5),
 			Duration.ofMinutes(10),
+			5,
 			new ReportGenerationProperties.Executor(1, 2, 50)
 		);
 		worker = new ReportGenerationWorker(

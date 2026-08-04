@@ -7,6 +7,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface StudentReportRepository extends JpaRepository<StudentReport, Long> {
 
+	Optional<StudentReport> findByGeneration_Id(Long generationId);
+
 	List<StudentReport> findByClassroom_IdAndStudent_IdOrderByVersionDesc(
 		Long classroomId,
 		Long studentId

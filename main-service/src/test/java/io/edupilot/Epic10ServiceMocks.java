@@ -18,6 +18,7 @@ import io.edupilot.exam.StudentExamService;
 import io.edupilot.material.MaterialAccessService;
 import io.edupilot.report.ReportCriterionCatalog;
 import io.edupilot.report.ReportAiGenerationService;
+import io.edupilot.report.ReportApiService;
 import io.edupilot.report.ReportGenerationPersistenceService;
 import io.edupilot.report.ReportGenerationService;
 import io.edupilot.report.ReportSnapshotBuilder;
@@ -41,6 +42,7 @@ import io.edupilot.schedule.ScheduleService;
 	ReportCriterionCatalog.class,
 	ReportSnapshotBuilder.class,
 	ReportAiGenerationService.class,
+	ReportApiService.class,
 	ReportGenerationPersistenceService.class,
 	ReportGenerationService.class
 })

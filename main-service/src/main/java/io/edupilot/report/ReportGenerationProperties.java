@@ -14,6 +14,7 @@ import jakarta.validation.constraints.NotNull;
 public record ReportGenerationProperties(
 	@NotNull Duration leaseDuration,
 	@NotNull Duration cutoff,
+	@Min(1) int pollAfterSeconds,
 	@Valid @NotNull Executor executor
 ) {
 	public record Executor(
