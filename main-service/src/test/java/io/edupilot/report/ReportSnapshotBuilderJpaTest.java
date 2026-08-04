@@ -29,6 +29,7 @@ import io.edupilot.classroom.ClassroomMember;
 import io.edupilot.classroom.ClassroomMemberRepository;
 import io.edupilot.classroom.ClassroomRepository;
 import io.edupilot.classroom.ClassroomWeek;
+import io.edupilot.classroom.ClassroomWeekStatus;
 import io.edupilot.classroom.ClassroomWeekMaterial;
 import io.edupilot.classroom.ClassroomWeekMaterialRepository;
 import io.edupilot.classroom.ClassroomWeekRepository;
@@ -134,10 +135,10 @@ class ReportSnapshotBuilderJpaTest {
 		memberRepository.save(ClassroomMember.create(otherClassroom, student, now()));
 
 		week = weekRepository.save(ClassroomWeek.create(
-			classroom, 1, "Week 1", null
+			classroom, 1, "Week 1", null, ClassroomWeekStatus.PUBLISHED, 1
 		));
 		ClassroomWeek otherWeek = weekRepository.save(ClassroomWeek.create(
-			otherClassroom, 1, "Other week", null
+			otherClassroom, 1, "Other week", null, ClassroomWeekStatus.PUBLISHED, 1
 		));
 		material = readyMaterial(instructor, "Main material", "snapshot/main.pdf", 5);
 		otherMaterial = readyMaterial(
@@ -309,7 +310,7 @@ class ReportSnapshotBuilderJpaTest {
 	@Test
 	void weekScopeExcludesOtherWeekAndZeroRecordsRemainUnavailable() {
 		ClassroomWeek secondWeek = weekRepository.save(ClassroomWeek.create(
-			classroom, 2, "Week 2", null
+			classroom, 2, "Week 2", null, ClassroomWeekStatus.PUBLISHED, 2
 		));
 		LearningMaterial secondMaterial = readyMaterial(
 			instructor, "Second material", "snapshot/second.pdf", 10

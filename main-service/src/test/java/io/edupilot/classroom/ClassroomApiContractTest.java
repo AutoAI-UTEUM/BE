@@ -37,6 +37,10 @@ import io.edupilot.classroom.dto.ClassroomAnalyticsMaterialResponse;
 import io.edupilot.classroom.dto.ClassroomAnalyticsResponse;
 import io.edupilot.classroom.dto.ClassroomDetailResponse;
 import io.edupilot.classroom.dto.ClassroomQuestionByPageResponse;
+import io.edupilot.classroom.dto.ClassroomWeekListResponse;
+import io.edupilot.classroom.dto.ClassroomWeekResponse;
+import io.edupilot.classroom.dto.ReorderClassroomWeeksRequest;
+import io.edupilot.classroom.dto.UpdateClassroomWeekStatusRequest;
 import io.edupilot.classroom.dto.UpdateClassroomRequest;
 import io.edupilot.feedback.FeedbackRepository;
 import io.edupilot.global.error.BusinessException;
@@ -60,33 +64,49 @@ class ClassroomApiContractTest {
 
 	@Autowired
 	private WebApplicationContext context;
+
 	@Autowired
 	private TraceIdFilter traceIdFilter;
+
 	@Autowired
 	private JwtTokenProvider jwtTokenProvider;
+
 	@Autowired
 	private ClassroomService classroomService;
+
+	@Autowired
+	private ClassroomWeekService classroomWeekService;
+
 	@Autowired
 	private ClassroomAnalyticsService analyticsService;
 
 	@MockitoBean
 	private UserRepository userRepository;
+
 	@MockitoBean
 	private RefreshTokenRepository refreshTokenRepository;
+
 	@MockitoBean
 	private LearningMaterialRepository materialRepository;
+
 	@MockitoBean
 	private MaterialPageRepository materialPageRepository;
+
 	@MockitoBean
 	private LearningSessionRepository sessionRepository;
+
 	@MockitoBean
 	private ChatMessageRepository messageRepository;
+
 	@MockitoBean
 	private NoteRepository noteRepository;
+
 	@MockitoBean
 	private FeedbackRepository feedbackRepository;
+
 	@MockitoBean
 	private QuizRepository quizRepository;
+
 	@MockitoBean
 	private QuizSubmissionRepository submissionRepository;
 
@@ -108,7 +128,6 @@ class ClassroomApiContractTest {
 	void createReturnsDetailAndRejectsInvalidColorAndNonInstructor() throws Exception {
 		when(classroomService.create(eq(1L), eq(UserRole.INSTRUCTOR), any()))
 			.thenReturn(detailResponse());
-
 		mockMvc.perform(post("/api/classrooms")
 				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
 				.contentType(MediaType.APPLICATION_JSON)
@@ -124,7 +143,6 @@ class ClassroomApiContractTest {
 			.andExpect(jsonPath("$.data.classroomId").value(30))
 			.andExpect(jsonPath("$.data.weekCount").value(16))
 			.andExpect(jsonPath("$.data.inviteCode").value("7KMX-9QTR"));
-
 		mockMvc.perform(post("/api/classrooms")
 				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
 				.contentType(MediaType.APPLICATION_JSON)
@@ -138,7 +156,6 @@ class ClassroomApiContractTest {
 					"""))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.error.code").value("MALFORMED_REQUEST"));
-
 		doThrow(new BusinessException(ErrorCode.ACCESS_DENIED))
 			.when(classroomService)
 			.create(eq(2L), eq(UserRole.LEARNER), any());
@@ -162,13 +179,11 @@ class ClassroomApiContractTest {
 		when(classroomService.update(
 			eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), any()
 		)).thenReturn(detailResponse());
-
 		mockMvc.perform(patch("/api/classrooms/30")
 				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"description\":null}"))
 			.andExpect(status().isOk());
-
 		ArgumentCaptor<UpdateClassroomRequest> captor =
 			ArgumentCaptor.forClass(UpdateClassroomRequest.class);
 		verify(classroomService).update(
@@ -178,6 +193,89 @@ class ClassroomApiContractTest {
 			.isTrue();
 		org.assertj.core.api.Assertions.assertThat(captor.getValue().getDescription())
 			.isNull();
+	}
+
+	@Test
+	void weekStatusAndReorderContractsExposeStableIdsAndOrder() throws Exception {
+		ClassroomWeekResponse privateWeek = weekResponse(
+			10L,
+			1,
+			ClassroomWeekStatus.PRIVATE,
+			2
+		);
+		when(classroomWeekService.changeStatus(
+			eq(1L),
+			eq(UserRole.INSTRUCTOR),
+			eq(30L),
+			eq(10L),
+			any()
+		)).thenReturn(privateWeek);
+		mockMvc.perform(patch("/api/classrooms/30/weeks/10/status")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"status\":\"PRIVATE\"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.weekId").value(10))
+			.andExpect(jsonPath("$.data.weekNumber").value(1))
+			.andExpect(jsonPath("$.data.status").value("PRIVATE"))
+			.andExpect(jsonPath("$.data.displayOrder").value(2));
+		ClassroomWeekListResponse reordered = new ClassroomWeekListResponse(List.of(
+			weekResponse(20L, 2, ClassroomWeekStatus.PUBLISHED, 1),
+			weekResponse(10L, 1, ClassroomWeekStatus.PRIVATE, 2)
+		));
+		when(classroomWeekService.reorder(
+			eq(1L),
+			eq(UserRole.INSTRUCTOR),
+			eq(30L),
+			any()
+		)).thenReturn(reordered);
+		mockMvc.perform(patch("/api/classrooms/30/weeks/reorder")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"orderedWeekIds\":[20,10]}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items[0].weekId").value(20))
+			.andExpect(jsonPath("$.data.items[0].displayOrder").value(1))
+			.andExpect(jsonPath("$.data.items[1].weekId").value(10))
+			.andExpect(jsonPath("$.data.items[1].displayOrder").value(2));
+		ArgumentCaptor<UpdateClassroomWeekStatusRequest> statusCaptor =
+			ArgumentCaptor.forClass(UpdateClassroomWeekStatusRequest.class);
+		verify(classroomWeekService).changeStatus(
+			eq(1L),
+			eq(UserRole.INSTRUCTOR),
+			eq(30L),
+			eq(10L),
+			statusCaptor.capture()
+		);
+		org.assertj.core.api.Assertions.assertThat(statusCaptor.getValue().status())
+			.isEqualTo(ClassroomWeekStatus.PRIVATE);
+		ArgumentCaptor<ReorderClassroomWeeksRequest> reorderCaptor =
+			ArgumentCaptor.forClass(ReorderClassroomWeeksRequest.class);
+		verify(classroomWeekService).reorder(
+			eq(1L),
+			eq(UserRole.INSTRUCTOR),
+			eq(30L),
+			reorderCaptor.capture()
+		);
+		org.assertj.core.api.Assertions.assertThat(
+			reorderCaptor.getValue().orderedWeekIds()
+		).containsExactly(20L, 10L);
+	}
+
+	@Test
+	void weekStatusAndReorderRejectMalformedBodies() throws Exception {
+		mockMvc.perform(patch("/api/classrooms/30/weeks/10/status")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"status\":\"OPEN\"}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("MALFORMED_REQUEST"));
+		mockMvc.perform(patch("/api/classrooms/30/weeks/reorder")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"orderedWeekIds\":[]}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
 	}
 
 	@Test
@@ -196,7 +294,6 @@ class ClassroomApiContractTest {
 				)),
 				List.of(new ClassroomQuestionByPageResponse(10L, 2, 4L))
 			));
-
 		mockMvc.perform(get("/api/classrooms/30/analytics")
 				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
 			.andExpect(status().isOk())
@@ -206,7 +303,6 @@ class ClassroomApiContractTest {
 			.andExpect(jsonPath("$.data.materials[0].viewRate").value(50))
 			.andExpect(jsonPath("$.data.questionsByPage[0].pageNumber").value(2))
 			.andExpect(jsonPath("$.data.lastUpdatedAt").value(updatedAt.toString()));
-
 		doThrow(new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND))
 			.when(analyticsService)
 			.getAnalytics(2L, UserRole.LEARNER, 30L);
@@ -233,6 +329,24 @@ class ClassroomApiContractTest {
 			null,
 			0L,
 			"7KMX-9QTR"
+		);
+	}
+
+	private ClassroomWeekResponse weekResponse(
+		Long weekId,
+		int weekNumber,
+		ClassroomWeekStatus status,
+		int displayOrder
+	) {
+		return new ClassroomWeekResponse(
+			weekId,
+			weekNumber,
+			"Week " + weekNumber,
+			status,
+			displayOrder,
+			null,
+			0,
+			List.of()
 		);
 	}
 

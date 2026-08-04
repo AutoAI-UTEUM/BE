@@ -14,6 +14,8 @@ import io.edupilot.auth.AuthenticatedUser;
 import io.edupilot.classroom.dto.ClassroomWeekListResponse;
 import io.edupilot.classroom.dto.ClassroomWeekResponse;
 import io.edupilot.classroom.dto.CreateClassroomWeekRequest;
+import io.edupilot.classroom.dto.ReorderClassroomWeeksRequest;
+import io.edupilot.classroom.dto.UpdateClassroomWeekStatusRequest;
 import io.edupilot.classroom.dto.UpdateClassroomWeekRequest;
 import io.edupilot.global.response.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -78,6 +80,31 @@ public class ClassroomWeekController {
 	) {
 		weekService.delete(user.userId(), user.role(), classroomId, weekNumber);
 		return ApiResponse.success(null);
+	}
+
+	@PatchMapping("/{weekId}/status")
+	@Operation(summary = "강의실 주차 상태 변경")
+	public ApiResponse<ClassroomWeekResponse> changeStatus(
+		@AuthenticationPrincipal AuthenticatedUser user,
+		@PathVariable("id") Long classroomId,
+		@PathVariable Long weekId,
+		@Valid @RequestBody UpdateClassroomWeekStatusRequest request
+	) {
+		return ApiResponse.success(weekService.changeStatus(
+			user.userId(), user.role(), classroomId, weekId, request
+		));
+	}
+
+	@PatchMapping("/reorder")
+	@Operation(summary = "강의실 주차 표시 순서 변경")
+	public ApiResponse<ClassroomWeekListResponse> reorder(
+		@AuthenticationPrincipal AuthenticatedUser user,
+		@PathVariable("id") Long classroomId,
+		@Valid @RequestBody ReorderClassroomWeeksRequest request
+	) {
+		return ApiResponse.success(weekService.reorder(
+			user.userId(), user.role(), classroomId, request
+		));
 	}
 
 	@PostMapping("/{weekNumber}/materials/{materialId}")

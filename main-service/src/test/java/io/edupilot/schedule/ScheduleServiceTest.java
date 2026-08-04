@@ -24,6 +24,7 @@ import io.edupilot.classroom.ClassroomRepository;
 import io.edupilot.classroom.ClassroomService;
 import io.edupilot.classroom.ClassroomWeek;
 import io.edupilot.classroom.ClassroomWeekRepository;
+import io.edupilot.classroom.ClassroomWeekStatus;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.user.User;
@@ -76,7 +77,7 @@ class ScheduleServiceTest {
 	@Test
 	void usesInclusiveUtcDateRangeAndStableMergedOrdering() {
 		ClassroomWeek week = ClassroomWeek.create(
-			classroom, 2, "Models", BOUNDARY
+			classroom, 2, "Models", BOUNDARY, ClassroomWeekStatus.SCHEDULED, 2
 		);
 		ReflectionTestUtils.setField(week, "id", 40L);
 		ReflectionTestUtils.setField(week, "createdAt", BOUNDARY.minusSeconds(60));
@@ -123,7 +124,14 @@ class ScheduleServiceTest {
 			classroom, "Assignment", "Content", noticeTime
 		);
 		ReflectionTestUtils.setField(notice, "id", 70L);
-		ClassroomWeek week = ClassroomWeek.create(classroom, 2, "Models", weekTime);
+		ClassroomWeek week = ClassroomWeek.create(
+			classroom,
+			2,
+			"Models",
+			weekTime,
+			ClassroomWeekStatus.SCHEDULED,
+			2
+		);
 		ReflectionTestUtils.setField(week, "id", 40L);
 		User learner = User.create("learner@example.com", "hash", "Learner");
 		ReflectionTestUtils.setField(learner, "id", 2L);
@@ -203,6 +211,38 @@ class ScheduleServiceTest {
 		);
 
 		verify(classroomService).requireVisible(2L, UserRole.LEARNER, 30L);
+	}
+
+	@Test
+	void learnerScheduleHidesPrivateWeeks() {
+		ClassroomWeek privateWeek = ClassroomWeek.create(
+			classroom,
+			1,
+			"Hidden",
+			BOUNDARY,
+			ClassroomWeekStatus.PRIVATE,
+			1
+		);
+		when(classroomRepository.findAllVisibleByUserId(2L))
+			.thenReturn(List.of(classroom));
+		when(weekRepository.findScheduleWeeks(
+			List.of(30L),
+			BOUNDARY,
+			Instant.parse("2026-08-03T00:00:00Z")
+		)).thenReturn(List.of(privateWeek));
+		when(noticeRepository.findScheduleNotices(
+			List.of(30L),
+			BOUNDARY,
+			Instant.parse("2026-08-03T00:00:00Z")
+		)).thenReturn(List.of());
+
+		assertThat(service.list(
+			2L,
+			UserRole.LEARNER,
+			LocalDate.of(2026, 8, 2),
+			LocalDate.of(2026, 8, 2),
+			null
+		).items()).isEmpty();
 	}
 
 	@Test

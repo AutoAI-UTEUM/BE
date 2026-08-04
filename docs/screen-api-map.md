@@ -26,7 +26,7 @@
 | 초대 관리 | 코드 확인·재발급 | `GET /api/classrooms/{id}/invite-code`, `POST .../regenerate` | 새 코드를 복사·공유 | 소유권, 완료 상태 |
 | 강의실 참여 | 초대 코드 제출·내 요청 조회 | `POST /api/classroom-join-requests`, `GET /api/classroom-join-requests/me` | PENDING 상태와 처리 결과 표시 | 무효 코드, 멤버/대기 요청 중복 |
 | 참여 요청 관리 | 요청 목록·승인·거절 | `GET /api/classrooms/{id}/join-requests`, `POST .../{requestId}/approve|reject` | 목록에서 처리 상태·학습자 정보 갱신 | 이미 처리됨, 완료 상태 |
-| 주차·자료 | 주차 목록·생성·수정·삭제 | `GET·POST /api/classrooms/{id}/weeks`, `PATCH·DELETE .../weeks/{weekNumber}` | 강사는 전체, 학습자는 공개 주차만 표시 | 주차 중복·범위·소유권 |
+| 주차·자료 | 주차 목록·생성·수정·삭제·상태·순서 변경 | `GET·POST /api/classrooms/{id}/weeks`, `PATCH·DELETE .../weeks/{weekNumber}`, `PATCH .../weeks/{weekId}/status`, `PATCH .../weeks/reorder` | `weekId`로 상태 변경, `displayOrder`로 정렬하며 `weekNumber`는 유지. 학습자는 노출 판정을 통과한 주차만 표시 | 전체 주차 ID 집합 검증, 주차 중복·범위·소유권·완료 상태 |
 | 주차·자료 | 기존 자료 연결·해제 | `POST·DELETE /api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}` | 주차 자료 목록 갱신 | 자료 중복 연결, 자료·강의실 소유권 |
 | 강의실 자료 업로드 | PDF와 강의실·주차 part 제출 | `POST /api/materials` | 처리 중 자료를 해당 주차에 즉시 표시 | INSTRUCTOR 소유권, part 조합·파일 오류 |
 | 강의실 자료 학습 | 공개 자료 열기·통합학습 시작 | `GET /api/materials/{materialId}`, `GET .../file`, `POST /api/sessions` | PDF 뷰어와 사용자×자료 공유 세션으로 이동 | 공개 취소·연결 해제·멤버십 |

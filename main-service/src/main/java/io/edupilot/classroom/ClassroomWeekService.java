@@ -1,6 +1,7 @@
 package io.edupilot.classroom;
 
 import java.time.Clock;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,6 +16,8 @@ import io.edupilot.classroom.dto.ClassroomWeekListResponse;
 import io.edupilot.classroom.dto.ClassroomWeekMaterialResponse;
 import io.edupilot.classroom.dto.ClassroomWeekResponse;
 import io.edupilot.classroom.dto.CreateClassroomWeekRequest;
+import io.edupilot.classroom.dto.ReorderClassroomWeeksRequest;
+import io.edupilot.classroom.dto.UpdateClassroomWeekStatusRequest;
 import io.edupilot.classroom.dto.UpdateClassroomWeekRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -72,9 +75,9 @@ public class ClassroomWeekService {
 		boolean ownerView = classroom.getInstructorId().equals(userId);
 		var now = clock.instant();
 		var weeks = weekRepository
-			.findByClassroom_IdOrderByWeekNumberAsc(classroomId)
+			.findByClassroom_IdOrderByDisplayOrderAscIdAsc(classroomId)
 			.stream()
-			.filter(week -> ownerView || week.isReleased(now))
+			.filter(week -> ownerView || week.isVisibleToLearner(now))
 			.toList();
 		return new ClassroomWeekListResponse(responses(classroomId, weeks));
 	}
@@ -96,11 +99,21 @@ public class ClassroomWeekService {
 			throw new BusinessException(ErrorCode.WEEK_ALREADY_EXISTS);
 		}
 		try {
+			var now = clock.instant();
+			ClassroomWeekStatus status = request.releaseAt() == null
+				|| !request.releaseAt().isAfter(now)
+				? ClassroomWeekStatus.PUBLISHED
+				: ClassroomWeekStatus.SCHEDULED;
+			Integer maximumDisplayOrder = weekRepository.findMaximumDisplayOrder(
+				classroomId
+			);
 			ClassroomWeek week = weekRepository.saveAndFlush(ClassroomWeek.create(
 				classroom,
 				request.weekNumber(),
 				title,
-				request.releaseAt()
+				request.releaseAt(),
+				status,
+				maximumDisplayOrder == null ? 1 : maximumDisplayOrder + 1
 			));
 			return response(classroomId, week);
 		} catch (DataIntegrityViolationException exception) {
@@ -130,6 +143,51 @@ public class ClassroomWeekService {
 		);
 		weekRepository.flush();
 		return response(classroomId, week);
+	}
+
+	@Transactional
+	public ClassroomWeekResponse changeStatus(
+		Long userId,
+		UserRole role,
+		Long classroomId,
+		Long weekId,
+		UpdateClassroomWeekStatusRequest request
+	) {
+		strictWritableOwner(userId, role, classroomId);
+		ClassroomWeek week = weekRepository.findByIdForUpdate(classroomId, weekId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.WEEK_NOT_FOUND));
+		week.changeStatus(request.status());
+		weekRepository.flush();
+		return response(classroomId, week);
+	}
+
+	@Transactional
+	public ClassroomWeekListResponse reorder(
+		Long userId,
+		UserRole role,
+		Long classroomId,
+		ReorderClassroomWeeksRequest request
+	) {
+		strictWritableOwner(userId, role, classroomId);
+		List<ClassroomWeek> weeks = weekRepository
+			.findAllForUpdateByClassroomId(classroomId);
+		List<Long> orderedWeekIds = request.orderedWeekIds();
+		Map<Long, ClassroomWeek> weeksById = weeks.stream().collect(
+			Collectors.toMap(ClassroomWeek::getId, Function.identity())
+		);
+		if (orderedWeekIds.size() != weeks.size()
+			|| new HashSet<>(orderedWeekIds).size() != orderedWeekIds.size()
+			|| !weeksById.keySet().equals(new HashSet<>(orderedWeekIds))) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+		}
+		for (int index = 0; index < orderedWeekIds.size(); index++) {
+			weeksById.get(orderedWeekIds.get(index)).changeDisplayOrder(index + 1);
+		}
+		weekRepository.flush();
+		return new ClassroomWeekListResponse(responses(
+			classroomId,
+			orderedWeekIds.stream().map(weeksById::get).toList()
+		));
 	}
 
 	@Transactional
@@ -224,6 +282,20 @@ public class ClassroomWeekService {
 		return classroom;
 	}
 
+	private Classroom strictWritableOwner(
+		Long userId,
+		UserRole role,
+		Long classroomId
+	) {
+		Classroom classroom = classroomService.requireStrictOwnerForUpdate(
+			userId,
+			role,
+			classroomId
+		);
+		classroomService.assertWritable(classroom);
+		return classroom;
+	}
+
 	private ClassroomWeek ownedWeekForUpdate(Long classroomId, int weekNumber) {
 		return weekRepository.findForUpdate(classroomId, weekNumber)
 			.orElseThrow(() -> new BusinessException(ErrorCode.WEEK_NOT_FOUND));
@@ -284,9 +356,11 @@ public class ClassroomWeekService {
 				.map(ClassroomWeekMaterial::getMaterial)
 				.toList();
 			return new ClassroomWeekResponse(
+				week.getId(),
 				week.getWeekNumber(),
 				week.getTitle(),
-				week.statusAt(clock.instant()),
+				week.getStatus(),
+				week.getDisplayOrder(),
 				week.getReleaseAt(),
 				progress.averageProgressRate(materials),
 				materials.stream().map(material -> {
@@ -322,6 +396,6 @@ public class ClassroomWeekService {
 		if (normalized.isEmpty() || normalized.length() > 100) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}
-		return normalized;
+    return normalized;
 	}
 }

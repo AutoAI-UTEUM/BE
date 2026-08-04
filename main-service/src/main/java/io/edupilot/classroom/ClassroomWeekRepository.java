@@ -14,11 +14,34 @@ import jakarta.persistence.LockModeType;
 
 public interface ClassroomWeekRepository extends JpaRepository<ClassroomWeek, Long> {
 
-	List<ClassroomWeek> findByClassroom_IdOrderByWeekNumberAsc(Long classroomId);
+	List<ClassroomWeek> findByClassroom_IdOrderByDisplayOrderAscIdAsc(Long classroomId);
 
 	Optional<ClassroomWeek> findByClassroom_IdAndWeekNumber(
 		Long classroomId,
 		int weekNumber
+	);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		select week
+		from ClassroomWeek week
+		where week.classroom.id = :classroomId
+		  and week.id = :weekId
+		""")
+	Optional<ClassroomWeek> findByIdForUpdate(
+		@Param("classroomId") Long classroomId,
+		@Param("weekId") Long weekId
+	);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		select week
+		from ClassroomWeek week
+		where week.classroom.id = :classroomId
+		order by week.id
+		""")
+	List<ClassroomWeek> findAllForUpdateByClassroomId(
+		@Param("classroomId") Long classroomId
 	);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -37,6 +60,9 @@ public interface ClassroomWeekRepository extends JpaRepository<ClassroomWeek, Lo
 
 	@Query("select max(week.weekNumber) from ClassroomWeek week where week.classroom.id = :classroomId")
 	Integer findMaximumWeekNumber(@Param("classroomId") Long classroomId);
+
+	@Query("select max(week.displayOrder) from ClassroomWeek week where week.classroom.id = :classroomId")
+	Integer findMaximumDisplayOrder(@Param("classroomId") Long classroomId);
 
 	@Query("""
 		select week

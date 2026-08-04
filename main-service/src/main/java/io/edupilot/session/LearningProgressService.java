@@ -83,7 +83,7 @@ public class LearningProgressService {
 			throw new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND);
 		}
 		List<LearningMaterial> materials = weekMaterialRepository
-			.findDistinctReleasedReadyMaterials(
+			.findDistinctVisibleReadyMaterials(
 				classroomId,
 				clock.instant(),
 				io.edupilot.material.MaterialStatus.ACTIVE,

@@ -72,6 +72,10 @@ public class ClassroomWeekMaterial {
 		return material;
 	}
 
+	public ClassroomWeek getWeek() {
+		return week;
+	}
+
 	public Long getWeekId() {
 		return week.getId();
 	}

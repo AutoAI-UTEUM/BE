@@ -7,6 +7,8 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -36,6 +38,13 @@ public class ClassroomWeek {
 	@Column(name = "release_at")
 	private Instant releaseAt;
 
+	@Enumerated(EnumType.STRING)
+	@Column(nullable = false, length = 20)
+	private ClassroomWeekStatus status;
+
+	@Column(name = "display_order", nullable = false)
+	private int displayOrder;
+
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
@@ -51,21 +60,34 @@ public class ClassroomWeek {
 		Classroom classroom,
 		int weekNumber,
 		String title,
-		Instant releaseAt
+		Instant releaseAt,
+		ClassroomWeekStatus status,
+		int displayOrder
 	) {
 		this.classroom = classroom;
 		this.weekNumber = weekNumber;
 		this.title = title;
 		this.releaseAt = releaseAt;
+		this.status = status;
+		this.displayOrder = displayOrder;
 	}
 
 	public static ClassroomWeek create(
 		Classroom classroom,
 		int weekNumber,
 		String title,
-		Instant releaseAt
+		Instant releaseAt,
+		ClassroomWeekStatus status,
+		int displayOrder
 	) {
-		return new ClassroomWeek(classroom, weekNumber, title, releaseAt);
+		return new ClassroomWeek(
+			classroom,
+			weekNumber,
+			title,
+			releaseAt,
+			status,
+			displayOrder
+		);
 	}
 
 	public void update(
@@ -82,14 +104,25 @@ public class ClassroomWeek {
 		}
 	}
 
-	public boolean isReleased(Instant now) {
-		return releaseAt == null || !releaseAt.isAfter(now);
+	public boolean isVisibleToLearner(Instant now) {
+		return switch (status) {
+			case PRIVATE -> false;
+			case SCHEDULED -> releaseAt != null && !releaseAt.isAfter(now);
+			case PUBLISHED, BREAK -> true;
+		};
 	}
 
-	public ClassroomWeekStatus statusAt(Instant now) {
-		return isReleased(now)
-			? ClassroomWeekStatus.PUBLISHED
-			: ClassroomWeekStatus.SCHEDULED;
+	public boolean isShownOnLearnerSchedule() {
+		return status != ClassroomWeekStatus.PRIVATE
+			&& (status != ClassroomWeekStatus.SCHEDULED || releaseAt != null);
+	}
+
+	public void changeStatus(ClassroomWeekStatus status) {
+		this.status = status;
+	}
+
+	public void changeDisplayOrder(int displayOrder) {
+		this.displayOrder = displayOrder;
 	}
 
 	public Long getId() {
@@ -114,6 +147,14 @@ public class ClassroomWeek {
 
 	public Instant getReleaseAt() {
 		return releaseAt;
+	}
+
+	public ClassroomWeekStatus getStatus() {
+		return status;
+	}
+
+	public int getDisplayOrder() {
+		return displayOrder;
 	}
 
 	public Instant getCreatedAt() {

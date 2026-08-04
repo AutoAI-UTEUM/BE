@@ -72,7 +72,7 @@ public class MaterialAccessService {
 		LearningMaterial material
 	) {
 		if (material.getOwnerId().equals(userId)
-			|| weekMaterialRepository.existsReleasedAccess(
+			|| weekMaterialRepository.existsVisibleAccess(
 				userId,
 				material.getId(),
 				clock.instant()

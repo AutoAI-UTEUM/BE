@@ -47,55 +47,53 @@ public interface ClassroomWeekMaterialRepository
 	@Modifying(clearAutomatically = true, flushAutomatically = true)
 	long deleteByWeek_IdAndMaterial_Id(Long weekId, Long materialId);
 
+	@EntityGraph(attributePaths = "week")
 	@Query("""
-		select case when count(link) > 0 then true else false end
+		select link
 		from ClassroomWeekMaterial link
 		join ClassroomMember member
 		  on member.classroom = link.week.classroom
 		where link.material.id = :materialId
 		  and member.user.id = :userId
-		  and (link.week.releaseAt is null or link.week.releaseAt <= :now)
 		""")
-	boolean existsReleasedAccess(
+	List<ClassroomWeekMaterial> findAccessCandidates(
 		@Param("userId") Long userId,
-		@Param("materialId") Long materialId,
-		@Param("now") Instant now
+		@Param("materialId") Long materialId
 	);
 
+	@EntityGraph(attributePaths = {"week", "material"})
 	@Query("""
-		select distinct link.material
+		select link
 		from ClassroomWeekMaterial link
 		where link.week.classroom.id = :classroomId
-		  and (link.week.releaseAt is null or link.week.releaseAt <= :now)
 		  and link.material.status = :materialStatus
 		  and link.material.processingStatus = :processingStatus
+		order by link.id
 		""")
-	List<LearningMaterial> findDistinctReleasedReadyMaterials(
+	List<ClassroomWeekMaterial> findReadyMaterialCandidates(
 		@Param("classroomId") Long classroomId,
-		@Param("now") Instant now,
 		@Param("materialStatus") MaterialStatus materialStatus,
 		@Param("processingStatus") MaterialProcessingStatus processingStatus
 	);
 
+	@EntityGraph(attributePaths = {"week", "material"})
 	@Query("""
-		select distinct link.material
+		select link
 		from ClassroomWeekMaterial link
 		where link.week.classroom.id = :classroomId
 		  and (:weekNumber is null or link.week.weekNumber = :weekNumber)
-		  and (link.week.releaseAt is null or link.week.releaseAt <= :now)
 		  and link.material.status = :materialStatus
 		  and link.material.processingStatus = :processingStatus
-		order by link.material.id
+		order by link.material.id, link.id
 		""")
-	List<LearningMaterial> findReportMaterials(
+	List<ClassroomWeekMaterial> findReportMaterialCandidates(
 		@Param("classroomId") Long classroomId,
 		@Param("weekNumber") Integer weekNumber,
-		@Param("now") Instant now,
 		@Param("materialStatus") MaterialStatus materialStatus,
 		@Param("processingStatus") MaterialProcessingStatus processingStatus
 	);
 
-	@Query("""
+@Query("""
 		select link.week.classroom.id as classroomId,
 		       count(distinct link.material.id) as materialCount
 		from ClassroomWeekMaterial link
@@ -109,5 +107,59 @@ public interface ClassroomWeekMaterialRepository
 	interface ClassroomMaterialCount {
 		Long getClassroomId();
 		Long getMaterialCount();
+	}
+
+	default boolean existsVisibleAccess(
+		Long userId,
+		Long materialId,
+		Instant now
+	) {
+		return findAccessCandidates(userId, materialId).stream()
+			.anyMatch(link -> link.getWeek().isVisibleToLearner(now));
+	}
+
+	default List<LearningMaterial> findDistinctVisibleReadyMaterials(
+		Long classroomId,
+		Instant now,
+		MaterialStatus materialStatus,
+		MaterialProcessingStatus processingStatus
+	) {
+		return visibleMaterials(
+			findReadyMaterialCandidates(
+				classroomId,
+				materialStatus,
+				processingStatus
+			),
+			now
+		);
+	}
+
+	default List<LearningMaterial> findVisibleReportMaterials(
+		Long classroomId,
+		Integer weekNumber,
+		Instant now,
+		MaterialStatus materialStatus,
+		MaterialProcessingStatus processingStatus
+	) {
+		return visibleMaterials(
+			findReportMaterialCandidates(
+				classroomId,
+				weekNumber,
+				materialStatus,
+				processingStatus
+			),
+			now
+		);
+	}
+
+	private static List<LearningMaterial> visibleMaterials(
+		List<ClassroomWeekMaterial> candidates,
+		Instant now
+	) {
+		return candidates.stream()
+			.filter(link -> link.getWeek().isVisibleToLearner(now))
+			.map(ClassroomWeekMaterial::getMaterial)
+			.distinct()
+			.toList();
 	}
 }

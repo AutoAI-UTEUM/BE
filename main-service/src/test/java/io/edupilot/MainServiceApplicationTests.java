@@ -279,6 +279,30 @@ class MainServiceApplicationTests {
 				"$.paths['/api/classrooms/{id}/weeks/{weekNumber}'].delete"
 			).exists())
 			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks/{weekId}/status'].patch"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks/reorder'].patch"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.UpdateClassroomWeekStatusRequest"
+					+ ".properties.status.enum"
+			).value(org.hamcrest.Matchers.contains(
+				"PRIVATE",
+				"SCHEDULED",
+				"PUBLISHED",
+				"BREAK"
+			)))
+			.andExpect(jsonPath(
+				"$.components.schemas.ReorderClassroomWeeksRequest.required"
+			).value(org.hamcrest.Matchers.hasItem("orderedWeekIds")))
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomWeekResponse.properties.weekId"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomWeekResponse.properties.displayOrder"
+			).exists())
+			.andExpect(jsonPath(
 				"$.paths['/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}'].post"
 			).exists())
 			.andExpect(jsonPath(

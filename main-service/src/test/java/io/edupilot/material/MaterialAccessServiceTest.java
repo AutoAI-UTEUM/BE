@@ -42,7 +42,7 @@ class MaterialAccessServiceTest {
 
 		assertThat(service.requireAccessible(1L, 10L)).isSameAs(material);
 
-		when(weekMaterialRepository.existsReleasedAccess(2L, 10L, NOW))
+		when(weekMaterialRepository.existsVisibleAccess(2L, 10L, NOW))
 			.thenReturn(true);
 		assertThat(service.requireAccessible(2L, 10L)).isSameAs(material);
 
@@ -50,7 +50,7 @@ class MaterialAccessServiceTest {
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MATERIAL_NOT_FOUND)
 			);
-		verify(weekMaterialRepository).existsReleasedAccess(3L, 10L, NOW);
+		verify(weekMaterialRepository).existsVisibleAccess(3L, 10L, NOW);
 	}
 
 	private MaterialAccessService service() {

@@ -275,7 +275,14 @@ class ClassroomJpaContextTest {
 		).orElseThrow();
 		Instant rangeStart = Instant.parse("2026-09-01T00:00:00Z");
 		ClassroomWeek boundaryWeek = weekRepository.saveAndFlush(
-			ClassroomWeek.create(classroomEntity, 2, "Boundary week", rangeStart)
+			ClassroomWeek.create(
+				classroomEntity,
+				2,
+				"Boundary week",
+				rangeStart,
+				ClassroomWeekStatus.SCHEDULED,
+				2
+			)
 		);
 		ClassroomNotice boundaryNotice = noticeRepository.saveAndFlush(
 			ClassroomNotice.create(

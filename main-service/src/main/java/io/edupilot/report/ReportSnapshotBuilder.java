@@ -103,7 +103,7 @@ public class ReportSnapshotBuilder {
 		validateAccess(instructorId, classroomId, studentId, scope);
 		Instant sourceDataAsOf = clock.instant();
 		Integer weekNumber = scope.weekNumber();
-		List<LearningMaterial> materials = weekMaterialRepository.findReportMaterials(
+		List<LearningMaterial> materials = weekMaterialRepository.findVisibleReportMaterials(
 			classroomId,
 			weekNumber,
 			sourceDataAsOf,
