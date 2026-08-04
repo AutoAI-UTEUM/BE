@@ -8,8 +8,12 @@ public class UpdateClassroomRequest {
 
 	private boolean namePresent;
 	private String name;
+	private boolean startDatePresent;
+	private LocalDate startDate;
 	private boolean endDatePresent;
 	private LocalDate endDate;
+	private boolean shiftWeekReleaseDatesPresent;
+	private Boolean shiftWeekReleaseDates;
 	private boolean colorPresent;
 	private ClassroomColor color;
 	private boolean descriptionPresent;
@@ -24,6 +28,15 @@ public class UpdateClassroomRequest {
 		this.name = name;
 	}
 
+	public LocalDate getStartDate() {
+		return startDate;
+	}
+
+	public void setStartDate(LocalDate startDate) {
+		this.startDatePresent = true;
+		this.startDate = startDate;
+	}
+
 	public LocalDate getEndDate() {
 		return endDate;
 	}
@@ -31,6 +44,15 @@ public class UpdateClassroomRequest {
 	public void setEndDate(LocalDate endDate) {
 		this.endDatePresent = true;
 		this.endDate = endDate;
+	}
+
+	public Boolean getShiftWeekReleaseDates() {
+		return shiftWeekReleaseDates;
+	}
+
+	public void setShiftWeekReleaseDates(Boolean shiftWeekReleaseDates) {
+		this.shiftWeekReleaseDatesPresent = true;
+		this.shiftWeekReleaseDates = shiftWeekReleaseDates;
 	}
 
 	public ClassroomColor getColor() {
@@ -55,8 +77,16 @@ public class UpdateClassroomRequest {
 		return namePresent;
 	}
 
+	public boolean isStartDatePresent() {
+		return startDatePresent;
+	}
+
 	public boolean isEndDatePresent() {
 		return endDatePresent;
+	}
+
+	public boolean isShiftWeekReleaseDatesPresent() {
+		return shiftWeekReleaseDatesPresent;
 	}
 
 	public boolean isColorPresent() {
@@ -68,6 +98,11 @@ public class UpdateClassroomRequest {
 	}
 
 	public boolean hasAnyField() {
-		return namePresent || endDatePresent || colorPresent || descriptionPresent;
+		return namePresent
+			|| startDatePresent
+			|| endDatePresent
+			|| shiftWeekReleaseDatesPresent
+			|| colorPresent
+			|| descriptionPresent;
 	}
 }

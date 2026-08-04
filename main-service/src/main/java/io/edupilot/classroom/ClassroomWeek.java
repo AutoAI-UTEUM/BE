@@ -1,6 +1,7 @@
 package io.edupilot.classroom;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -123,6 +124,12 @@ public class ClassroomWeek {
 
 	public void changeDisplayOrder(int displayOrder) {
 		this.displayOrder = displayOrder;
+	}
+
+	public void shiftReleaseAt(long days) {
+		if (releaseAt != null && days != 0) {
+			releaseAt = releaseAt.plus(days, ChronoUnit.DAYS);
+		}
 	}
 
 	public Long getId() {

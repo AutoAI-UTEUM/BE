@@ -189,8 +189,20 @@ public class ClassroomService {
 		Classroom classroom = ownedClassroomForUpdate(userId, role, classroomId);
 		assertActive(classroom);
 		validateUpdate(request, classroom);
+		long startDateShiftDays = request.isStartDatePresent()
+			? ChronoUnit.DAYS.between(
+				classroom.getStartDate(),
+				request.getStartDate()
+			)
+			: 0;
+		if (Boolean.TRUE.equals(request.getShiftWeekReleaseDates())
+			&& startDateShiftDays != 0) {
+			weekRepository.findAllForUpdateByClassroomId(classroomId)
+				.forEach(week -> week.shiftReleaseAt(startDateShiftDays));
+		}
 		classroom.update(
 			request.isNamePresent() ? normalizedRequired(request.getName(), 100) : null,
+			request.isStartDatePresent() ? request.getStartDate() : null,
 			request.isEndDatePresent() ? request.getEndDate() : null,
 			request.isColorPresent() ? request.getColor() : null,
 			request.isDescriptionPresent(),
@@ -490,15 +502,24 @@ public class ClassroomService {
 	) {
 		if (!request.hasAnyField()
 			|| request.isNamePresent() && request.getName() == null
+			|| request.isStartDatePresent() && request.getStartDate() == null
 			|| request.isEndDatePresent() && request.getEndDate() == null
+			|| request.isShiftWeekReleaseDatesPresent()
+				&& request.getShiftWeekReleaseDates() == null
 			|| request.isColorPresent() && request.getColor() == null) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}
-		if (request.isEndDatePresent()) {
-			validateDates(classroom.getStartDate(), request.getEndDate());
+		if (request.isStartDatePresent() || request.isEndDatePresent()) {
+			LocalDate startDate = request.isStartDatePresent()
+				? request.getStartDate()
+				: classroom.getStartDate();
+			LocalDate endDate = request.isEndDatePresent()
+				? request.getEndDate()
+				: classroom.getEndDate();
+			validateDates(startDate, endDate);
 			long inclusiveDays = ChronoUnit.DAYS.between(
-				classroom.getStartDate(),
-				request.getEndDate()
+				startDate,
+				endDate
 			) + 1;
 			int newWeekCount = Math.toIntExact((inclusiveDays + 6) / 7);
 			Integer maximumWeekNumber = weekRepository.findMaximumWeekNumber(

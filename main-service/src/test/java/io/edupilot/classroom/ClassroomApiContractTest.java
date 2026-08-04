@@ -175,14 +175,21 @@ class ClassroomApiContractTest {
 	}
 
 	@Test
-	void patchPreservesExplicitNullInformation() throws Exception {
+	void patchPreservesPresentFieldsForDatesShiftAndExplicitNull() throws Exception {
 		when(classroomService.update(
 			eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), any()
 		)).thenReturn(detailResponse());
 		mockMvc.perform(patch("/api/classrooms/30")
 				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
 				.contentType(MediaType.APPLICATION_JSON)
-				.content("{\"description\":null}"))
+				.content("""
+					{
+					  "startDate": "2026-09-08",
+					  "endDate": "2026-12-22",
+					  "shiftWeekReleaseDates": true,
+					  "description": null
+					}
+					"""))
 			.andExpect(status().isOk());
 		ArgumentCaptor<UpdateClassroomRequest> captor =
 			ArgumentCaptor.forClass(UpdateClassroomRequest.class);
@@ -193,6 +200,35 @@ class ClassroomApiContractTest {
 			.isTrue();
 		org.assertj.core.api.Assertions.assertThat(captor.getValue().getDescription())
 			.isNull();
+		org.assertj.core.api.Assertions.assertThat(captor.getValue().isStartDatePresent())
+			.isTrue();
+		org.assertj.core.api.Assertions.assertThat(captor.getValue().getStartDate())
+			.isEqualTo(LocalDate.of(2026, 9, 8));
+		org.assertj.core.api.Assertions.assertThat(captor.getValue().isEndDatePresent())
+			.isTrue();
+		org.assertj.core.api.Assertions.assertThat(captor.getValue().getEndDate())
+			.isEqualTo(LocalDate.of(2026, 12, 22));
+		org.assertj.core.api.Assertions.assertThat(
+			captor.getValue().isShiftWeekReleaseDatesPresent()
+		).isTrue();
+		org.assertj.core.api.Assertions.assertThat(
+			captor.getValue().getShiftWeekReleaseDates()
+		).isTrue();
+	}
+
+	@Test
+	void openApiDocumentsClassroomDateAndWeekReleaseShiftFields() throws Exception {
+		mockMvc.perform(get("/v3/api-docs"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath(
+				"$.components.schemas.UpdateClassroomRequest.properties.startDate.format"
+			).value("date"))
+			.andExpect(jsonPath(
+				"$.components.schemas.UpdateClassroomRequest.properties.endDate.format"
+			).value("date"))
+			.andExpect(jsonPath(
+				"$.components.schemas.UpdateClassroomRequest.properties.shiftWeekReleaseDates.type"
+			).value("boolean"));
 	}
 
 	@Test
