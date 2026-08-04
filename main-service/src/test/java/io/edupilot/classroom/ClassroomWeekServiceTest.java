@@ -147,9 +147,6 @@ class ClassroomWeekServiceTest {
 			.thenReturn(classroom);
 		when(weekRepository.findByIdForUpdate(30L, 1L))
 			.thenReturn(Optional.of(week));
-		when(weekMaterialRepository.findByWeek_IdOrderByAddedAtAscIdAsc(1L))
-			.thenReturn(List.of());
-
 		var response = service.changeStatus(
 			1L,
 			UserRole.INSTRUCTOR,
@@ -207,9 +204,6 @@ class ClassroomWeekServiceTest {
 			.thenReturn(classroom);
 		when(weekRepository.findAllForUpdateByClassroomId(30L))
 			.thenReturn(List.of(first, second));
-		when(weekMaterialRepository.findByWeek_IdOrderByAddedAtAscIdAsc(any()))
-			.thenReturn(List.of());
-
 		var response = service.reorder(
 			1L,
 			UserRole.INSTRUCTOR,

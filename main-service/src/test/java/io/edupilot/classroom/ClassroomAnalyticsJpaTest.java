@@ -124,10 +124,14 @@ class ClassroomAnalyticsJpaTest {
 			"CCCC-DDDD"
 		);
 		ClassroomWeek week = weekRepository.saveAndFlush(
-			ClassroomWeek.create(classroom, 1, "Week 1", null)
+			ClassroomWeek.create(
+				classroom, 1, "Week 1", null, ClassroomWeekStatus.PUBLISHED, 1
+			)
 		);
 		ClassroomWeek otherWeek = weekRepository.saveAndFlush(
-			ClassroomWeek.create(otherClassroom, 1, "Other Week", null)
+			ClassroomWeek.create(
+				otherClassroom, 1, "Other Week", null, ClassroomWeekStatus.PUBLISHED, 1
+			)
 		);
 
 		List<LearningMaterial> materials = new ArrayList<>();

@@ -65,7 +65,7 @@ public class ClassroomAnalyticsService {
 		classroomService.requireStrictOwner(instructorId, role, classroomId);
 		Instant now = clock.instant();
 		Instant sevenDaysAgo = now.minus(LAST_7_DAYS);
-		var materials = weekMaterialRepository.findReportMaterials(
+		var materials = weekMaterialRepository.findVisibleReportMaterials(
 			classroomId,
 			null,
 			now,
