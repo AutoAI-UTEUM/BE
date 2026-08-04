@@ -117,7 +117,10 @@
 | POST | `/api/classrooms/{id}/notices` | 즉시 공지 게시 | Y | 소유 INSTRUCTOR |
 | PATCH | `/api/classrooms/{id}/notices/{noticeId}` | 공지 수정 | Y | 소유 INSTRUCTOR |
 | DELETE | `/api/classrooms/{id}/notices/{noticeId}` | 공지 삭제 | Y | 소유 INSTRUCTOR |
-| GET | `/api/users/me/schedule` | 주차 공개·공지 일정 파생 조회 | Y | 소유·참여 강의실 범위 |
+| GET | `/api/users/me/schedule` | 주차 공개·공지·개인 일정 통합 조회 | Y | 본인 개인 일정 + 소유·참여 강의실 범위 |
+| POST | `/api/users/me/schedule` | 개인 일정 생성 | Y | 본인 |
+| PATCH | `/api/users/me/schedule/{scheduleId}` | 개인 일정 부분 수정 | Y | 본인 소유, 타인·부재 404 |
+| DELETE | `/api/users/me/schedule/{scheduleId}` | 개인 일정 삭제 | Y | 본인 소유, 타인·부재 404 |
 
 ## 3. 인증 API
 
@@ -1320,7 +1323,9 @@ MVP에서는 공지를 물리 삭제하고 `data:null`을 반환합니다.
 
 ### GET `/api/users/me/schedule?from&to&classroomId`
 
-`from`, `to`는 `YYYY-MM-DD` 형식의 필수 값이고 양 끝 날짜를 포함하며 `from <= to`여야 합니다. 선택 `classroomId`는 사용자가 소유하거나 참여한 강의실이어야 합니다. 저장 테이블 없이 공개 주차와 공지에서 파생하고 `dateTime ASC, scheduleId ASC`로 반환합니다. 예약 주차는 `releaseAt`, 즉시 공개 주차(`releaseAt=null`)는 주차 `createdAt`, 공지는 `publishedAt`을 일정 시각으로 사용합니다.
+`from`, `to`는 `YYYY-MM-DD` 형식의 필수 값이고 양 끝 날짜를 포함하며 `from <= to`여야 합니다. 선택 `classroomId`는 사용자가 소유하거나 참여한 강의실이어야 합니다. `classroomId`가 없으면 본인 개인 일정과 공개 주차·공지를 병합하고, 지정하면 해당 강의실의 파생 일정만 반환합니다. 모든 항목은 `dateTime ASC, scheduleId ASC`로 정렬합니다. 예약 주차는 `releaseAt`, 즉시 공개 주차(`releaseAt=null`)는 주차 `createdAt`, 공지는 `publishedAt`, 개인 일정은 `startsAt`을 `dateTime`으로 사용합니다.
+
+기존 `type` 필드는 유지하고 `kind`를 일정 구분자로 함께 반환합니다. 파생 일정의 `kind`는 기존 `type` 값과 같고 개인 일정은 두 필드 모두 `PERSONAL`입니다. 개인 일정의 `scheduleId`는 숫자의 string 표현이며 PATCH·DELETE 경로에 그대로 사용할 수 있습니다. 파생 일정에는 개인 일정 전용 필드가 `null`이고, 개인 일정에는 강의실 전용 필드가 `null`입니다.
 
 ```json
 {
@@ -1329,25 +1334,63 @@ MVP에서는 공지를 물리 삭제하고 `data:null`을 반환합니다.
       "scheduleId": "WEEK-40",
       "dateTime": "2026-09-08T00:00:00Z",
       "type": "WEEK_RELEASE",
+      "kind": "WEEK_RELEASE",
       "title": "2주차 공개: 선형회귀",
       "classroomId": 30,
       "classroomName": "AI 기초",
-      "color": "BLUE"
+      "color": "BLUE",
+      "startsAt": null,
+      "endsAt": null,
+      "hasTime": null
     },
     {
-      "scheduleId": "NOTICE-70",
+      "scheduleId": "91",
       "dateTime": "2026-09-08T01:00:00Z",
-      "type": "NOTICE_PUBLISH",
-      "title": "과제 안내",
-      "classroomId": 30,
-      "classroomName": "AI 기초",
-      "color": "BLUE"
+      "type": "PERSONAL",
+      "kind": "PERSONAL",
+      "title": "복습",
+      "classroomId": null,
+      "classroomName": null,
+      "color": null,
+      "startsAt": "2026-09-08T01:00:00Z",
+      "endsAt": "2026-09-08T02:00:00Z",
+      "hasTime": true
     }
   ]
 }
 ```
 
-`CUSTOM` 일정 쓰기와 공지 예약 게시는 Phase C입니다.
+### POST `/api/users/me/schedule`
+
+```json
+{
+  "title": "복습",
+  "startsAt": "2026-09-08T01:00:00Z",
+  "endsAt": "2026-09-08T02:00:00Z",
+  "hasTime": true
+}
+```
+
+제목은 공백이 아닌 200자 이하이고 모든 필드는 필수입니다. `endsAt >= startsAt`이어야 하며 같은 시각의 단일 시점 일정을 허용합니다. `hasTime=false`인 종일 일정도 UTC 자정 기준 `Instant`를 `DATETIME(6)`에 그대로 저장합니다.
+
+```json
+{
+  "scheduleId": "91",
+  "kind": "PERSONAL",
+  "title": "복습",
+  "startsAt": "2026-09-08T01:00:00Z",
+  "endsAt": "2026-09-08T02:00:00Z",
+  "hasTime": true
+}
+```
+
+### PATCH `/api/users/me/schedule/{scheduleId}`
+
+`title`, `startsAt`, `endsAt`, `hasTime` 중 하나 이상을 보내는 부분 수정입니다. 수정 후 전체 범위가 `endsAt >= startsAt`이어야 합니다. 성공 응답은 POST와 같고, 일정이 없거나 타인 소유이면 모두 `SCHEDULE_NOT_FOUND`(404)로 은닉합니다.
+
+### DELETE `/api/users/me/schedule/{scheduleId}`
+
+본인 개인 일정을 물리 삭제하고 `data:null`을 반환합니다. 일정이 없거나 타인 소유이면 모두 `SCHEDULE_NOT_FOUND`(404)입니다. 반복 일정·알림·공유와 공지 예약 게시는 이 범위에 포함하지 않습니다.
 
 ## 7.3 리포트·수강생 관리 API
 
