@@ -1,7 +1,11 @@
 package io.edupilot.classroom;
 
 import java.time.Clock;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -17,6 +21,9 @@ import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialStatus;
+import io.edupilot.session.LearningProgressService;
+import io.edupilot.session.LearningSessionRepository;
+import io.edupilot.session.SessionStatus;
 import io.edupilot.user.UserRole;
 
 @Service
@@ -26,6 +33,9 @@ public class ClassroomWeekService {
 	private final ClassroomWeekRepository weekRepository;
 	private final ClassroomWeekMaterialRepository weekMaterialRepository;
 	private final LearningMaterialRepository materialRepository;
+	private final ClassroomMemberRepository memberRepository;
+	private final LearningProgressService progressService;
+	private final LearningSessionRepository sessionRepository;
 	private final Clock clock;
 
 	public ClassroomWeekService(
@@ -33,12 +43,18 @@ public class ClassroomWeekService {
 		ClassroomWeekRepository weekRepository,
 		ClassroomWeekMaterialRepository weekMaterialRepository,
 		LearningMaterialRepository materialRepository,
+		ClassroomMemberRepository memberRepository,
+		LearningProgressService progressService,
+		LearningSessionRepository sessionRepository,
 		Clock clock
 	) {
 		this.classroomService = classroomService;
 		this.weekRepository = weekRepository;
 		this.weekMaterialRepository = weekMaterialRepository;
 		this.materialRepository = materialRepository;
+		this.memberRepository = memberRepository;
+		this.progressService = progressService;
+		this.sessionRepository = sessionRepository;
 		this.clock = clock;
 	}
 
@@ -55,13 +71,12 @@ public class ClassroomWeekService {
 		);
 		boolean ownerView = classroom.getInstructorId().equals(userId);
 		var now = clock.instant();
-		List<ClassroomWeekResponse> items = weekRepository
+		var weeks = weekRepository
 			.findByClassroom_IdOrderByWeekNumberAsc(classroomId)
 			.stream()
 			.filter(week -> ownerView || week.isReleased(now))
-			.map(this::response)
 			.toList();
-		return new ClassroomWeekListResponse(items);
+		return new ClassroomWeekListResponse(responses(classroomId, weeks));
 	}
 
 	@Transactional
@@ -87,7 +102,7 @@ public class ClassroomWeekService {
 				title,
 				request.releaseAt()
 			));
-			return response(week);
+			return response(classroomId, week);
 		} catch (DataIntegrityViolationException exception) {
 			throw new BusinessException(ErrorCode.WEEK_ALREADY_EXISTS);
 		}
@@ -114,7 +129,7 @@ public class ClassroomWeekService {
 			request.getReleaseAt()
 		);
 		weekRepository.flush();
-		return response(week);
+		return response(classroomId, week);
 	}
 
 	@Transactional
@@ -148,7 +163,7 @@ public class ClassroomWeekService {
 			)
 			.orElseThrow(() -> new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
 		link(week, material);
-		return response(week);
+		return response(classroomId, week);
 	}
 
 	@Transactional
@@ -165,7 +180,7 @@ public class ClassroomWeekService {
 			week.getId(),
 			materialId
 		);
-		return response(week);
+		return response(classroomId, week);
 	}
 
 	@Transactional
@@ -214,17 +229,86 @@ public class ClassroomWeekService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.WEEK_NOT_FOUND));
 	}
 
-	private ClassroomWeekResponse response(ClassroomWeek week) {
-		return new ClassroomWeekResponse(
-			week.getWeekNumber(),
-			week.getTitle(),
-			week.statusAt(clock.instant()),
-			week.getReleaseAt(),
-			weekMaterialRepository.findByWeek_IdOrderByAddedAtAscIdAsc(week.getId())
+	private ClassroomWeekResponse response(Long classroomId, ClassroomWeek week) {
+		return responses(classroomId, List.of(week)).get(0);
+	}
+
+	private List<ClassroomWeekResponse> responses(
+		Long classroomId,
+		List<ClassroomWeek> weeks
+	) {
+		if (weeks.isEmpty()) {
+			return List.of();
+		}
+		var linksByWeekId = weekMaterialRepository.findByWeekIds(
+			weeks.stream().map(ClassroomWeek::getId).toList()
+		).stream().collect(Collectors.groupingBy(
+			ClassroomWeekMaterial::getWeekId,
+			LinkedHashMap::new,
+			Collectors.toList()
+		));
+		Map<Long, LearningMaterial> distinctMaterials = linksByWeekId.values()
+			.stream()
+			.flatMap(List::stream)
+			.map(ClassroomWeekMaterial::getMaterial)
+			.collect(Collectors.toMap(
+				LearningMaterial::getId,
+				Function.identity(),
+				(left, right) -> left,
+				LinkedHashMap::new
+			));
+		long learnerCount = memberRepository.countByClassroom_Id(classroomId);
+		var progress = distinctMaterials.isEmpty()
+			? new LearningProgressService.ClassroomProgressSnapshot(
+				learnerCount,
+				Map.of()
+			)
+			: progressService.calculateClassroomProgressSnapshot(
+				classroomId,
+				distinctMaterials.values(),
+				learnerCount
+			);
+		Map<Long, Long> viewersByMaterial = new LinkedHashMap<>();
+		if (!distinctMaterials.isEmpty()) {
+			for (var count : sessionRepository.findMaterialViewerCounts(
+				classroomId,
+				distinctMaterials.keySet(),
+				List.of(SessionStatus.ACTIVE, SessionStatus.COMPLETED)
+			)) {
+				viewersByMaterial.put(count.getMaterialId(), count.getViewerCount());
+			}
+		}
+		return weeks.stream().map(week -> {
+			var materials = linksByWeekId.getOrDefault(week.getId(), List.of())
 				.stream()
-				.map(link -> ClassroomWeekMaterialResponse.from(link.getMaterial()))
-				.toList()
-		);
+				.map(ClassroomWeekMaterial::getMaterial)
+				.toList();
+			return new ClassroomWeekResponse(
+				week.getWeekNumber(),
+				week.getTitle(),
+				week.statusAt(clock.instant()),
+				week.getReleaseAt(),
+				progress.averageProgressRate(materials),
+				materials.stream().map(material -> {
+					long viewerCount = viewersByMaterial.getOrDefault(
+						material.getId(),
+						0L
+					);
+					return ClassroomWeekMaterialResponse.from(
+						material,
+						viewerCount,
+						roundedRate(viewerCount, learnerCount)
+					);
+				}).toList()
+			);
+		}).toList();
+	}
+
+	private int roundedRate(long numerator, long denominator) {
+		if (numerator == 0 || denominator < 1) {
+			return 0;
+		}
+		return (int) Math.round(numerator * 100.0 / denominator);
 	}
 
 	private void validateWeekNumber(Classroom classroom, int weekNumber) {

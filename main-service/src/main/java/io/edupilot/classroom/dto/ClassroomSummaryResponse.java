@@ -17,6 +17,7 @@ public record ClassroomSummaryResponse(
 	ClassroomStatus status,
 	int currentWeek,
 	long learnerCount,
+	long materialCount,
 	Integer progressRate,
 	ClassroomLastStudiedResponse lastStudied,
 	Long pendingRequestCount
@@ -26,6 +27,7 @@ public record ClassroomSummaryResponse(
 		boolean ownerView,
 		int currentWeek,
 		long learnerCount,
+		long materialCount,
 		long pendingRequestCount,
 		Integer progressRate,
 		ClassroomLastStudiedResponse lastStudied
@@ -41,6 +43,7 @@ public record ClassroomSummaryResponse(
 			classroom.getStatus(),
 			currentWeek,
 			learnerCount,
+			materialCount,
 			ownerView ? null : progressRate,
 			ownerView ? null : lastStudied,
 			ownerView ? pendingRequestCount : null

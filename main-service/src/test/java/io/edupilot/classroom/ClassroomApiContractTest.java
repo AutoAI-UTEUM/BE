@@ -6,12 +6,15 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,7 +33,10 @@ import org.springframework.web.context.WebApplicationContext;
 import io.edupilot.Epic10ServiceMocks;
 import io.edupilot.auth.JwtTokenProvider;
 import io.edupilot.auth.RefreshTokenRepository;
+import io.edupilot.classroom.dto.ClassroomAnalyticsMaterialResponse;
+import io.edupilot.classroom.dto.ClassroomAnalyticsResponse;
 import io.edupilot.classroom.dto.ClassroomDetailResponse;
+import io.edupilot.classroom.dto.ClassroomQuestionByPageResponse;
 import io.edupilot.classroom.dto.UpdateClassroomRequest;
 import io.edupilot.feedback.FeedbackRepository;
 import io.edupilot.global.error.BusinessException;
@@ -60,6 +66,8 @@ class ClassroomApiContractTest {
 	private JwtTokenProvider jwtTokenProvider;
 	@Autowired
 	private ClassroomService classroomService;
+	@Autowired
+	private ClassroomAnalyticsService analyticsService;
 
 	@MockitoBean
 	private UserRepository userRepository;
@@ -170,6 +178,42 @@ class ClassroomApiContractTest {
 			.isTrue();
 		org.assertj.core.api.Assertions.assertThat(captor.getValue().getDescription())
 			.isNull();
+	}
+
+	@Test
+	void analyticsReturnsInstructorDashboardContractAndHidesOtherOwner()
+		throws Exception {
+		Instant updatedAt = Instant.parse("2026-08-04T03:00:00Z");
+		when(analyticsService.getAnalytics(1L, UserRole.INSTRUCTOR, 30L))
+			.thenReturn(new ClassroomAnalyticsResponse(
+				2L,
+				38,
+				4L,
+				1L,
+				updatedAt,
+				List.of(new ClassroomAnalyticsMaterialResponse(
+					10L, "AI Basics", 1L, 50, 25
+				)),
+				List.of(new ClassroomQuestionByPageResponse(10L, 2, 4L))
+			));
+
+		mockMvc.perform(get("/api/classrooms/30/analytics")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.learnerCount").value(2))
+			.andExpect(jsonPath("$.data.averageProgressRate").value(38))
+			.andExpect(jsonPath("$.data.aiQuestionCountLast7Days").value(4))
+			.andExpect(jsonPath("$.data.materials[0].viewRate").value(50))
+			.andExpect(jsonPath("$.data.questionsByPage[0].pageNumber").value(2))
+			.andExpect(jsonPath("$.data.lastUpdatedAt").value(updatedAt.toString()));
+
+		doThrow(new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND))
+			.when(analyticsService)
+			.getAnalytics(2L, UserRole.LEARNER, 30L);
+		mockMvc.perform(get("/api/classrooms/30/analytics")
+				.header(HttpHeaders.AUTHORIZATION, bearer(learnerToken)))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("CLASSROOM_NOT_FOUND"));
 	}
 
 	private ClassroomDetailResponse detailResponse() {

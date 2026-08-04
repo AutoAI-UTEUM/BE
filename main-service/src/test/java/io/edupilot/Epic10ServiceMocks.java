@@ -8,6 +8,7 @@ import java.lang.annotation.Target;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import io.edupilot.classroom.ClassroomService;
+import io.edupilot.classroom.ClassroomAnalyticsService;
 import io.edupilot.classroom.ClassroomStudentService;
 import io.edupilot.classroom.ClassroomWeekService;
 import io.edupilot.classroom.ClassroomWeekMaterialRepository;
@@ -31,6 +32,7 @@ import io.edupilot.schedule.ScheduleService;
 @Retention(RetentionPolicy.RUNTIME)
 @MockitoBean(types = {
 	ClassroomService.class,
+	ClassroomAnalyticsService.class,
 	ClassroomStudentService.class,
 	ClassroomWeekService.class,
 	MaterialAccessService.class,

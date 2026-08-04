@@ -85,6 +85,23 @@ public interface LearningSessionRepository
 		@Param("studentIds") Collection<Long> studentIds
 	);
 
+	@Query("""
+		select session.material.id as materialId,
+		       count(distinct session.user.id) as viewerCount
+		from LearningSession session
+		join ClassroomMember member
+		  on member.user = session.user
+		where member.classroom.id = :classroomId
+		  and session.material.id in :materialIds
+		  and session.status in :statuses
+		group by session.material.id
+		""")
+	List<MaterialViewerCount> findMaterialViewerCounts(
+		@Param("classroomId") Long classroomId,
+		@Param("materialIds") Collection<Long> materialIds,
+		@Param("statuses") Collection<SessionStatus> statuses
+	);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 		select session
@@ -155,4 +172,9 @@ public interface LearningSessionRepository
 		@Param("userId") Long userId,
 		@Param("updatedAt") Instant updatedAt
 	);
+
+	interface MaterialViewerCount {
+		Long getMaterialId();
+		Long getViewerCount();
+	}
 }

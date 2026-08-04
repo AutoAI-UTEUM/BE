@@ -250,6 +250,21 @@ class MainServiceApplicationTests {
 			.andExpect(jsonPath("$.paths['/api/classrooms/{id}'].get").exists())
 			.andExpect(jsonPath("$.paths['/api/classrooms/{id}'].patch").exists())
 			.andExpect(jsonPath("$.paths['/api/classrooms/{id}'].delete").exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/analytics'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomAnalyticsResponse.properties.questionsByPage"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomSummaryResponse.properties.materialCount"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomWeekResponse.properties.averageProgressRate"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomWeekMaterialResponse.properties.viewerCount"
+			).exists())
 			.andExpect(jsonPath("$.paths['/api/classroom-join-requests'].post").exists())
 			.andExpect(jsonPath(
 				"$.paths['/api/classrooms/{id}/weeks'].get"

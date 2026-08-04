@@ -170,6 +170,7 @@ class ClassroomJpaContextTest {
 			20
 		).items()).singleElement()
 			.satisfies(item -> {
+				assertThat(item.materialCount()).isEqualTo(1);
 				assertThat(item.progressRate()).isEqualTo(3);
 				assertThat(item.lastStudied().sessionId()).isEqualTo(session.sessionId());
 				assertThat(item.pendingRequestCount()).isNull();
@@ -177,7 +178,14 @@ class ClassroomJpaContextTest {
 		assertThat(weekService.list(
 			learner.getId(), UserRole.LEARNER, classroom.classroomId()
 		).items()).singleElement()
-			.satisfies(week -> assertThat(week.materials()).hasSize(1));
+			.satisfies(week -> {
+				assertThat(week.averageProgressRate()).isZero();
+				assertThat(week.materials()).singleElement()
+					.satisfies(item -> {
+						assertThat(item.viewerCount()).isEqualTo(1);
+						assertThat(item.viewRate()).isEqualTo(100);
+					});
+			});
 		assertThat(materialService.list(learner.getId(), 0, 20).items()).isEmpty();
 
 		weekService.unlink(

@@ -10,15 +10,23 @@ public record ClassroomWeekMaterialResponse(
 	String title,
 	Integer pageCount,
 	MaterialProcessingStatus processingStatus,
-	Instant uploadedAt
+	Instant uploadedAt,
+	long viewerCount,
+	int viewRate
 ) {
-	public static ClassroomWeekMaterialResponse from(LearningMaterial material) {
+	public static ClassroomWeekMaterialResponse from(
+		LearningMaterial material,
+		long viewerCount,
+		int viewRate
+	) {
 		return new ClassroomWeekMaterialResponse(
 			material.getId(),
 			material.getTitle(),
 			material.getPageCount(),
 			material.getProcessingStatus(),
-			material.getCreatedAt()
+			material.getCreatedAt(),
+			viewerCount,
+			viewRate
 		);
 	}
 }
