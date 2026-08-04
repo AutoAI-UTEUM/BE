@@ -1349,6 +1349,140 @@ MVP에서는 공지를 물리 삭제하고 `data:null`을 반환합니다.
 
 `CUSTOM` 일정 쓰기와 공지 예약 게시는 Phase C입니다.
 
+## 7.3 리포트·수강생 관리 API
+
+이 절의 API는 강의실 소유 `INSTRUCTOR` 전용입니다. 타 강의실·타 학생·타 강사의
+리포트와 기준은 404로 은닉하며, 강의실 멤버인 학습자가 관리 API를 호출하면
+`ACCESS_DENIED`(403)를 반환합니다. 외부 `reportId`는 generation ID의 string 표현이며
+생성 접수부터 완료 상세까지 바뀌지 않습니다. StudentReport의 DB PK는 노출하지 않습니다.
+
+### GET `/api/classrooms/{classroomId}/students?page=0&size=20`
+
+수강생을 `joinedAt DESC`로 페이지네이션합니다. `lastActiveAt`은 해당 강의실 자료의
+삭제되지 않은 학습 세션 중 가장 최근 `updatedAt`이며, 세션이 없으면 `null`입니다.
+현재 멤버십 모델은 활성 행만 저장하므로 조회 항목의 `status`는 `ACTIVE`입니다.
+
+```json
+{
+  "items": [
+    {
+      "studentId": 40,
+      "name": "김학습",
+      "email": "learner@example.com",
+      "affiliation": null,
+      "joinedAt": "2026-08-01T00:00:00Z",
+      "status": "ACTIVE",
+      "lastActiveAt": "2026-08-03T05:00:00Z"
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+### DELETE `/api/classrooms/{classroomId}/students/{studentId}`
+
+멤버십 행만 삭제하고 기존 세션·제출·리포트 데이터는 보존합니다. 이후 목록에서
+제외되며 새 리포트 생성은 `CLASSROOM_NOT_FOUND`(404)로 거부됩니다. 성공 응답은
+`data:null`입니다.
+
+### GET `/api/classrooms/{classroomId}/report-criteria`
+
+기본 9종(`builtin:true`)과 활성 커스텀 기준(`builtin:false`)을 병합해 반환합니다.
+항목은 `criterionId`(기본 기준은 null), `criterionKey`, `name`, `description`, `rubric`,
+`allowedSources`, `minEvidence`, `weight`, `version`, `active`, `builtin`을 포함합니다.
+
+### POST `/api/classrooms/{classroomId}/report-criteria`
+
+```json
+{
+  "criterionKey": "weekly_consistency",
+  "name": "주간 학습 일관성",
+  "description": "주차별 학습 지속성을 평가합니다.",
+  "rubric": {"summary": "주차별 활동 간격과 완료 기록을 평가"},
+  "allowedSources": ["SESSION", "QUIZ_SUBMISSION"],
+  "minEvidence": 2,
+  "weight": 1.0
+}
+```
+
+key는 trim·소문자화하고 공백과 `-`를 `_`로 정규화합니다. 이름은 trim 후 연속 공백과
+대소문자를 정규화해 기본·활성 커스텀 기준과 정확 중복을 검사합니다. 기본 9종과 활성
+커스텀의 합은 20개 이하입니다. 중복은 `REPORT_CRITERION_DUPLICATE`(409), 상한 초과는
+`REPORT_CRITERION_LIMIT_EXCEEDED`(409)입니다.
+
+### PATCH `/api/classrooms/{classroomId}/report-criteria/{criterionId}`
+
+`name`, `description`, `rubric`, `allowedSources`, `minEvidence`, `weight`, `active`를 부분
+변경합니다. 내용 변경은 기존 행을 비활성화하고 다음 version 행을 생성합니다.
+`active:false`만 전송한 비활성화는 현재 행을 직접 갱신합니다. 재활성화에도 이름 중복과
+활성 20개 상한을 동일하게 검증합니다. 이미 생성된 generation의 기준 snapshot은 바뀌지
+않고 다음 생성부터 반영됩니다.
+
+### POST `/api/classrooms/{classroomId}/students/{studentId}/reports`
+
+```json
+{
+  "requestId": "report-request-20260804-1",
+  "scope": "WEEK",
+  "weekNumber": 3
+}
+```
+
+scope는 `FULL | WEEK`이며 FULL에는 `weekNumber`를 보내지 않고 WEEK에는 1 이상의
+`weekNumber`가 필수입니다. 신규·동일 requestId 재요청·같은 학생과 scope의 활성 생성
+재사용 모두 HTTP 202를 반환합니다.
+
+```json
+{
+  "reportId": "901",
+  "status": "PENDING",
+  "pollAfterSeconds": 5
+}
+```
+
+FE는 `pollAfterSeconds` 뒤 `GET /api/reports/{reportId}`를 호출하며 terminal 상태인
+`COMPLETED | FAILED`에서 polling을 중단합니다.
+
+### GET `/api/classrooms/{classroomId}/students/{studentId}/reports`
+
+완료 리포트의 `reportId`, `version`, `overallScore`, `overallStage`, `createdAt`을 version
+내림차순 `items`로 반환합니다. PENDING 또는 PROCESSING generation이 있으면
+`activeGeneration:{reportId,status,pollAfterSeconds}`를 함께 반환하고 없으면 null입니다.
+
+### GET `/api/reports/{reportId}`
+
+PENDING·PROCESSING 응답:
+
+```json
+{"reportId":"901","status":"PROCESSING","pollAfterSeconds":5}
+```
+
+FAILED 응답은 generation에 동결된 envelope를 그대로 사용하며 최신 데이터를 다시
+집계하지 않습니다. criterion 결과는 포함하지 않습니다.
+
+```json
+{
+  "reportId": "901",
+  "status": "FAILED",
+  "failureCode": "AI_SERVICE_TIMEOUT",
+  "fallback": {
+    "metrics": {"sessionCount": 4},
+    "dataQuality": {"progressDataAvailable": true}
+  }
+}
+```
+
+COMPLETED 응답은 `version`, `previousVersion`, `overallScore`, `overallStage`, `summary`,
+`criteria`, `evidence`, `createdAt`을 포함합니다. criterion 항목은 `criterionKey`,
+`criterionVersion`, nullable `score`, nullable `trend`, `status`, `narrative`, `evidenceIds`를
+포함합니다. `INSUFFICIENT_DATA`의 `score:null`은 0점과 구분해 명시적으로 직렬화합니다.
+evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLabel`, `occurredAt`으로
+노출하며 `sourceRef`, `minimalFact`, hash와 generation lease 정보는 외부 응답에 포함하지
+않습니다. 없는 리포트는 `REPORT_NOT_FOUND`(404)입니다.
+
 ## 8. Spring → FastAPI 내부 API
 
 ### 호출 주체 원칙 (하이브리드)

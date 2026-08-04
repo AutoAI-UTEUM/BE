@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.classroom.ClassroomService;
+import io.edupilot.classroom.ClassroomMemberRepository;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.report.dto.ReportAcceptedResponse;
@@ -28,6 +29,7 @@ public class ReportApiService {
 	);
 
 	private final ClassroomService classroomService;
+	private final ClassroomMemberRepository memberRepository;
 	private final ReportGenerationService generationService;
 	private final ReportGenerationRepository generationRepository;
 	private final StudentReportRepository reportRepository;
@@ -38,6 +40,7 @@ public class ReportApiService {
 
 	public ReportApiService(
 		ClassroomService classroomService,
+		ClassroomMemberRepository memberRepository,
 		ReportGenerationService generationService,
 		ReportGenerationRepository generationRepository,
 		StudentReportRepository reportRepository,
@@ -47,6 +50,7 @@ public class ReportApiService {
 		ObjectMapper objectMapper
 	) {
 		this.classroomService = classroomService;
+		this.memberRepository = memberRepository;
 		this.generationService = generationService;
 		this.generationRepository = generationRepository;
 		this.reportRepository = reportRepository;
@@ -65,7 +69,7 @@ public class ReportApiService {
 		ReportScope scope,
 		String requestId
 	) {
-		classroomService.requireOwner(instructorId, role, classroomId);
+		classroomService.requireStrictOwner(instructorId, role, classroomId);
 		ReportGenerationService.RequestResult result = generationService.request(
 			instructorId, classroomId, studentId, scope, requestId
 		);
@@ -83,7 +87,8 @@ public class ReportApiService {
 		Long classroomId,
 		Long studentId
 	) {
-		classroomService.requireOwner(instructorId, role, classroomId);
+		classroomService.requireStrictOwner(instructorId, role, classroomId);
+		requireMember(classroomId, studentId);
 		List<ReportListResponse.CompletedReportItem> items = reportRepository
 			.findByClassroom_IdAndStudent_IdOrderByVersionDesc(classroomId, studentId)
 			.stream()
@@ -112,9 +117,10 @@ public class ReportApiService {
 	public Object detail(Long instructorId, UserRole role, String reportId) {
 		ReportGeneration generation = generationRepository.findById(parseId(reportId))
 			.orElseThrow(() -> new BusinessException(ErrorCode.REPORT_NOT_FOUND));
-		classroomService.requireOwner(
+		classroomService.requireStrictOwner(
 			instructorId, role, generation.getClassroomId()
 		);
+		requireMember(generation.getClassroomId(), generation.getStudentId());
 		return switch (generation.getStatus()) {
 			case PENDING, PROCESSING -> new ReportProgressResponse(
 				reportId,
@@ -188,6 +194,14 @@ public class ReportApiService {
 		try {
 			return Long.valueOf(reportId);
 		} catch (NumberFormatException exception) {
+			throw new BusinessException(ErrorCode.REPORT_NOT_FOUND);
+		}
+	}
+
+	private void requireMember(Long classroomId, Long studentId) {
+		if (!memberRepository.existsByClassroom_IdAndUser_Id(
+			classroomId, studentId
+		)) {
 			throw new BusinessException(ErrorCode.REPORT_NOT_FOUND);
 		}
 	}

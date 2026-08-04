@@ -513,6 +513,18 @@ public class ClassroomService {
 		return ownedClassroom(userId, role, classroomId);
 	}
 
+	@Transactional(readOnly = true)
+	public Classroom requireStrictOwner(
+		Long userId,
+		UserRole role,
+		Long classroomId
+	) {
+		requireInstructor(role);
+		return classroomRepository.findWithInstructorById(classroomId)
+			.filter(classroom -> classroom.getInstructorId().equals(userId))
+			.orElseThrow(() -> new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND));
+	}
+
 	@Transactional
 	public Classroom requireOwnerForUpdate(
 		Long userId,
@@ -520,6 +532,18 @@ public class ClassroomService {
 		Long classroomId
 	) {
 		return ownedClassroomForUpdate(userId, role, classroomId);
+	}
+
+	@Transactional
+	public Classroom requireStrictOwnerForUpdate(
+		Long userId,
+		UserRole role,
+		Long classroomId
+	) {
+		requireInstructor(role);
+		return classroomRepository.findByIdForUpdate(classroomId)
+			.filter(classroom -> classroom.getInstructorId().equals(userId))
+			.orElseThrow(() -> new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND));
 	}
 
 	public void assertWritable(Classroom classroom) {

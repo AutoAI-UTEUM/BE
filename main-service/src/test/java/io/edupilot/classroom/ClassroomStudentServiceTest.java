@@ -104,7 +104,7 @@ class ClassroomStudentServiceTest {
 
 		service.remove(1L, UserRole.INSTRUCTOR, 30L, 40L);
 
-		verify(classroomService).requireOwnerForUpdate(
+		verify(classroomService).requireStrictOwnerForUpdate(
 			1L, UserRole.INSTRUCTOR, 30L
 		);
 		verify(memberRepository).delete(member);

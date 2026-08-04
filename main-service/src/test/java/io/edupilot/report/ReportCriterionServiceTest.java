@@ -60,7 +60,7 @@ class ReportCriterionServiceTest {
 			"INVITE"
 		);
 		ReflectionTestUtils.setField(classroom, "id", 30L);
-		when(classroomService.requireOwnerForUpdate(
+		when(classroomService.requireStrictOwnerForUpdate(
 			1L, UserRole.INSTRUCTOR, 30L
 		)).thenReturn(classroom);
 	}

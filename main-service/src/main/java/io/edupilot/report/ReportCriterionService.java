@@ -45,7 +45,7 @@ public class ReportCriterionService {
 		UserRole role,
 		Long classroomId
 	) {
-		classroomService.requireOwner(instructorId, role, classroomId);
+		classroomService.requireStrictOwner(instructorId, role, classroomId);
 		List<ReportCriterionResponse> items = new ArrayList<>();
 		criterionCatalog.defaultCriteria().stream()
 			.map(this::builtinResponse)
@@ -65,7 +65,7 @@ public class ReportCriterionService {
 		Long classroomId,
 		CreateReportCriterionRequest request
 	) {
-		Classroom classroom = classroomService.requireOwnerForUpdate(
+		Classroom classroom = classroomService.requireStrictOwnerForUpdate(
 			instructorId, role, classroomId
 		);
 		String key = normalizedKey(request.criterionKey());
@@ -99,7 +99,7 @@ public class ReportCriterionService {
 		if (!request.hasAnyChange()) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}
-		Classroom classroom = classroomService.requireOwnerForUpdate(
+		Classroom classroom = classroomService.requireStrictOwnerForUpdate(
 			instructorId, role, classroomId
 		);
 		ReportCriterion current = criterionRepository

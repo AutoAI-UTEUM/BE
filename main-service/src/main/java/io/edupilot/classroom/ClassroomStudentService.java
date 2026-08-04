@@ -44,7 +44,7 @@ public class ClassroomStudentService {
 		int page,
 		int size
 	) {
-		classroomService.requireOwner(instructorId, role, classroomId);
+		classroomService.requireStrictOwner(instructorId, role, classroomId);
 		Page<ClassroomMember> members = memberRepository.findByClassroom_Id(
 			classroomId,
 			PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "joinedAt"))
@@ -83,7 +83,7 @@ public class ClassroomStudentService {
 		Long classroomId,
 		Long studentId
 	) {
-		classroomService.requireOwnerForUpdate(instructorId, role, classroomId);
+		classroomService.requireStrictOwnerForUpdate(instructorId, role, classroomId);
 		ClassroomMember member = memberRepository
 			.findByClassroom_IdAndUser_Id(classroomId, studentId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND));
