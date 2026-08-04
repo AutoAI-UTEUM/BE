@@ -107,6 +107,7 @@ public class Classroom {
 
 	public void update(
 		String name,
+		LocalDate startDate,
 		LocalDate endDate,
 		ClassroomColor color,
 		boolean descriptionPresent,
@@ -114,6 +115,9 @@ public class Classroom {
 	) {
 		if (name != null) {
 			this.name = name;
+		}
+		if (startDate != null) {
+			this.startDate = startDate;
 		}
 		if (endDate != null) {
 			this.endDate = endDate;
