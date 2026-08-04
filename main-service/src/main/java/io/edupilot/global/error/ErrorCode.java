@@ -226,6 +226,16 @@ public enum ErrorCode {
 		HttpStatus.NOT_FOUND,
 		"리포트를 찾을 수 없습니다."
 	),
+	REPORT_CRITERION_LIMIT_EXCEEDED(
+		"REPORT_CRITERION_LIMIT_EXCEEDED",
+		HttpStatus.CONFLICT,
+		"활성 리포트 평가 기준은 20개를 초과할 수 없습니다."
+	),
+	REPORT_CRITERION_DUPLICATE(
+		"REPORT_CRITERION_DUPLICATE",
+		HttpStatus.CONFLICT,
+		"같은 리포트 평가 기준이 이미 존재합니다."
+	),
 	RESOURCE_NOT_FOUND("RESOURCE_NOT_FOUND", HttpStatus.NOT_FOUND, "리소스를 찾을 수 없습니다."),
 	RATE_LIMIT_EXCEEDED(
 		"RATE_LIMIT_EXCEEDED",

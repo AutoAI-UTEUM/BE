@@ -62,6 +62,7 @@ class ReportApiContractTest {
 	@Autowired private TraceIdFilter traceIdFilter;
 	@Autowired private JwtTokenProvider jwtTokenProvider;
 	@Autowired private ReportApiService reportApiService;
+	@Autowired private ReportCriterionService reportCriterionService;
 
 	@MockitoBean private UserRepository userRepository;
 	@MockitoBean private RefreshTokenRepository refreshTokenRepository;
@@ -213,6 +214,31 @@ class ReportApiContractTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer(learnerToken)))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.error.code").value("ACCESS_DENIED"));
+	}
+
+	@Test
+	void criterionLimitAndDuplicateFailuresUseConflictCodes() throws Exception {
+		doThrow(new BusinessException(ErrorCode.REPORT_CRITERION_LIMIT_EXCEEDED))
+			.when(reportCriterionService)
+			.create(eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), any());
+
+		mockMvc.perform(post("/api/classrooms/30/report-criteria")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "criterionKey":"custom",
+					  "name":"추가 기준",
+					  "description":"설명",
+					  "rubric":{"summary":"평가"},
+					  "allowedSources":["SESSION"],
+					  "minEvidence":2,
+					  "weight":1
+					}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.error.code")
+				.value("REPORT_CRITERION_LIMIT_EXCEEDED"));
 	}
 
 	private String token(Long id, UserRole role) {

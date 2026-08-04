@@ -17,6 +17,7 @@ import io.edupilot.exam.ExamSubmissionPersistenceService;
 import io.edupilot.exam.StudentExamService;
 import io.edupilot.material.MaterialAccessService;
 import io.edupilot.report.ReportCriterionCatalog;
+import io.edupilot.report.ReportCriterionService;
 import io.edupilot.report.ReportAiGenerationService;
 import io.edupilot.report.ReportApiService;
 import io.edupilot.report.ReportGenerationPersistenceService;
@@ -40,6 +41,7 @@ import io.edupilot.schedule.ScheduleService;
 	ExamAiGradingService.class,
 	ExamSubmissionPersistenceService.class,
 	ReportCriterionCatalog.class,
+	ReportCriterionService.class,
 	ReportSnapshotBuilder.class,
 	ReportAiGenerationService.class,
 	ReportApiService.class,

@@ -148,4 +148,12 @@ public class ReportCriterion {
 	public BigDecimal getWeight() { return weight; }
 	public int getVersion() { return version; }
 	public boolean isActive() { return active; }
+
+	public void activate() {
+		this.active = true;
+	}
+
+	public void deactivate() {
+		this.active = false;
+	}
 }
