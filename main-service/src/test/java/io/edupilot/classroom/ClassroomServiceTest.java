@@ -169,6 +169,14 @@ class ClassroomServiceTest {
 			eq(1L), eq(null), eq("AI"), any(Pageable.class)
 		)).thenReturn(new PageImpl<>(List.of(classroom, other)));
 		when(memberRepository.countByClassroom_Id(any())).thenReturn(2L);
+		var materialCount = org.mockito.Mockito.mock(
+			ClassroomWeekMaterialRepository.ClassroomMaterialCount.class
+		);
+		when(materialCount.getClassroomId()).thenReturn(30L);
+		when(materialCount.getMaterialCount()).thenReturn(3L);
+		when(weekMaterialRepository.countDistinctMaterialsByClassroomIds(
+			List.of(30L, 31L)
+		)).thenReturn(List.of(materialCount));
 		when(joinRequestRepository.countByClassroom_IdAndStatus(
 			30L,
 			ClassroomJoinRequestStatus.PENDING
@@ -186,6 +194,8 @@ class ClassroomServiceTest {
 
 		assertThat(response.items()).hasSize(2);
 		assertThat(response.items().get(0).pendingRequestCount()).isEqualTo(4L);
+		assertThat(response.items().get(0).materialCount()).isEqualTo(3L);
+		assertThat(response.items().get(1).materialCount()).isZero();
 		assertThat(response.items().get(0).progressRate()).isNull();
 		assertThat(response.items().get(1).pendingRequestCount()).isNull();
 		assertThat(response.items().get(1).progressRate()).isZero();

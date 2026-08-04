@@ -12,6 +12,7 @@ public record ClassroomWeekResponse(
 	ClassroomWeekStatus status,
 	int displayOrder,
 	Instant releaseAt,
+	int averageProgressRate,
 	List<ClassroomWeekMaterialResponse> materials
 ) {
 }

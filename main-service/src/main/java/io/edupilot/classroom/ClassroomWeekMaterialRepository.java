@@ -1,5 +1,6 @@
 package io.edupilot.classroom;
 
+import java.util.Collection;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -19,6 +20,17 @@ public interface ClassroomWeekMaterialRepository
 
 	@EntityGraph(attributePaths = "material")
 	List<ClassroomWeekMaterial> findByWeek_IdOrderByAddedAtAscIdAsc(Long weekId);
+
+	@EntityGraph(attributePaths = "material")
+	@Query("""
+		select link
+		from ClassroomWeekMaterial link
+		where link.week.id in :weekIds
+		order by link.week.id, link.addedAt, link.id
+		""")
+	List<ClassroomWeekMaterial> findByWeekIds(
+		@Param("weekIds") Collection<Long> weekIds
+	);
 
 	boolean existsByWeek_IdAndMaterial_Id(Long weekId, Long materialId);
 
@@ -80,6 +92,22 @@ public interface ClassroomWeekMaterialRepository
 		@Param("materialStatus") MaterialStatus materialStatus,
 		@Param("processingStatus") MaterialProcessingStatus processingStatus
 	);
+
+@Query("""
+		select link.week.classroom.id as classroomId,
+		       count(distinct link.material.id) as materialCount
+		from ClassroomWeekMaterial link
+		where link.week.classroom.id in :classroomIds
+		group by link.week.classroom.id
+		""")
+	List<ClassroomMaterialCount> countDistinctMaterialsByClassroomIds(
+		@Param("classroomIds") Collection<Long> classroomIds
+	);
+
+	interface ClassroomMaterialCount {
+		Long getClassroomId();
+		Long getMaterialCount();
+	}
 
 	default boolean existsVisibleAccess(
 		Long userId,

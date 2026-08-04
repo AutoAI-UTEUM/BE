@@ -98,6 +98,7 @@
 | POST | `/api/classrooms` | 강의실 개설 | Y | INSTRUCTOR |
 | GET | `/api/classrooms` | 내 강의실 목록 | Y | 소유 또는 승인 멤버 관계 |
 | GET | `/api/classrooms/{id}` | 강의실 상세 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
+| GET | `/api/classrooms/{id}/analytics` | 강의자 학습 현황 집계 | Y | 소유 INSTRUCTOR |
 | PATCH | `/api/classrooms/{id}` | 강의실 수정 | Y | 소유 INSTRUCTOR |
 | DELETE | `/api/classrooms/{id}` | 강의실 COMPLETED 전환 | Y | 소유 INSTRUCTOR |
 | GET | `/api/classrooms/{id}/invite-code` | 초대 코드 조회 | Y | 소유 INSTRUCTOR |
@@ -1096,6 +1097,7 @@ Query:
       "status": "ACTIVE",
       "currentWeek": 3,
       "learnerCount": 24,
+      "materialCount": 3,
       "progressRate": 18,
       "lastStudied": {
         "sessionId": 100,
@@ -1116,6 +1118,7 @@ Query:
 
 - 멤버 관계의 항목은 `progressRate`, `lastStudied`를 포함하고 `pendingRequestCount`는 `null`입니다.
 - 소유자 관계의 항목은 `pendingRequestCount`를 포함하고 `progressRate`, `lastStudied`는 `null`입니다.
+- `materialCount`는 강의실 전체 주차에 연결된 고유 자료 수입니다.
 - `lastStudied`는 공개 주차에 연결된 고유 자료 중 사용자의 가장 최근 ACTIVE·COMPLETED 세션이며 없으면 `null`입니다. 세션을 어느 화면에서 시작했는지는 구분하지 않습니다.
 - `progressRate`는 공개 주차의 고유 READY 자료에 대해 `고유 (materialId,pageNumber) 설명 완료 수 ÷ 고유 자료 pageCount 합 × 100`을 정수 반올림합니다. 이력 또는 유효 분모가 없으면 0입니다.
 - `currentWeek`은 `Asia/Seoul`의 오늘을 기준으로 계산하고 시작 전은 1, 종료 후는 `weekCount`입니다.
@@ -1124,6 +1127,43 @@ Query:
 ### GET `/api/classrooms/{id}`
 
 목록 공통 필드와 `description`을 반환합니다. 소유 강사 응답에는 `inviteCode`가 포함되고 멤버 응답에서는 해당 필드를 `null`로 반환합니다.
+
+### GET `/api/classrooms/{id}/analytics`
+
+소유 `INSTRUCTOR` 전용이며 다른 강사의 강의실은 `CLASSROOM_NOT_FOUND`로 은닉합니다. 모든 비율은 0~100 정수로 반올림하고, 멤버 또는 유효한 자료가 없으면 0입니다. 자료 집계 대상은 공개 주차에 연결된 고유 ACTIVE·READY 자료입니다.
+
+```json
+{
+  "learnerCount": 5,
+  "averageProgressRate": 28,
+  "aiQuestionCountLast7Days": 4,
+  "inactiveLearnerCountLast7Days": 2,
+  "lastUpdatedAt": "2026-08-04T03:00:00Z",
+  "materials": [
+    {
+      "materialId": 10,
+      "title": "선형회귀 기초",
+      "viewerCount": 2,
+      "viewRate": 40,
+      "averageProgressRate": 25
+    }
+  ],
+  "questionsByPage": [
+    {
+      "materialId": 10,
+      "pageNumber": 2,
+      "questionCount": 4
+    }
+  ]
+}
+```
+
+- `averageProgressRate`는 각 멤버의 강의실 진도를 평균한 값이며 `session_page_records`의 고유 `(materialId,pageNumber)`만 사용합니다.
+- `viewerCount`는 해당 자료에 ACTIVE·COMPLETED 세션이 있는 고유 멤버 수이고, `viewRate = viewerCount / learnerCount × 100`입니다.
+- `aiQuestionCountLast7Days`는 응답 계산 시각을 기준으로 정확히 7일 전을 포함해 이후 생성된 사용자 QA 메시지 수입니다.
+- `inactiveLearnerCountLast7Days`는 같은 기간에 강의실 연결 자료의 세션 `updatedAt` 활동이 없는 멤버 수입니다.
+- `questionsByPage`는 QA 스레드 생성 시 저장된 `qa_threads.page_number`를 사용하며 현재 세션 페이지를 소급 추정하지 않습니다.
+- `lastUpdatedAt`은 캐시 시각이 아니라 이번 응답을 계산한 시각입니다.
 
 ### PATCH `/api/classrooms/{id}`
 
@@ -1231,19 +1271,24 @@ PENDING 요청만 처리합니다. 승인은 같은 트랜잭션에서 `classroo
       "status": "PUBLISHED",
       "displayOrder": 1,
       "releaseAt": null,
+      "averageProgressRate": 20,
       "materials": [
         {
           "materialId": 10,
           "title": "선형회귀 기초",
           "pageCount": 25,
           "processingStatus": "READY",
-          "uploadedAt": "2026-09-01T00:00:00Z"
+          "uploadedAt": "2026-09-01T00:00:00Z",
+          "viewerCount": 12,
+          "viewRate": 50
         }
       ]
     }
   ]
 }
 ```
+
+`averageProgressRate`는 해당 주차의 고유 자료에 대한 멤버 평균 진도율입니다. `viewerCount`와 `viewRate`는 강의실 멤버의 ACTIVE·COMPLETED 세션을 기준으로 계산하며 멤버가 없으면 0입니다.
 
 ### POST `/api/classrooms/{id}/weeks`
 

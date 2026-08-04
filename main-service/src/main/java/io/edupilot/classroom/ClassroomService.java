@@ -5,6 +5,9 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.Locale;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -120,6 +123,18 @@ public class ClassroomService {
 			normalizedQuery(query),
 			pageable
 		);
+		var classroomIds = classrooms.getContent().stream()
+			.map(Classroom::getId)
+			.toList();
+		Map<Long, ClassroomWeekMaterialRepository.ClassroomMaterialCount>
+			materialCounts = classroomIds.isEmpty()
+				? Map.of()
+				: weekMaterialRepository.countDistinctMaterialsByClassroomIds(
+					classroomIds
+				).stream().collect(Collectors.toMap(
+					ClassroomWeekMaterialRepository.ClassroomMaterialCount::getClassroomId,
+					Function.identity()
+				));
 		Page<ClassroomSummaryResponse> responses = classrooms.map(classroom -> {
 			boolean ownerView = classroom.getInstructorId().equals(userId);
 			ClassroomLearnerMetrics metrics = learnerMetrics(
@@ -132,6 +147,9 @@ public class ClassroomService {
 				ownerView,
 				currentWeek(classroom),
 				memberRepository.countByClassroom_Id(classroom.getId()),
+				materialCounts.containsKey(classroom.getId())
+					? materialCounts.get(classroom.getId()).getMaterialCount()
+					: 0,
 				ownerView ? pendingCount(classroom.getId()) : 0,
 				metrics.progressRate(),
 				metrics.lastStudied()

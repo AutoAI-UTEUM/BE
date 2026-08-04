@@ -29,6 +29,8 @@ import io.edupilot.classroom.dto.UpdateClassroomWeekStatusRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.session.LearningProgressService;
+import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRole;
 
@@ -45,6 +47,12 @@ class ClassroomWeekServiceTest {
 	private ClassroomWeekMaterialRepository weekMaterialRepository;
 	@Mock
 	private LearningMaterialRepository materialRepository;
+	@Mock
+	private ClassroomMemberRepository memberRepository;
+	@Mock
+	private LearningProgressService progressService;
+	@Mock
+	private LearningSessionRepository sessionRepository;
 
 	private ClassroomWeekService service;
 	private Classroom classroom;
@@ -56,6 +64,9 @@ class ClassroomWeekServiceTest {
 			weekRepository,
 			weekMaterialRepository,
 			materialRepository,
+			memberRepository,
+			progressService,
+			sessionRepository,
 			Clock.fixed(NOW, ZoneOffset.UTC)
 		);
 		User instructor = User.create(
@@ -82,7 +93,7 @@ class ClassroomWeekServiceTest {
 			.thenReturn(classroom);
 		when(weekRepository.findByClassroom_IdOrderByDisplayOrderAscIdAsc(30L))
 			.thenReturn(List.of(released, scheduled));
-		when(weekMaterialRepository.findByWeek_IdOrderByAddedAtAscIdAsc(any()))
+		when(weekMaterialRepository.findByWeekIds(any()))
 			.thenReturn(List.of());
 
 		var response = service.list(2L, UserRole.LEARNER, 30L);
@@ -115,7 +126,7 @@ class ClassroomWeekServiceTest {
 		when(classroomService.requireOwnerForUpdate(1L, UserRole.INSTRUCTOR, 30L))
 			.thenReturn(classroom);
 		when(weekRepository.findForUpdate(30L, 1)).thenReturn(Optional.of(week));
-		when(weekMaterialRepository.findByWeek_IdOrderByAddedAtAscIdAsc(1L))
+		when(weekMaterialRepository.findByWeekIds(any()))
 			.thenReturn(List.of());
 		UpdateClassroomWeekRequest request = new UpdateClassroomWeekRequest();
 		request.setReleaseAt(null);

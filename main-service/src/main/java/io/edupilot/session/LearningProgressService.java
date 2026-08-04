@@ -1,7 +1,10 @@
 package io.edupilot.session;
 
 import java.time.Clock;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -124,6 +127,35 @@ public class LearningProgressService {
 		);
 	}
 
+	@Transactional(readOnly = true)
+	public ClassroomProgressSnapshot calculateClassroomProgressSnapshot(
+		Long classroomId,
+		Collection<LearningMaterial> materials,
+		long learnerCount
+	) {
+		Map<Long, LearningMaterial> validMaterials = new LinkedHashMap<>();
+		for (LearningMaterial material : materials) {
+			if (material.getPageCount() != null && material.getPageCount() > 0) {
+				validMaterials.putIfAbsent(material.getId(), material);
+			}
+		}
+		Map<Long, Long> explainedPagesByMaterial = new LinkedHashMap<>();
+		for (var count : pageRecordRepository.findClassroomProgressCounts(
+			classroomId,
+			validMaterials.keySet()
+		)) {
+			explainedPagesByMaterial.merge(
+				count.materialId(),
+				count.explainedPageCount(),
+				Long::sum
+			);
+		}
+		return new ClassroomProgressSnapshot(
+			learnerCount,
+			Map.copyOf(explainedPagesByMaterial)
+		);
+	}
+
 	private int progressRate(long explainedPageCount, Integer pageCount) {
 		return progressRate(
 			explainedPageCount,
@@ -144,5 +176,50 @@ public class LearningProgressService {
 		int progressRate,
 		boolean progressDataAvailable
 	) {
+	}
+
+	public record ClassroomProgressSnapshot(
+		long learnerCount,
+		Map<Long, Long> explainedPagesByMaterial
+	) {
+		public int averageProgressRate(Collection<LearningMaterial> materials) {
+			long explainedPages = 0;
+			long totalPagesPerLearner = 0;
+			Map<Long, LearningMaterial> distinctMaterials = new LinkedHashMap<>();
+			for (LearningMaterial material : materials) {
+				if (material.getPageCount() != null && material.getPageCount() > 0) {
+					distinctMaterials.putIfAbsent(material.getId(), material);
+				}
+			}
+			for (LearningMaterial material : distinctMaterials.values()) {
+				totalPagesPerLearner += material.getPageCount();
+				explainedPages += explainedPagesByMaterial.getOrDefault(
+					material.getId(),
+					0L
+				);
+			}
+			return roundedRate(
+				explainedPages,
+				learnerCount * totalPagesPerLearner
+			);
+		}
+
+		public int materialAverageProgressRate(LearningMaterial material) {
+			Integer pageCount = material.getPageCount();
+			if (pageCount == null || pageCount < 1) {
+				return 0;
+			}
+			return roundedRate(
+				explainedPagesByMaterial.getOrDefault(material.getId(), 0L),
+				learnerCount * pageCount.longValue()
+			);
+		}
+
+		private static int roundedRate(long numerator, long denominator) {
+			if (numerator == 0 || denominator < 1) {
+				return 0;
+			}
+			return (int) Math.round(numerator * 100.0 / denominator);
+		}
 	}
 }
