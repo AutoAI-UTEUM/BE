@@ -12,6 +12,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 
@@ -214,6 +215,124 @@ class ClassroomServiceTest {
 		assertError(
 			() -> service.update(1L, UserRole.INSTRUCTOR, 30L, empty),
 			ErrorCode.VALIDATION_FAILED
+		);
+	}
+
+	@Test
+	void startDateShiftMovesNonNullWeekReleaseDatesAndKeepsStatuses() {
+		when(classroomRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(classroom));
+		ClassroomWeek scheduled = ClassroomWeek.create(
+			classroom,
+			1,
+			"Week 1",
+			NOW.plusSeconds(3600),
+			ClassroomWeekStatus.SCHEDULED,
+			1
+		);
+		ClassroomWeek publishedWithoutReleaseAt = ClassroomWeek.create(
+			classroom,
+			2,
+			"Week 2",
+			null,
+			ClassroomWeekStatus.PUBLISHED,
+			2
+		);
+		when(weekRepository.findAllForUpdateByClassroomId(30L))
+			.thenReturn(List.of(scheduled, publishedWithoutReleaseAt));
+		UpdateClassroomRequest request = new UpdateClassroomRequest();
+		request.setStartDate(LocalDate.of(2026, 9, 8));
+		request.setShiftWeekReleaseDates(true);
+
+		var response = service.update(1L, UserRole.INSTRUCTOR, 30L, request);
+
+		assertThat(response.startDate()).isEqualTo(LocalDate.of(2026, 9, 8));
+		assertThat(scheduled.getReleaseAt()).isEqualTo(
+			NOW.plus(7, ChronoUnit.DAYS).plusSeconds(3600)
+		);
+		assertThat(scheduled.getStatus()).isEqualTo(ClassroomWeekStatus.SCHEDULED);
+		assertThat(publishedWithoutReleaseAt.getReleaseAt()).isNull();
+		assertThat(publishedWithoutReleaseAt.getStatus())
+			.isEqualTo(ClassroomWeekStatus.PUBLISHED);
+	}
+
+	@Test
+	void startDateChangeWithFalseShiftKeepsWeekReleaseDates() {
+		when(classroomRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(classroom));
+		ClassroomWeek scheduled = ClassroomWeek.create(
+			classroom,
+			1,
+			"Week 1",
+			NOW.plusSeconds(3600),
+			ClassroomWeekStatus.SCHEDULED,
+			1
+		);
+		UpdateClassroomRequest request = new UpdateClassroomRequest();
+		request.setStartDate(LocalDate.of(2026, 9, 8));
+		request.setShiftWeekReleaseDates(false);
+
+		service.update(1L, UserRole.INSTRUCTOR, 30L, request);
+
+		assertThat(scheduled.getReleaseAt()).isEqualTo(NOW.plusSeconds(3600));
+		verify(weekRepository, never()).findAllForUpdateByClassroomId(any());
+	}
+
+	@Test
+	void shiftingScheduledReleaseDateIntoPastChangesVisibilityWithoutStatusTransition() {
+		when(classroomRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(classroom));
+		ClassroomWeek scheduled = ClassroomWeek.create(
+			classroom,
+			1,
+			"Week 1",
+			NOW.plus(1, ChronoUnit.DAYS),
+			ClassroomWeekStatus.SCHEDULED,
+			1
+		);
+		when(weekRepository.findAllForUpdateByClassroomId(30L))
+			.thenReturn(List.of(scheduled));
+		UpdateClassroomRequest request = new UpdateClassroomRequest();
+		request.setStartDate(LocalDate.of(2026, 8, 25));
+		request.setShiftWeekReleaseDates(true);
+
+		assertThat(scheduled.isVisibleToLearner(NOW)).isFalse();
+		service.update(1L, UserRole.INSTRUCTOR, 30L, request);
+
+		assertThat(scheduled.isVisibleToLearner(NOW)).isTrue();
+		assertThat(scheduled.getStatus()).isEqualTo(ClassroomWeekStatus.SCHEDULED);
+	}
+
+	@Test
+	void updateRejectsReverseDatesAndStartDateWeekRangeConflict() {
+		when(classroomRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(classroom));
+		UpdateClassroomRequest reverseDates = new UpdateClassroomRequest();
+		reverseDates.setStartDate(LocalDate.of(2026, 12, 16));
+		assertError(
+			() -> service.update(1L, UserRole.INSTRUCTOR, 30L, reverseDates),
+			ErrorCode.VALIDATION_FAILED
+		);
+
+		when(weekRepository.findMaximumWeekNumber(30L)).thenReturn(16);
+		UpdateClassroomRequest rangeConflict = new UpdateClassroomRequest();
+		rangeConflict.setStartDate(LocalDate.of(2026, 9, 8));
+		assertError(
+			() -> service.update(1L, UserRole.INSTRUCTOR, 30L, rangeConflict),
+			ErrorCode.CLASSROOM_WEEK_RANGE_CONFLICT
+		);
+	}
+
+	@Test
+	void updateHidesNonOwnedInstructorClassroom() {
+		Classroom other = classroom(
+			30L,
+			user(3L, "other@example.com", "Other", UserRole.INSTRUCTOR),
+			"ABCD-EFGH"
+		);
+		when(classroomRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(other));
+		UpdateClassroomRequest request = new UpdateClassroomRequest();
+		request.setName("Updated");
+
+		assertError(
+			() -> service.update(1L, UserRole.INSTRUCTOR, 30L, request),
+			ErrorCode.CLASSROOM_NOT_FOUND
 		);
 	}
 

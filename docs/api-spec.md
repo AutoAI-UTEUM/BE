@@ -1170,13 +1170,19 @@ Query:
 ```json
 {
   "name": "AI 기초 심화",
+  "startDate": "2026-09-08",
   "endDate": "2026-12-22",
+  "shiftWeekReleaseDates": true,
   "color": "PURPLE",
   "description": null
 }
 ```
 
-모든 필드는 선택이지만 하나 이상 필요합니다. 필드 생략은 변경 없음, `description:null`은 설명 삭제입니다. `startDate`는 변경할 수 없습니다. 종료일 축소로 기존 최대 주차가 새 `weekCount`를 넘으면 `CLASSROOM_WEEK_RANGE_CONFLICT`(409)를 반환합니다. 성공 시 갱신된 상세를 반환합니다.
+모든 필드는 선택이지만 하나 이상 필요합니다. 필드 생략은 변경 없음, `description:null`은 설명 삭제입니다. `startDate`와 `endDate`를 함께 또는 각각 변경할 수 있으며 변경 후 `startDate <= endDate`여야 합니다.
+
+`shiftWeekReleaseDates`는 `startDate` 변경 시 기존 주차 공개일을 함께 이동할지 선택하며 생략하거나 `false`이면 이동하지 않습니다. `true`이면 `새 startDate - 기존 startDate`의 일수만큼 해당 강의실 모든 주차의 `releaseAt`을 같은 트랜잭션에서 이동합니다. `releaseAt=null`은 무기한 공개 의미를 유지하기 위해 변경하지 않습니다. 주차의 `status`는 변경하지 않으므로 `PRIVATE`·`PUBLISHED`·`BREAK`는 그대로이고, `SCHEDULED`는 이동된 공개일과 조회 시각으로 노출 여부를 판정합니다.
+
+날짜 변경으로 계산한 새 `weekCount`보다 기존 최대 `weekNumber`가 크면 주차를 암묵적으로 삭제하지 않고 `CLASSROOM_WEEK_RANGE_CONFLICT`(409)를 반환합니다. 완료 강의실은 `CLASSROOM_COMPLETED`(409), 비소유 강의실은 `CLASSROOM_NOT_FOUND`(404)입니다. 성공 시 갱신된 상세를 반환합니다.
 
 ### DELETE `/api/classrooms/{id}`
 
