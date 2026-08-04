@@ -63,4 +63,10 @@ public class ClassroomMember {
 	public Long getId() {
 		return id;
 	}
+
+	public Long getUserId() { return user.getId(); }
+	public String getUserName() { return user.getName(); }
+	public String getUserEmail() { return user.getEmail(); }
+	public String getUserAffiliation() { return user.getAffiliation(); }
+	public Instant getJoinedAt() { return joinedAt; }
 }

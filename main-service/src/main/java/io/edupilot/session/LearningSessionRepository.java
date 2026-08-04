@@ -64,6 +64,27 @@ public interface LearningSessionRepository
 		@Param("statuses") Collection<SessionStatus> statuses
 	);
 
+	@Query("""
+		select new io.edupilot.session.StudentLastActivity(
+		  session.user.id,
+		  max(session.updatedAt)
+		)
+		from LearningSession session
+		where session.user.id in :studentIds
+		  and session.status <> io.edupilot.session.SessionStatus.DELETED
+		  and exists (
+		    select link.id
+		    from ClassroomWeekMaterial link
+		    where link.material = session.material
+		      and link.week.classroom.id = :classroomId
+		  )
+		group by session.user.id
+		""")
+	List<StudentLastActivity> findLastActivityByClassroomAndStudentIds(
+		@Param("classroomId") Long classroomId,
+		@Param("studentIds") Collection<Long> studentIds
+	);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 		select session

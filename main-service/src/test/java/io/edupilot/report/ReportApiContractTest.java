@@ -6,9 +6,11 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -34,6 +36,9 @@ import org.springframework.web.context.WebApplicationContext;
 import io.edupilot.Epic10ServiceMocks;
 import io.edupilot.auth.JwtTokenProvider;
 import io.edupilot.auth.RefreshTokenRepository;
+import io.edupilot.classroom.ClassroomStudentService;
+import io.edupilot.classroom.dto.ClassroomStudentListResponse;
+import io.edupilot.classroom.dto.ClassroomStudentResponse;
 import io.edupilot.feedback.FeedbackRepository;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -63,6 +68,7 @@ class ReportApiContractTest {
 	@Autowired private JwtTokenProvider jwtTokenProvider;
 	@Autowired private ReportApiService reportApiService;
 	@Autowired private ReportCriterionService reportCriterionService;
+	@Autowired private ClassroomStudentService classroomStudentService;
 
 	@MockitoBean private UserRepository userRepository;
 	@MockitoBean private RefreshTokenRepository refreshTokenRepository;
@@ -239,6 +245,46 @@ class ReportApiContractTest {
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.error.code")
 				.value("REPORT_CRITERION_LIMIT_EXCEEDED"));
+	}
+
+	@Test
+	void studentsExposeManagementFieldsAndRemovalEndpoint() throws Exception {
+		when(classroomStudentService.list(
+			1L, UserRole.INSTRUCTOR, 30L, 0, 20
+		)).thenReturn(new ClassroomStudentListResponse(
+			List.of(new ClassroomStudentResponse(
+				40L,
+				"학생",
+				"student@example.com",
+				null,
+				Instant.EPOCH,
+				"ACTIVE",
+				null
+			)),
+			0,
+			20,
+			1,
+			1
+		));
+
+		mockMvc.perform(get("/api/classrooms/30/students")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items[0].studentId").value(40))
+			.andExpect(jsonPath("$.data.items[0].name").value("학생"))
+			.andExpect(jsonPath("$.data.items[0].email")
+				.value("student@example.com"))
+			.andExpect(jsonPath("$.data.items[0].affiliation").value(nullValue()))
+			.andExpect(jsonPath("$.data.items[0].joinedAt").exists())
+			.andExpect(jsonPath("$.data.items[0].status").value("ACTIVE"))
+			.andExpect(jsonPath("$.data.items[0].lastActiveAt").value(nullValue()));
+
+		mockMvc.perform(delete("/api/classrooms/30/students/40")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isOk());
+		verify(classroomStudentService).remove(
+			1L, UserRole.INSTRUCTOR, 30L, 40L
+		);
 	}
 
 	private String token(Long id, UserRole role) {
