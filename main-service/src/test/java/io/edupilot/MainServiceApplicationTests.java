@@ -300,6 +300,20 @@ class MainServiceApplicationTests {
 				"$.paths['/api/users/me/schedule'].get"
 			).exists())
 			.andExpect(jsonPath(
+				"$.paths['/api/users/me/schedule'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/users/me/schedule/{scheduleId}'].patch"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/users/me/schedule/{scheduleId}'].delete"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.CreatePersonalScheduleRequest.required"
+			).value(org.hamcrest.Matchers.hasItems(
+				"title", "startsAt", "endsAt", "hasTime"
+			)))
+			.andExpect(jsonPath(
 				"$.components.schemas.CreateFeedbackRequest.required"
 			).value(org.hamcrest.Matchers.hasItems("category", "message")))
 			.andExpect(jsonPath(

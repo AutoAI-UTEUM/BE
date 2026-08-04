@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 논리 설계 초안 |
-| 마지막 갱신 | 2026-08-03 |
+| 마지막 갱신 | 2026-08-04 |
 | DB | MySQL |
 | Migration | Flyway (DEC-003 Accepted) |
 
@@ -23,6 +23,7 @@
 | `classroom_weeks` | id, classroom_id, week_number, title, release_at(nullable), timestamps | `FK(classroom_id)`, `UK(classroom_id,week_number)`, `CHECK(week_number >= 1)` |
 | `classroom_week_materials` | id, week_id, material_id, added_at, timestamps | `FK(week_id)`, `FK(material_id)`, `UK(week_id,material_id)`, `IDX(material_id)` |
 | `classroom_notices` | id, classroom_id, title, content, published_at, timestamps | `FK(classroom_id)`, `IDX(classroom_id,published_at,id)` |
+| `user_schedules` | id, user_id, title, starts_at, ends_at, has_time, timestamps | `FK(user_id)`, `IDX(user_id,starts_at)`, `CHECK(ends_at >= starts_at)` |
 | `exams` | id, classroom_id, week_number(nullable), title, description(nullable), status, allow_retake, total_score, published_at(nullable), closed_at(nullable), timestamps | `FK(classroom_id)`, `IDX(classroom_id,status)`, 상태·총점 CHECK |
 | `exam_questions` | id, exam_id, question_no, question_type, points, public_question_json, private_answer_json, schema_version, timestamps | `FK(exam_id)`, `UK(exam_id,question_no)`, 유형·점수 CHECK |
 | `exam_submissions` | id, exam_id, user_id, attempt_no, request_id, status, submitted_at, graded_at(nullable), score(nullable), max_score, normalized_score(nullable), grading_lease_token(nullable), grading_lease_until, timestamps | `FK(exam_id)`, `FK(user_id)`, 시도·멱등 UK, 상태·점수 CHECK, 상태+lease·제출시각 인덱스 |
@@ -188,6 +189,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V17__exam.sql`은 `exams`, `exam_questions`, `exam_submissions`, `exam_answers` 4개 테이블과 시험 계약 제약을 추가합니다.
 - `V18__exam_grading_lease.sql`은 기존 V17 checksum을 변경하지 않고 시험 제출의 lease 컬럼 2개와 회수 인덱스 2개만 추가합니다.
 - `V19__report.sql`은 커스텀 평가 기준, 비동기 생성, 학생 리포트 버전, 기준별 결과, 생성 시점 근거 snapshot의 5개 테이블과 generation lease를 추가합니다. 기본 평가 기준 9종은 seed하지 않으며 페이지 진도 테이블도 추가하지 않습니다.
+- `V20__user_schedules.sql`은 사용자 귀속 개인 일정, 시작 시각 조회 인덱스와 `ends_at >= starts_at` 제약을 추가합니다. 모든 행이 개인 일정이므로 `kind` 컬럼은 두지 않습니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.

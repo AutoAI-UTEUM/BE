@@ -31,7 +31,7 @@
 | 강의실 자료 업로드 | PDF와 강의실·주차 part 제출 | `POST /api/materials` | 처리 중 자료를 해당 주차에 즉시 표시 | INSTRUCTOR 소유권, part 조합·파일 오류 |
 | 강의실 자료 학습 | 공개 자료 열기·통합학습 시작 | `GET /api/materials/{materialId}`, `GET .../file`, `POST /api/sessions` | PDF 뷰어와 사용자×자료 공유 세션으로 이동 | 공개 취소·연결 해제·멤버십 |
 | 공지 | 목록·즉시 게시·수정·삭제 | `GET·POST /api/classrooms/{id}/notices`, `PATCH·DELETE .../notices/{noticeId}` | 최신 공지 목록 갱신 | 강사 권한, 완료 상태 |
-| 캘린더 | 기간·강의실 필터 조회 | `GET /api/users/me/schedule?from&to&classroomId` | 주차 공개·공지 게시 일정을 시간순 표시 | 날짜 범위, 강의실 접근권 |
+| 캘린더 | 기간·강의실 필터 조회, 개인 일정 생성·수정·삭제 | `GET·POST /api/users/me/schedule`, `PATCH·DELETE /api/users/me/schedule/{scheduleId}` | 주차 공개·공지·본인 개인 일정을 시간순 표시하고 개인 일정만 편집 | 날짜·시간 범위, 강의실 접근권, 개인 일정 소유권 |
 | 시험 관리 | 시험 생성·목록·상세·수정 | `POST·GET /api/classrooms/{classroomId}/exams`, `GET·PATCH /api/exams/{examId}` | DRAFT 편집기와 전체 상태 목록 표시. rubric 편집기는 기본 접힘·미입력 상태 | 강사 권한, 완료 강의실, DRAFT 편집 상태 |
 | 시험 관리 | 공개·마감·DRAFT 삭제 | `POST /api/exams/{examId}/publish`, `POST .../close`, `DELETE /api/exams/{examId}` | 상태 배지와 응시 가능 여부 갱신 | `EXAM_NOT_EDITABLE`, `EXAM_NOT_PUBLISHED` |
 | 시험 결과 관리 | 학생별 최신 제출·특정 시도 조회 | `GET /api/exams/{examId}/submissions`, `GET .../submissions/{submissionId}` | 운영 화면은 전체 상태의 최신 attempt를 표시. 성적·리포트 대표값은 최신 GRADED attempt | 시험 소유권, 페이지네이션 |

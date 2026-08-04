@@ -141,6 +141,11 @@ public enum ErrorCode {
 		HttpStatus.NOT_FOUND,
 		"노트를 찾을 수 없습니다."
 	),
+	SCHEDULE_NOT_FOUND(
+		"SCHEDULE_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"일정을 찾을 수 없습니다."
+	),
 	UNSUPPORTED_EVENT_TYPE(
 		"UNSUPPORTED_EVENT_TYPE",
 		HttpStatus.BAD_REQUEST,
