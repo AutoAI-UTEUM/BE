@@ -26,6 +26,7 @@ import io.edupilot.report.ReportGenerationService;
 import io.edupilot.report.ReportSnapshotBuilder;
 import io.edupilot.session.LearningProgressService;
 import io.edupilot.schedule.ScheduleService;
+import io.edupilot.schedule.PersonalScheduleService;
 
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
@@ -38,6 +39,7 @@ import io.edupilot.schedule.ScheduleService;
 	ClassroomWeekMaterialRepository.class,
 	ClassroomNoticeService.class,
 	ScheduleService.class,
+	PersonalScheduleService.class,
 	InstructorExamService.class,
 	StudentExamService.class,
 	ExamAiGradingService.class,

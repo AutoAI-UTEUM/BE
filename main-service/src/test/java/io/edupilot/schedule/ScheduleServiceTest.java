@@ -42,6 +42,8 @@ class ScheduleServiceTest {
 	private ClassroomWeekRepository weekRepository;
 	@Mock
 	private ClassroomNoticeRepository noticeRepository;
+	@Mock
+	private UserScheduleRepository userScheduleRepository;
 
 	private ScheduleService service;
 	private Classroom classroom;
@@ -52,7 +54,8 @@ class ScheduleServiceTest {
 			classroomService,
 			classroomRepository,
 			weekRepository,
-			noticeRepository
+			noticeRepository,
+			userScheduleRepository
 		);
 		User instructor = User.create(
 			"teacher@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
@@ -106,6 +109,74 @@ class ScheduleServiceTest {
 			.extracting(item -> item.scheduleId())
 			.containsExactly("NOTICE-70", "WEEK-40");
 		assertThat(response.items().get(1).title()).isEqualTo("2주차 공개: Models");
+		assertThat(response.items().get(0).kind())
+			.isEqualTo(ScheduleType.NOTICE_PUBLISH);
+		assertThat(response.items().get(0).startsAt()).isNull();
+	}
+
+	@Test
+	void mergesOwnedPersonalSchedulesChronologicallyWithoutChangingDerivedFields() {
+		Instant noticeTime = BOUNDARY.plusSeconds(60);
+		Instant personalTime = BOUNDARY.plusSeconds(120);
+		Instant weekTime = BOUNDARY.plusSeconds(180);
+		ClassroomNotice notice = ClassroomNotice.create(
+			classroom, "Assignment", "Content", noticeTime
+		);
+		ReflectionTestUtils.setField(notice, "id", 70L);
+		ClassroomWeek week = ClassroomWeek.create(classroom, 2, "Models", weekTime);
+		ReflectionTestUtils.setField(week, "id", 40L);
+		User learner = User.create("learner@example.com", "hash", "Learner");
+		ReflectionTestUtils.setField(learner, "id", 2L);
+		UserSchedule personal = UserSchedule.create(
+			learner,
+			"Study plan",
+			personalTime,
+			personalTime.plusSeconds(3600),
+			true
+		);
+		ReflectionTestUtils.setField(personal, "id", 90L);
+		when(classroomRepository.findAllVisibleByUserId(2L))
+			.thenReturn(List.of(classroom));
+		when(weekRepository.findScheduleWeeks(
+			List.of(30L),
+			BOUNDARY,
+			Instant.parse("2026-08-03T00:00:00Z")
+		)).thenReturn(List.of(week));
+		when(noticeRepository.findScheduleNotices(
+			List.of(30L),
+			BOUNDARY,
+			Instant.parse("2026-08-03T00:00:00Z")
+		)).thenReturn(List.of(notice));
+		when(userScheduleRepository.findVisibleInRange(
+			2L,
+			BOUNDARY,
+			Instant.parse("2026-08-03T00:00:00Z")
+		)).thenReturn(List.of(personal));
+
+		var response = service.list(
+			2L,
+			UserRole.LEARNER,
+			LocalDate.of(2026, 8, 2),
+			LocalDate.of(2026, 8, 2),
+			null
+		);
+
+		assertThat(response.items()).extracting(item -> item.scheduleId())
+			.containsExactly("NOTICE-70", "90", "WEEK-40");
+		assertThat(response.items().get(0))
+			.satisfies(item -> {
+				assertThat(item.type()).isEqualTo(ScheduleType.NOTICE_PUBLISH);
+				assertThat(item.classroomId()).isEqualTo(30L);
+				assertThat(item.title()).isEqualTo("Assignment");
+			});
+		assertThat(response.items().get(1))
+			.satisfies(item -> {
+				assertThat(item.kind()).isEqualTo(ScheduleType.PERSONAL);
+				assertThat(item.startsAt()).isEqualTo(personalTime);
+				assertThat(item.endsAt()).isEqualTo(personalTime.plusSeconds(3600));
+				assertThat(item.hasTime()).isTrue();
+				assertThat(item.classroomId()).isNull();
+			});
 	}
 
 	@Test

@@ -31,17 +31,20 @@ public class ScheduleService {
 	private final ClassroomRepository classroomRepository;
 	private final ClassroomWeekRepository weekRepository;
 	private final ClassroomNoticeRepository noticeRepository;
+	private final UserScheduleRepository userScheduleRepository;
 
 	public ScheduleService(
 		ClassroomService classroomService,
 		ClassroomRepository classroomRepository,
 		ClassroomWeekRepository weekRepository,
-		ClassroomNoticeRepository noticeRepository
+		ClassroomNoticeRepository noticeRepository,
+		UserScheduleRepository userScheduleRepository
 	) {
 		this.classroomService = classroomService;
 		this.classroomRepository = classroomRepository;
 		this.weekRepository = weekRepository;
 		this.noticeRepository = noticeRepository;
+		this.userScheduleRepository = userScheduleRepository;
 	}
 
 	@Transactional(readOnly = true)
@@ -56,9 +59,6 @@ public class ScheduleService {
 		List<Classroom> classrooms = classroomId == null
 			? classroomRepository.findAllVisibleByUserId(userId)
 			: List.of(classroomService.requireVisible(userId, role, classroomId));
-		if (classrooms.isEmpty()) {
-			return new ScheduleListResponse(List.of());
-		}
 		List<Long> classroomIds = classrooms.stream()
 			.map(Classroom::getId)
 			.toList();
@@ -66,17 +66,30 @@ public class ScheduleService {
 		Instant toExclusive = to.plusDays(1)
 			.atStartOfDay(ZoneOffset.UTC)
 			.toInstant();
+		List<ScheduleItemResponse> derivedItems = classrooms.isEmpty()
+			? List.of()
+			: java.util.stream.Stream.concat(
+				weekRepository.findScheduleWeeks(
+					classroomIds,
+					fromInstant,
+					toExclusive
+				).stream().map(ScheduleItemResponse::from),
+				noticeRepository.findScheduleNotices(
+					classroomIds,
+					fromInstant,
+					toExclusive
+				).stream().map(ScheduleItemResponse::from)
+			).toList();
+		List<ScheduleItemResponse> personalItems = classroomId == null
+			? userScheduleRepository.findVisibleInRange(
+				userId,
+				fromInstant,
+				toExclusive
+			).stream().map(ScheduleItemResponse::from).toList()
+			: List.of();
 		List<ScheduleItemResponse> items = java.util.stream.Stream.concat(
-			weekRepository.findScheduleWeeks(
-				classroomIds,
-				fromInstant,
-				toExclusive
-			).stream().map(ScheduleItemResponse::from),
-			noticeRepository.findScheduleNotices(
-				classroomIds,
-				fromInstant,
-				toExclusive
-			).stream().map(ScheduleItemResponse::from)
+			derivedItems.stream(),
+			personalItems.stream()
 		).sorted(SCHEDULE_ORDER).toList();
 		return new ScheduleListResponse(items);
 	}
