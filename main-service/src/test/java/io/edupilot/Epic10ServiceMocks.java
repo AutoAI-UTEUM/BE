@@ -8,6 +8,7 @@ import java.lang.annotation.Target;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import io.edupilot.classroom.ClassroomService;
+import io.edupilot.classroom.ClassroomStudentService;
 import io.edupilot.classroom.ClassroomWeekService;
 import io.edupilot.classroom.ClassroomWeekMaterialRepository;
 import io.edupilot.classroom.ClassroomNoticeService;
@@ -17,7 +18,9 @@ import io.edupilot.exam.ExamSubmissionPersistenceService;
 import io.edupilot.exam.StudentExamService;
 import io.edupilot.material.MaterialAccessService;
 import io.edupilot.report.ReportCriterionCatalog;
+import io.edupilot.report.ReportCriterionService;
 import io.edupilot.report.ReportAiGenerationService;
+import io.edupilot.report.ReportApiService;
 import io.edupilot.report.ReportGenerationPersistenceService;
 import io.edupilot.report.ReportGenerationService;
 import io.edupilot.report.ReportSnapshotBuilder;
@@ -28,6 +31,7 @@ import io.edupilot.schedule.ScheduleService;
 @Retention(RetentionPolicy.RUNTIME)
 @MockitoBean(types = {
 	ClassroomService.class,
+	ClassroomStudentService.class,
 	ClassroomWeekService.class,
 	MaterialAccessService.class,
 	LearningProgressService.class,
@@ -39,8 +43,10 @@ import io.edupilot.schedule.ScheduleService;
 	ExamAiGradingService.class,
 	ExamSubmissionPersistenceService.class,
 	ReportCriterionCatalog.class,
+	ReportCriterionService.class,
 	ReportSnapshotBuilder.class,
 	ReportAiGenerationService.class,
+	ReportApiService.class,
 	ReportGenerationPersistenceService.class,
 	ReportGenerationService.class
 })

@@ -294,6 +294,19 @@ class ReportSnapshotBuilderJpaTest {
 	}
 
 	@Test
+	void removedStudentCannotStartAnotherReportGeneration() {
+		ClassroomMember membership = memberRepository
+			.findByClassroom_IdAndUser_Id(classroom.getId(), student.getId())
+			.orElseThrow();
+		memberRepository.delete(membership);
+		memberRepository.flush();
+
+		assertNotFound(() -> snapshotBuilder.validateAccess(
+			instructor.getId(), classroom.getId(), student.getId(), ReportScope.full()
+		), ErrorCode.CLASSROOM_NOT_FOUND);
+	}
+
+	@Test
 	void weekScopeExcludesOtherWeekAndZeroRecordsRemainUnavailable() {
 		ClassroomWeek secondWeek = weekRepository.save(ClassroomWeek.create(
 			classroom, 2, "Week 2", null

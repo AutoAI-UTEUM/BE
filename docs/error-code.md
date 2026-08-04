@@ -146,6 +146,14 @@
 | `EXAM_ALREADY_SUBMITTED` | 409 | 재응시가 허용되지 않은 GRADED 시험 또는 채점 중인 SUBMITTED 시험에 새 `requestId`로 다시 제출. SUBMITTED일 수 있으므로 FE는 기존 결과·polling 화면으로 유도 |
 | `INVALID_EXAM_ANSWER` | 400 | 알 수 없거나 중복된 문항 ID 또는 문항 유형과 맞지 않는 답안 |
 
+### 리포트
+
+| code | HTTP | 의미 |
+| --- | ---: | --- |
+| `REPORT_NOT_FOUND` | 404 | 리포트가 없거나 현재 사용자가 해당 리포트의 강의실을 관리하지 않음 |
+| `REPORT_CRITERION_LIMIT_EXCEEDED` | 409 | 기본 9종을 포함한 강의실 활성 리포트 기준이 20개를 초과함 |
+| `REPORT_CRITERION_DUPLICATE` | 409 | 정규화한 key 또는 이름이 기존 리포트 기준과 중복됨 |
+
 ### AI 연동
 
 | code | HTTP | 의미 |

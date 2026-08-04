@@ -30,6 +30,13 @@ public interface ReportGenerationRepository extends JpaRepository<ReportGenerati
 		Collection<ReportGenerationStatus> statuses
 	);
 
+	Optional<ReportGeneration>
+	findFirstByClassroom_IdAndStudent_IdAndStatusInOrderByCreatedAtDesc(
+		Long classroomId,
+		Long studentId,
+		Collection<ReportGenerationStatus> statuses
+	);
+
 	@Modifying(clearAutomatically = true, flushAutomatically = true)
 	@Query("update ReportGeneration generation "
 		+ "set generation.status = io.edupilot.report.ReportGenerationStatus.PROCESSING, "

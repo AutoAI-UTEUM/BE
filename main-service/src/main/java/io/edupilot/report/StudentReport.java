@@ -156,10 +156,14 @@ public class StudentReport {
 	public Long getPreviousReportId() {
 		return previousReport == null ? null : previousReport.getId();
 	}
+	public Integer getPreviousVersion() {
+		return previousReport == null ? null : previousReport.getVersion();
+	}
 	public BigDecimal getOverallScore() { return overallScore; }
 	public String getOverallStage() { return overallStage; }
 	public String getSummary() { return summary; }
 	public Map<String, Object> getDataQuality() { return dataQuality; }
 	public String getModel() { return model; }
 	public String getPromptVersion() { return promptVersion; }
+	public Instant getCreatedAt() { return createdAt; }
 }
