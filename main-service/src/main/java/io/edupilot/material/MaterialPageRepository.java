@@ -4,10 +4,23 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface MaterialPageRepository extends JpaRepository<MaterialPage, Long> {
 
 	Optional<MaterialPage> findByMaterial_IdAndPageNumber(Long materialId, int pageNumber);
+
+	@Query(value = """
+		SELECT CHAR_LENGTH(mp.text_content)
+		FROM material_pages mp
+		WHERE mp.material_id = :materialId
+		  AND mp.page_number = :pageNumber
+		""", nativeQuery = true)
+	Optional<Integer> findTextLengthByMaterialIdAndPageNumber(
+		@Param("materialId") Long materialId,
+		@Param("pageNumber") int pageNumber
+	);
 
 	List<MaterialPage> findByMaterial_IdAndPageNumberBetweenOrderByPageNumberAsc(
 		Long materialId,

@@ -145,6 +145,8 @@ class MainServiceApplicationTests {
 	void quizAndAiPipelineDefaultsMatchAcceptedContracts() {
 		assertThat(quizProperties.passRatio())
 			.isEqualByComparingTo(new BigDecimal("0.6"));
+		assertThat(quizProperties.proposalMinPageTextLength())
+			.isEqualTo(200);
 		assertThat(aiClientProperties.gradeReadTimeout())
 			.isEqualTo(Duration.ofSeconds(90));
 		assertThat(aiClientProperties.pipelineReadTimeout())

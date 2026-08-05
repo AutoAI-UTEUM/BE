@@ -3,6 +3,7 @@ package io.edupilot.session;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -27,9 +28,11 @@ import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
 import io.edupilot.memory.LearnerMemoryCandidate;
 import io.edupilot.memory.MemoryCandidateStatus;
+import io.edupilot.quiz.QuizProperties;
 import io.edupilot.quiz.QuizService;
 import io.edupilot.user.UserRepository;
 
@@ -56,6 +59,8 @@ class TurnPersistenceServiceTest {
 	private UserRepository userRepository;
 	@Mock
 	private LearningMaterialRepository materialRepository;
+	@Mock
+	private MaterialPageRepository materialPageRepository;
 	@Mock
 	private QuizService quizService;
 	@Mock
@@ -106,13 +111,17 @@ class TurnPersistenceServiceTest {
 	}
 
 	@Test
-	void createsOnlyW3ForTheFinalExplainedTransition() {
+	void createsQuizProposalAtExactTextLengthThreshold() {
 		LearningSession session = activeSession(
-			PageStatus.EXPLAINING,
+			PageStatus.NOT_EXPLAINED,
 			PageStatus.EXPLAINED,
 			1,
 			3
 		);
+		when(materialPageRepository.findTextLengthByMaterialIdAndPageNumber(
+			10L,
+			1
+		)).thenReturn(Optional.of(200));
 
 		PersistedTurn persisted = service().persist(
 			1L,
@@ -135,7 +144,93 @@ class TurnPersistenceServiceTest {
 	}
 
 	@Test
-	void returnsNoWidgetAndPreservesStoredWidgetWithoutTransition() {
+	void offersNextLearningBelowTextLengthThreshold() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINING,
+			PageStatus.EXPLAINED,
+			2,
+			3
+		);
+		when(materialPageRepository.findTextLengthByMaterialIdAndPageNumber(
+			10L,
+			2
+		)).thenReturn(Optional.of(199));
+
+		PersistedTurn persisted = service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.EXPLAIN_CURRENT_PAGE,
+			null,
+			501L,
+			response(Map.of("pageStatus", "EXPLAINED"), List.of())
+		);
+
+		assertThat(persisted.uiActions())
+			.containsExactly(UiAction.moveNextPage());
+		verify(session).applyAiTurn(
+			PageStatus.EXPLAINED,
+			List.of(UiAction.moveNextPage()),
+			true
+		);
+	}
+
+	@Test
+	void offersSessionCompletionForIneligibleLastPage() {
+		activeSession(
+			PageStatus.EXPLAINING,
+			PageStatus.EXPLAINED,
+			3,
+			3
+		);
+		when(materialPageRepository.findTextLengthByMaterialIdAndPageNumber(
+			10L,
+			3
+		)).thenReturn(Optional.of(199));
+
+		PersistedTurn persisted = service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.EXPLAIN_CURRENT_PAGE,
+			null,
+			501L,
+			response(Map.of("pageStatus", "EXPLAINED"), List.of())
+		);
+
+		assertThat(persisted.uiActions())
+			.containsExactly(UiAction.completeSession());
+	}
+
+	@Test
+	void treatsMissingExtractedPageAsIneligible() {
+		activeSession(
+			PageStatus.EXPLAINING,
+			PageStatus.EXPLAINED,
+			1,
+			3
+		);
+		when(materialPageRepository.findTextLengthByMaterialIdAndPageNumber(
+			10L,
+			1
+		)).thenReturn(Optional.empty());
+
+		PersistedTurn persisted = service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.EXPLAIN_CURRENT_PAGE,
+			null,
+			501L,
+			response(Map.of("pageStatus", "EXPLAINED"), List.of())
+		);
+
+		assertThat(persisted.uiActions())
+			.containsExactly(UiAction.moveNextPage());
+	}
+
+	@Test
+	void doesNotReofferQuizWhenExplainedPageIsExplainedAgain() {
 		LearningSession session = activeSession(
 			PageStatus.EXPLAINED,
 			PageStatus.EXPLAINED,
@@ -160,6 +255,8 @@ class TurnPersistenceServiceTest {
 			false
 		);
 		verify(pageRecordRepository).upsertExplainedPage(100L, 1, NOW);
+		verify(materialPageRepository, never())
+			.findTextLengthByMaterialIdAndPageNumber(any(), anyInt());
 	}
 
 	@Test
@@ -445,7 +542,9 @@ class TurnPersistenceServiceTest {
 			candidateRepository,
 			userRepository,
 			materialRepository,
+			materialPageRepository,
 			quizService,
+			new QuizProperties(new BigDecimal("0.6"), 200),
 			diagnosisService,
 			new UiActionResolver(),
 			Clock.fixed(NOW, ZoneOffset.UTC)

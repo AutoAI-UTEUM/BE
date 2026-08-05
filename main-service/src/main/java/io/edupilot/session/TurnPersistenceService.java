@@ -15,10 +15,12 @@ import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.memory.LearnerMemoryCandidate;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
 import io.edupilot.memory.MemoryEvidenceRef;
 import io.edupilot.memory.MemoryWrite;
+import io.edupilot.quiz.QuizProperties;
 import io.edupilot.quiz.QuizService;
 import io.edupilot.session.dto.MessageResponse;
 import io.edupilot.session.dto.TurnStateResponse;
@@ -35,7 +37,9 @@ public class TurnPersistenceService {
 	private final LearnerMemoryCandidateRepository candidateRepository;
 	private final UserRepository userRepository;
 	private final LearningMaterialRepository materialRepository;
+	private final MaterialPageRepository materialPageRepository;
 	private final QuizService quizService;
+	private final QuizProperties quizProperties;
 	private final DiagnosisService diagnosisService;
 	private final UiActionResolver uiActionResolver;
 	private final Clock clock;
@@ -49,7 +53,9 @@ public class TurnPersistenceService {
 		LearnerMemoryCandidateRepository candidateRepository,
 		UserRepository userRepository,
 		LearningMaterialRepository materialRepository,
+		MaterialPageRepository materialPageRepository,
 		QuizService quizService,
+		QuizProperties quizProperties,
 		DiagnosisService diagnosisService,
 		UiActionResolver uiActionResolver,
 		Clock clock
@@ -62,7 +68,9 @@ public class TurnPersistenceService {
 		this.candidateRepository = candidateRepository;
 		this.userRepository = userRepository;
 		this.materialRepository = materialRepository;
+		this.materialPageRepository = materialPageRepository;
 		this.quizService = quizService;
+		this.quizProperties = quizProperties;
 		this.diagnosisService = diagnosisService;
 		this.uiActionResolver = uiActionResolver;
 		this.clock = clock;
@@ -127,7 +135,8 @@ public class TurnPersistenceService {
 				previousPageStatus,
 				PageStatus.QUIZ_READY,
 				session.getCurrentPage(),
-				session.getMaterialPageCount()
+				session.getMaterialPageCount(),
+				false
 			);
 			session.activateQuiz(activeQuizId, uiActions);
 		} else {
@@ -144,11 +153,18 @@ public class TurnPersistenceService {
 				: nextPageStatus;
 			boolean pageStatusChanged =
 				finalPageStatus != previousPageStatus;
+			boolean quizEligible = isQuizEligible(
+				session,
+				eventType,
+				finalPageStatus,
+				pageStatusChanged
+			);
 			uiActions = uiActionResolver.forPageTransition(
 				previousPageStatus,
 				finalPageStatus,
 				session.getCurrentPage(),
-				session.getMaterialPageCount()
+				session.getMaterialPageCount(),
+				quizEligible
 			);
 			session.applyAiTurn(
 				nextPageStatus,
@@ -191,6 +207,28 @@ public class TurnPersistenceService {
 			parseMemoryWrite(aiResponse.memoryWrite()),
 			session.getMaterialId()
 		);
+	}
+
+	private boolean isQuizEligible(
+		LearningSession session,
+		TurnEventType eventType,
+		PageStatus finalPageStatus,
+		boolean pageStatusChanged
+	) {
+		if (finalPageStatus != PageStatus.EXPLAINED
+			|| !pageStatusChanged) {
+			return false;
+		}
+		if (eventType != TurnEventType.EXPLAIN_CURRENT_PAGE) {
+			return true;
+		}
+		int textLength = materialPageRepository
+			.findTextLengthByMaterialIdAndPageNumber(
+				session.getMaterialId(),
+				session.getCurrentPage()
+			)
+			.orElse(0);
+		return textLength >= quizProperties.proposalMinPageTextLength();
 	}
 
 	private List<ChatMessage> saveAiMessages(

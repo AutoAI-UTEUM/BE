@@ -50,6 +50,7 @@ edupilot:
     health-path: /health
   quiz:
     pass-ratio: ${EDUPILOT_QUIZ_PASS_RATIO:0.6}
+    proposal-min-page-text-length: ${EDUPILOT_QUIZ_PROPOSAL_MIN_PAGE_TEXT_LENGTH:200}
   material:
     upload-max-mb: ${EDUPILOT_UPLOAD_MAX_MB:45}
     max-pages: 300

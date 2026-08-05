@@ -28,7 +28,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
+import io.edupilot.quiz.QuizProperties;
 import io.edupilot.quiz.QuizService;
 import io.edupilot.user.UserRepository;
 
@@ -72,7 +74,11 @@ class TurnPersistenceTransactionTest {
 	@MockitoBean
 	private LearningMaterialRepository materialRepository;
 	@MockitoBean
+	private MaterialPageRepository materialPageRepository;
+	@MockitoBean
 	private QuizService quizService;
+	@MockitoBean
+	private QuizProperties quizProperties;
 	@MockitoBean
 	private DiagnosisService diagnosisService;
 
@@ -96,6 +102,11 @@ class TurnPersistenceTransactionTest {
 		when(session.getMaterialId()).thenReturn(10L);
 		when(sessionRepository.findOwnedForUpdate(100L, 1L))
 			.thenReturn(Optional.of(session));
+		when(materialPageRepository.findTextLengthByMaterialIdAndPageNumber(
+			10L,
+			1
+		)).thenReturn(Optional.of(200));
+		when(quizProperties.proposalMinPageTextLength()).thenReturn(200);
 		doThrow(new IllegalStateException("candidate flush failed"))
 			.when(candidateRepository).flush();
 
