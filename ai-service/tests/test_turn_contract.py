@@ -117,6 +117,25 @@ def test_plan_prompt_declares_policy_value_contracts(
     assert "confidence must be a number from 0 to 1" in system_prompt
 
 
+def test_plan_prompt_forbids_ui_prompt_tools(
+    turn_payload: dict[str, object],
+) -> None:
+    agent_context = ContextBuilder().build(TurnRequest.model_validate(turn_payload))
+    context = PlanContext.from_agent_context(agent_context)
+
+    system_prompt = plan_messages(context, retry=False)[0]["content"]
+
+    assert "PROMPT_BINARY_DECISION" in system_prompt
+    assert "PROMPT_QUIZ_TYPE_SELECTION" in system_prompt
+    assert "must never appear in the Plan" in system_prompt
+    assert "EXPLAIN_CURRENT_PAGE->EXPLAIN_PAGE" in system_prompt
+    assert "USER_QUESTION->ANSWER_QUESTION" in system_prompt
+    assert "QUIZ_TYPE_SELECTED->GENERATE_QUIZ_{type}" in system_prompt
+    assert (
+        "DIAGNOSIS_ANSWER_SUBMITTED->REPAIR_MISCONCEPTION" in system_prompt
+    )
+
+
 @pytest.mark.parametrize(
     ("plan_args", "field", "from_value", "to_value", "reason"),
     [
@@ -394,6 +413,52 @@ async def test_pipeline_tool_is_rejected_by_policy(
     error = InternalErrorResponse.model_validate(response.json())
     assert error.error.code == "AI_POLICY_REJECTED"
     assert error.error.category == "POLICY"
+
+
+async def test_ui_prompt_tool_is_rejected_by_policy(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "EXPLAIN_CURRENT_PAGE",
+        "payload": {"detailLevel": "NORMAL"},
+    }
+    fake_llm.queue(
+        TurnPlan(
+            turn_goal="EXPLAIN_CURRENT_PAGE",
+            pedagogy_policy=PedagogyPolicy(
+                mode="GROUND_FIRST",
+                reason="contract test",
+                allow_direct_answer=True,
+                hint_depth="MEDIUM",
+                intervention_budget=2,
+            ),
+            actions=[
+                PlanAction(
+                    action_id="action-1",
+                    tool=ToolName.EXPLAIN_PAGE,
+                    args={"page": 3, "detailLevel": "NORMAL"},
+                ),
+                PlanAction(
+                    action_id="action-2",
+                    tool=ToolName.PROMPT_BINARY_DECISION,
+                    args={},
+                ),
+            ],
+            reason="contract test plan",
+        )
+    )
+
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 502
+    error = InternalErrorResponse.model_validate(response.json())
+    assert error.error.code == "AI_POLICY_REJECTED"
+    assert error.error.category == "POLICY"
+    assert len(fake_llm.calls) == 1
 
 
 async def test_plan_schema_failure_regenerates_once(
