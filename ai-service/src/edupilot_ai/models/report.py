@@ -8,7 +8,7 @@ from edupilot_ai.models.base import ContractModel
 from edupilot_ai.models.turn import Usage
 
 MetricWindow = Literal["CUMULATIVE", "RECENT"]
-EvidenceSourceType = Literal["QUIZ", "QA", "DIAGNOSIS", "REPAIR", "MEMORY", "EXAM"]
+EvidenceSourceType = Literal["QUIZ", "QA", "DIAGNOSIS", "REPAIR", "MEMORY", "EXAM", "SESSION"]
 CriterionStatus = Literal["ASSESSED", "INSUFFICIENT_DATA"]
 WarningType = Literal[
     "CONFLICTING_EVIDENCE",
