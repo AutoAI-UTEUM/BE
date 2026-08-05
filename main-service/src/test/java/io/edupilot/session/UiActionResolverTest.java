@@ -14,7 +14,8 @@ class UiActionResolverTest {
 			PageStatus.EXPLAINING,
 			PageStatus.EXPLAINED,
 			1,
-			3
+			3,
+			true
 		)).containsExactly(new UiAction(
 			"BINARY_DECISION",
 			"퀴즈를 진행할까요?",
@@ -22,6 +23,24 @@ class UiActionResolverTest {
 			"MOVE_NEXT_PAGE",
 			null
 		));
+	}
+
+	@Test
+	void skipsQuizForIneligibleExplainedPage() {
+		assertThat(resolver.forPageTransition(
+			PageStatus.EXPLAINING,
+			PageStatus.EXPLAINED,
+			2,
+			3,
+			false
+		)).containsExactly(UiAction.moveNextPage());
+		assertThat(resolver.forPageTransition(
+			PageStatus.EXPLAINING,
+			PageStatus.EXPLAINED,
+			3,
+			3,
+			false
+		)).containsExactly(UiAction.completeSession());
 	}
 
 	@Test
@@ -38,13 +57,15 @@ class UiActionResolverTest {
 			PageStatus.DIAGNOSIS_PENDING,
 			PageStatus.REPAIR_COMPLETED,
 			2,
-			3
+			3,
+			false
 		)).containsExactly(UiAction.moveNextPage());
 		assertThat(resolver.forPageTransition(
 			PageStatus.DIAGNOSIS_PENDING,
 			PageStatus.REPAIR_COMPLETED,
 			3,
-			3
+			3,
+			false
 		)).containsExactly(UiAction.completeSession());
 	}
 
@@ -54,7 +75,8 @@ class UiActionResolverTest {
 			PageStatus.EXPLAINED,
 			PageStatus.EXPLAINED,
 			1,
-			3
+			3,
+			true
 		)).isEmpty();
 	}
 }

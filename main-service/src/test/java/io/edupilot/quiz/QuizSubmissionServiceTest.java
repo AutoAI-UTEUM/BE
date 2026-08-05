@@ -78,7 +78,7 @@ class QuizSubmissionServiceTest {
 			preparationService,
 			gradingService,
 			persistenceService,
-			new QuizProperties(new BigDecimal("0.6")),
+			new QuizProperties(new BigDecimal("0.6"), 200),
 			postGradingHook
 		);
 
@@ -186,7 +186,7 @@ class QuizSubmissionServiceTest {
 			preparationService,
 			gradingService,
 			persistenceService,
-			new QuizProperties(new BigDecimal(ratio)),
+			new QuizProperties(new BigDecimal(ratio), 200),
 			postGradingHook
 		);
 	}
