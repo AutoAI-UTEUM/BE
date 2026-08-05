@@ -2,10 +2,12 @@ package io.edupilot.report;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -17,8 +19,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.edupilot.ai.AiClient;
+import io.edupilot.ai.dto.ReportGenerateRequest;
 import io.edupilot.classroom.Classroom;
 import io.edupilot.classroom.ClassroomColor;
 import io.edupilot.classroom.ClassroomRepository;
@@ -57,9 +62,11 @@ class ReportJpaTest {
 	@Autowired private ReportCriterionResultRepository resultRepository;
 	@Autowired private ReportEvidenceSnapshotRepository evidenceRepository;
 	@Autowired private ReportGenerationPersistenceService persistenceService;
+	@Autowired private ReportAiGenerationService aiGenerationService;
 	@Autowired private EntityManager entityManager;
 	@Autowired private JdbcTemplate jdbcTemplate;
 	@Autowired private ObjectMapper objectMapper;
+	@MockitoBean private AiClient aiClient;
 
 	private User instructor;
 	private User student;
@@ -314,6 +321,67 @@ class ReportJpaTest {
 		});
 	}
 
+	@Test
+	void sessionOnlyEvidenceCanBeAssessedAndStored() {
+		ReportGeneration generation = sessionFrozenGeneration("session-assessed");
+		evidenceRepository.saveAllAndFlush(List.of(
+			evidence(generation, "session-1", ReportSourceType.SESSION),
+			evidence(generation, "session-2", ReportSourceType.SESSION)
+		));
+		when(aiClient.generateReport(org.mockito.ArgumentMatchers.any()))
+			.thenAnswer(invocation -> {
+				ReportGenerateRequest request = invocation.getArgument(0);
+				assertThat(request.evidence())
+					.extracting(ReportGenerateRequest.Evidence::sourceType)
+					.containsExactly(
+						ReportGenerateRequest.EvidenceSourceType.SESSION,
+						ReportGenerateRequest.EvidenceSourceType.SESSION
+					);
+				assertThat(request.dataQuality().availableSources())
+					.containsExactly(
+						ReportGenerateRequest.EvidenceSourceType.SESSION
+					);
+				assertThat(request.dataQuality().missingSources())
+					.doesNotContain(
+						ReportGenerateRequest.EvidenceSourceType.SESSION
+					);
+				return sessionResponse(request.reportId());
+			});
+		String leaseToken = "session-token";
+		Instant claimedAt = Instant.now();
+		assertThat(persistenceService.claimGenerationLease(
+			generation.getId(),
+			leaseToken,
+			claimedAt,
+			claimedAt.plusSeconds(300)
+		)).isTrue();
+
+		ReportAiGenerationService.GeneratedReport generated =
+			aiGenerationService.generate(generation.getId());
+
+		assertThat(persistenceService.applyGeneratedReport(
+			generation.getId(),
+			leaseToken,
+			generated
+		)).isTrue();
+		StudentReport savedReport = reportRepository
+			.findFirstByClassroom_IdAndStudent_IdOrderByVersionDesc(
+				classroom.getId(), student.getId()
+			)
+			.orElseThrow();
+		assertThat(resultRepository
+			.findByReport_IdOrderByCriterionKey(savedReport.getId()))
+			.singleElement()
+			.satisfies(result -> {
+				assertThat(result.getCriterionKey())
+					.isEqualTo("learning_persistence");
+				assertThat(result.getStatus())
+					.isEqualTo(ReportCriterionStatus.ASSESSED);
+				assertThat(result.getEvidenceIds())
+					.containsExactly("session-1", "session-2");
+			});
+	}
+
 	private ReportGeneration generation(User targetStudent, String requestId) {
 		return generationRepository.saveAndFlush(ReportGeneration.create(
 			classroom,
@@ -348,6 +416,25 @@ class ReportJpaTest {
 		return generation;
 	}
 
+	private ReportGeneration sessionFrozenGeneration(String requestId) {
+		ReportGeneration generation = ReportGeneration.create(
+			classroom,
+			student,
+			instructor,
+			requestId,
+			ReportScopeType.FULL,
+			null,
+			"scope-hash-" + requestId,
+			"1.0"
+		);
+		generation.freezeSnapshot(
+			"snapshot-hash-" + requestId,
+			sessionGenerationInput(),
+			Instant.now()
+		);
+		return generationRepository.saveAndFlush(generation);
+	}
+
 	private Map<String, Object> generationInput() {
 		ReportCriterionDefinition criterion = new ReportCriterionDefinition(
 			"question_specificity",
@@ -376,6 +463,43 @@ class ReportJpaTest {
 			Map.of(
 				"question_specificity",
 				new ReportSnapshot.Eligibility(true, null, 1, 1)
+			)
+		);
+		Map<String, Object> input = new java.util.LinkedHashMap<>();
+		input.put("criteria", convert(List.of(criterion)));
+		input.put("metrics", convert(metrics));
+		input.put("dataQuality", convert(quality));
+		return input;
+	}
+
+	private Map<String, Object> sessionGenerationInput() {
+		ReportCriterionDefinition criterion = new ReportCriterionDefinition(
+			"learning_persistence",
+			"학습 지속성",
+			"기간에 걸쳐 학습 활동을 이어 가는 정도",
+			Set.of(ReportSourceType.SESSION),
+			2,
+			BigDecimal.ONE,
+			"1.0"
+		);
+		ReportSnapshot.ScoreAggregate aggregate =
+			new ReportSnapshot.ScoreAggregate(0, null);
+		ReportSnapshot.ScoreWindow window =
+			new ReportSnapshot.ScoreWindow(aggregate, aggregate);
+		ReportSnapshot.Metrics metrics = new ReportSnapshot.Metrics(
+			new ReportSnapshot.Progress(1, 1, 100, true),
+			window,
+			window,
+			new ReportSnapshot.Questions(0, 0),
+			new ReportSnapshot.Activity(2, Instant.now())
+		);
+		ReportSnapshot.DataQuality quality = new ReportSnapshot.DataQuality(
+			"1.0",
+			Set.of(ReportSourceType.SESSION),
+			EnumSet.complementOf(EnumSet.of(ReportSourceType.SESSION)),
+			Map.of(
+				"learning_persistence",
+				new ReportSnapshot.Eligibility(true, null, 2, 2)
 			)
 		);
 		Map<String, Object> input = new java.util.LinkedHashMap<>();
@@ -422,6 +546,36 @@ class ReportJpaTest {
 		);
 	}
 
+	private ReportGenerateResponse sessionResponse(String reportId) {
+		ReportGenerateResponse.EvidencedStatement statement =
+			new ReportGenerateResponse.EvidencedStatement(
+				"세션 활동이 지속됨",
+				List.of("session-1", "session-2")
+			);
+		return new ReportGenerateResponse(
+			"1.0",
+			reportId,
+			List.of(new ReportGenerateResponse.CriterionResult(
+				"learning_persistence",
+				ReportGenerateResponse.CriterionStatus.ASSESSED,
+				80,
+				"세션 활동 근거로 학습 지속성을 평가함",
+				List.of("session-1", "session-2")
+			)),
+			new ReportGenerateResponse.Summary(
+				"세션 활동 기반 요약",
+				List.of(statement),
+				List.of(statement),
+				List.of(),
+				List.of(statement)
+			),
+			List.of(),
+			new AiUsage("test-model", 10L, 20L, null),
+			null,
+			null
+		);
+	}
+
 	private StudentReport report(
 		ReportGeneration generation,
 		User targetStudent,
@@ -456,6 +610,23 @@ class ReportJpaTest {
 			"1페이지 설명 완료",
 			Map.of("pageNumber", 1),
 			"source-hash"
+		);
+	}
+
+	private ReportEvidenceSnapshot evidence(
+		ReportGeneration generation,
+		String evidenceId,
+		ReportSourceType sourceType
+	) {
+		return ReportEvidenceSnapshot.create(
+			generation,
+			evidenceId,
+			sourceType.name(),
+			sourceType.name().toLowerCase() + ":" + evidenceId,
+			Instant.parse("2026-08-03T00:00:00Z"),
+			"학습 세션 완료",
+			Map.of("completed", true),
+			"source-hash-" + evidenceId
 		);
 	}
 }

@@ -24,7 +24,8 @@ public record ReportGenerateRequest(
 		DIAGNOSIS,
 		REPAIR,
 		MEMORY,
-		EXAM
+		EXAM,
+		SESSION
 	}
 
 	public record Scope(

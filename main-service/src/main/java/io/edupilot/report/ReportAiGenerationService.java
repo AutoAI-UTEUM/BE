@@ -23,9 +23,6 @@ import tools.jackson.databind.ObjectMapper;
 public class ReportAiGenerationService {
 
 	private static final String SCHEMA_VERSION = "1.0";
-	private static final Set<ReportSourceType> UNSUPPORTED_AI_SOURCES = EnumSet.of(
-		ReportSourceType.SESSION
-	);
 
 	private final ReportGenerationRepository generationRepository;
 	private final ReportEvidenceSnapshotRepository evidenceRepository;
@@ -72,7 +69,6 @@ public class ReportAiGenerationService {
 		List<ReportEvidenceSnapshot> storedEvidence = evidenceRepository
 			.findByGeneration_IdOrderByOccurredAtAscEvidenceIdAsc(generationId);
 		List<ReportGenerateRequest.Evidence> evidence = storedEvidence.stream()
-			.filter(item -> !UNSUPPORTED_AI_SOURCES.contains(sourceType(item)))
 			.map(this::evidence)
 			.toList();
 		List<ReportGenerateRequest.Criterion> criteria = input.criteria().stream()
@@ -347,7 +343,6 @@ public class ReportAiGenerationService {
 		Set<ReportSourceType> sources
 	) {
 		return sources.stream()
-			.filter(source -> !UNSUPPORTED_AI_SOURCES.contains(source))
 			.map(this::mapSource)
 			.distinct()
 			.sorted()
@@ -364,7 +359,7 @@ public class ReportAiGenerationService {
 			case DIAGNOSIS -> ReportGenerateRequest.EvidenceSourceType.DIAGNOSIS;
 			case MEMORY -> ReportGenerateRequest.EvidenceSourceType.MEMORY;
 			case EXAM_SUBMISSION -> ReportGenerateRequest.EvidenceSourceType.EXAM;
-			case SESSION -> throw invalid(null);
+			case SESSION -> ReportGenerateRequest.EvidenceSourceType.SESSION;
 		};
 	}
 
