@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -214,6 +215,54 @@ class ClassroomApiContractTest {
 		org.assertj.core.api.Assertions.assertThat(
 			captor.getValue().getShiftWeekReleaseDates()
 		).isTrue();
+	}
+
+	@Test
+	void permanentDeleteUsesConfirmNameAndStableErrorEnvelope() throws Exception {
+		mockMvc.perform(delete("/api/classrooms/30/permanent")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"confirmName\":\"AI 기초\"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true));
+		verify(classroomService).deletePermanently(
+			1L,
+			UserRole.INSTRUCTOR,
+			30L,
+			new io.edupilot.classroom.dto.PermanentDeleteClassroomRequest("AI 기초")
+		);
+
+		doThrow(new BusinessException(ErrorCode.VALIDATION_FAILED))
+			.when(classroomService)
+			.deletePermanently(eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), any());
+		mockMvc.perform(delete("/api/classrooms/30/permanent")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"confirmName\":\"AI  기초\"}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+
+		doThrow(new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND))
+			.when(classroomService)
+			.deletePermanently(eq(2L), eq(UserRole.LEARNER), eq(30L), any());
+		mockMvc.perform(delete("/api/classrooms/30/permanent")
+				.header(HttpHeaders.AUTHORIZATION, bearer(learnerToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"confirmName\":\"AI 기초\"}"))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("CLASSROOM_NOT_FOUND"));
+	}
+
+	@Test
+	void openApiDocumentsPermanentDeleteRequest() throws Exception {
+		mockMvc.perform(get("/v3/api-docs"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/permanent'].delete.summary"
+			).value("강의실 영구 삭제"))
+			.andExpect(jsonPath(
+				"$.components.schemas.PermanentDeleteClassroomRequest.required[0]"
+			).value("confirmName"));
 	}
 
 	@Test

@@ -23,6 +23,7 @@
 | 강의실 상세 | 화면 진입 | `GET /api/classrooms/{id}` | 기간·현재 주차·인원·역할별 상세 표시 | `CLASSROOM_NOT_FOUND` |
 | 강의자 학습 현황 | 대시보드 진입·새로고침 | `GET /api/classrooms/{id}/analytics` | 멤버·진도·최근 7일 질문/비활성·자료별 조회율·페이지별 질문 수 표시 | 소유 INSTRUCTOR, `CLASSROOM_NOT_FOUND` 은닉 |
 | 강의실 설정 | 정보·기간 수정, 주차 공개일 동시 이동 선택, 완료 전환 | `PATCH·DELETE /api/classrooms/{id}` | `startDate` 변경 시 `shiftWeekReleaseDates`에 따라 주차 공개일 이동, 수정 상세 또는 COMPLETED 읽기 전용 상태 반영 | 날짜·주차 범위 충돌, 소유권, 완료 상태 |
+| 강의실 설정 | 강의실명 재입력 후 영구 삭제 | `DELETE /api/classrooms/{id}/permanent` | 앞뒤 공백 제거 후 `confirmName`이 정확히 일치하면 강의실 목록으로 이동. 자료·기존 학습 이력·개인 일정은 유지 | 소유 INSTRUCTOR, 불일치 400, 학생·비소유·삭제 후 재시도 404 |
 | 초대 관리 | 코드 확인·재발급 | `GET /api/classrooms/{id}/invite-code`, `POST .../regenerate` | 새 코드를 복사·공유 | 소유권, 완료 상태 |
 | 강의실 참여 | 초대 코드 제출·내 요청 조회 | `POST /api/classroom-join-requests`, `GET /api/classroom-join-requests/me` | PENDING 상태와 처리 결과 표시 | 무효 코드, 멤버/대기 요청 중복 |
 | 참여 요청 관리 | 요청 목록·승인·거절 | `GET /api/classrooms/{id}/join-requests`, `POST .../{requestId}/approve|reject` | 목록에서 처리 상태·학습자 정보 갱신 | 이미 처리됨, 완료 상태 |
