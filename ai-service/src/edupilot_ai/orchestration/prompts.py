@@ -52,6 +52,13 @@ def plan_messages(
         "every candidate confidence is at least 0.7 and their unique evidenceRefs total "
         "at least 2. "
         "PROMPT_BINARY_DECISION and PROMPT_QUIZ_TYPE_SELECTION are not allowed. "
+        "UI prompts (PROMPT_BINARY_DECISION, PROMPT_QUIZ_TYPE_SELECTION) are served by "
+        "the server and must never appear in the Plan. Plan exactly the one tool that "
+        "matches the event (EXPLAIN_CURRENT_PAGE->EXPLAIN_PAGE, "
+        "USER_QUESTION->ANSWER_QUESTION, "
+        "QUIZ_TYPE_SELECTED->GENERATE_QUIZ_{type}, "
+        "DIAGNOSIS_ANSWER_SUBMITTED->REPAIR_MISCONCEPTION), plus memory tools only "
+        "when justified. "
         "memoryWrite must be null. FOLLOW_UP requires qaThreadDigest."
     )
     if retry:
