@@ -101,6 +101,7 @@
 | GET | `/api/classrooms/{id}/analytics` | 강의자 학습 현황 집계 | Y | 소유 INSTRUCTOR |
 | PATCH | `/api/classrooms/{id}` | 강의실 수정 | Y | 소유 INSTRUCTOR |
 | DELETE | `/api/classrooms/{id}` | 강의실 COMPLETED 전환 | Y | 소유 INSTRUCTOR |
+| DELETE | `/api/classrooms/{id}/permanent` | 강의실과 소속 운영 데이터 영구 삭제 | Y | 소유 INSTRUCTOR |
 | GET | `/api/classrooms/{id}/invite-code` | 초대 코드 조회 | Y | 소유 INSTRUCTOR |
 | POST | `/api/classrooms/{id}/invite-code/regenerate` | 초대 코드 재발급 | Y | 소유 INSTRUCTOR |
 | POST | `/api/classroom-join-requests` | 초대 코드 참여 요청 | Y | LEARNER, INSTRUCTOR(타인 강의실) |
@@ -1192,6 +1193,26 @@ Query:
 ### DELETE `/api/classrooms/{id}`
 
 물리 삭제하지 않고 `status=COMPLETED`로 전환하며 멱등입니다. 완료 강의실은 기존 소유자·멤버의 공개 자료 조회와 본인 통합학습을 유지하고, 초대·참여 처리·주차·자료 연결·공지 쓰기는 `CLASSROOM_COMPLETED`(409)로 거부합니다. 성공 시 갱신된 상세를 반환합니다.
+
+### DELETE `/api/classrooms/{id}/permanent`
+
+소유 `INSTRUCTOR`가 강의실 이름을 다시 입력해 강의실을 물리 삭제합니다. `ACTIVE`와 `COMPLETED` 상태 모두 허용하며 기존 완료 전환 API와는 별개입니다.
+
+```json
+{
+  "confirmName": "AI 기초"
+}
+```
+
+`confirmName`은 앞뒤 공백을 제거한 뒤 현재 강의실 이름과 대소문자·내부 공백을 포함해 정확히 일치해야 합니다. 불일치는 `VALIDATION_FAILED`(400)입니다. 역할 확인과 잠금 기반 소유권 확인을 먼저 수행하며, 학생·비소유 강사·존재하지 않는 강의실은 모두 `CLASSROOM_NOT_FOUND`(404)로 은닉합니다. 삭제 후 같은 요청을 다시 보내도 `CLASSROOM_NOT_FOUND`입니다.
+
+한 트랜잭션에서 다음 강의실 소속 데이터를 FK 역순으로 일괄 삭제합니다.
+
+- 별도 시험: `exam_answers`, `exam_submissions`, `exam_questions`, `exams`
+- 리포트: `report_criterion_results`, `student_reports`, `report_evidence_snapshots`, `report_generations`, `report_criteria`
+- 강의실 운영: `classroom_notices`, `classroom_week_materials`, `classroom_weeks`, `classroom_join_requests`, `classroom_members`, `classrooms`
+
+`student_reports.previous_report_id`는 삭제 전에 참조를 해제합니다. 강사 개인 소유 `learning_materials`와 학생-자료 관계의 `learning_sessions`, `session_page_records`, 채팅·QA, 통합학습 퀴즈·제출·평가, 진단, 학습자 메모리 및 `user_schedules`는 삭제하지 않습니다. 성공 응답의 `data`는 `null`입니다.
 
 ### GET `/api/classrooms/{id}/invite-code`
 

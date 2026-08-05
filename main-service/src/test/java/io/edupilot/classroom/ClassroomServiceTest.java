@@ -27,6 +27,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.edupilot.classroom.dto.CreateClassroomRequest;
 import io.edupilot.classroom.dto.CreateJoinRequest;
+import io.edupilot.classroom.dto.PermanentDeleteClassroomRequest;
 import io.edupilot.classroom.dto.UpdateClassroomRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -52,6 +53,8 @@ class ClassroomServiceTest {
 	@Mock
 	private ClassroomWeekMaterialRepository weekMaterialRepository;
 	@Mock
+	private ClassroomPermanentDeleteRepository permanentDeleteRepository;
+	@Mock
 	private LearningProgressService progressService;
 	@Mock
 	private LearningSessionRepository sessionRepository;
@@ -73,6 +76,7 @@ class ClassroomServiceTest {
 			joinRequestRepository,
 			weekRepository,
 			weekMaterialRepository,
+			permanentDeleteRepository,
 			progressService,
 			sessionRepository,
 			userRepository,
@@ -82,6 +86,71 @@ class ClassroomServiceTest {
 		instructor = user(1L, "teacher@example.com", "홍강사", UserRole.INSTRUCTOR);
 		learner = user(2L, "learner@example.com", "김학습", UserRole.LEARNER);
 		classroom = classroom(30L, instructor, "7KMX-9QTR");
+	}
+
+	@Test
+	void permanentDeleteValidatesOwnerAndNameThenDeletesInFkOrder() {
+		when(classroomRepository.findByIdForUpdate(30L))
+			.thenReturn(Optional.of(classroom));
+
+		service.deletePermanently(
+			1L,
+			UserRole.INSTRUCTOR,
+			30L,
+			new PermanentDeleteClassroomRequest(" AI 기초 ")
+		);
+
+		var ordered = org.mockito.Mockito.inOrder(permanentDeleteRepository);
+		ordered.verify(permanentDeleteRepository).deleteExamAnswers(30L);
+		ordered.verify(permanentDeleteRepository).deleteExamSubmissions(30L);
+		ordered.verify(permanentDeleteRepository).deleteExamQuestions(30L);
+		ordered.verify(permanentDeleteRepository).deleteExams(30L);
+		ordered.verify(permanentDeleteRepository).deleteReportCriterionResults(30L);
+		ordered.verify(permanentDeleteRepository).clearStudentReportPreviousReferences(30L);
+		ordered.verify(permanentDeleteRepository).deleteStudentReports(30L);
+		ordered.verify(permanentDeleteRepository).deleteReportEvidenceSnapshots(30L);
+		ordered.verify(permanentDeleteRepository).deleteReportGenerations(30L);
+		ordered.verify(permanentDeleteRepository).deleteReportCriteria(30L);
+		ordered.verify(permanentDeleteRepository).deleteClassroomNotices(30L);
+		ordered.verify(permanentDeleteRepository).deleteClassroomWeekMaterials(30L);
+		ordered.verify(permanentDeleteRepository).deleteClassroomWeeks(30L);
+		ordered.verify(permanentDeleteRepository).deleteClassroomJoinRequests(30L);
+		ordered.verify(permanentDeleteRepository).deleteClassroomMembers(30L);
+		ordered.verify(permanentDeleteRepository).deleteClassroom(30L);
+	}
+
+	@Test
+	void permanentDeleteHidesRoleAndOwnershipBeforeValidatingName() {
+		assertError(
+			() -> service.deletePermanently(
+				2L,
+				UserRole.LEARNER,
+				30L,
+				new PermanentDeleteClassroomRequest("wrong")
+			),
+			ErrorCode.CLASSROOM_NOT_FOUND
+		);
+		when(classroomRepository.findByIdForUpdate(30L))
+			.thenReturn(Optional.of(classroom));
+		assertError(
+			() -> service.deletePermanently(
+				2L,
+				UserRole.INSTRUCTOR,
+				30L,
+				new PermanentDeleteClassroomRequest("wrong")
+			),
+			ErrorCode.CLASSROOM_NOT_FOUND
+		);
+		assertError(
+			() -> service.deletePermanently(
+				1L,
+				UserRole.INSTRUCTOR,
+				30L,
+				new PermanentDeleteClassroomRequest("AI  기초")
+			),
+			ErrorCode.VALIDATION_FAILED
+		);
+		verify(permanentDeleteRepository, never()).deleteClassroom(any());
 	}
 
 	@Test

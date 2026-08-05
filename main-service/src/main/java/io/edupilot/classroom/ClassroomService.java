@@ -26,6 +26,7 @@ import io.edupilot.classroom.dto.InviteCodeResponse;
 import io.edupilot.classroom.dto.JoinRequestListResponse;
 import io.edupilot.classroom.dto.JoinRequestProcessResponse;
 import io.edupilot.classroom.dto.JoinRequestResponse;
+import io.edupilot.classroom.dto.PermanentDeleteClassroomRequest;
 import io.edupilot.classroom.dto.UpdateClassroomRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -49,6 +50,7 @@ public class ClassroomService {
 	private final ClassroomJoinRequestRepository joinRequestRepository;
 	private final ClassroomWeekRepository weekRepository;
 	private final ClassroomWeekMaterialRepository weekMaterialRepository;
+	private final ClassroomPermanentDeleteRepository permanentDeleteRepository;
 	private final LearningProgressService progressService;
 	private final LearningSessionRepository sessionRepository;
 	private final UserRepository userRepository;
@@ -61,6 +63,7 @@ public class ClassroomService {
 		ClassroomJoinRequestRepository joinRequestRepository,
 		ClassroomWeekRepository weekRepository,
 		ClassroomWeekMaterialRepository weekMaterialRepository,
+		ClassroomPermanentDeleteRepository permanentDeleteRepository,
 		LearningProgressService progressService,
 		LearningSessionRepository sessionRepository,
 		UserRepository userRepository,
@@ -72,6 +75,7 @@ public class ClassroomService {
 		this.joinRequestRepository = joinRequestRepository;
 		this.weekRepository = weekRepository;
 		this.weekMaterialRepository = weekMaterialRepository;
+		this.permanentDeleteRepository = permanentDeleteRepository;
 		this.progressService = progressService;
 		this.sessionRepository = sessionRepository;
 		this.userRepository = userRepository;
@@ -224,6 +228,44 @@ public class ClassroomService {
 		classroom.complete();
 		classroomRepository.flush();
 		return detailResponse(userId, classroom, true);
+	}
+
+	@Transactional
+	public void deletePermanently(
+		Long userId,
+		UserRole role,
+		Long classroomId,
+		PermanentDeleteClassroomRequest request
+	) {
+		if (role != UserRole.INSTRUCTOR) {
+			throw new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND);
+		}
+		Classroom classroom = requireStrictOwnerForUpdate(
+			userId, role, classroomId
+		);
+		String confirmName = request == null || request.confirmName() == null
+			? null
+			: request.confirmName().trim();
+		if (!classroom.getName().equals(confirmName)) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+		}
+
+		permanentDeleteRepository.deleteExamAnswers(classroomId);
+		permanentDeleteRepository.deleteExamSubmissions(classroomId);
+		permanentDeleteRepository.deleteExamQuestions(classroomId);
+		permanentDeleteRepository.deleteExams(classroomId);
+		permanentDeleteRepository.deleteReportCriterionResults(classroomId);
+		permanentDeleteRepository.clearStudentReportPreviousReferences(classroomId);
+		permanentDeleteRepository.deleteStudentReports(classroomId);
+		permanentDeleteRepository.deleteReportEvidenceSnapshots(classroomId);
+		permanentDeleteRepository.deleteReportGenerations(classroomId);
+		permanentDeleteRepository.deleteReportCriteria(classroomId);
+		permanentDeleteRepository.deleteClassroomNotices(classroomId);
+		permanentDeleteRepository.deleteClassroomWeekMaterials(classroomId);
+		permanentDeleteRepository.deleteClassroomWeeks(classroomId);
+		permanentDeleteRepository.deleteClassroomJoinRequests(classroomId);
+		permanentDeleteRepository.deleteClassroomMembers(classroomId);
+		permanentDeleteRepository.deleteClassroom(classroomId);
 	}
 
 	@Transactional(readOnly = true)
