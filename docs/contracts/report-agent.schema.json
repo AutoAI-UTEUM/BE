@@ -126,7 +126,8 @@
                   "DIAGNOSIS",
                   "REPAIR",
                   "MEMORY",
-                  "EXAM"
+                  "EXAM",
+                  "SESSION"
                 ],
                 "type": "string"
               },
@@ -172,7 +173,8 @@
                   "DIAGNOSIS",
                   "REPAIR",
                   "MEMORY",
-                  "EXAM"
+                  "EXAM",
+                  "SESSION"
                 ],
                 "type": "string"
               },
@@ -187,7 +189,8 @@
                   "DIAGNOSIS",
                   "REPAIR",
                   "MEMORY",
-                  "EXAM"
+                  "EXAM",
+                  "SESSION"
                 ],
                 "type": "string"
               },
@@ -226,7 +229,8 @@
                 "DIAGNOSIS",
                 "REPAIR",
                 "MEMORY",
-                "EXAM"
+                "EXAM",
+                "SESSION"
               ],
               "title": "Sourcetype",
               "type": "string"
@@ -932,7 +936,8 @@
                 "DIAGNOSIS",
                 "REPAIR",
                 "MEMORY",
-                "EXAM"
+                "EXAM",
+                "SESSION"
               ],
               "title": "Sourcetype",
               "type": "string"
