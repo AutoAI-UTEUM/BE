@@ -81,7 +81,7 @@ public class QuizSubmissionPersistenceService {
 			session.getCurrentPage(),
 			session.getMaterialPageCount()
 		);
-		session.completeQuizSubmission(quiz.getId(), uiActions);
+		session.completeQuizSubmission(quiz.getId(), uiActions, passed);
 		sessionRepository.flush();
 
 		return QuizSubmitResponse.from(submission, uiActions);

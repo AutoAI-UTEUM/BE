@@ -114,9 +114,16 @@ public class LearningSession {
 		this.status = SessionStatus.COMPLETED;
 	}
 
-	public void completeQuizSubmission(Long quizId, List<UiAction> uiActions) {
+	public void completeQuizSubmission(
+		Long quizId,
+		List<UiAction> uiActions,
+		boolean passed
+	) {
 		if (Objects.equals(this.activeQuizId, quizId)) {
 			this.activeQuizId = null;
+		}
+		if (passed) {
+			this.pageStatus = PageStatus.EXPLAINED;
 		}
 		this.lastUiActions = List.copyOf(uiActions);
 	}
