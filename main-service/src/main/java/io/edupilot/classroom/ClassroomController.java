@@ -19,6 +19,7 @@ import io.edupilot.classroom.dto.ClassroomListResponse;
 import io.edupilot.classroom.dto.CreateClassroomRequest;
 import io.edupilot.classroom.dto.InviteCodeResponse;
 import io.edupilot.classroom.dto.JoinRequestProcessResponse;
+import io.edupilot.classroom.dto.PermanentDeleteClassroomRequest;
 import io.edupilot.classroom.dto.UpdateClassroomRequest;
 import io.edupilot.global.response.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -101,6 +102,19 @@ public class ClassroomController {
 		return ApiResponse.success(classroomService.complete(
 			user.userId(), user.role(), classroomId
 		));
+	}
+
+	@DeleteMapping("/{id}/permanent")
+	@Operation(summary = "강의실 영구 삭제")
+	public ApiResponse<Void> deletePermanently(
+		@AuthenticationPrincipal AuthenticatedUser user,
+		@PathVariable("id") Long classroomId,
+		@RequestBody PermanentDeleteClassroomRequest request
+	) {
+		classroomService.deletePermanently(
+			user.userId(), user.role(), classroomId, request
+		);
+		return ApiResponse.success(null);
 	}
 
 	@GetMapping("/{id}/invite-code")
