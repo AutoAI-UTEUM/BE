@@ -44,7 +44,7 @@
 
 - 원시 예외 문자열·프롬프트·내부 추론을 message에 넣지 않는다.
 
-## 2. 내부 엔드포인트 (5종 — api-spec §8 확정 체계)
+## 2. 내부 엔드포인트 (6종 — api-spec §8 확정 체계)
 
 | Method | URL | 목적 | 호출 시점 |
 | --- | --- | --- | --- |
@@ -53,6 +53,7 @@
 | POST | `/internal/ai/grade` | SHORT/ESSAY 채점 | 제출 파이프라인 1단계 |
 | POST | `/internal/ai/quiz-assessment` | 내부 평가 생성 | 파이프라인 2단계 (채점 후 항상) |
 | POST | `/internal/ai/diagnosis` | 진단 질문 생성 | 파이프라인 3단계 (60% 미달 시 — DEC-010) |
+| POST | `/internal/ai/exams/draft` | 시험 문항 초안 생성 | 강사 요청 시 동기 호출 |
 
 - repair·memory 전용 엔드포인트는 두지 않는다 (turn 내부 도구 — api-spec §8 확정).
 - `GET /health` (+readiness 대상은 Epic8 ⓐ 계약에 따름).
@@ -366,6 +367,61 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 - 요청: `quizAssessment{}, quizResult{}, wrongItems[]{questionId, question, studentAnswer, modelAnswer, feedback}, pageContext, learnerMemoryDigest`
 - 응답 (§4.7): `focusConcepts[], suspectedMisconceptions[], diagnosticPrompt, evidence[], repairHint` + `usage`
 - 정답·전체 해설 미제공 원칙. Spring이 Diagnosis(PENDING)·pendingDiagnosis 설정.
+
+### 6.5 POST /internal/ai/exams/draft
+
+AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`이 wire 계약의 정본입니다. 이 호출은 무상태·동기식이며 Spring과 AI Service 모두 초안을 저장하지 않습니다.
+
+요청:
+
+```json
+{
+  "schemaVersion": "1.0",
+  "examId": 77,
+  "pageContexts": [
+    { "pageNumber": 1, "text": "선별된 첫 페이지 텍스트" }
+  ],
+  "questionPlan": [
+    { "questionType": "MCQ", "count": 3 },
+    { "questionType": "SHORT", "count": 2 }
+  ]
+}
+```
+
+- `examId`는 문자열 변환을 허용하지 않는 양의 strict integer이며 응답에서 같은 정수로 에코합니다.
+- `pageContexts`는 1~30개, `pageNumber`는 양수이자 요청 내 고유 값, `text`는 비어 있지 않아야 합니다. Main은 여러 자료를 자료 ID·원본 페이지 순으로 모은 뒤 계약 고유성을 위해 컨텍스트 번호 1..N을 부여합니다.
+- `questionPlan`은 1~4개 항목이며 유형은 `MCQ | OX | SHORT | ESSAY`, 유형 중복은 허용하지 않고 `count` 총합은 1~20입니다.
+
+응답:
+
+```json
+{
+  "schemaVersion": "1.0",
+  "examId": 77,
+  "questions": [
+    {
+      "questionType": "OX",
+      "sourcePageNumber": 1,
+      "questionId": "ox-1",
+      "questionText": "설명의 옳고 그름을 판단하세요.",
+      "points": 5,
+      "answerValue": true,
+      "explanation": "자료의 정의와 일치합니다."
+    }
+  ],
+  "usage": {
+    "model": "grok-4",
+    "inputTokens": 1200,
+    "outputTokens": 350,
+    "reasoningTokens": null
+  }
+}
+```
+
+- `questions[]`는 `questionType` discriminator로 QuizAgent의 MCQ(`choices`, `answerChoiceId`, `explanation`), OX(`answerValue`, `explanation`), SHORT(`referenceAnswer`, `gradingCriteria`), ESSAY(`modelAnswer`, `rubric`) 스키마를 구분하고 `sourcePageNumber`(nullable)를 추가합니다.
+- 문항 유형·개수는 계획과 일치해야 하며 `sourcePageNumber`는 null 또는 요청의 페이지 번호여야 합니다. MCQ 정답은 choices 중 하나이고 ESSAY rubric weight 합은 정확히 1.0입니다.
+- AI Service는 구조화 출력 계약 실패 시 한 번 재생성합니다. 최종 실패와 Main의 2차 검증 실패는 `AI_RESPONSE_INVALID`; timeout·인증·내부 오류는 §1의 표준 오류 봉투와 `traceId` 규칙을 그대로 사용합니다.
+- Main의 전용 read timeout은 120초입니다. 정답·해설을 포함하므로 외부 API는 소유 강사에게만 노출합니다.
 
 ## 7. Grok 연동 규칙 (DEC-002 v2 요약 — 구현 구속)
 
