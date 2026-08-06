@@ -2,6 +2,7 @@ package io.edupilot.material;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -27,4 +28,22 @@ public interface MaterialPageRepository extends JpaRepository<MaterialPage, Long
 		int startPage,
 		int endPage
 	);
+
+	@Query("""
+		select page.material.id as materialId,
+		       page.pageNumber as pageNumber,
+		       page.textContent as text
+		from MaterialPage page
+		where page.material.id in :materialIds
+		order by page.material.id, page.pageNumber, page.id
+		""")
+	List<ExamDraftPageText> findExamDraftPages(
+		@Param("materialIds") Collection<Long> materialIds
+	);
+
+	interface ExamDraftPageText {
+		Long getMaterialId();
+		Integer getPageNumber();
+		String getText();
+	}
 }

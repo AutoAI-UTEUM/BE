@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.edupilot.auth.AuthenticatedUser;
 import io.edupilot.exam.dto.CreateExamRequest;
+import io.edupilot.exam.dto.ExamDraftQuestionsResponse;
+import io.edupilot.exam.dto.GenerateExamDraftRequest;
 import io.edupilot.exam.dto.InstructorExamDetailResponse;
 import io.edupilot.exam.dto.InstructorExamListResponse;
 import io.edupilot.global.response.ApiResponse;
@@ -31,13 +33,32 @@ public class ClassroomExamController {
 
 	private final InstructorExamService instructorExamService;
 	private final StudentExamService studentExamService;
+	private final ExamDraftService examDraftService;
 
 	public ClassroomExamController(
 		InstructorExamService instructorExamService,
-		StudentExamService studentExamService
+		StudentExamService studentExamService,
+		ExamDraftService examDraftService
 	) {
 		this.instructorExamService = instructorExamService;
 		this.studentExamService = studentExamService;
+		this.examDraftService = examDraftService;
+	}
+
+	@PostMapping("/{examId}/draft-questions")
+	@Operation(
+		summary = "AI 시험 문항 초안 생성",
+		description = "초안은 저장되지 않으며 강사 검토 후 기존 문항 등록 API로 저장합니다."
+	)
+	public ApiResponse<ExamDraftQuestionsResponse> generateDraftQuestions(
+		@AuthenticationPrincipal AuthenticatedUser user,
+		@PathVariable Long classroomId,
+		@PathVariable Long examId,
+		@Valid @RequestBody GenerateExamDraftRequest request
+	) {
+		return ApiResponse.success(examDraftService.generate(
+			user.userId(), user.role(), classroomId, examId, request
+		));
 	}
 
 	@PostMapping
