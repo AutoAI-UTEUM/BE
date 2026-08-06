@@ -50,6 +50,8 @@ import io.edupilot.ai.dto.Adjustment;
 import io.edupilot.ai.dto.DiagnosisRequest;
 import io.edupilot.ai.dto.DiagnosisResponse;
 import io.edupilot.ai.dto.ExtractResponse;
+import io.edupilot.ai.dto.ExamDraftRequest;
+import io.edupilot.ai.dto.ExamDraftResponse;
 import io.edupilot.ai.dto.ExtractedPage;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
@@ -77,6 +79,7 @@ public class HttpAiClient implements AiClient {
 	private static final String DIAGNOSIS_PATH = "/internal/ai/diagnosis";
 	private static final String REPORT_GENERATE_PATH =
 		"/internal/ai/reports/generate";
+	private static final String EXAM_DRAFT_PATH = "/internal/ai/exams/draft";
 	private static final String SCHEMA_VERSION = "1.0";
 	private static final MediaType NDJSON =
 		MediaType.parseMediaType("application/x-ndjson");
@@ -94,6 +97,7 @@ public class HttpAiClient implements AiClient {
 	private final RestClient gradeRestClient;
 	private final RestClient pipelineRestClient;
 	private final RestClient reportRestClient;
+	private final RestClient examDraftRestClient;
 	private final String healthPath;
 	private final Duration streamIdleTimeout;
 	private final ObjectMapper objectMapper = new ObjectMapper();
@@ -128,6 +132,10 @@ public class HttpAiClient implements AiClient {
 		this.reportRestClient = buildRestClient(
 			properties,
 			properties.reportReadTimeout()
+		);
+		this.examDraftRestClient = buildRestClient(
+			properties,
+			properties.examDraftReadTimeout()
 		);
 		this.healthPath = properties.healthPath();
 		this.streamIdleTimeout = properties.streamIdleTimeout();
@@ -792,6 +800,19 @@ public class HttpAiClient implements AiClient {
 					.body(String.class);
 				return parseReportResponse(body);
 			}
+		);
+	}
+
+	@Override
+	public ExamDraftResponse generateExamDraft(ExamDraftRequest request) {
+		return executeAttempt(
+			new AiCallContext(EXAM_DRAFT_PATH, 1, false, null, null, null),
+			() -> examDraftRestClient.post()
+				.uri(EXAM_DRAFT_PATH)
+				.contentType(MediaType.APPLICATION_JSON)
+				.body(request)
+				.retrieve()
+				.body(ExamDraftResponse.class)
 		);
 	}
 

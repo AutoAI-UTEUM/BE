@@ -22,6 +22,9 @@ import org.springframework.core.io.ByteArrayResource;
 
 import io.edupilot.ai.dto.TurnRequest;
 import io.edupilot.ai.dto.DiagnosisRequest;
+import io.edupilot.ai.dto.ExamDraftRequest;
+import io.edupilot.ai.dto.ExamDraftResponse;
+import io.edupilot.exam.ExamQuestionType;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
 import io.edupilot.ai.dto.QuizAssessmentResponse;
@@ -682,6 +685,66 @@ class HttpAiClientContractTest {
 			).isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT));
 	}
 
+	@Test
+	void examDraftUsesDedicatedEndpointAndQuestionTypeDiscriminator() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "examId": 12,
+			  "questions": [
+			    {
+			      "questionType": "MCQ",
+			      "sourcePageNumber": 1,
+			      "questionId": "mcq-1",
+			      "questionText": "Question",
+			      "points": 5,
+			      "choices": [
+			        {"choiceId": "a", "text": "A"},
+			        {"choiceId": "b", "text": "B"}
+			      ],
+			      "answerChoiceId": "a",
+			      "explanation": "Because A"
+			    },
+			    {
+			      "questionType": "SHORT",
+			      "sourcePageNumber": null,
+			      "questionId": "short-1",
+			      "questionText": "Explain",
+			      "points": 5,
+			      "referenceAnswer": "Answer",
+			      "gradingCriteria": ["Accuracy"]
+			    }
+			  ],
+			  "usage": {
+			    "model": "grok-test",
+			    "inputTokens": 10,
+			    "outputTokens": 20,
+			    "reasoningTokens": null
+			  }
+			}
+			"""));
+
+		ExamDraftResponse response = client(Duration.ofSeconds(1))
+			.generateExamDraft(new ExamDraftRequest(
+				"1.0",
+				12L,
+				List.of(new ExamDraftRequest.PageContext(1, "Page text")),
+				List.of(
+					new ExamDraftRequest.QuestionPlanItem(ExamQuestionType.MCQ, 1),
+					new ExamDraftRequest.QuestionPlanItem(ExamQuestionType.SHORT, 1)
+				)
+			));
+
+		assertThat(response.questions().get(0))
+			.isInstanceOf(ExamDraftResponse.McqQuestion.class);
+		assertThat(response.questions().get(1))
+			.isInstanceOf(ExamDraftResponse.ShortQuestion.class);
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request.getPath()).isEqualTo("/internal/ai/exams/draft");
+		assertThat(request.getBody().readUtf8())
+			.contains("\"examId\":12", "\"pageContexts\"");
+	}
+
 	private HttpAiClient client(Duration readTimeout) {
 		return new HttpAiClient(properties(server.url("/").uri(), readTimeout));
 	}
@@ -691,6 +754,7 @@ class HttpAiClientContractTest {
 			baseUrl,
 			INTERNAL_TOKEN,
 			Duration.ofMillis(300),
+			readTimeout,
 			readTimeout,
 			readTimeout,
 			readTimeout,
