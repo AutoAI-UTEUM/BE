@@ -33,9 +33,9 @@ from tests.fakes import FakeLlm
 from tests.test_turn_contract import make_plan, post_turn
 
 
-def make_questions(quiz_type: QuizType) -> list[
-    McqQuestion | OxQuestion | ShortQuestion | EssayQuestion
-]:
+def make_questions(
+    quiz_type: QuizType,
+) -> list[McqQuestion | OxQuestion | ShortQuestion | EssayQuestion]:
     questions: list[McqQuestion | OxQuestion | ShortQuestion | EssayQuestion] = []
     for index in range(1, 6):
         question_id = f"q-{index}"
@@ -237,14 +237,16 @@ def grader_output(
     score_ratio: float = 0.8,
     score: float = 8,
     verdict: Literal["CORRECT", "PARTIAL", "WRONG"] = "CORRECT",
+    question_id: str = "q-1",
+    criteria: tuple[str, ...] = ("정확성", "논리성"),
 ) -> GraderOutput:
     return GraderOutput(
         items=[
             GraderItemOutput(
-                question_id="q-1",
+                question_id=question_id,
                 rubric_scores=[
-                    RubricScore(criterion="정확성", score_ratio=score_ratio),
-                    RubricScore(criterion="논리성", score_ratio=score_ratio),
+                    RubricScore(criterion=criterion, score_ratio=score_ratio)
+                    for criterion in criteria
                 ],
                 score=score,
                 verdict=verdict,
@@ -278,7 +280,7 @@ async def test_grade_matches_by_question_id_and_uses_high_reasoning(
     assert body["items"][0]["verdict"] == "CORRECT"
     assert body["usage"]["model"] == "grok-4.5"
     assert fake_llm.calls[0][1].reasoning_effort is ReasoningEffort.HIGH
-    assert fake_llm.timeouts == [90]
+    assert fake_llm.timeouts == [110]
     assert "모든 학습자 대상 텍스트" in fake_llm.calls[0][0][0]["content"]
 
 
@@ -301,13 +303,51 @@ async def test_grade_question_id_mismatch_is_bad_request_without_llm(
     assert fake_llm.calls == []
 
 
-async def test_grade_invariant_violation_regenerates_once(
+async def test_grade_score_echo_mismatch_recomputes_and_warns(
     client: httpx.AsyncClient,
     fake_llm: FakeLlm,
     auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level("WARNING", logger="edupilot_ai.grading.service")
+    fake_llm.queue(grader_output(score=9))
+
+    response = await post_grade(client, auth_headers, grade_payload())
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["score"] == 8
+    assert len(fake_llm.calls) == 1
+    assert "questionId=q-1" in caplog.text
+    assert "scoreDifference=1" in caplog.text
+
+
+async def test_grade_verdict_echo_mismatch_recomputes_and_warns(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("WARNING", logger="edupilot_ai.grading.service")
+    fake_llm.queue(grader_output(verdict="PARTIAL"))
+
+    response = await post_grade(client, auth_headers, grade_payload())
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["verdict"] == "CORRECT"
+    assert len(fake_llm.calls) == 1
+    assert "questionId=q-1" in caplog.text
+    assert "verdictDifference=1" in caplog.text
+
+
+async def test_grade_question_id_violation_regenerates_with_reason_log(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("WARNING", logger="edupilot_ai.grading.service")
     fake_llm.queue(
-        grader_output(score=9, verdict="CORRECT"),
+        grader_output(question_id="different"),
         grader_output(),
     )
 
@@ -315,17 +355,21 @@ async def test_grade_invariant_violation_regenerates_once(
 
     assert response.status_code == 200
     assert len(fake_llm.calls) == 2
+    assert "QUESTION_ID_MISMATCH" in caplog.text
+    assert "attempt=1" in caplog.text
     assert "정확히 한 번 재생성하세요" in fake_llm.calls[1][0][0]["content"]
 
 
-async def test_grade_invariant_violation_twice_is_schema_error(
+async def test_grade_rubric_criteria_violation_twice_is_schema_error(
     client: httpx.AsyncClient,
     fake_llm: FakeLlm,
     auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level("WARNING", logger="edupilot_ai.grading.service")
     fake_llm.queue(
-        grader_output(score=9, verdict="CORRECT"),
-        grader_output(score=8, verdict="PARTIAL"),
+        grader_output(criteria=("정확성", "관련성")),
+        grader_output(criteria=("정확성", "관련성")),
     )
 
     response = await post_grade(client, auth_headers, grade_payload())
@@ -336,6 +380,9 @@ async def test_grade_invariant_violation_twice_is_schema_error(
     assert error.error.category == "SCHEMA"
     assert error.error.retryable is False
     assert len(fake_llm.calls) == 2
+    assert "RUBRIC_CRITERIA_MISMATCH" in caplog.text
+    assert "attempt=1" in caplog.text
+    assert "attempt=2" in caplog.text
 
 
 async def test_grade_request_rejects_invalid_rubric_sum(

@@ -3,13 +3,20 @@
 import asyncio
 import json
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping, Sequence
 from copy import deepcopy
 
 import httpx
+from fastapi import FastAPI
 
+from edupilot_ai.api.deps import get_turn_service
 from edupilot_ai.core.errors import ErrorCategory
-from edupilot_ai.llm.bridge import LlmBridgeError, LlmUsage
+from edupilot_ai.llm.bridge import (
+    LlmBridgeError,
+    LlmCompletion,
+    LlmUsage,
+    ModelT,
+)
 from edupilot_ai.models.plan import (
     AgentOutput,
     PedagogyPolicy,
@@ -25,14 +32,14 @@ from edupilot_ai.models.stream import (
     TurnStreamEvent,
 )
 from edupilot_ai.models.turn import TurnRequest, TurnResponse
-from edupilot_ai.orchestration.agents import ExplainerAgent, QaAgent
+from edupilot_ai.orchestration.agents import ExplainerAgent, QaAgent, QuizAgent
 from edupilot_ai.orchestration.context import ContextBuilder
 from edupilot_ai.orchestration.dispatcher import ToolDispatcher
 from edupilot_ai.orchestration.orchestrator import Orchestrator
 from edupilot_ai.orchestration.policy import PolicyVerifier
 from edupilot_ai.orchestration.service import TurnService, events_with_heartbeat
 from edupilot_ai.orchestration.timing import MonotonicClock
-from edupilot_ai.settings import Settings
+from edupilot_ai.settings import AgentLlmProfile, Settings
 from tests.fakes import FakeLlm
 from tests.test_learning_support import (
     plan_with_memory_action,
@@ -40,6 +47,28 @@ from tests.test_learning_support import (
     temporary_candidate,
 )
 from tests.test_quiz_grading import make_quiz
+
+
+class SlowFakeLlm(FakeLlm):
+    def __init__(self, *, delay_seconds: float) -> None:
+        super().__init__()
+        self._delay_seconds = delay_seconds
+
+    async def complete_json(
+        self,
+        *,
+        messages: Sequence[Mapping[str, str]],
+        response_model: type[ModelT],
+        profile: AgentLlmProfile,
+        timeout_seconds: float,
+    ) -> LlmCompletion[ModelT]:
+        await asyncio.sleep(self._delay_seconds)
+        return await super().complete_json(
+            messages=messages,
+            response_model=response_model,
+            profile=profile,
+            timeout_seconds=timeout_seconds,
+        )
 
 
 def make_plan(tool: ToolName, args: dict[str, object], goal: str) -> TurnPlan:
@@ -83,6 +112,10 @@ def make_service(
             qa=QaAgent(
                 llm=fake_llm,
                 profile=settings.qa_llm_profile,
+            ),
+            quiz=QuizAgent(
+                llm=fake_llm,
+                profile=settings.quiz_llm_profile,
             ),
             model=settings.model_name,
         ),
@@ -145,9 +178,7 @@ async def test_explain_ndjson_golden_sequence_and_content_invariant(
     ]
     assert events[1]["text"] == "학습 계획을 세우는 중입니다"
     assert events[3]["text"] == "3페이지 설명을 작성하는 중입니다"
-    deltas = "".join(
-        str(event["text"]) for event in events if event["type"] == "content_delta"
-    )
+    deltas = "".join(str(event["text"]) for event in events if event["type"] == "content_delta")
     completed = TurnResponse.model_validate(events[-1]["result"])
     assert deltas == "".join(message.content for message in completed.messages)
     assert completed.messages[0].message_type == "EXPLANATION"
@@ -158,10 +189,7 @@ async def test_explain_ndjson_golden_sequence_and_content_invariant(
     assert fake_llm.stream_calls[0][2] <= fake_llm.timeouts[0]
     stream_system_prompt = fake_llm.stream_calls[0][0][0]["content"]
     assert "Return only the learner-facing Markdown explanation." in stream_system_prompt
-    assert (
-        "Return AgentOutput JSON with a short thoughtSummary."
-        not in stream_system_prompt
-    )
+    assert "Return AgentOutput JSON with a short thoughtSummary." not in stream_system_prompt
     assert "모든 학습자 대상 텍스트" in stream_system_prompt
 
 
@@ -195,18 +223,13 @@ async def test_qa_ndjson_golden_sequence_preserves_thread_ref(
 
     events = parse_events(response)
     assert events[-1]["type"] == "completed"
-    assert any(
-        event.get("stage") == "ANSWERING"
-        for event in events
-        if event["type"] == "status"
-    )
+    assert any(event.get("stage") == "ANSWERING" for event in events if event["type"] == "status")
     result = TurnResponse.model_validate(events[-1]["result"])
-    assert result.state_patch == {
-        "qaThread": {"mode": "FOLLOW_UP", "threadRef": "qa-11"}
-    }
-    assert "".join(
-        str(event["text"]) for event in events if event["type"] == "content_delta"
-    ) == result.messages[0].content
+    assert result.state_patch == {"qaThread": {"mode": "FOLLOW_UP", "threadRef": "qa-11"}}
+    assert (
+        "".join(str(event["text"]) for event in events if event["type"] == "content_delta")
+        == result.messages[0].content
+    )
     assert "모든 학습자 대상 텍스트" in fake_llm.stream_calls[0][0][0]["content"]
 
 
@@ -262,10 +285,7 @@ async def test_expired_turn_budget_stops_before_agent_call(
     )
 
     events = [
-        event
-        async for event in service.stream_events(
-            TurnRequest.model_validate(turn_payload)
-        )
+        event async for event in service.stream_events(TurnRequest.model_validate(turn_payload))
     ]
 
     terminal = events[-1]
@@ -370,12 +390,64 @@ async def test_quiz_tool_uses_terminal_event_without_provider_stream(
     )
 
     events = parse_events(response)
-    assert [event["type"] for event in events] == ["completed"]
-    completed = CompletedStreamEvent.model_validate(events[0])
+    assert [event["type"] for event in events] == [
+        "status",
+        "thought_summary",
+        "completed",
+    ]
+    assert events[0]["stage"] == "PLANNING"
+    assert events[1]["text"] == "요청을 처리하는 중입니다"
+    completed = CompletedStreamEvent.model_validate(events[-1])
     assert completed.result.quiz is not None
     assert completed.result.quiz.quiz_type is QuizType.MCQ
     assert len(fake_llm.calls) == 2
     assert fake_llm.stream_calls == []
+
+
+async def test_quiz_ndjson_emits_status_and_heartbeat_before_completed(
+    app: FastAPI,
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    settings: Settings,
+    turn_payload: dict[str, object],
+) -> None:
+    slow_llm = SlowFakeLlm(delay_seconds=0.02)
+    service = make_service(
+        slow_llm,
+        settings,
+        heartbeat_interval_seconds=0.005,
+    )
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "QUIZ_TYPE_SELECTED",
+        "payload": {"quizType": "MCQ"},
+    }
+    slow_llm.queue(
+        make_plan(
+            ToolName.GENERATE_QUIZ_MCQ,
+            {"quizType": "MCQ"},
+            "GENERATE_QUIZ",
+        ),
+        make_quiz(QuizType.MCQ),
+    )
+
+    app.dependency_overrides[get_turn_service] = lambda: service
+    try:
+        response = await client.post(
+            "/internal/ai/turn",
+            json=payload,
+            headers={**auth_headers, "Accept": "application/x-ndjson"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_turn_service, None)
+
+    events = parse_events(response)
+    event_types = [event["type"] for event in events]
+    assert event_types[:2] == ["status", "thought_summary"]
+    assert events[0]["stage"] == "PLANNING"
+    assert events[1]["text"] == "요청을 처리하는 중입니다"
+    assert "heartbeat" in event_types[2:-1]
+    assert event_types[-1] == "completed"
 
 
 async def test_ndjson_completed_includes_memory_write(
