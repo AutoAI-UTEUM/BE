@@ -15,6 +15,8 @@ import io.edupilot.classroom.ClassroomWeekMaterialRepository;
 import io.edupilot.classroom.ClassroomNoticeService;
 import io.edupilot.exam.InstructorExamService;
 import io.edupilot.exam.ExamAiGradingService;
+import io.edupilot.exam.ExamDraftService;
+import io.edupilot.exam.ExamDraftPreparationService;
 import io.edupilot.exam.ExamSubmissionPersistenceService;
 import io.edupilot.exam.StudentExamService;
 import io.edupilot.material.MaterialAccessService;
@@ -45,6 +47,8 @@ import io.edupilot.schedule.PersonalScheduleService;
 	InstructorExamService.class,
 	StudentExamService.class,
 	ExamAiGradingService.class,
+	ExamDraftService.class,
+	ExamDraftPreparationService.class,
 	ExamSubmissionPersistenceService.class,
 	ReportCriterionCatalog.class,
 	ReportCriterionService.class,

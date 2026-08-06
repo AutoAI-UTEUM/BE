@@ -157,6 +157,8 @@ class MainServiceApplicationTests {
 			.isEqualTo(Duration.ofSeconds(30));
 		assertThat(aiClientProperties.healthTimeout())
 			.isEqualTo(Duration.ofSeconds(2));
+		assertThat(aiClientProperties.examDraftReadTimeout())
+			.isEqualTo(Duration.ofSeconds(120));
 	}
 
 	@Test
@@ -364,6 +366,12 @@ class MainServiceApplicationTests {
 			.andExpect(jsonPath(
 				"$.paths['/api/classrooms/{classroomId}/exams'].get"
 			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/exams/{examId}/draft-questions'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.Question.discriminator.propertyName"
+			).value("questionType"))
 			.andExpect(jsonPath("$.paths['/api/exams/{examId}'].get").exists())
 			.andExpect(jsonPath("$.paths['/api/exams/{examId}'].patch").exists())
 			.andExpect(jsonPath("$.paths['/api/exams/{examId}'].delete").exists())

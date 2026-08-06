@@ -47,6 +47,7 @@ edupilot:
     pipeline-read-timeout: ${EDUPILOT_AI_PIPELINE_READ_TIMEOUT:45s}
     extract-read-timeout: ${EDUPILOT_AI_EXTRACT_READ_TIMEOUT:120s}
     report-read-timeout: ${EDUPILOT_AI_REPORT_READ_TIMEOUT:180s}
+    exam-draft-read-timeout: ${EDUPILOT_AI_EXAM_DRAFT_READ_TIMEOUT:120s}
     health-path: /health
   quiz:
     pass-ratio: ${EDUPILOT_QUIZ_PASS_RATIO:0.6}

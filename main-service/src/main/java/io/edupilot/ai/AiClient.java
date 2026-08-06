@@ -7,6 +7,8 @@ import io.edupilot.ai.dto.AiHealthResponse;
 import io.edupilot.ai.dto.DiagnosisRequest;
 import io.edupilot.ai.dto.DiagnosisResponse;
 import io.edupilot.ai.dto.ExtractResponse;
+import io.edupilot.ai.dto.ExamDraftRequest;
+import io.edupilot.ai.dto.ExamDraftResponse;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
@@ -39,4 +41,6 @@ public interface AiClient {
 	DiagnosisResponse diagnosis(DiagnosisRequest request);
 
 	ReportGenerateResponse generateReport(ReportGenerateRequest request);
+
+	ExamDraftResponse generateExamDraft(ExamDraftRequest request);
 }

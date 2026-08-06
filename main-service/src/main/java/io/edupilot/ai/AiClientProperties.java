@@ -23,6 +23,7 @@ public record AiClientProperties(
 	@NotNull Duration pipelineReadTimeout,
 	@NotNull Duration extractReadTimeout,
 	@NotNull Duration reportReadTimeout,
+	@NotNull Duration examDraftReadTimeout,
 	@NotBlank String healthPath
 ) {
 }
