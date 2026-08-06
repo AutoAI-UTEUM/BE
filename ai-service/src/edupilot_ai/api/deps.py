@@ -4,6 +4,7 @@ from typing import Annotated, cast
 
 from fastapi import Depends, Request
 
+from edupilot_ai.examdraft.service import ExamDraftService
 from edupilot_ai.grading.service import GraderAgent, GradeService
 from edupilot_ai.llm.bridge import LlmBridge
 from edupilot_ai.orchestration.agents import (
@@ -120,4 +121,15 @@ def get_report_query_service(
         llm=llm,
         profile=settings.report_query_llm_profile,
         timeout_seconds=settings.report_query_timeout_seconds,
+    )
+
+
+def get_exam_draft_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    llm: Annotated[LlmBridge, Depends(get_llm_bridge)],
+) -> ExamDraftService:
+    return ExamDraftService(
+        llm=llm,
+        profile=settings.exam_draft_llm_profile,
+        timeout_seconds=settings.exam_draft_timeout_seconds,
     )
