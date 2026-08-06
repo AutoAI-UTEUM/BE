@@ -1,9 +1,10 @@
 """Validated SHORT/ESSAY grading with one schema regeneration."""
 
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from http import HTTPStatus
-from math import isclose
+from typing import Literal
 
 from edupilot_ai.core.errors import ErrorCategory, InternalApiError
 from edupilot_ai.llm.bridge import LlmBridge, LlmBridgeError, LlmUsage
@@ -16,9 +17,20 @@ from edupilot_ai.models.grading import (
 from edupilot_ai.models.turn import Usage
 from edupilot_ai.settings import AgentLlmProfile
 
+logger = logging.getLogger(__name__)
+GradeViolationReason = Literal[
+    "QUESTION_ID_MISMATCH",
+    "RUBRIC_CRITERIA_MISMATCH",
+]
+GradeVerdict = Literal["CORRECT", "PARTIAL", "WRONG"]
+
 
 class GradeOutputViolation(Exception):
     """A structurally valid LLM result that violates deterministic grading."""
+
+    def __init__(self, reason: GradeViolationReason) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 def grader_messages(
@@ -50,7 +62,9 @@ def grader_messages(
             "있었는지 추측하지 마라."
         )
     if retry:
-        system += " 이전 결과가 점수 또는 판정 불변식을 위반했습니다. 정확히 한 번 재생성하세요."
+        system += (
+            " 이전 결과가 문항 또는 루브릭 식별자 불변식을 위반했습니다. 정확히 한 번 재생성하세요."
+        )
     return [
         {"role": "system", "content": system},
         {
@@ -60,7 +74,7 @@ def grader_messages(
     ]
 
 
-def _verdict(score: float, max_score: float) -> str:
+def _verdict(score: float, max_score: float) -> GradeVerdict:
     ratio = score / max_score
     if ratio >= 0.8:
         return "CORRECT"
@@ -70,11 +84,7 @@ def _verdict(score: float, max_score: float) -> str:
 
 
 def _usage(usages: list[LlmUsage], default_model: str) -> Usage:
-    reasoning = [
-        usage.reasoning_tokens
-        for usage in usages
-        if usage.reasoning_tokens is not None
-    ]
+    reasoning = [usage.reasoning_tokens for usage in usages if usage.reasoning_tokens is not None]
     return Usage(
         model=usages[-1].model if usages else default_model,
         input_tokens=sum(usage.input_tokens for usage in usages),
@@ -122,7 +132,13 @@ class GraderAgent:
                     items=validated.items,
                     usage=_usage(usages, self._profile.model),
                 )
-            except GradeOutputViolation:
+            except GradeOutputViolation as error:
+                logger.warning(
+                    "Grade output validation failed: reason=%s attempt=%d final=%s",
+                    error.reason,
+                    attempt + 1,
+                    attempt == 1,
+                )
                 if attempt == 1:
                     raise LlmBridgeError(
                         category=ErrorCategory.SCHEMA,
@@ -138,7 +154,7 @@ class GraderAgent:
         expected = {item.question_id: item for item in request.items}
         output_ids = [item.question_id for item in output.items]
         if len(output_ids) != len(set(output_ids)) or set(output_ids) != set(expected):
-            raise GradeOutputViolation
+            raise GradeOutputViolation("QUESTION_ID_MISMATCH")
         outputs = {item.question_id: item for item in output.items}
         validated: list[GradeResultItem] = []
         for question in request.items:
@@ -147,19 +163,19 @@ class GraderAgent:
             rubric_scores = item_output.rubric_scores
             criteria = [item.criterion for item in rubric_scores]
             if len(criteria) != len(set(criteria)) or set(criteria) != set(weights):
-                raise GradeOutputViolation
-            score_ratio = sum(
-                weights[item.criterion] * item.score_ratio for item in rubric_scores
-            )
+                raise GradeOutputViolation("RUBRIC_CRITERIA_MISMATCH")
+            score_ratio = sum(weights[item.criterion] * item.score_ratio for item in rubric_scores)
             score = round(question.max_score * score_ratio, 6)
             verdict = _verdict(score, question.max_score)
-            if not isclose(
-                item_output.score,
-                score,
-                rel_tol=0,
-                abs_tol=1e-6,
-            ) or item_output.verdict != verdict:
-                raise GradeOutputViolation
+            score_difference = abs(item_output.score - score)
+            verdict_difference = int(item_output.verdict != verdict)
+            if score_difference > 1e-6 or verdict_difference:
+                logger.warning(
+                    "Grade echo mismatch: questionId=%s scoreDifference=%s verdictDifference=%d",
+                    question.question_id,
+                    score_difference,
+                    verdict_difference,
+                )
             validated.append(
                 GradeResultItem(
                     question_id=question.question_id,

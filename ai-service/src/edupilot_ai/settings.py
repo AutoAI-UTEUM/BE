@@ -76,7 +76,7 @@ class Settings(BaseSettings):
         validation_alias="TURN_FIRST_EVENT_TIMEOUT_SECONDS",
     )
     grade_timeout_seconds: PositiveInt = Field(
-        default=90,
+        default=110,
         validation_alias="GRADE_TIMEOUT_SECONDS",
     )
     exam_draft_timeout_seconds: PositiveInt = Field(
