@@ -101,11 +101,7 @@ async def events_with_heartbeat(
         while True:
             if pending is None:
                 pending = asyncio.create_task(_next_event(events))
-            timeout = (
-                first_event_timeout_seconds
-                if first_event
-                else heartbeat_interval_seconds
-            )
+            timeout = first_event_timeout_seconds if first_event else heartbeat_interval_seconds
             done, _ = await asyncio.wait({pending}, timeout=timeout)
             if not done:
                 if first_event:
@@ -188,9 +184,7 @@ class TurnService:
                     for action in planned.plan.actions
                 ],
             )
-            raise _policy_error(
-                "The generated Plan violated the turn policy."
-            ) from error
+            raise _policy_error("The generated Plan violated the turn policy.") from error
         self._raise_dispatch_failure(dispatched)
         return self._response(
             turn=turn,
@@ -218,6 +212,8 @@ class TurnService:
             EventType.EXPLAIN_CURRENT_PAGE,
             EventType.USER_QUESTION,
         }:
+            yield StatusStreamEvent(stage="PLANNING")
+            yield ThoughtSummaryStreamEvent(text="요청을 처리하는 중입니다")
             try:
                 yield CompletedStreamEvent(result=await self.execute(turn))
             except InternalApiError as error:
@@ -274,9 +270,7 @@ class TurnService:
                 dispatched=dispatched,
                 usages=[planned.usage, *dispatched.usages],
             )
-            if "".join(emitted_content) != "".join(
-                message.content for message in result.messages
-            ):
+            if "".join(emitted_content) != "".join(message.content for message in result.messages):
                 raise RuntimeError("stream content invariant violated")
             yield CompletedStreamEvent(result=result)
         except LlmBridgeError as error:
@@ -293,9 +287,7 @@ class TurnService:
                     for action in planned.plan.actions
                 ],
             )
-            yield _stream_error(
-                _policy_error("The generated Plan violated the turn policy.")
-            )
+            yield _stream_error(_policy_error("The generated Plan violated the turn policy."))
         except InternalApiError as error:
             yield _stream_error(error)
         except Exception:
@@ -317,9 +309,7 @@ class TurnService:
             return
         if isinstance(dispatched.failure, LlmBridgeError):
             raise _llm_error(dispatched.failure) from dispatched.failure
-        raise _policy_error(
-            "An agent result violated the turn policy."
-        ) from dispatched.failure
+        raise _policy_error("An agent result violated the turn policy.") from dispatched.failure
 
     def _response(
         self,
