@@ -79,6 +79,10 @@ class Settings(BaseSettings):
         default=90,
         validation_alias="GRADE_TIMEOUT_SECONDS",
     )
+    exam_draft_timeout_seconds: PositiveInt = Field(
+        default=120,
+        validation_alias="EXAM_DRAFT_TIMEOUT_SECONDS",
+    )
     quiz_assessment_timeout_seconds: PositiveInt = Field(
         default=45,
         validation_alias="QUIZ_ASSESSMENT_TIMEOUT_SECONDS",
@@ -144,6 +148,10 @@ class Settings(BaseSettings):
         default=ReasoningEffort.HIGH,
         validation_alias="GRADER_REASONING_EFFORT",
     )
+    exam_draft_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.HIGH,
+        validation_alias="EXAM_DRAFT_REASONING_EFFORT",
+    )
     assessment_reasoning_effort: ReasoningEffort = Field(
         default=ReasoningEffort.HIGH,
         validation_alias="ASSESSMENT_REASONING_EFFORT",
@@ -207,6 +215,11 @@ class Settings(BaseSettings):
     def grader_llm_profile(self) -> AgentLlmProfile:
         """Build the high-reasoning grading profile."""
         return self._profile(self.grader_reasoning_effort)
+
+    @property
+    def exam_draft_llm_profile(self) -> AgentLlmProfile:
+        """Build the high-reasoning exam draft profile."""
+        return self._profile(self.exam_draft_reasoning_effort)
 
     @property
     def assessment_llm_profile(self) -> AgentLlmProfile:
