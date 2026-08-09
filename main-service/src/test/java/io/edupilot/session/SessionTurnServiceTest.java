@@ -546,6 +546,12 @@ class SessionTurnServiceTest {
 	@Test
 	void streamsIntermediateEventsThenPersistsBeforeCompleted() throws Exception {
 		stubPreparedTurn();
+		Map<String, Object> moveNextPageProposal = Map.of(
+			"type", "BINARY_DECISION",
+			"content", "AI 임의 문구",
+			"yesEvent", "MOVE_NEXT_PAGE",
+			"noEvent", "WAIT"
+		);
 		when(aiClientProperties.turnReadTimeout())
 			.thenReturn(Duration.ofSeconds(200));
 		when(streamService.beginTurn(
@@ -567,9 +573,18 @@ class SessionTurnServiceTest {
 			Consumer<TurnStreamEvent> listener = invocation.getArgument(1);
 			listener.accept(TurnStreamEvent.status("PLANNING"));
 			listener.accept(TurnStreamEvent.contentDelta("답변"));
-			return aiResponse(aiRequest.turnId());
+			return aiResponse(
+				aiRequest.turnId(),
+				List.of(moveNextPageProposal)
+			);
 		});
-		TurnResponse publicResponse = publicResponse();
+		TurnResponse publicResponse = new TurnResponse(
+			"successful-turn",
+			100L,
+			List.of(),
+			List.of(UiAction.moveNextPage()),
+			new TurnStateResponse(1, PageStatus.EXPLAINED, null)
+		);
 		when(persistenceService.persist(
 			any(),
 			any(),
@@ -589,6 +604,8 @@ class SessionTurnServiceTest {
 		assertThat(actual).isEqualTo(publicResponse);
 		verify(streamConnection).send(TurnStreamEvent.status("PLANNING"));
 		verify(streamConnection).send(TurnStreamEvent.contentDelta("답변"));
+		ArgumentCaptor<io.edupilot.ai.dto.TurnResponse> aiResponseCaptor =
+			ArgumentCaptor.forClass(io.edupilot.ai.dto.TurnResponse.class);
 		var order = inOrder(persistenceService, streamService);
 		order.verify(persistenceService).persist(
 			any(),
@@ -597,12 +614,14 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
-			any()
+			aiResponseCaptor.capture()
 		);
 		order.verify(streamService).complete(
 			streamConnection,
 			publicResponse
 		);
+		assertThat(aiResponseCaptor.getValue().uiActions())
+			.containsExactly(moveNextPageProposal);
 		verify(aiClient, never()).executeTurn(any());
 	}
 
@@ -838,6 +857,13 @@ class SessionTurnServiceTest {
 	}
 
 	private io.edupilot.ai.dto.TurnResponse aiResponse(String turnId) {
+		return aiResponse(turnId, List.of());
+	}
+
+	private io.edupilot.ai.dto.TurnResponse aiResponse(
+		String turnId,
+		List<Map<String, Object>> uiActions
+	) {
 		return new io.edupilot.ai.dto.TurnResponse(
 			"1.0",
 			turnId,
@@ -845,7 +871,7 @@ class SessionTurnServiceTest {
 			List.of(),
 			List.of(),
 			Map.of(),
-			List.of(),
+			uiActions,
 			null,
 			List.of(),
 			null,
