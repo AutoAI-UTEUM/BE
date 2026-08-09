@@ -124,7 +124,12 @@ public class TurnResponseValidator {
 			expectedQuizType,
 			availableQuizPages
 		);
-		warnIgnoredUiActions(response);
+		warnIgnoredUiActions(
+			response.turnId(),
+			response.uiActions().stream()
+				.filter(action -> !isMoveNextPageProposal(action))
+				.toList()
+		);
 		warnIgnoredActiveQuizId(response);
 		validateMemoryCandidates(response);
 	}
@@ -209,8 +214,18 @@ public class TurnResponseValidator {
 		}
 	}
 
-	private void warnIgnoredUiActions(TurnResponse response) {
-		if (response.uiActions().isEmpty()) {
+	static boolean isMoveNextPageProposal(Map<String, Object> action) {
+		return action != null
+			&& "BINARY_DECISION".equals(action.get("type"))
+			&& "MOVE_NEXT_PAGE".equals(action.get("yesEvent"))
+			&& "WAIT".equals(action.get("noEvent"));
+	}
+
+	static void warnIgnoredUiActions(
+		String turnId,
+		List<Map<String, Object>> uiActions
+	) {
+		if (uiActions.isEmpty()) {
 			return;
 		}
 		log.atWarn()
@@ -218,9 +233,28 @@ public class TurnResponseValidator {
 				"traceId",
 				MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY)
 			)
-			.addKeyValue("turnId", response.turnId())
-			.addKeyValue("uiActionCount", response.uiActions().size())
+			.addKeyValue("turnId", turnId)
+			.addKeyValue("uiActionCount", uiActions.size())
 			.log("Ignored non-empty AI uiActions");
+	}
+
+	static void warnMoveNextPageDroppedAtLastPage(
+		String turnId,
+		int currentPage,
+		Integer pageCount,
+		int uiActionCount
+	) {
+		log.atWarn()
+			.addKeyValue(
+				"traceId",
+				MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY)
+			)
+			.addKeyValue("turnId", turnId)
+			.addKeyValue("currentPage", currentPage)
+			.addKeyValue("pageCount", pageCount)
+			.addKeyValue("uiActionCount", uiActionCount)
+			.addKeyValue("reason", "last page")
+			.log("Dropped AI moveNextPage uiAction at last page");
 	}
 
 	private void validateQuiz(
