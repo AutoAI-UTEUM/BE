@@ -36,6 +36,7 @@ public class SessionService {
 	private final Clock clock;
 	private final DiagnosisService diagnosisService;
 	private final MaterialAccessService materialAccessService;
+	private final UiActionResolver uiActionResolver;
 
 	public SessionService(
 		LearningSessionRepository sessionRepository,
@@ -43,7 +44,8 @@ public class SessionService {
 		StateReducer stateReducer,
 		Clock clock,
 		DiagnosisService diagnosisService,
-		MaterialAccessService materialAccessService
+		MaterialAccessService materialAccessService,
+		UiActionResolver uiActionResolver
 	) {
 		this.sessionRepository = sessionRepository;
 		this.userRepository = userRepository;
@@ -51,6 +53,7 @@ public class SessionService {
 		this.clock = clock;
 		this.diagnosisService = diagnosisService;
 		this.materialAccessService = materialAccessService;
+		this.uiActionResolver = uiActionResolver;
 	}
 
 	@Transactional
@@ -128,6 +131,27 @@ public class SessionService {
 		session.complete();
 		sessionRepository.flush();
 		return SessionDetailResponse.from(session);
+	}
+
+	@Transactional
+	public List<UiAction> declineQuizProposal(Long userId, Long sessionId) {
+		materialAccessService.assertSessionAccessible(userId, sessionId);
+		LearningSession session = ownedSessionForUpdate(userId, sessionId);
+		if (session.getStatus() == SessionStatus.DELETED) {
+			throw new BusinessException(ErrorCode.SESSION_NOT_FOUND);
+		}
+		if (session.getStatus() != SessionStatus.ACTIVE) {
+			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
+		}
+
+		List<UiAction> nextUiActions = uiActionResolver.nextLearning(
+			session.getCurrentPage(),
+			session.getMaterialPageCount()
+		);
+		if (session.declineQuizProposal(nextUiActions)) {
+			sessionRepository.flush();
+		}
+		return session.getLastUiActions();
 	}
 
 	@Transactional

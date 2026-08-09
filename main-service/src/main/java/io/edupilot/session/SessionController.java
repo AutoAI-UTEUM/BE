@@ -1,5 +1,7 @@
 package io.edupilot.session;
 
+import java.util.List;
+
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -147,6 +149,18 @@ public class SessionController {
 		return ApiResponse.success(
 			sessionService.complete(authenticatedUser.userId(), sessionId)
 		);
+	}
+
+	@PostMapping("/{sessionId}/quiz-decline")
+	@Operation(summary = "퀴즈 제안 거절")
+	public ApiResponse<List<UiAction>> declineQuizProposal(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long sessionId
+	) {
+		return ApiResponse.success(sessionService.declineQuizProposal(
+			authenticatedUser.userId(),
+			sessionId
+		));
 	}
 
 	@PostMapping("/{sessionId}/conversations")
