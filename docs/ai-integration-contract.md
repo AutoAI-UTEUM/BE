@@ -155,9 +155,35 @@
   `BUILD_MEMORY_CANDIDATE`만 `{type, content, confidence, evidence[]}`를 사용합니다.
   Spring은 턴 핵심 저장 커밋 후 별도 트랜잭션에서 반복 근거·confidence 정책을
   재검증해 승격합니다.
-- `uiActions`: 예약 필드이며 AI Service는 항상 `[]`을 반환합니다. Spring은
-  비어 있지 않은 값이 오면 무시하고 경고 로그를 남깁니다. 사용자 위젯은
-  Spring이 [API 명세](api-spec.md) §5 규칙표에 따라 생성합니다.
+- `uiActions`: 기본값은 `[]`입니다. 다만 `USER_QUESTION` 턴은 아래 §3.3.1의
+  `moveNextPage` 제안을 보낼 수 있습니다. 사용자 위젯의 정본은 항상 Spring이
+  [API 명세](api-spec.md) §5 규칙표에 따라 생성합니다.
+
+### 3.3.1 uiActions allowlist (`moveNextPage`)
+
+AI Service가 `USER_QUESTION` 턴에서 다음 의미의 항목을 제안할 수 있습니다.
+
+```json
+{
+  "type": "BINARY_DECISION",
+  "content": "다음 페이지로 이동할까요?",
+  "yesEvent": "MOVE_NEXT_PAGE",
+  "noEvent": "WAIT"
+}
+```
+
+Spring은 다음 조건을 모두 충족할 때만 이 제안을 수용합니다.
+
+1. 이벤트가 `USER_QUESTION`이다.
+2. Spring `UiActionResolver`가 산출한 액션이 없다.
+3. AI 항목의 `type`, `yesEvent`, `noEvent`가 위 값과 일치한다.
+4. Spring이 `pageCount`로 판정한 현재 페이지가 마지막 페이지가 아니다.
+
+수용 시 AI 객체를 저장하지 않고 `UiAction.moveNextPage()` 정본 하나로 치환해
+저장·응답합니다. AI의 `content` 문구는 판정에 사용하지 않습니다. 마지막
+페이지의 동일 제안은 드롭하고 `last page` 사유로 경고하며, 수용되지 않은
+나머지 AI `uiActions`는 기존과 같이 무시하고 경고합니다. 이 allowlist는 외부
+wire 스키마를 변경하지 않습니다.
 
 ### 3.4 statePatch 허용목록 (api-spec §8 표와 동일 — Spring이 이외 전부 거부)
 

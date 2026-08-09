@@ -101,7 +101,12 @@ class TurnResponseValidatorTest {
 				response(
 					List.of(),
 					Map.of(),
-					List.of(Map.of("content", sentinel))
+					List.of(Map.of(
+						"type", "BINARY_DECISION",
+						"content", sentinel,
+						"yesEvent", "COMPLETE_SESSION",
+						"noEvent", "WAIT"
+					))
 				),
 				"turn-1"
 			);

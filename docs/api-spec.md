@@ -441,8 +441,11 @@ Spring이 인증된 PDF 스트림을 반환합니다. 자료 상세와 같은 �
 
 #### uiActions 위젯
 
-AI Service의 `uiActions`는 예약 필드이며 항상 빈 배열입니다. 위젯은 Spring이
-마지막 상태 전이에 따라 생성해 외부 응답에 포함합니다.
+AI Service의 `uiActions`는 기본적으로 빈 배열입니다. 예외적으로
+`USER_QUESTION`의 `BINARY_DECISION/MOVE_NEXT_PAGE/WAIT` 제안은 Spring resolver
+산출이 비어 있고 현재 페이지가 마지막이 아닐 때만 수용하며, AI 객체 대신
+Spring `moveNextPage` 정본으로 치환해 저장·응답합니다. 그 외 제안은 무시합니다.
+위젯은 Spring이 마지막 상태 전이에 따라 생성해 외부 응답에 포함합니다.
 
 서버가 발급하는 위젯 스키마는 다음 2종입니다.
 

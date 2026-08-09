@@ -138,6 +138,12 @@ public class TurnPersistenceService {
 				session.getMaterialPageCount(),
 				false
 			);
+			uiActions = applyAllowedAiUiAction(
+				eventType,
+				session,
+				uiActions,
+				aiResponse
+			);
 			session.activateQuiz(activeQuizId, uiActions);
 		} else {
 			if (eventType == TurnEventType.DIAGNOSIS_ANSWER_SUBMITTED) {
@@ -165,6 +171,12 @@ public class TurnPersistenceService {
 				session.getCurrentPage(),
 				session.getMaterialPageCount(),
 				quizEligible
+			);
+			uiActions = applyAllowedAiUiAction(
+				eventType,
+				session,
+				uiActions,
+				aiResponse
 			);
 			session.applyAiTurn(
 				nextPageStatus,
@@ -207,6 +219,41 @@ public class TurnPersistenceService {
 			parseMemoryWrite(aiResponse.memoryWrite()),
 			session.getMaterialId()
 		);
+	}
+
+	private List<UiAction> applyAllowedAiUiAction(
+		TurnEventType eventType,
+		LearningSession session,
+		List<UiAction> resolvedUiActions,
+		io.edupilot.ai.dto.TurnResponse aiResponse
+	) {
+		List<Map<String, Object>> moveNextPageProposals =
+			aiResponse.uiActions().stream()
+				.filter(TurnResponseValidator::isMoveNextPageProposal)
+				.toList();
+		if (moveNextPageProposals.isEmpty()) {
+			return resolvedUiActions;
+		}
+		if (eventType != TurnEventType.USER_QUESTION
+			|| !resolvedUiActions.isEmpty()) {
+			TurnResponseValidator.warnIgnoredUiActions(
+				aiResponse.turnId(),
+				moveNextPageProposals
+			);
+			return resolvedUiActions;
+		}
+
+		Integer pageCount = session.getMaterialPageCount();
+		if (pageCount != null && session.getCurrentPage() == pageCount) {
+			TurnResponseValidator.warnMoveNextPageDroppedAtLastPage(
+				aiResponse.turnId(),
+				session.getCurrentPage(),
+				pageCount,
+				moveNextPageProposals.size()
+			);
+			return resolvedUiActions;
+		}
+		return List.of(UiAction.moveNextPage());
 	}
 
 	private boolean isQuizEligible(

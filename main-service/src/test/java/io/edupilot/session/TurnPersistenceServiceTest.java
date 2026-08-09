@@ -22,11 +22,18 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 import io.edupilot.ai.dto.QuizGeneration;
 import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
@@ -130,7 +137,11 @@ class TurnPersistenceServiceTest {
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
 			null,
 			501L,
-			response(Map.of("pageStatus", "EXPLAINED"), List.of())
+			responseWithUiActions(
+				Map.of("pageStatus", "EXPLAINED"),
+				List.of(),
+				List.of(moveNextPageProposal("AI 임의 문구"))
+			)
 		);
 
 		assertThat(persisted.uiActions())
@@ -141,6 +152,92 @@ class TurnPersistenceServiceTest {
 			true
 		);
 		verify(pageRecordRepository).upsertExplainedPage(100L, 1, NOW);
+	}
+
+	@Test
+	void acceptsCanonicalMoveNextPageProposalForUserQuestion() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINED,
+			PageStatus.EXPLAINED,
+			1,
+			3
+		);
+		stubUserQuestionMessage();
+
+		PersistedTurn persisted = service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.USER_QUESTION,
+			null,
+			501L,
+			responseWithUiActions(
+				Map.of("qaThread", Map.of("mode", "START_NEW")),
+				List.of(),
+				List.of(moveNextPageProposal("AI 임의 문구"))
+			)
+		);
+
+		assertThat(persisted.uiActions())
+			.containsExactly(UiAction.moveNextPage());
+		verify(session).applyAiTurn(
+			null,
+			List.of(UiAction.moveNextPage()),
+			false
+		);
+	}
+
+	@Test
+	void dropsMoveNextPageProposalAtLastPageAndWarnsReason() {
+		activeSession(
+			PageStatus.EXPLAINED,
+			PageStatus.EXPLAINED,
+			3,
+			3
+		);
+		stubUserQuestionMessage();
+		Logger logger = (Logger) LoggerFactory.getLogger(
+			TurnResponseValidator.class
+		);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		MDC.put(TraceIdFilter.TRACE_ID_MDC_KEY, "trace-last-page");
+
+		PersistedTurn persisted;
+		try {
+			persisted = service().persist(
+				1L,
+				100L,
+				"request-1",
+				TurnEventType.USER_QUESTION,
+				null,
+				501L,
+				responseWithUiActions(
+					Map.of("qaThread", Map.of("mode", "START_NEW")),
+					List.of(),
+					List.of(moveNextPageProposal("AI 임의 문구"))
+				)
+			);
+		} finally {
+			MDC.remove(TraceIdFilter.TRACE_ID_MDC_KEY);
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+
+		assertThat(persisted.uiActions()).isEmpty();
+		assertThat(appender.list)
+			.filteredOn(event -> event.getFormattedMessage().equals(
+				"Dropped AI moveNextPage uiAction at last page"
+			))
+			.singleElement()
+			.satisfies(event -> {
+				assertThat(event.getKeyValuePairs())
+					.anySatisfy(pair -> {
+						assertThat(pair.key).isEqualTo("reason");
+						assertThat(pair.value).isEqualTo("last page");
+					});
+			});
 	}
 
 	@Test
@@ -481,6 +578,46 @@ class TurnPersistenceServiceTest {
 		List<Map<String, Object>> messages
 	) {
 		return response(patch, messages, List.of());
+	}
+
+	private io.edupilot.ai.dto.TurnResponse responseWithUiActions(
+		Map<String, Object> patch,
+		List<Map<String, Object>> messages,
+		List<Map<String, Object>> uiActions
+	) {
+		return new io.edupilot.ai.dto.TurnResponse(
+			"1.0",
+			"turn-1",
+			"EXPLAIN",
+			List.of(),
+			messages,
+			patch,
+			uiActions,
+			null,
+			List.of(),
+			null,
+			null
+		);
+	}
+
+	private Map<String, Object> moveNextPageProposal(String content) {
+		return Map.of(
+			"type", "BINARY_DECISION",
+			"content", content,
+			"yesEvent", "MOVE_NEXT_PAGE",
+			"noEvent", "WAIT"
+		);
+	}
+
+	private void stubUserQuestionMessage() {
+		ChatMessage userMessage = org.mockito.Mockito.mock(ChatMessage.class);
+		when(userMessage.getSenderType()).thenReturn(SenderType.USER);
+		when(userMessage.getContent()).thenReturn("질문");
+		when(messageRepository.findById(501L))
+			.thenReturn(Optional.of(userMessage));
+		when(qaThreadRepository.saveAndFlush(any())).thenAnswer(invocation ->
+			invocation.getArgument(0)
+		);
 	}
 
 	private io.edupilot.ai.dto.TurnResponse response(
