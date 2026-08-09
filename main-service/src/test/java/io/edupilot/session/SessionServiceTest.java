@@ -3,6 +3,7 @@ package io.edupilot.session;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -59,7 +60,8 @@ class SessionServiceTest {
 			new StateReducer(),
 			Clock.fixed(NOW, ZoneOffset.UTC),
 			diagnosisService,
-			materialAccessService
+			materialAccessService,
+			new UiActionResolver()
 		);
 		owner = User.create("owner@example.com", "hash", "소유자");
 		ReflectionTestUtils.setField(owner, "id", 1L);
@@ -166,6 +168,151 @@ class SessionServiceTest {
 		);
 		assertThat(sessionService.detail(1L, 100L).uiActions())
 			.containsExactly(UiAction.completeSession());
+	}
+
+	@Test
+	void declinesQuizProposalAndRestoresNextLearningIdempotently() {
+		material.markReady(3);
+		LearningSession session = persisted(
+			LearningSession.create(owner, material),
+			100L
+		);
+		session.moveTo(
+			2,
+			PageStatus.EXPLAINED,
+			List.of(UiAction.quizProposal())
+		);
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+
+		var declined = sessionService.declineQuizProposal(1L, 100L);
+
+		assertThat(declined).containsExactly(UiAction.moveNextPage());
+		assertThat(session.getLastUiActions())
+			.containsExactly(UiAction.moveNextPage());
+		assertThat(session.getPageStatus()).isEqualTo(PageStatus.EXPLAINED);
+		assertThat(session.getActiveQuizId()).isNull();
+		verify(sessionRepository).flush();
+
+		org.mockito.Mockito.clearInvocations(sessionRepository);
+		var repeated = sessionService.declineQuizProposal(1L, 100L);
+		var restored = sessionService.detail(1L, 100L);
+
+		assertThat(repeated).containsExactly(UiAction.moveNextPage());
+		assertThat(restored.uiActions())
+			.containsExactly(UiAction.moveNextPage());
+		assertThat(restored.uiActions()).doesNotContain(UiAction.quizProposal());
+		verify(sessionRepository, never()).flush();
+	}
+
+	@Test
+	void declinesLastPageQuizProposalToCompleteSession() {
+		material.markReady(3);
+		LearningSession session = persisted(
+			LearningSession.create(owner, material),
+			100L
+		);
+		session.moveTo(
+			3,
+			PageStatus.EXPLAINED,
+			List.of(UiAction.quizProposal())
+		);
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(session));
+
+		var declined = sessionService.declineQuizProposal(1L, 100L);
+
+		assertThat(declined).containsExactly(UiAction.completeSession());
+		assertThat(session.getLastUiActions())
+			.containsExactly(UiAction.completeSession());
+		assertThat(session.getPageStatus()).isEqualTo(PageStatus.EXPLAINED);
+	}
+
+	@Test
+	void keepsNonQuizUiActionsUnchangedWhenDeclined() {
+		material.markReady(3);
+		LearningSession session = persisted(
+			LearningSession.create(owner, material),
+			100L
+		);
+		session.moveTo(
+			2,
+			PageStatus.NOT_EXPLAINED,
+			List.of(UiAction.pageExplanation())
+		);
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(session));
+
+		var unchanged = sessionService.declineQuizProposal(1L, 100L);
+
+		assertThat(unchanged).containsExactly(UiAction.pageExplanation());
+		assertThat(session.getPageStatus())
+			.isEqualTo(PageStatus.NOT_EXPLAINED);
+		verify(sessionRepository, never()).flush();
+	}
+
+	@Test
+	void keepsDeclineOnSamePageAndReoffersQuizAfterPageMove() {
+		material.markReady(3);
+		LearningSession session = persisted(
+			LearningSession.create(owner, material),
+			100L
+		);
+		session.moveTo(
+			1,
+			PageStatus.EXPLAINED,
+			List.of(UiAction.quizProposal())
+		);
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(session));
+		sessionService.declineQuizProposal(1L, 100L);
+
+		session.applyAiTurn(PageStatus.EXPLAINED, List.of(), false);
+
+		assertThat(session.getLastUiActions())
+			.containsExactly(UiAction.moveNextPage());
+
+		session.moveTo(
+			2,
+			PageStatus.NOT_EXPLAINED,
+			List.of(UiAction.pageExplanation())
+		);
+		session.applyAiTurn(
+			PageStatus.EXPLAINED,
+			List.of(UiAction.quizProposal()),
+			true
+		);
+
+		assertThat(session.getLastUiActions())
+			.containsExactly(UiAction.quizProposal());
+	}
+
+	@Test
+	void hidesInaccessibleSessionAndRejectsCompletedSession() {
+		doThrow(new BusinessException(ErrorCode.SESSION_NOT_FOUND))
+			.when(materialAccessService).assertSessionAccessible(2L, 100L);
+
+		assertError(
+			() -> sessionService.declineQuizProposal(2L, 100L),
+			ErrorCode.SESSION_NOT_FOUND
+		);
+		verify(sessionRepository, never()).findOwnedForUpdate(100L, 2L);
+
+		material.markReady(3);
+		LearningSession completed = persisted(
+			LearningSession.create(owner, material),
+			100L
+		);
+		completed.complete();
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(completed));
+
+		assertError(
+			() -> sessionService.declineQuizProposal(1L, 100L),
+			ErrorCode.SESSION_NOT_ACTIVE
+		);
 	}
 
 	@Test
@@ -279,7 +426,8 @@ class SessionServiceTest {
 			new StateReducer(),
 			Clock.fixed(nextStartedAt, ZoneOffset.UTC),
 			diagnosisService,
-			materialAccessService
+			materialAccessService,
+			new UiActionResolver()
 		);
 		var second = nextService.startNewConversation(1L, 100L);
 

@@ -128,6 +128,16 @@ public class LearningSession {
 		this.lastUiActions = List.copyOf(uiActions);
 	}
 
+	public boolean declineQuizProposal(List<UiAction> nextUiActions) {
+		boolean hasQuizProposal = getLastUiActions().stream()
+			.anyMatch(action -> "SHOW_QUIZ_TYPE_SELECT".equals(action.yesEvent()));
+		if (!hasQuizProposal) {
+			return false;
+		}
+		this.lastUiActions = List.copyOf(nextUiActions);
+		return true;
+	}
+
 	public void startDiagnosis(Long diagnosisId, UiAction uiAction) {
 		this.pendingDiagnosisId = diagnosisId;
 		this.pageStatus = PageStatus.DIAGNOSIS_PENDING;

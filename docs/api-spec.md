@@ -75,6 +75,7 @@
 | GET | `/api/sessions/{sessionId}` | 세션 상태 조회 | Y | 세션 소유자 |
 | DELETE | `/api/sessions/{sessionId}` | 세션 논리 삭제 | Y | 세션 소유자 |
 | PATCH | `/api/sessions/{sessionId}/page` | 페이지 이동 | Y | 세션 소유자 |
+| POST | `/api/sessions/{sessionId}/quiz-decline` | 퀴즈 제안 거절 후 다음 학습 제안 | Y | ACTIVE 세션 소유자 |
 | POST | `/api/sessions/{sessionId}/turns` | 학습 턴 처리 | Y | 세션 소유자 |
 | POST | `/api/sessions/{sessionId}/conversations` | LLM 호출 없는 새 대화 시작 | Y | ACTIVE 세션 소유자 |
 | GET | `/api/sessions/{sessionId}/stream` | SSE 스트림 (fetch + Bearer — DEC-021) | Y | 세션 소유자 |
@@ -522,6 +523,27 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 ```
 
 페이지 범위 초과는 `PAGE_OUT_OF_RANGE`, 진행 중 턴과의 충돌은 `SESSION_STATE_CONFLICT`로 처리합니다.
+
+### POST `/api/sessions/{sessionId}/quiz-decline`
+
+요청 바디 없이 현재 저장된 퀴즈 제안을 거절하고 다음 학습 제안으로 교체합니다. AI turn은 호출하지 않습니다.
+
+`data`:
+
+```json
+[
+  {
+    "type": "BINARY_DECISION",
+    "content": "다음 페이지로 이동할까요?",
+    "yesEvent": "MOVE_NEXT_PAGE",
+    "noEvent": "WAIT"
+  }
+]
+```
+
+현재 페이지가 마지막 페이지이면 `MOVE_NEXT_PAGE` 대신 `COMPLETE_SESSION`을 제안합니다. 저장된 `uiActions`에 퀴즈 제안이 없으면 상태를 변경하지 않고 현행 배열을 그대로 반환하는 멱등 요청입니다. `pageStatus`와 `activeQuizId`는 변경하지 않습니다.
+
+거절 후 `GET /api/sessions/{sessionId}`로 세션을 복원하면 교체 저장된 다음 학습 `uiActions`가 반환되며, 기존 `quizProposal`은 다시 노출되지 않습니다.
 
 ### POST `/api/sessions/{sessionId}/turns`
 
