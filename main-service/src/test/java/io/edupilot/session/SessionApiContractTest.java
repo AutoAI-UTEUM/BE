@@ -323,13 +323,62 @@ class SessionApiContractTest {
 	}
 
 	@Test
-	void openApiDocumentsNewConversationEndpoint() throws Exception {
+	void quizDeclineUsesBodylessUiActionArrayContract() throws Exception {
+		when(sessionService.declineQuizProposal(1L, 100L))
+			.thenReturn(List.of(UiAction.moveNextPage()));
+
+		mockMvc.perform(post("/api/sessions/100/quiz-decline")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data[0].type")
+				.value("BINARY_DECISION"))
+			.andExpect(jsonPath("$.data[0].yesEvent")
+				.value("MOVE_NEXT_PAGE"))
+			.andExpect(jsonPath("$.data[0].noEvent").value("WAIT"));
+
+		mockMvc.perform(post("/api/sessions/100/quiz-decline"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code")
+				.value("AUTHENTICATION_REQUIRED"));
+	}
+
+	@Test
+	void quizDeclineKeepsHiddenAndInactiveSessionErrors() throws Exception {
+		when(sessionService.declineQuizProposal(1L, 100L))
+			.thenThrow(
+				new BusinessException(ErrorCode.SESSION_NOT_FOUND),
+				new BusinessException(ErrorCode.SESSION_NOT_ACTIVE)
+			);
+
+		mockMvc.perform(post("/api/sessions/100/quiz-decline")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code")
+				.value("SESSION_NOT_FOUND"));
+
+		mockMvc.perform(post("/api/sessions/100/quiz-decline")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.error.code")
+				.value("SESSION_NOT_ACTIVE"));
+	}
+
+	@Test
+	void openApiDocumentsBodylessSessionEndpoints() throws Exception {
 		mockMvc.perform(get("/v3/api-docs"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath(
 				"$.paths['/api/sessions/{sessionId}/conversations']"
 					+ ".post.summary"
-			).value("LLM 호출 없는 새 대화 시작"));
+			).value("LLM 호출 없는 새 대화 시작"))
+			.andExpect(jsonPath(
+				"$.paths['/api/sessions/{sessionId}/quiz-decline']"
+					+ ".post.summary"
+			).value("퀴즈 제안 거절"))
+			.andExpect(jsonPath(
+				"$.paths['/api/sessions/{sessionId}/quiz-decline']"
+					+ ".post.requestBody"
+			).doesNotExist());
 	}
 
 	private String bearer() {

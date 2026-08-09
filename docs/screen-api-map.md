@@ -59,6 +59,7 @@
 | 학습 세션 | 삭제 버튼 | `DELETE /api/sessions/{sessionId}` | 목록으로 이동, 목록에서 제외 | 상태 충돌/소유권 |
 | 학습 세션 | 채팅 이력 복원 | `GET /api/sessions/{sessionId}/messages` | 이전 메시지 표시 | 페이지네이션 오류 |
 | 학습 세션 | 대화 새로 시작 | `POST /api/sessions/{sessionId}/conversations` | 기존 화면 이력은 유지하고 이후 AI 대화 문맥만 새 경계로 시작 | 진행 중 턴·비활성 세션·소유권 |
+| 학습 세션 | 퀴즈 제안 "아니요" 선택 | `POST /api/sessions/{sessionId}/quiz-decline` | 응답 `uiActions`로 교체 렌더하고 복원 시 다음 학습 제안 유지 | 비활성 세션·소유권 |
 | 학습 세션 | 노트 작성 | `POST /api/sessions/{sessionId}/notes` | 현재 자료 노트 목록에 추가 | 세션 소유권, 내용·페이지·메시지 참조 오류 |
 | 학습 세션 | 자료 노트 진입·페이지 이동 | `GET /api/materials/{materialId}/notes?page&size` 또는 `GET /api/sessions/{sessionId}/notes?page&size` | 같은 자료 범위 노트를 최신순으로 표시 | 자료·세션 소유권, 페이지네이션 오류 |
 | 학습 세션 | 노트 내용 수정 | `PATCH /api/notes/{noteId}` | 수정된 내용·시각 반영 | `NOTE_NOT_FOUND`, 내용 길이 오류 |
