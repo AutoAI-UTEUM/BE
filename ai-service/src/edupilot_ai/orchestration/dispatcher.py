@@ -127,9 +127,7 @@ class ToolDispatcher:
             started_at = perf_counter()
             tokens = bind_log_context(action_id=action.action_id)
             action_adjustments = [
-                item
-                for item in verified_adjustments
-                if item.belongs_to(action.action_id)
+                item for item in verified_adjustments if item.belongs_to(action.action_id)
             ]
             try:
                 outcome = await self._execute(action, context, deadline)
@@ -144,6 +142,7 @@ class ToolDispatcher:
                 )
                 if outcome.message is not None:
                     result.messages.append(outcome.message)
+                result.ui_actions.extend(outcome.ui_actions)
                 if outcome.quiz is not None:
                     if result.quiz is not None:
                         raise PolicyViolation("multiple quiz results are not allowed")
@@ -206,9 +205,7 @@ class ToolDispatcher:
         result = DispatchResult()
         for action in plan.actions:
             started_at = perf_counter()
-            action_adjustments = [
-                item for item in adjustments if item.belongs_to(action.action_id)
-            ]
+            action_adjustments = [item for item in adjustments if item.belongs_to(action.action_id)]
             try:
                 if action.tool in {ToolName.EXPLAIN_PAGE, ToolName.ANSWER_QUESTION}:
                     stream = self._agent_stream(action, context, deadline)
@@ -243,6 +240,7 @@ class ToolDispatcher:
                         ),
                         state_patch=stream.state_patch,
                         usage=usage,
+                        ui_actions=stream.ui_actions,
                     )
                 else:
                     outcome = await self._execute(action, context, deadline)
@@ -260,6 +258,7 @@ class ToolDispatcher:
                 )
                 if outcome.message is not None:
                     result.messages.append(outcome.message)
+                result.ui_actions.extend(outcome.ui_actions)
                 if outcome.quiz is not None:
                     if result.quiz is not None:
                         raise PolicyViolation("multiple quiz results are not allowed")

@@ -1,5 +1,6 @@
 """Turn agents using injected structured-output LLM."""
 
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -26,6 +27,29 @@ from edupilot_ai.orchestration.prompts import (
 )
 from edupilot_ai.settings import AgentLlmProfile
 
+_NEXT_PAGE_EXPLAIN = re.compile(
+    r"(다음|뒤|뒷)\s*(페이지|장|쪽).{0,12}(설명|알려|보여|가르쳐|넘어가)"
+)
+_PREV_PAGE_EXPLAIN = re.compile(r"(이전|앞)\s*(페이지|장|쪽).{0,12}(설명|알려|보여|가르쳐)")
+_NEXT_PAGE_GUIDANCE = (
+    "다음 페이지 내용은 페이지를 이동한 뒤에 설명드릴게요. 아래에서 이동을 선택해 주세요."
+)
+_PREVIOUS_PAGE_GUIDANCE = "이전 페이지 내용은 해당 페이지로 이동하시면 다시 설명드릴 수 있어요."
+
+
+def detect_page_redirect(message: str) -> Literal["NEXT", "PREVIOUS"] | None:
+    """Detect conservative cross-page explanation requests."""
+
+    previous = _PREV_PAGE_EXPLAIN.search(message) is not None
+    next_page = _NEXT_PAGE_EXPLAIN.search(message) is not None
+    if previous and next_page:
+        return None
+    if previous:
+        return "PREVIOUS"
+    if next_page:
+        return "NEXT"
+    return None
+
 
 @dataclass(frozen=True, slots=True)
 class AgentResult:
@@ -35,6 +59,7 @@ class AgentResult:
     usage: LlmUsage
     quiz: QuizGeneration | None = None
     memory_candidates: list[dict[str, Any]] = field(default_factory=list)
+    ui_actions: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +68,7 @@ class AgentTextStream:
     message_type: Literal["EXPLANATION", "QA"]
     state_patch: dict[str, Any]
     items: AsyncIterator[LlmTextStreamItem]
+    ui_actions: list[dict[str, Any]] = field(default_factory=list)
 
 
 async def _fixed_text_stream(
@@ -123,6 +149,30 @@ class QaAgent:
         timeout_seconds: float,
     ) -> AgentResult:
         state_patch = self._thread_patch(mode, thread_ref)
+        redirect = detect_page_redirect(context.event_payload.message or "")
+        if redirect is not None:
+            is_next = redirect == "NEXT"
+            return AgentResult(
+                agent="QaAgent",
+                message=Message(
+                    message_type="QA",
+                    content=(_NEXT_PAGE_GUIDANCE if is_next else _PREVIOUS_PAGE_GUIDANCE),
+                ),
+                state_patch=state_patch,
+                usage=LlmUsage(self._profile.model, 0, 0, None),
+                ui_actions=(
+                    [
+                        {
+                            "type": "BINARY_DECISION",
+                            "content": "다음 페이지로 이동할까요?",
+                            "yesEvent": "MOVE_NEXT_PAGE",
+                            "noEvent": "WAIT",
+                        }
+                    ]
+                    if is_next
+                    else []
+                ),
+            )
         if context.page_attached and not (context.current_page_text or "").strip():
             return AgentResult(
                 agent="QaAgent",
@@ -158,7 +208,24 @@ class QaAgent:
         timeout_seconds: float,
     ) -> AgentTextStream:
         state_patch = self._thread_patch(mode, thread_ref)
-        if context.page_attached and not (context.current_page_text or "").strip():
+        redirect = detect_page_redirect(context.event_payload.message or "")
+        ui_actions: list[dict[str, Any]] = []
+        if redirect is not None:
+            is_next = redirect == "NEXT"
+            items = _fixed_text_stream(
+                _NEXT_PAGE_GUIDANCE if is_next else _PREVIOUS_PAGE_GUIDANCE,
+                model=self._profile.model,
+            )
+            if is_next:
+                ui_actions.append(
+                    {
+                        "type": "BINARY_DECISION",
+                        "content": "다음 페이지로 이동할까요?",
+                        "yesEvent": "MOVE_NEXT_PAGE",
+                        "noEvent": "WAIT",
+                    }
+                )
+        elif context.page_attached and not (context.current_page_text or "").strip():
             items = _fixed_text_stream(
                 (
                     "제공된 강의 자료만으로는 이 질문에 답하기 어렵습니다. "
@@ -177,6 +244,7 @@ class QaAgent:
             message_type="QA",
             state_patch=state_patch,
             items=items,
+            ui_actions=ui_actions,
         )
 
     @staticmethod
@@ -215,9 +283,7 @@ class QuizAgent:
             available_pages.add(context.session.current_page - 1)
         if context.next_page_text is not None:
             available_pages.add(context.session.current_page + 1)
-        covered_pages = set(
-            range(quiz.coverage.start_page, quiz.coverage.end_page + 1)
-        )
+        covered_pages = set(range(quiz.coverage.start_page, quiz.coverage.end_page + 1))
         if quiz.quiz_type is not quiz_type or not covered_pages.issubset(available_pages):
             raise LlmBridgeError(
                 category=ErrorCategory.SCHEMA,
