@@ -133,6 +133,12 @@ def qa_messages(
         "context. If evidence is insufficient, clearly state the limitation. "
         f"{LEARNER_KOREAN_INSTRUCTION} {output_instruction}"
     )
+    system += (
+        " 질문이 현재 페이지가 아닌 다른 페이지(다음·이전·특정 번호)의 내용을 "
+        "설명해 달라는 요청이면, 그 페이지 내용을 답변에 풀지 말고 해당 페이지로 "
+        "이동한 뒤 설명하겠다고 안내만 하라. 다른 페이지와의 관계·연결을 묻는 "
+        "질문은 정상적으로 답하라."
+    )
     if not context.page_attached:
         system += (
             " 페이지를 첨부하지 않은 질문이다. 일반적인 학습 지식으로 답해도 된다. "
@@ -162,9 +168,7 @@ def quiz_messages(
             {"pageNumber": current_page - 1, "text": context.previous_page_text},
         )
     if context.next_page_text is not None:
-        page_context.append(
-            {"pageNumber": current_page + 1, "text": context.next_page_text}
-        )
+        page_context.append({"pageNumber": current_page + 1, "text": context.next_page_text})
     payload = {
         "quizType": quiz_type.value,
         "pageContext": page_context,
