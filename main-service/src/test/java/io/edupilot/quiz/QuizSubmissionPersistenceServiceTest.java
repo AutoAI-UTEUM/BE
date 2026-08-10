@@ -106,9 +106,11 @@ class QuizSubmissionPersistenceServiceTest {
 				new io.edupilot.session.UiActionResolver()
 			);
 
-		var response = service.persist(1L, prepared, result, true);
+		var persisted = service.persist(1L, prepared, result, true);
+		var response = persisted.response();
 
 		assertThat(response.submissionId()).isEqualTo(200L);
+		assertThat(persisted.currentPageQuiz()).isTrue();
 		assertThat(session.getPageStatus()).isEqualTo(PageStatus.EXPLAINED);
 		assertThat(session.getActiveQuizId()).isNull();
 		assertThat(session.getLastUiActions())
@@ -125,6 +127,7 @@ class QuizSubmissionPersistenceServiceTest {
 		Fixture fixture = fixture();
 		ReflectionTestUtils.setField(fixture.session(), "currentPage", 2);
 		ReflectionTestUtils.setField(fixture.session(), "activeQuizId", 50L);
+		ReflectionTestUtils.setField(fixture.quiz(), "pageNumber", 2);
 		when(sessionRepository.findOwnedForUpdate(100L, 1L))
 			.thenReturn(Optional.of(fixture.session()));
 		when(quizRepository.findByIdAndSessionId(50L, 100L))
@@ -138,14 +141,14 @@ class QuizSubmissionPersistenceServiceTest {
 			return submission;
 		});
 
-		var response = service().persist(
+		var persisted = service().persist(
 			1L,
 			fixture.prepared(),
 			fixture.result(),
 			true
 		);
 
-		assertThat(response.uiActions())
+		assertThat(persisted.response().uiActions())
 			.containsExactly(UiAction.completeSession());
 		assertThat(fixture.session().getPageStatus())
 			.isEqualTo(PageStatus.EXPLAINED);
@@ -208,6 +211,112 @@ class QuizSubmissionPersistenceServiceTest {
 	}
 
 	@Test
+	void finalLockRecheckRejectsQuizThatIsNoLongerActive() {
+		Fixture fixture = fixture();
+		ReflectionTestUtils.setField(fixture.session(), "activeQuizId", 51L);
+		List<UiAction> beforeActions = fixture.session().getLastUiActions();
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(fixture.session()));
+		when(quizRepository.findByIdAndSessionId(50L, 100L))
+			.thenReturn(Optional.of(fixture.quiz()));
+
+		assertThatThrownBy(() -> service().persist(
+			1L,
+			fixture.prepared(),
+			fixture.result(),
+			true
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode())
+				.isEqualTo(ErrorCode.SESSION_STATE_CONFLICT)
+		);
+		assertThat(fixture.session().getPageStatus())
+			.isEqualTo(PageStatus.NOT_EXPLAINED);
+		assertThat(fixture.session().getLastUiActions())
+			.isEqualTo(beforeActions);
+		assertThat(fixture.session().getActiveQuizId()).isEqualTo(51L);
+		verify(submissionRepository, never()).saveAndFlush(any());
+	}
+
+	@Test
+	void submittingActiveQuizAfterMovingPagePreservesCurrentPageState() {
+		User owner = User.create("owner@example.com", "hash", "소유자");
+		ReflectionTestUtils.setField(owner, "id", 1L);
+		LearningMaterial material = LearningMaterial.create(
+			owner,
+			"자료",
+			"materials/test.pdf"
+		);
+		ReflectionTestUtils.setField(material, "id", 10L);
+		material.markReady(4);
+		LearningSession session = LearningSession.create(owner, material);
+		ReflectionTestUtils.setField(session, "id", 100L);
+		session.moveTo(3, PageStatus.EXPLAINED, List.of());
+		session.activateQuiz(50L, List.of());
+		session.moveTo(
+			4,
+			PageStatus.NOT_EXPLAINED,
+			List.of(UiAction.pageExplanation())
+		);
+		Quiz quiz = Quiz.create(
+			session,
+			3,
+			"퀴즈",
+			3,
+			3,
+			QuizType.MCQ,
+			List.of(),
+			List.of(),
+			"1.0"
+		);
+		ReflectionTestUtils.setField(quiz, "id", 50L);
+		PreparedQuizSubmission prepared = new PreparedQuizSubmission(
+			50L,
+			100L,
+			10L,
+			QuizType.MCQ,
+			"1.0",
+			"request-1",
+			List.of(),
+			List.of(),
+			List.of(),
+			null
+		);
+		GradingResult result = new GradingResult(
+			"1.0",
+			new BigDecimal("60.00"),
+			new BigDecimal("100.00"),
+			List.of()
+		);
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(quizRepository.findByIdAndSessionId(50L, 100L))
+			.thenReturn(Optional.of(quiz));
+		when(userRepository.getReferenceById(1L)).thenReturn(owner);
+		when(submissionRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+			QuizSubmission submission = invocation.getArgument(0);
+			ReflectionTestUtils.setField(submission, "id", 200L);
+			return submission;
+		});
+
+		PersistedQuizSubmission persisted = service().persist(
+			1L,
+			prepared,
+			result,
+			true
+		);
+
+		assertThat(persisted.currentPageQuiz()).isFalse();
+		assertThat(session.getCurrentPage()).isEqualTo(4);
+		assertThat(session.getPageStatus())
+			.isEqualTo(PageStatus.NOT_EXPLAINED);
+		assertThat(session.getLastUiActions())
+			.containsExactly(UiAction.pageExplanation());
+		assertThat(session.getActiveQuizId()).isNull();
+		assertThat(persisted.response().uiActions())
+			.containsExactly(UiAction.pageExplanation());
+	}
+
+	@Test
 	void finalLockRecheckRejectsCompletedSession() {
 		Fixture fixture = fixture();
 		fixture.session().complete();
@@ -250,6 +359,7 @@ class QuizSubmissionPersistenceServiceTest {
 		material.markReady(2);
 		LearningSession session = LearningSession.create(owner, material);
 		ReflectionTestUtils.setField(session, "id", 100L);
+		ReflectionTestUtils.setField(session, "activeQuizId", 50L);
 		Quiz quiz = Quiz.create(
 			session,
 			1,
