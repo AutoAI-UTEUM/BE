@@ -2,10 +2,14 @@ package io.edupilot.quiz;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.edupilot.diagnosis.Diagnosis;
+import io.edupilot.diagnosis.DiagnosisRepository;
+import io.edupilot.diagnosis.DiagnosisStatus;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.quiz.dto.QuizSubmitResponse;
@@ -25,19 +29,46 @@ public class QuizSubmissionPersistenceService {
 	private final QuizSubmissionRepository submissionRepository;
 	private final UserRepository userRepository;
 	private final UiActionResolver uiActionResolver;
+	private final DiagnosisRepository diagnosisRepository;
 
 	public QuizSubmissionPersistenceService(
 		LearningSessionRepository sessionRepository,
 		QuizRepository quizRepository,
 		QuizSubmissionRepository submissionRepository,
 		UserRepository userRepository,
-		UiActionResolver uiActionResolver
+		UiActionResolver uiActionResolver,
+		DiagnosisRepository diagnosisRepository
 	) {
 		this.sessionRepository = sessionRepository;
 		this.quizRepository = quizRepository;
 		this.submissionRepository = submissionRepository;
 		this.userRepository = userRepository;
 		this.uiActionResolver = uiActionResolver;
+		this.diagnosisRepository = diagnosisRepository;
+	}
+
+	@Transactional(readOnly = true)
+	public Optional<QuizSubmitResponse> findByRequest(
+		Long userId,
+		Long quizId,
+		String requestId
+	) {
+		if (requestId == null || requestId.isBlank()) {
+			return Optional.empty();
+		}
+		return submissionRepository.findByRequest(
+			quizId,
+			userId,
+			requestId
+		).map(submission -> QuizSubmitResponse.from(
+			submission,
+			replayUiActions(submission)
+		));
+	}
+
+	@Transactional(readOnly = true)
+	public boolean exists(Long userId, Long quizId) {
+		return submissionRepository.existsByQuiz_IdAndUser_Id(quizId, userId);
 	}
 
 	@Transactional
@@ -101,5 +132,23 @@ public class QuizSubmissionPersistenceService {
 			QuizSubmitResponse.from(submission, uiActions),
 			currentPageQuiz
 		);
+	}
+
+	private List<UiAction> replayUiActions(QuizSubmission submission) {
+		Diagnosis diagnosis = diagnosisRepository
+			.findBySubmission_Id(submission.getId())
+			.orElse(null);
+		if (diagnosis != null
+			&& diagnosis.getStatus() != DiagnosisStatus.COMPLETED
+			&& Objects.equals(
+				diagnosis.getId(),
+				submission.getSessionPendingDiagnosisId()
+			)) {
+			return List.of(UiAction.diagnosisQuestion(
+				diagnosis.getDiagnosticPrompt(),
+				diagnosis.getId()
+			));
+		}
+		return submission.getSessionUiActions();
 	}
 }

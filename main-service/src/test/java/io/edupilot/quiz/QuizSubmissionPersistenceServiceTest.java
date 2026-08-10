@@ -19,6 +19,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.diagnosis.DiagnosisRepository;
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.session.LearningSession;
 import io.edupilot.session.LearningSessionRepository;
@@ -42,6 +43,9 @@ class QuizSubmissionPersistenceServiceTest {
 
 	@Mock
 	private UserRepository userRepository;
+
+	@Mock
+	private DiagnosisRepository diagnosisRepository;
 
 	@Test
 	void persistsSubmissionAndClearsActiveQuiz() {
@@ -103,7 +107,8 @@ class QuizSubmissionPersistenceServiceTest {
 				quizRepository,
 				submissionRepository,
 				userRepository,
-				new io.edupilot.session.UiActionResolver()
+				new io.edupilot.session.UiActionResolver(),
+				diagnosisRepository
 			);
 
 		var persisted = service.persist(1L, prepared, result, true);
@@ -337,13 +342,47 @@ class QuizSubmissionPersistenceServiceTest {
 		verify(submissionRepository, never()).saveAndFlush(any());
 	}
 
+	@Test
+	void replaysStoredSubmissionWithPersistedSessionActions() {
+		Fixture fixture = fixture();
+		User owner = (User) ReflectionTestUtils.getField(
+			fixture.session(),
+			"user"
+		);
+		QuizSubmission submission = QuizSubmission.create(
+			fixture.quiz(),
+			owner,
+			"request-1",
+			List.of(),
+			fixture.result(),
+			true
+		);
+		ReflectionTestUtils.setField(submission, "id", 200L);
+		when(submissionRepository.findByRequest(50L, 1L, "request-1"))
+			.thenReturn(Optional.of(submission));
+		when(diagnosisRepository.findBySubmission_Id(200L))
+			.thenReturn(Optional.empty());
+
+		var replay = service().findByRequest(1L, 50L, "request-1");
+
+		assertThat(replay).isPresent();
+		assertThat(replay.orElseThrow().submissionId()).isEqualTo(200L);
+		assertThat(replay.orElseThrow().gradingResult())
+			.isEqualTo(io.edupilot.quiz.dto.QuizGradingResultResponse.from(
+				fixture.result()
+			));
+		assertThat(replay.orElseThrow().uiActions())
+			.containsExactly(UiAction.initialExplanation());
+	}
+
 	private QuizSubmissionPersistenceService service() {
 		return new QuizSubmissionPersistenceService(
 			sessionRepository,
 			quizRepository,
 			submissionRepository,
 			userRepository,
-			new io.edupilot.session.UiActionResolver()
+			new io.edupilot.session.UiActionResolver(),
+			diagnosisRepository
 		);
 	}
 

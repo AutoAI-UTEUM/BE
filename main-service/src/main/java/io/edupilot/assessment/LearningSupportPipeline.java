@@ -22,7 +22,7 @@ import io.edupilot.quiz.PrivateQuizQuestion;
 import io.edupilot.quiz.PublicQuizQuestion;
 import io.edupilot.quiz.QuizPostGradingContext;
 import io.edupilot.quiz.QuizPostGradingHook;
-import io.edupilot.quiz.SubmittedAnswer;
+import io.edupilot.quiz.QuizType;
 import io.edupilot.session.UiAction;
 
 @Component
@@ -87,13 +87,21 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 		}
 
 		try {
+			DiagnosisRequest request = diagnosisRequest(
+				context,
+				assessmentRequest,
+				assessmentResponse,
+				memoryDigest
+			);
+			if (request.wrongItems().isEmpty()) {
+				log.atWarn()
+					.addKeyValue("submissionId", context.submissionId())
+					.addKeyValue("quizId", context.quizId())
+					.log("Diagnosis skipped because wrongItems is empty");
+				return defaultActions(context);
+			}
 			DiagnosisResponse response = aiClient.diagnosis(
-				diagnosisRequest(
-					context,
-					assessmentRequest,
-					assessmentResponse,
-					memoryDigest
-				)
+				request
 			);
 			return diagnosisPersistenceService.savePending(context, response)
 				.map(List::of)
@@ -113,13 +121,15 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 			privateById.put(question.questionId(), question);
 		}
 		List<QuizAssessmentRequest.QuizItem> items = new ArrayList<>();
+		Map<String, PublicQuizQuestion> publicById = new HashMap<>();
 		for (PublicQuizQuestion question : context.publicQuestions()) {
+			publicById.put(question.questionId(), question);
 			PrivateQuizQuestion privateQuestion =
 				privateById.get(question.questionId());
 			items.add(new QuizAssessmentRequest.QuizItem(
 				question.questionId(),
 				question.questionText(),
-				modelAnswer(context, privateQuestion),
+				modelAnswer(context, question, privateQuestion),
 				question.points()
 			));
 		}
@@ -140,7 +150,11 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 				.map(answer ->
 					new QuizAssessmentRequest.StudentAnswer(
 						answer.questionId(),
-						answer.answer()
+						answerText(
+							context.quizType(),
+							publicById.get(answer.questionId()),
+							answer.answer()
+						)
 					))
 				.toList(),
 			new QuizAssessmentRequest.PageContext(
@@ -163,8 +177,9 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 			: assessmentRequest.quizItems()) {
 			quizItems.put(item.questionId(), item);
 		}
-		Map<String, SubmittedAnswer> answers = new HashMap<>();
-		for (SubmittedAnswer answer : context.answers()) {
+		Map<String, QuizAssessmentRequest.StudentAnswer> answers = new HashMap<>();
+		for (QuizAssessmentRequest.StudentAnswer answer
+			: assessmentRequest.studentAnswers()) {
 			answers.put(answer.questionId(), answer);
 		}
 		List<DiagnosisRequest.WrongItem> wrongItems =
@@ -174,7 +189,8 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 				.map(item -> {
 					QuizAssessmentRequest.QuizItem quizItem =
 						quizItems.get(item.questionId());
-					SubmittedAnswer answer = answers.get(item.questionId());
+					QuizAssessmentRequest.StudentAnswer answer =
+						answers.get(item.questionId());
 					return new DiagnosisRequest.WrongItem(
 						item.questionId(),
 						quizItem.question(),
@@ -206,13 +222,43 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 
 	private String modelAnswer(
 		QuizPostGradingContext context,
+		PublicQuizQuestion publicQuestion,
 		PrivateQuizQuestion question
 	) {
 		return switch (context.quizType()) {
-			case MCQ -> question.answerChoiceId();
-			case OX -> String.valueOf(question.answerValue());
+			case MCQ -> answerText(
+				QuizType.MCQ,
+				publicQuestion,
+				question.answerChoiceId()
+			);
+			case OX -> answerText(
+				QuizType.OX,
+				publicQuestion,
+				String.valueOf(question.answerValue())
+			);
 			case SHORT -> question.referenceAnswer();
 			case ESSAY -> question.modelAnswer();
+		};
+	}
+
+	private String answerText(
+		QuizType quizType,
+		PublicQuizQuestion question,
+		String answer
+	) {
+		return switch (quizType) {
+			case MCQ -> question.choices().stream()
+				.filter(choice -> choice.choiceId().equals(answer))
+				.findFirst()
+				.map(choice -> "%s: %s".formatted(
+					choice.choiceId(),
+					choice.text()
+				))
+				.orElse(answer);
+			case OX -> "true".equals(answer)
+				? "O (true)"
+				: "X (false)";
+			case SHORT, ESSAY -> answer;
 		};
 	}
 

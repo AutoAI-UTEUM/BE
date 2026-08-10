@@ -33,9 +33,6 @@ class QuizSubmissionPreparationServiceTest {
 	private QuizRepository quizRepository;
 
 	@Mock
-	private QuizSubmissionRepository submissionRepository;
-
-	@Mock
 	private MaterialPageRepository materialPageRepository;
 
 	private QuizSubmissionPreparationService service;
@@ -45,7 +42,6 @@ class QuizSubmissionPreparationServiceTest {
 	void setUp() {
 		service = new QuizSubmissionPreparationService(
 			quizRepository,
-			submissionRepository,
 			materialPageRepository
 		);
 		User owner = User.create("owner@example.com", "hash", "소유자");
@@ -138,18 +134,6 @@ class QuizSubmissionPreparationServiceTest {
 				objectMapper.readTree("true")
 			))
 		));
-	}
-
-	@Test
-	void rejectsExistingSubmissionBeforeRequestValidation() {
-		when(submissionRepository.existsByQuiz_IdAndUser_Id(50L, 1L))
-			.thenReturn(true);
-
-		assertThatThrownBy(() -> service.prepare(1L, 50L, null))
-			.isInstanceOfSatisfying(BusinessException.class, exception ->
-				assertThat(exception.errorCode())
-					.isEqualTo(ErrorCode.QUIZ_ALREADY_SUBMITTED)
-			);
 	}
 
 	@Test

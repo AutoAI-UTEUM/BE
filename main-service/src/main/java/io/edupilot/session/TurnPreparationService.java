@@ -48,7 +48,6 @@ public class TurnPreparationService {
 		if (!requestId.equals(session.getActiveTurnRequestId())) {
 			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
 		}
-
 		if (diagnosisId != null) {
 			answerDiagnosis(session, userId, diagnosisId, userContent);
 		}
@@ -57,6 +56,30 @@ public class TurnPreparationService {
 			ChatMessage.user(session, userContent, requestId)
 		);
 		return new PreparedTurn(message.getId());
+	}
+
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void assertEventAllowed(
+		Long userId,
+		Long sessionId,
+		String requestId,
+		TurnEventType eventType
+	) {
+		if (eventType != TurnEventType.QUIZ_TYPE_SELECTED) {
+			return;
+		}
+		LearningSession session = sessionRepository.findOwnedForUpdate(
+				sessionId,
+				userId
+			)
+			.orElseThrow(() ->
+				new BusinessException(ErrorCode.SESSION_NOT_FOUND));
+		if (!requestId.equals(session.getActiveTurnRequestId())) {
+			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
+		}
+		if (session.getPageStatus() == PageStatus.DIAGNOSIS_PENDING) {
+			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
+		}
 	}
 
 	private void answerDiagnosis(

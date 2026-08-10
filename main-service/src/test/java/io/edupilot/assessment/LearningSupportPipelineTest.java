@@ -31,6 +31,7 @@ import io.edupilot.quiz.GradingVerdict;
 import io.edupilot.quiz.PrivateQuizQuestion;
 import io.edupilot.quiz.PublicQuizQuestion;
 import io.edupilot.quiz.QuizPostGradingContext;
+import io.edupilot.quiz.QuizOption;
 import io.edupilot.quiz.QuizType;
 import io.edupilot.quiz.SubmittedAnswer;
 import io.edupilot.session.UiAction;
@@ -164,6 +165,143 @@ class LearningSupportPipelineTest {
 		verify(aiClient, never()).diagnosis(any());
 	}
 
+	@Test
+	void failedSubmissionWithNoWrongItemsSkipsDiagnosis() {
+		QuizPostGradingContext context = contextWithVerdict(
+			false,
+			GradingVerdict.CORRECT
+		);
+		QuizAssessmentResponse response = assessmentResponse();
+		when(memoryRepository.findByUser_IdAndMaterial_Id(1L, 10L))
+			.thenReturn(Optional.empty());
+		when(aiClient.quizAssessment(any())).thenReturn(response);
+		when(assessmentPersistenceService.save(context, response))
+			.thenReturn(
+				new AssessmentPersistenceService.AssessmentSaveResult(
+					true,
+					300L
+				)
+			);
+
+		assertThat(pipeline().onGraded(context))
+			.containsExactly(UiAction.moveNextPage());
+		verify(aiClient, never()).diagnosis(any());
+	}
+
+	@Test
+	void mcqAssessmentAndDiagnosisUseChoiceText() {
+		PublicQuizQuestion publicQuestion = new PublicQuizQuestion(
+			"q1",
+			"question",
+			BigDecimal.TEN,
+			List.of(
+				new QuizOption("c2", "second choice"),
+				new QuizOption("c3", "third choice")
+			)
+		);
+		PrivateQuizQuestion privateQuestion = new PrivateQuizQuestion(
+			"q1",
+			"c3",
+			null,
+			null,
+			null,
+			List.of(),
+			List.of(),
+			null
+		);
+		QuizPostGradingContext context = context(
+			QuizType.MCQ,
+			publicQuestion,
+			privateQuestion,
+			"c2",
+			false,
+			GradingVerdict.WRONG
+		);
+		QuizAssessmentResponse assessment = assessmentResponse();
+		DiagnosisResponse diagnosis = diagnosisResponse();
+		when(memoryRepository.findByUser_IdAndMaterial_Id(1L, 10L))
+			.thenReturn(Optional.empty());
+		when(aiClient.quizAssessment(any())).thenReturn(assessment);
+		when(assessmentPersistenceService.save(context, assessment))
+			.thenReturn(
+				new AssessmentPersistenceService.AssessmentSaveResult(
+					true,
+					300L
+				)
+			);
+		when(aiClient.diagnosis(any())).thenReturn(diagnosis);
+		when(diagnosisPersistenceService.savePending(context, diagnosis))
+			.thenReturn(Optional.empty());
+
+		pipeline().onGraded(context);
+
+		ArgumentCaptor<QuizAssessmentRequest> assessmentCaptor =
+			ArgumentCaptor.forClass(QuizAssessmentRequest.class);
+		verify(aiClient).quizAssessment(assessmentCaptor.capture());
+		assertThat(assessmentCaptor.getValue().studentAnswers().getFirst().answer())
+			.isEqualTo("c2: second choice");
+		assertThat(assessmentCaptor.getValue().quizItems().getFirst().modelAnswer())
+			.isEqualTo("c3: third choice");
+		ArgumentCaptor<io.edupilot.ai.dto.DiagnosisRequest> diagnosisCaptor =
+			ArgumentCaptor.forClass(
+				io.edupilot.ai.dto.DiagnosisRequest.class
+			);
+		verify(aiClient).diagnosis(diagnosisCaptor.capture());
+		assertThat(diagnosisCaptor.getValue().wrongItems().getFirst().studentAnswer())
+			.isEqualTo("c2: second choice");
+		assertThat(diagnosisCaptor.getValue().wrongItems().getFirst().modelAnswer())
+			.isEqualTo("c3: third choice");
+	}
+
+	@Test
+	void oxAssessmentUsesMeaningfulAnswerText() {
+		PublicQuizQuestion publicQuestion = new PublicQuizQuestion(
+			"q1",
+			"question",
+			BigDecimal.TEN,
+			null
+		);
+		PrivateQuizQuestion privateQuestion = new PrivateQuizQuestion(
+			"q1",
+			null,
+			false,
+			null,
+			null,
+			List.of(),
+			List.of(),
+			null
+		);
+		QuizPostGradingContext context = context(
+			QuizType.OX,
+			publicQuestion,
+			privateQuestion,
+			"true",
+			true,
+			GradingVerdict.CORRECT
+		);
+		QuizAssessmentResponse assessment = assessmentResponse();
+		when(memoryRepository.findByUser_IdAndMaterial_Id(1L, 10L))
+			.thenReturn(Optional.empty());
+		when(aiClient.quizAssessment(any())).thenReturn(assessment);
+		when(assessmentPersistenceService.save(context, assessment))
+			.thenReturn(
+				new AssessmentPersistenceService.AssessmentSaveResult(
+					true,
+					300L
+				)
+			);
+
+		pipeline().onGraded(context);
+
+		ArgumentCaptor<QuizAssessmentRequest> captor =
+			ArgumentCaptor.forClass(QuizAssessmentRequest.class);
+		verify(aiClient).quizAssessment(captor.capture());
+		assertThat(captor.getValue().studentAnswers().getFirst().answer())
+			.isEqualTo("O (true)");
+		assertThat(captor.getValue().quizItems().getFirst().modelAnswer())
+			.isEqualTo("X (false)");
+	}
+
 	private LearningSupportPipeline pipeline() {
 		return new LearningSupportPipeline(
 			aiClient,
@@ -221,6 +359,79 @@ class LearningSupportPipelineTest {
 			),
 			passed,
 			new GradeRequest.PageContext(1, 1, "페이지 문맥"),
+			List.of(UiAction.moveNextPage())
+		);
+	}
+
+	private QuizPostGradingContext contextWithVerdict(
+		boolean passed,
+		GradingVerdict verdict
+	) {
+		QuizPostGradingContext source = context(passed);
+		GradingItem original = source.gradingResult().items().getFirst();
+		return new QuizPostGradingContext(
+			source.submissionId(),
+			source.quizId(),
+			source.sessionId(),
+			source.userId(),
+			source.materialId(),
+			source.quizType(),
+			source.schemaVersion(),
+			source.publicQuestions(),
+			source.privateQuestions(),
+			source.answers(),
+			new GradingResult(
+				source.gradingResult().schemaVersion(),
+				source.gradingResult().score(),
+				source.gradingResult().maxScore(),
+				List.of(new GradingItem(
+					original.questionId(),
+					original.score(),
+					original.maxScore(),
+					verdict,
+					original.feedback()
+				))
+			),
+			passed,
+			source.pageContext(),
+			source.defaultUiActions()
+		);
+	}
+
+	private QuizPostGradingContext context(
+		QuizType quizType,
+		PublicQuizQuestion publicQuestion,
+		PrivateQuizQuestion privateQuestion,
+		String answer,
+		boolean passed,
+		GradingVerdict verdict
+	) {
+		BigDecimal score = passed ? BigDecimal.TEN : BigDecimal.ZERO;
+		return new QuizPostGradingContext(
+			200L,
+			50L,
+			100L,
+			1L,
+			10L,
+			quizType,
+			"1.0",
+			List.of(publicQuestion),
+			List.of(privateQuestion),
+			List.of(new SubmittedAnswer("q1", answer)),
+			new GradingResult(
+				"1.0",
+				score,
+				BigDecimal.TEN,
+				List.of(new GradingItem(
+					"q1",
+					score,
+					BigDecimal.TEN,
+					verdict,
+					"feedback"
+				))
+			),
+			passed,
+			new GradeRequest.PageContext(1, 1, "page text"),
 			List.of(UiAction.moveNextPage())
 		);
 	}

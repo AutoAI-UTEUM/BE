@@ -94,6 +94,7 @@ class DiagnosisServiceTest {
 	@Test
 	void completeDiagnosisStoresRepairCompletesAndClearsPending() {
 		Fixture fixture = fixture();
+		stubQuizPage(fixture, 1);
 		fixture.diagnosis().answer("답변");
 		when(diagnosisRepository.findByIdForUpdate(30L))
 			.thenReturn(Optional.of(fixture.diagnosis()));
@@ -107,6 +108,38 @@ class DiagnosisServiceTest {
 		assertThat(fixture.session().getPendingDiagnosisId()).isNull();
 		assertThat(fixture.session().getPageStatus())
 			.isEqualTo(PageStatus.REPAIR_COMPLETED);
+		verify(repairResultRepository).save(any(RepairResult.class));
+	}
+
+	@Test
+	void offPageDiagnosisCompletesWithoutChangingCurrentPageState() {
+		Fixture fixture = fixture();
+		stubQuizPage(fixture, 1);
+		fixture.diagnosis().answer("answer");
+		fixture.session().moveTo(
+			2,
+			PageStatus.NOT_EXPLAINED,
+			List.of(UiAction.pageExplanation())
+		);
+		when(diagnosisRepository.findByIdForUpdate(30L))
+			.thenReturn(Optional.of(fixture.diagnosis()));
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(fixture.session()));
+
+		boolean currentPage = service().completeDiagnosis(
+			30L,
+			"repair"
+		);
+
+		assertThat(currentPage).isFalse();
+		assertThat(fixture.diagnosis().getStatus())
+			.isEqualTo(DiagnosisStatus.COMPLETED);
+		assertThat(fixture.session().getPendingDiagnosisId()).isNull();
+		assertThat(fixture.session().getCurrentPage()).isEqualTo(2);
+		assertThat(fixture.session().getPageStatus())
+			.isEqualTo(PageStatus.NOT_EXPLAINED);
+		assertThat(fixture.session().getLastUiActions())
+			.containsExactly(UiAction.pageExplanation());
 		verify(repairResultRepository).save(any(RepairResult.class));
 	}
 
@@ -162,6 +195,12 @@ class DiagnosisServiceTest {
 			UiAction.diagnosisQuestion("진단 질문", 30L)
 		);
 		return new Fixture(session, diagnosis);
+	}
+
+	private void stubQuizPage(Fixture fixture, int pageNumber) {
+		QuizSubmission submission = (QuizSubmission)
+			ReflectionTestUtils.getField(fixture.diagnosis(), "submission");
+		when(submission.getQuizPageNumber()).thenReturn(pageNumber);
 	}
 
 	private void assertError(

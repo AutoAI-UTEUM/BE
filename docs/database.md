@@ -137,7 +137,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 ## 5. 동시성·멱등성
 
 - `learning_sessions.version`을 낙관적 잠금에 사용하고, `active_turn_request_id`·`active_turn_started_at` 조건부 갱신으로 세션당 동시 턴을 하나로 제한합니다. 5분이 지난 claim은 stale로 간주해 재획득할 수 있습니다.
-- AI 턴은 사용자 `chat_messages.request_id`(`UK(session_id,request_id)`)로 클라이언트 `requestId`를 저장해 중복 처리를 방지하고 동일 요청은 `TURN_ALREADY_PROCESSED`로 거부합니다. AI 메시지의 `request_id`는 `NULL`이며 MySQL UNIQUE가 복수 `NULL`을 허용하는 성질을 사용합니다. 퀴즈 제출은 `quiz_submissions.request_id`(`UK(quiz_id,user_id,request_id)`)로 중복을 방지합니다.
+- AI 턴은 사용자 `chat_messages.request_id`(`UK(session_id,request_id)`)로 클라이언트 `requestId`를 저장해 중복 처리를 방지하고 동일 요청은 `TURN_ALREADY_PROCESSED`로 거부합니다. AI 메시지의 `request_id`는 `NULL`이며 MySQL UNIQUE가 복수 `NULL`을 허용하는 성질을 사용합니다. 퀴즈 제출은 `quiz_submissions.request_id`(`UK(quiz_id,user_id,request_id)`)로 중복을 방지하고, 동일 `(quiz_id,user_id,request_id)` 재전송 시 저장된 제출·채점 결과를 재구성합니다. 제출 행에 저장되지 않는 `uiActions`는 활성 진단이 있으면 진단 액션을, 그 외에는 세션의 영속 `last_ui_actions_json`을 사용해 누락 없이 복원합니다.
 - LearnerMemory 승격은 낙관적 잠금으로 덮어쓰기를 방지합니다.
 - AI 호출 중 DB 트랜잭션을 오래 유지하지 않습니다. 호출 전 스냅샷과 호출 후 조건부 반영 패턴을 사용합니다.
 - 자료 삭제와 추출 결과 반영은 `learning_materials` 행을 잠그고 상태를 재검증하여 삭제된 자료가 READY로 되살아나지 않게 합니다.

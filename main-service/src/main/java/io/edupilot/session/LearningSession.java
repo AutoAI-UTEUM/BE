@@ -148,10 +148,15 @@ public class LearningSession {
 		this.lastUiActions = List.of(uiAction);
 	}
 
-	public void completeDiagnosis(Long diagnosisId) {
+	public void completeDiagnosis(
+		Long diagnosisId,
+		boolean currentPageDiagnosis
+	) {
 		if (Objects.equals(this.pendingDiagnosisId, diagnosisId)) {
 			this.pendingDiagnosisId = null;
-			this.pageStatus = PageStatus.REPAIR_COMPLETED;
+			if (currentPageDiagnosis) {
+				this.pageStatus = PageStatus.REPAIR_COMPLETED;
+			}
 		}
 	}
 
