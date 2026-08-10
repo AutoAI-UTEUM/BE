@@ -7,8 +7,11 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from edupilot_ai.core.errors import InternalErrorResponse
+from edupilot_ai.core.errors import ErrorCategory, InternalErrorResponse
+from edupilot_ai.grading.service import GraderAgent
+from edupilot_ai.llm.bridge import LlmBridgeError
 from edupilot_ai.models.grading import (
+    GradeRequest,
     GraderItemOutput,
     GraderOutput,
     RubricScore,
@@ -28,7 +31,7 @@ from edupilot_ai.models.quiz import (
 from edupilot_ai.models.turn import TurnRequest
 from edupilot_ai.orchestration.context import ContextBuilder
 from edupilot_ai.orchestration.prompts import quiz_messages
-from edupilot_ai.settings import ReasoningEffort
+from edupilot_ai.settings import ReasoningEffort, Settings
 from tests.fakes import FakeLlm
 from tests.test_turn_contract import make_plan, post_turn
 
@@ -337,6 +340,154 @@ async def test_grade_verdict_echo_mismatch_recomputes_and_warns(
     assert len(fake_llm.calls) == 1
     assert "questionId=q-1" in caplog.text
     assert "verdictDifference=1" in caplog.text
+
+
+async def test_grade_rounds_rubric_weighted_score_to_two_decimals(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+) -> None:
+    payload = grade_payload()
+    payload["quizType"] = "SHORT"
+    items = payload["items"]
+    assert isinstance(items, list)
+    assert isinstance(items[0], dict)
+    items[0]["rubric"] = [
+        {"criterion": "개념", "weight": 0.33333333},
+        {"criterion": "근거", "weight": 0.33333333},
+        {"criterion": "표현", "weight": 0.33333334},
+    ]
+    fake_llm.queue(
+        GraderOutput(
+            items=[
+                GraderItemOutput(
+                    question_id="q-1",
+                    rubric_scores=[
+                        RubricScore(criterion="개념", score_ratio=1),
+                        RubricScore(criterion="근거", score_ratio=1),
+                        RubricScore(criterion="표현", score_ratio=0),
+                    ],
+                    score=6.6666666,
+                    verdict="PARTIAL",
+                    feedback="핵심 개념과 근거를 충족했습니다.",
+                )
+            ]
+        )
+    )
+
+    response = await post_grade(client, auth_headers, payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"][0]["score"] == 6.67
+    assert body["score"] == sum(item["score"] for item in body["items"])
+
+
+async def test_grade_rounds_total_max_score_to_two_decimals(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+) -> None:
+    payload = grade_payload()
+    items = payload["items"]
+    answers = payload["studentAnswers"]
+    assert isinstance(items, list)
+    assert isinstance(items[0], dict)
+    assert isinstance(answers, list)
+    first_item = items[0]
+    first_item["maxScore"] = 1.1
+    second_item = deepcopy(first_item)
+    second_item["questionId"] = "q-2"
+    second_item["maxScore"] = 2.2
+    items[:] = [first_item, second_item]
+    answers.append({"questionId": "q-2", "answer": "편차의 정의"})
+    fake_llm.queue(
+        GraderOutput(
+            items=[
+                GraderItemOutput(
+                    question_id=question_id,
+                    rubric_scores=[
+                        RubricScore(criterion="정확성", score_ratio=0.8),
+                        RubricScore(criterion="논리성", score_ratio=0.8),
+                    ],
+                    score=score,
+                    verdict="CORRECT",
+                    feedback="핵심 의미를 설명했습니다.",
+                )
+                for question_id, score in (("q-1", 0.88), ("q-2", 1.76))
+            ]
+        )
+    )
+
+    response = await post_grade(client, auth_headers, payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["maxScore"] == 3.3
+    assert [item["maxScore"] for item in body["items"]] == [1.1, 2.2]
+
+
+async def test_grade_verdict_uses_unrounded_ratio(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+) -> None:
+    fake_llm.queue(
+        grader_output(
+            score_ratio=0.7996,
+            score=8,
+            verdict="PARTIAL",
+        )
+    )
+
+    response = await post_grade(client, auth_headers, grade_payload())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"][0]["score"] == 8
+    assert body["items"][0]["verdict"] == "PARTIAL"
+
+
+async def test_grade_schema_retry_uses_remaining_total_budget(
+    fake_llm: FakeLlm,
+    settings: Settings,
+) -> None:
+    readings = iter([100.0, 125.0])
+    agent = GraderAgent(
+        llm=fake_llm,
+        profile=settings.grader_llm_profile,
+        timeout_seconds=settings.grade_timeout_seconds,
+        clock=lambda: next(readings),
+    )
+    fake_llm.queue(
+        LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False),
+        grader_output(),
+    )
+
+    response = await agent.run(GradeRequest.model_validate(grade_payload()))
+
+    assert response.quiz_id == 50
+    assert fake_llm.timeouts == [110, 85]
+
+
+async def test_grade_skips_schema_retry_when_remaining_budget_is_too_short(
+    fake_llm: FakeLlm,
+    settings: Settings,
+) -> None:
+    readings = iter([100.0, 201.0])
+    agent = GraderAgent(
+        llm=fake_llm,
+        profile=settings.grader_llm_profile,
+        timeout_seconds=settings.grade_timeout_seconds,
+        clock=lambda: next(readings),
+    )
+    fake_llm.queue(LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False))
+
+    with pytest.raises(LlmBridgeError) as captured:
+        await agent.run(GradeRequest.model_validate(grade_payload()))
+
+    assert captured.value.category is ErrorCategory.TIMEOUT
+    assert fake_llm.timeouts == [110]
 
 
 async def test_grade_question_id_violation_regenerates_with_reason_log(
