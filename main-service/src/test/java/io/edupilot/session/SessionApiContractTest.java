@@ -253,6 +253,7 @@ class SessionApiContractTest {
 			MessageType.QA,
 			"질문에 대한 답변",
 			3,
+			ChatMessageStatus.COMPLETED,
 			NOW
 		);
 		when(turnService.execute(
@@ -281,8 +282,31 @@ class SessionApiContractTest {
 			.andExpect(jsonPath("$.data.turnId").value("turn-123"))
 			.andExpect(jsonPath("$.data.messages[0].requestId").doesNotExist())
 			.andExpect(jsonPath("$.data.messages[0].messageType").value("QA"))
+			.andExpect(jsonPath("$.data.messages[0].status")
+				.value("COMPLETED"))
 			.andExpect(jsonPath("$.data.state.activeQuizId")
 				.value(org.hamcrest.Matchers.nullValue()));
+
+		MessageResponse failedMessage = new MessageResponse(
+			500L,
+			SenderType.USER,
+			MessageType.TEXT,
+			"실패한 질문",
+			3,
+			ChatMessageStatus.FAILED,
+			NOW
+		);
+		when(messageService.messages(1L, 100L, null, 30))
+			.thenReturn(new MessageListResponse(
+				List.of(failedMessage),
+				null,
+				false
+			));
+		mockMvc.perform(get("/api/sessions/100/messages")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items[0].status")
+				.value("FAILED"));
 
 		doThrow(new BusinessException(ErrorCode.VALIDATION_FAILED))
 			.when(messageService).messages(1L, 100L, "bad", 30);

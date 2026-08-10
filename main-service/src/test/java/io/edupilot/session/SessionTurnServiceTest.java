@@ -803,6 +803,81 @@ class SessionTurnServiceTest {
 			any(),
 			any()
 		);
+		verify(preparationService).markFailed(501L);
+	}
+
+	@Test
+	void schemaRejectionMarksUserMessageFailedWithoutPersistence()
+		throws Exception {
+		stubPreparedTurn();
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.empty());
+		when(aiClient.executeTurn(any())).thenAnswer(invocation -> {
+			io.edupilot.ai.dto.TurnRequest aiRequest =
+				invocation.getArgument(0);
+			return aiResponse(aiRequest.turnId());
+		});
+		AiClientException rejection = new AiClientException(
+			ErrorCode.AI_RESPONSE_INVALID,
+			false,
+			null
+		);
+		org.mockito.Mockito.doThrow(rejection)
+			.when(responseValidator).validate(
+				any(),
+				anyString(),
+				any(),
+				any(),
+				any(),
+				any()
+			);
+
+		assertThatThrownBy(() -> service().execute(
+			1L,
+			100L,
+			userQuestion()
+		)).isSameAs(rejection);
+
+		verify(preparationService).markFailed(501L);
+		verify(persistenceService, never()).persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		);
+		verify(claimService).release(100L, "request-1");
+	}
+
+	@Test
+	void compensationFailureDoesNotHideOriginalTurnFailure()
+		throws Exception {
+		stubPreparedTurn();
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.empty());
+		AiClientException original = new AiClientException(
+			ErrorCode.AI_SERVICE_UNAVAILABLE,
+			false,
+			null
+		);
+		when(aiClient.executeTurn(any())).thenThrow(original);
+		org.mockito.Mockito.doThrow(new IllegalStateException("mark failed"))
+			.when(preparationService).markFailed(501L);
+
+		assertThatThrownBy(() -> service().execute(
+			1L,
+			100L,
+			userQuestion()
+		)).isSameAs(original);
+		verify(claimService).release(100L, "request-1");
 	}
 
 	private SessionTurnService service() {
@@ -1091,6 +1166,7 @@ class SessionTurnServiceTest {
 			100L,
 			userQuestion()
 		)).isSameAs(failure);
+		verify(preparationService).markFailed(501L);
 		verify(streamService).fail(streamConnection, failure);
 		verify(streamService, never()).complete(any(), any());
 	}

@@ -140,6 +140,7 @@ public class SessionTurnService {
 		);
 		claimService.claim(userId, sessionId, request.requestId());
 		SessionStreamConnection streamConnection = null;
+		Long userMessageId = null;
 		try {
 			PreparedTurn prepared;
 			try {
@@ -161,10 +162,11 @@ public class SessionTurnService {
 					ErrorCode.TURN_ALREADY_PROCESSED
 				);
 			}
+			userMessageId = prepared.userMessageId();
 			TurnSnapshot snapshot = snapshotService.build(
 				userId,
 				sessionId,
-				prepared.userMessageId(),
+				userMessageId,
 				payload.includeCurrentPage()
 			);
 			AiStreamCancellation cancellation = new AiStreamCancellation();
@@ -197,7 +199,7 @@ public class SessionTurnService {
 				request.requestId(),
 				eventType,
 				payload.diagnosisId(),
-				prepared.userMessageId(),
+				userMessageId,
 				aiResponse
 			);
 			promoteMemory(userId, persisted);
@@ -212,12 +214,40 @@ public class SessionTurnService {
 			}
 			return response;
 		} catch (RuntimeException exception) {
+			markFailedMessage(
+				userMessageId,
+				sessionId,
+				request.requestId()
+			);
 			if (streamConnection != null) {
 				streamService.fail(streamConnection, exception);
 			}
 			throw exception;
 		} finally {
 			claimService.release(sessionId, request.requestId());
+		}
+	}
+
+	private void markFailedMessage(
+		Long userMessageId,
+		Long sessionId,
+		String requestId
+	) {
+		if (userMessageId == null) {
+			return;
+		}
+		try {
+			preparationService.markFailed(userMessageId);
+		} catch (RuntimeException exception) {
+			log.atWarn()
+				.addKeyValue("sessionId", sessionId)
+				.addKeyValue("requestId", requestId)
+				.addKeyValue("userMessageId", userMessageId)
+				.addKeyValue(
+					"errorType",
+					exception.getClass().getSimpleName()
+				)
+				.log("Failed to mark unsuccessful turn message");
 		}
 	}
 

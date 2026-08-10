@@ -34,7 +34,7 @@ public class TurnClaimService {
 		if (session.getStatus() != SessionStatus.ACTIVE) {
 			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
 		}
-		if (messageRepository.existsBySession_IdAndRequestId(sessionId, requestId)) {
+		if (hasProcessedMessage(sessionId, requestId)) {
 			throw new BusinessException(ErrorCode.TURN_ALREADY_PROCESSED);
 		}
 
@@ -56,7 +56,7 @@ public class TurnClaimService {
 		if (current.getStatus() != SessionStatus.ACTIVE) {
 			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
 		}
-		if (messageRepository.existsBySession_IdAndRequestId(sessionId, requestId)) {
+		if (hasProcessedMessage(sessionId, requestId)) {
 			throw new BusinessException(ErrorCode.TURN_ALREADY_PROCESSED);
 		}
 		if (isQuizClaim(current.getActiveTurnRequestId())) {
@@ -72,5 +72,15 @@ public class TurnClaimService {
 
 	private boolean isQuizClaim(String requestId) {
 		return requestId != null && requestId.startsWith("quiz:");
+	}
+
+	private boolean hasProcessedMessage(Long sessionId, String requestId) {
+		return messageRepository.findBySession_IdAndRequestId(
+				sessionId,
+				requestId
+			)
+			.filter(message ->
+				message.getStatus() != ChatMessageStatus.FAILED)
+			.isPresent();
 	}
 }

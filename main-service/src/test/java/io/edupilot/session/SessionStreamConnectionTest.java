@@ -194,6 +194,7 @@ class SessionStreamConnectionTest {
 				MessageType.EXPLANATION,
 				"답변",
 				3,
+				ChatMessageStatus.COMPLETED,
 				Instant.parse("2026-07-28T09:00:00Z")
 			)),
 			List.of(action),
