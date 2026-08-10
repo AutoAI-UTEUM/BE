@@ -4,6 +4,7 @@ import json
 from copy import deepcopy
 
 import httpx
+import pytest
 
 from edupilot_ai.models.learning_support import RepairOutput
 from edupilot_ai.models.plan import AgentOutput, ToolName
@@ -11,6 +12,36 @@ from edupilot_ai.models.turn import TurnRequest
 from edupilot_ai.orchestration.context import ContextBuilder, PlanContext
 from tests.fakes import FakeLlm
 from tests.test_turn_contract import make_plan, post_turn
+
+
+@pytest.mark.parametrize(
+    ("role_key", "summary_key"),
+    [
+        ("senderType", "digest"),
+        ("role", "summary"),
+    ],
+)
+def test_plan_context_reads_current_and_legacy_snapshot_keys(
+    turn_payload: dict[str, object],
+    role_key: str,
+    summary_key: str,
+) -> None:
+    payload = deepcopy(turn_payload)
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["recentMessages"] = [{role_key: "STUDENT", "content": "편차가 궁금해요."}]
+    context["qaThreadDigest"] = {
+        "threadRef": "qa-77",
+        summary_key: "편차에 관한 질문 요약",
+    }
+
+    plan_context = PlanContext.from_agent_context(
+        ContextBuilder().build(TurnRequest.model_validate(payload))
+    )
+
+    assert plan_context.recent_messages[0].role == "STUDENT"
+    assert plan_context.qa_thread_digest is not None
+    assert plan_context.qa_thread_digest.has_summary is True
 
 
 def test_plan_context_contains_only_bounded_planner_fields(
@@ -27,8 +58,7 @@ def test_plan_context_contains_only_bounded_planner_fields(
             "previousPageText": "",
             "nextPageText": None,
             "recentMessages": [
-                {"role": "user", "content": f"old-{index}-" + "M" * 140}
-                for index in range(4)
+                {"role": "user", "content": f"old-{index}-" + "M" * 140} for index in range(4)
             ],
             "qaThreadDigest": {
                 "threadRef": "qa-77",
@@ -165,9 +195,11 @@ async def test_only_planner_receives_slim_context(
     assert isinstance(context, dict)
     page_text = "현재 페이지 전체 문맥 " + "X" * 700
     context["currentPageText"] = page_text
-    context["recentMessages"] = [
-        {"role": "user", "content": "질문 전문 " + "Y" * 200}
-    ]
+    context["recentMessages"] = [{"senderType": "STUDENT", "content": "질문 전문 " + "Y" * 200}]
+    context["qaThreadDigest"] = {
+        "threadRef": "qa-88",
+        "digest": "Spring 형식 질문 요약",
+    }
     fake_llm.queue(
         make_plan(
             ToolName.ANSWER_QUESTION,
@@ -185,6 +217,11 @@ async def test_only_planner_receives_slim_context(
     assert planner_payload["pageTextPreview"] == page_text[:500]
     assert page_text not in fake_llm.calls[0][0][1]["content"]
     assert len(planner_payload["recentMessages"][0]["content"]) == 120
+    assert planner_payload["recentMessages"][0]["role"] == "STUDENT"
+    assert planner_payload["qaThreadDigest"] == {
+        "threadRef": "qa-88",
+        "hasSummary": True,
+    }
     assert agent_payload["currentPageText"] == page_text
 
 

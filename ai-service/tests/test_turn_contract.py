@@ -91,6 +91,41 @@ async def test_explain_current_page_turn(
     assert "모든 학습자 대상 텍스트" in fake_llm.calls[1][0][0]["content"]
 
 
+async def test_explain_empty_page_returns_fixed_guidance_without_agent_llm(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "EXPLAIN_CURRENT_PAGE",
+        "payload": {"detailLevel": "NORMAL"},
+    }
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["currentPageText"] = ""
+    fake_llm.queue(
+        make_plan(
+            ToolName.EXPLAIN_PAGE,
+            {"page": 3, "detailLevel": "NORMAL"},
+            "EXPLAIN_CURRENT_PAGE",
+        )
+    )
+
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["messages"][0]["content"] == (
+        "이 페이지에는 설명할 텍스트 내용이 없어요. 이미지나 도형 중심 페이지라면 "
+        "다음 페이지로 이동해 학습을 이어가 주세요."
+    )
+    assert body["statePatch"] == {"pageStatus": "EXPLAINED"}
+    assert len(fake_llm.calls) == 1  # Planner only; ExplainerAgent skipped the LLM.
+    assert fake_llm.stream_calls == []
+
+
 def test_plan_prompt_declares_policy_value_contracts(
     turn_payload: dict[str, object],
 ) -> None:
@@ -111,9 +146,7 @@ def test_plan_prompt_declares_policy_value_contracts(
     assert "unique evidenceRefs total at least 2" in system_prompt
     assert "one of MCQ, OX, SHORT, ESSAY" in system_prompt
     assert "diagnosisId must equal snapshot pendingDiagnosis.diagnosisId" in system_prompt
-    assert "type must be one of STRENGTH, WEAKNESS, MISCONCEPTION, PREFERENCE" in (
-        system_prompt
-    )
+    assert "type must be one of STRENGTH, WEAKNESS, MISCONCEPTION, PREFERENCE" in (system_prompt)
     assert "confidence must be a number from 0 to 1" in system_prompt
 
 
@@ -131,9 +164,7 @@ def test_plan_prompt_forbids_ui_prompt_tools(
     assert "EXPLAIN_CURRENT_PAGE->EXPLAIN_PAGE" in system_prompt
     assert "USER_QUESTION->ANSWER_QUESTION" in system_prompt
     assert "QUIZ_TYPE_SELECTED->GENERATE_QUIZ_{type}" in system_prompt
-    assert (
-        "DIAGNOSIS_ANSWER_SUBMITTED->REPAIR_MISCONCEPTION" in system_prompt
-    )
+    assert "DIAGNOSIS_ANSWER_SUBMITTED->REPAIR_MISCONCEPTION" in system_prompt
 
 
 @pytest.mark.parametrize(
@@ -403,9 +434,7 @@ async def test_pipeline_tool_is_rejected_by_policy(
     auth_headers: dict[str, str],
     turn_payload: dict[str, object],
 ) -> None:
-    fake_llm.queue(
-        make_plan(ToolName.GRADE_OPEN_RESPONSE, {}, "INVALID_PIPELINE_TOOL")
-    )
+    fake_llm.queue(make_plan(ToolName.GRADE_OPEN_RESPONSE, {}, "INVALID_PIPELINE_TOOL"))
 
     response = await post_turn(client, auth_headers, turn_payload)
 
@@ -743,6 +772,7 @@ async def test_learner_confidence_rejects_float_and_unknown_enum(
     assert response.status_code == 422
     assert response.json()["error"]["category"] == "SCHEMA"
     assert fake_llm.calls == []
+
 
 async def test_dispatcher_marks_partial_failure(
     fake_llm: FakeLlm,
