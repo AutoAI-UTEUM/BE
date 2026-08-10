@@ -23,7 +23,7 @@ public class TraceIdFilter extends OncePerRequestFilter {
 	public static final String TRACE_ID_ATTRIBUTE = TraceIdFilter.class.getName() + ".traceId";
 	public static final String TRACE_ID_MDC_KEY = "traceId";
 	private static final Pattern VALID_TRACE_ID =
-		Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,127}");
+		Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}");
 
 	@Override
 	protected void doFilterInternal(

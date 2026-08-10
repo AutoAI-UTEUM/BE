@@ -54,7 +54,11 @@ public class MaterialExtractionService {
 				fileStorage.load(snapshot.get().storageKey())
 			);
 			if (response.pageCount() > properties.maxPages()) {
-				persistenceService.fail(materialId);
+				persistenceService.fail(
+					materialId,
+					MaterialFailureReason.PAGE_LIMIT_EXCEEDED,
+					traceId
+				);
 				log.atWarn()
 					.addKeyValue("materialId", materialId)
 					.addKeyValue("reason", "PAGE_LIMIT")
@@ -70,7 +74,11 @@ public class MaterialExtractionService {
 					.log("Material extraction result discarded");
 			}
 		} catch (RuntimeException exception) {
-			persistenceService.fail(materialId);
+			persistenceService.fail(
+				materialId,
+				MaterialFailureReason.EXTRACTION_FAILED,
+				traceId
+			);
 			log.atWarn()
 				.addKeyValue("materialId", materialId)
 				.addKeyValue("reason", safeReason(exception))
