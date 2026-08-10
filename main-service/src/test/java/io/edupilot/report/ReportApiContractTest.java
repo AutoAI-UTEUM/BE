@@ -37,6 +37,7 @@ import io.edupilot.Epic10ServiceMocks;
 import io.edupilot.auth.JwtTokenProvider;
 import io.edupilot.auth.RefreshTokenRepository;
 import io.edupilot.classroom.ClassroomStudentService;
+import io.edupilot.classroom.ClassroomStudentSort;
 import io.edupilot.classroom.dto.ClassroomStudentListResponse;
 import io.edupilot.classroom.dto.ClassroomStudentResponse;
 import io.edupilot.feedback.FeedbackRepository;
@@ -250,7 +251,13 @@ class ReportApiContractTest {
 	@Test
 	void studentsExposeManagementFieldsAndRemovalEndpoint() throws Exception {
 		when(classroomStudentService.list(
-			1L, UserRole.INSTRUCTOR, 30L, 0, 20
+			1L,
+			UserRole.INSTRUCTOR,
+			30L,
+			0,
+			20,
+			"student",
+			ClassroomStudentSort.LOW_PROGRESS
 		)).thenReturn(new ClassroomStudentListResponse(
 			List.of(new ClassroomStudentResponse(
 				40L,
@@ -259,7 +266,9 @@ class ReportApiContractTest {
 				null,
 				Instant.EPOCH,
 				"ACTIVE",
-				null
+				null,
+				25,
+				4L
 			)),
 			0,
 			20,
@@ -268,6 +277,8 @@ class ReportApiContractTest {
 		));
 
 		mockMvc.perform(get("/api/classrooms/30/students")
+				.param("q", "student")
+				.param("sort", "LOW_PROGRESS")
 				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.items[0].studentId").value(40))
@@ -277,7 +288,24 @@ class ReportApiContractTest {
 			.andExpect(jsonPath("$.data.items[0].affiliation").value(nullValue()))
 			.andExpect(jsonPath("$.data.items[0].joinedAt").exists())
 			.andExpect(jsonPath("$.data.items[0].status").value("ACTIVE"))
-			.andExpect(jsonPath("$.data.items[0].lastActiveAt").value(nullValue()));
+			.andExpect(jsonPath("$.data.items[0].lastActiveAt").value(nullValue()))
+			.andExpect(jsonPath("$.data.items[0].averageProgressRate").value(25))
+			.andExpect(jsonPath("$.data.items[0].aiQuestionCountLast7Days").value(4));
+		verify(classroomStudentService).list(
+			1L,
+			UserRole.INSTRUCTOR,
+			30L,
+			0,
+			20,
+			"student",
+			ClassroomStudentSort.LOW_PROGRESS
+		);
+
+		mockMvc.perform(get("/api/classrooms/30/students")
+				.param("sort", "SCORE")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
 
 		mockMvc.perform(delete("/api/classrooms/30/students/40")
 				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))

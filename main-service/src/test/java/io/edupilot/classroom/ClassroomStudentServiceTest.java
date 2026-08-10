@@ -204,6 +204,9 @@ class ClassroomStudentServiceTest {
 			1L, UserRole.INSTRUCTOR, 30L, 0, 20, "missing", null
 		).items()).isEmpty();
 		assertThat(service.list(
+			1L, UserRole.INSTRUCTOR, 30L, 0, 20, "   ", null
+		).items()).hasSize(3);
+		assertThat(service.list(
 			1L, UserRole.INSTRUCTOR, 30L, 0, 20, null, ClassroomStudentSort.NAME
 		).items()).extracting(item -> item.name())
 			.containsExactly("Alice", "Bob", "Charlie");
