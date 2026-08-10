@@ -105,6 +105,8 @@ class MaterialServiceTest {
 		assertThat(response.processingStatus())
 			.isEqualTo(MaterialProcessingStatus.PROCESSING);
 		assertThat(response.pageCount()).isNull();
+		assertThat(response.failureReason()).isNull();
+		assertThat(response.traceId()).isNull();
 		ArgumentCaptor<MaterialExtractionRequested> event =
 			ArgumentCaptor.forClass(MaterialExtractionRequested.class);
 		verify(eventPublisher).publishEvent(event.capture());
@@ -239,6 +241,8 @@ class MaterialServiceTest {
 
 		assertThat(response.items()).hasSize(1);
 		assertThat(response.items().getFirst().materialId()).isEqualTo(10L);
+		assertThat(response.items().getFirst().failureReason()).isNull();
+		assertThat(response.items().getFirst().traceId()).isNull();
 		ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
 		verify(materialRepository).findByOwner_IdAndStatus(
 			org.mockito.ArgumentMatchers.eq(1L),
@@ -249,6 +253,42 @@ class MaterialServiceTest {
 			.isTrue();
 		assertThat(pageable.getValue().getSort().getOrderFor("id").isDescending())
 			.isTrue();
+	}
+
+	@Test
+	void detailExposesStoredFailureAndAllowsLegacyFailureWithoutMetadata() {
+		LearningMaterial failed = LearningMaterial.create(
+			owner,
+			"failed",
+			"materials/failed.pdf"
+		);
+		failed.markFailed(
+			MaterialFailureReason.EXTRACTION_FAILED,
+			"upload-trace-10"
+		);
+		LearningMaterial legacyFailed = LearningMaterial.create(
+			owner,
+			"legacy failed",
+			"materials/legacy-failed.pdf"
+		);
+		ReflectionTestUtils.setField(
+			legacyFailed,
+			"processingStatus",
+			MaterialProcessingStatus.FAILED
+		);
+		when(accessService.requireAccessible(1L, 10L)).thenReturn(failed);
+		when(accessService.requireAccessible(1L, 11L)).thenReturn(legacyFailed);
+
+		var failedResponse = materialService.detail(1L, 10L);
+		var legacyResponse = materialService.detail(1L, 11L);
+
+		assertThat(failedResponse.failureReason())
+			.isEqualTo(MaterialFailureReason.EXTRACTION_FAILED);
+		assertThat(failedResponse.traceId()).isEqualTo("upload-trace-10");
+		assertThat(legacyResponse.processingStatus())
+			.isEqualTo(MaterialProcessingStatus.FAILED);
+		assertThat(legacyResponse.failureReason()).isNull();
+		assertThat(legacyResponse.traceId()).isNull();
 	}
 
 	@Test

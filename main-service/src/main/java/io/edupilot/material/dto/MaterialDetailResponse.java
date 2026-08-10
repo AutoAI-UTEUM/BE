@@ -3,7 +3,9 @@ package io.edupilot.material.dto;
 import java.time.Instant;
 
 import io.edupilot.material.LearningMaterial;
+import io.edupilot.material.MaterialFailureReason;
 import io.edupilot.material.MaterialProcessingStatus;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 public record MaterialDetailResponse(
 	Long materialId,
@@ -11,6 +13,10 @@ public record MaterialDetailResponse(
 	Integer pageCount,
 	MaterialProcessingStatus processingStatus,
 	boolean learningAvailable,
+	@Schema(nullable = true)
+	MaterialFailureReason failureReason,
+	@Schema(nullable = true, maxLength = 64)
+	String traceId,
 	Instant createdAt
 ) {
 	public static MaterialDetailResponse from(LearningMaterial material) {
@@ -20,6 +26,12 @@ public record MaterialDetailResponse(
 			material.getPageCount(),
 			material.getProcessingStatus(),
 			material.isReady(),
+			material.getProcessingStatus() == MaterialProcessingStatus.FAILED
+				? material.getFailureReason()
+				: null,
+			material.getProcessingStatus() == MaterialProcessingStatus.FAILED
+				? material.getFailureTraceId()
+				: null,
 			material.getCreatedAt()
 		);
 	}

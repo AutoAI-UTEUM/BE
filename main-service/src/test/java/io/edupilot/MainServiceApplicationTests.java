@@ -422,6 +422,18 @@ class MainServiceApplicationTests {
 			).exists())
 			.andExpect(jsonPath("$.paths['/api/materials'].get").exists())
 			.andExpect(jsonPath("$.paths['/api/materials/{materialId}'].get").exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.MaterialSummaryResponse.properties.failureReason"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.MaterialSummaryResponse.properties.traceId.maxLength"
+			).value(64))
+			.andExpect(jsonPath(
+				"$.components.schemas.MaterialDetailResponse.properties.failureReason"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.MaterialDetailResponse.properties.traceId.maxLength"
+			).value(64))
 			.andExpect(jsonPath("$.paths['/api/materials/{materialId}'].delete").exists())
 			.andExpect(jsonPath("$.paths['/api/materials/{materialId}/file'].get").exists())
 			.andExpect(jsonPath(
