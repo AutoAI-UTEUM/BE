@@ -118,7 +118,7 @@
 | POST | `/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}` | 기존 자료 연결 | Y | 소유 INSTRUCTOR, 본인 소유 자료 |
 | DELETE | `/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}` | 자료 연결 해제 | Y | 소유 INSTRUCTOR |
 | GET | `/api/classrooms/{id}/notices` | 공지 목록 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
-| POST | `/api/classrooms/{id}/notices` | 즉시 공지 게시 | Y | 소유 INSTRUCTOR |
+| POST | `/api/classrooms/{id}/notices` | 공지 즉시·예약 게시 | Y | 소유 INSTRUCTOR |
 | PATCH | `/api/classrooms/{id}/notices/{noticeId}` | 공지 수정 | Y | 소유 INSTRUCTOR |
 | DELETE | `/api/classrooms/{id}/notices/{noticeId}` | 공지 삭제 | Y | 소유 INSTRUCTOR |
 | GET | `/api/users/me/schedule` | 주차 공개·공지·개인 일정 통합 조회 | Y | 본인 개인 일정 + 소유·참여 강의실 범위 |
@@ -1461,7 +1461,7 @@ PENDING 요청만 처리합니다. 승인은 같은 트랜잭션에서 `classroo
 
 ### GET `/api/classrooms/{id}/notices?page&size`
 
-소유 강사와 승인 멤버가 접근하며 `publishedAt DESC, noticeId DESC`로 반환합니다.
+소유 강사와 승인 멤버가 접근하며 기존과 같이 `publishedAt DESC, noticeId DESC`로 반환합니다. 소유 강사는 예약 공지를 포함한 전체를 조회하고, 학습자는 `publishAt`이 없거나 현재 UTC 시각 이하인 게시 공지만 조회합니다. 예약 게시 판정은 스케줄러 없이 조회 시점에 수행합니다.
 
 ```json
 {
@@ -1469,9 +1469,12 @@ PENDING 요청만 처리합니다. 승인은 같은 트랜잭션에서 `classroo
     {
       "noticeId": 70,
       "classroomId": 30,
+      "weekNumber": 2,
       "title": "첫 수업 안내",
       "content": "교재를 준비해 주세요.",
       "publishedAt": "2026-09-01T00:00:00Z",
+      "publishAt": "2026-09-02T00:00:00Z",
+      "published": false,
       "createdAt": "2026-09-01T00:00:00Z",
       "updatedAt": "2026-09-01T00:00:00Z"
     }
@@ -1488,15 +1491,17 @@ PENDING 요청만 처리합니다. 승인은 같은 트랜잭션에서 `classroo
 ```json
 {
   "title": "첫 수업 안내",
-  "content": "교재를 준비해 주세요."
+  "content": "교재를 준비해 주세요.",
+  "weekNumber": 2,
+  "publishAt": "2026-09-02T00:00:00Z"
 }
 ```
 
-제목은 비공백·최대 200자이고 내용은 비공백이어야 합니다. `publishedAt=now`로 즉시 게시하며 예약 게시·상태·readCount는 Phase C입니다. 성공 시 공지 항목을 반환합니다.
+제목은 비공백·최대 200자이고 내용은 비공백이어야 합니다. `weekNumber`는 nullable이며 값이 있으면 `1 <= weekNumber <= weekCount`여야 합니다. `publishAt`은 nullable UTC 시각이고 null 또는 과거 값은 즉시 게시, 미래 값은 예약 게시입니다. `publishedAt`은 기존 생성 시각 의미를 유지하고 `published`는 조회 시각 기준 게시 여부입니다. 기존 공지는 `weekNumber=null`, `publishAt=null`로 전체 공지·즉시 게시를 유지합니다. 성공 시 공지 항목을 반환합니다.
 
 ### PATCH `/api/classrooms/{id}/notices/{noticeId}`
 
-`title`, `content` 부분 수정이며 하나 이상 필요합니다. `publishedAt`은 변경하지 않습니다. 성공 시 공지 항목을 반환합니다.
+`title`, `content`, `weekNumber`, `publishAt` 부분 수정이며 하나 이상 필요합니다. `weekNumber:null`은 전체 공지, `publishAt:null`은 즉시 게시로 변경합니다. 주차 범위와 예약 게시 판정 규칙은 생성과 같고 `publishedAt`은 변경하지 않습니다. 성공 시 공지 항목을 반환합니다.
 
 ### DELETE `/api/classrooms/{id}/notices/{noticeId}`
 
@@ -1504,7 +1509,7 @@ MVP에서는 공지를 물리 삭제하고 `data:null`을 반환합니다.
 
 ### GET `/api/users/me/schedule?from&to&classroomId`
 
-`from`, `to`는 `YYYY-MM-DD` 형식의 필수 값이고 양 끝 날짜를 포함하며 `from <= to`여야 합니다. 선택 `classroomId`는 사용자가 소유하거나 참여한 강의실이어야 합니다. `classroomId`가 없으면 본인 개인 일정과 공개 주차·공지를 병합하고, 지정하면 해당 강의실의 파생 일정만 반환합니다. 모든 항목은 `dateTime ASC, scheduleId ASC`로 정렬합니다. 예약 주차는 `releaseAt`, 즉시 공개 주차(`releaseAt=null`)는 주차 `createdAt`, 공지는 `publishedAt`, 개인 일정은 `startsAt`을 `dateTime`으로 사용합니다.
+`from`, `to`는 `YYYY-MM-DD` 형식의 필수 값이고 양 끝 날짜를 포함하며 `from <= to`여야 합니다. 선택 `classroomId`는 사용자가 소유하거나 참여한 강의실이어야 합니다. `classroomId`가 없으면 본인 개인 일정과 공개 주차·공지를 병합하고, 지정하면 해당 강의실의 파생 일정만 반환합니다. 모든 항목은 `dateTime ASC, scheduleId ASC`로 정렬합니다. 예약 주차는 `releaseAt`, 즉시 공개 주차(`releaseAt=null`)는 주차 `createdAt`, 공지는 `publishedAt`, 개인 일정은 `startsAt`을 `dateTime`으로 사용합니다. 예약 공지는 소유 강사의 일정에는 포함하지만 학습자 일정에는 `publishAt` 도래 후 포함합니다.
 
 기존 `type` 필드는 유지하고 `kind`를 일정 구분자로 함께 반환합니다. 파생 일정의 `kind`는 기존 `type` 값과 같고 개인 일정은 두 필드 모두 `PERSONAL`입니다. 개인 일정의 `scheduleId`는 숫자의 string 표현이며 PATCH·DELETE 경로에 그대로 사용할 수 있습니다. 파생 일정에는 개인 일정 전용 필드가 `null`이고, 개인 일정에는 강의실 전용 필드가 `null`입니다.
 

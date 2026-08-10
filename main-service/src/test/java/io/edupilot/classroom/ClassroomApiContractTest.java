@@ -38,8 +38,10 @@ import io.edupilot.classroom.dto.ClassroomAnalyticsMaterialResponse;
 import io.edupilot.classroom.dto.ClassroomAnalyticsResponse;
 import io.edupilot.classroom.dto.ClassroomDetailResponse;
 import io.edupilot.classroom.dto.ClassroomQuestionByPageResponse;
+import io.edupilot.classroom.dto.ClassroomNoticeResponse;
 import io.edupilot.classroom.dto.ClassroomWeekListResponse;
 import io.edupilot.classroom.dto.ClassroomWeekResponse;
+import io.edupilot.classroom.dto.CreateClassroomNoticeRequest;
 import io.edupilot.classroom.dto.ReorderClassroomWeeksRequest;
 import io.edupilot.classroom.dto.UpdateClassroomWeekStatusRequest;
 import io.edupilot.classroom.dto.UpdateClassroomRequest;
@@ -77,6 +79,9 @@ class ClassroomApiContractTest {
 
 	@Autowired
 	private ClassroomWeekService classroomWeekService;
+
+	@Autowired
+	private ClassroomNoticeService classroomNoticeService;
 
 	@Autowired
 	private ClassroomAnalyticsService analyticsService;
@@ -361,6 +366,56 @@ class ClassroomApiContractTest {
 				.content("{\"orderedWeekIds\":[]}"))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+	}
+
+	@Test
+	void noticeCreateAcceptsWeekAndReservationAndExposesPublicationState()
+		throws Exception {
+		Instant publishedAt = Instant.parse("2026-08-10T01:00:00Z");
+		Instant publishAt = Instant.parse("2026-08-11T01:00:00Z");
+		when(classroomNoticeService.create(
+			eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), any()
+		)).thenReturn(new ClassroomNoticeResponse(
+			70L,
+			30L,
+			2,
+			"Reserved notice",
+			"Content",
+			publishedAt,
+			publishAt,
+			false,
+			publishedAt,
+			publishedAt
+		));
+
+		mockMvc.perform(post("/api/classrooms/30/notices")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "title": "Reserved notice",
+					  "content": "Content",
+					  "weekNumber": 2,
+					  "publishAt": "2026-08-11T01:00:00Z"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.weekNumber").value(2))
+			.andExpect(jsonPath("$.data.publishAt").value(publishAt.toString()))
+			.andExpect(jsonPath("$.data.published").value(false));
+
+		ArgumentCaptor<CreateClassroomNoticeRequest> requestCaptor =
+			ArgumentCaptor.forClass(CreateClassroomNoticeRequest.class);
+		verify(classroomNoticeService).create(
+			eq(1L),
+			eq(UserRole.INSTRUCTOR),
+			eq(30L),
+			requestCaptor.capture()
+		);
+		org.assertj.core.api.Assertions.assertThat(requestCaptor.getValue().weekNumber())
+			.isEqualTo(2);
+		org.assertj.core.api.Assertions.assertThat(requestCaptor.getValue().publishAt())
+			.isEqualTo(publishAt);
 	}
 
 	@Test

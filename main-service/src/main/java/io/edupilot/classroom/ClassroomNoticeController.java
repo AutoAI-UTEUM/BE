@@ -52,7 +52,7 @@ public class ClassroomNoticeController {
 	}
 
 	@PostMapping
-	@Operation(summary = "강의실 공지 즉시 게시")
+	@Operation(summary = "강의실 공지 생성(즉시·예약 게시)")
 	public ApiResponse<ClassroomNoticeResponse> create(
 		@AuthenticationPrincipal AuthenticatedUser user,
 		@PathVariable("id") Long classroomId,

@@ -1,5 +1,6 @@
 package io.edupilot.classroom.dto;
 
+import java.time.Instant;
 import java.util.List;
 
 import org.springframework.data.domain.Page;
@@ -13,10 +14,13 @@ public record ClassroomNoticeListResponse(
 	long totalElements,
 	int totalPages
 ) {
-	public static ClassroomNoticeListResponse from(Page<ClassroomNotice> notices) {
+	public static ClassroomNoticeListResponse from(
+		Page<ClassroomNotice> notices,
+		Instant now
+	) {
 		return new ClassroomNoticeListResponse(
 			notices.getContent().stream()
-				.map(ClassroomNoticeResponse::from)
+				.map(notice -> ClassroomNoticeResponse.from(notice, now))
 				.toList(),
 			notices.getNumber(),
 			notices.getSize(),

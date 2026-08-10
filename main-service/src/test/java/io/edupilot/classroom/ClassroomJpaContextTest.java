@@ -17,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.data.domain.PageRequest;
 
 import io.edupilot.classroom.dto.CreateClassroomRequest;
 import io.edupilot.classroom.dto.CreateJoinRequest;
@@ -298,6 +299,28 @@ class ClassroomJpaContextTest {
 			"Excluded",
 			Instant.parse("2026-09-02T00:00:00Z")
 		));
+		ClassroomNotice reservedNotice = noticeRepository.saveAndFlush(
+			ClassroomNotice.create(
+				classroomEntity,
+				"Reserved notice",
+				"Published at boundary",
+				2,
+				rangeStart,
+				rangeStart.minusSeconds(1)
+			)
+		);
+		assertThat(noticeRepository.findPublishedByClassroomId(
+			classroom.classroomId(),
+			rangeStart.minusNanos(1),
+			PageRequest.of(0, 20)
+		).getContent()).extracting(ClassroomNotice::getId)
+			.doesNotContain(reservedNotice.getId());
+		assertThat(noticeRepository.findPublishedByClassroomId(
+			classroom.classroomId(),
+			rangeStart,
+			PageRequest.of(0, 20)
+		).getContent()).extracting(ClassroomNotice::getId)
+			.contains(reservedNotice.getId());
 		assertThat(scheduleService.list(
 			learner.getId(),
 			UserRole.LEARNER,

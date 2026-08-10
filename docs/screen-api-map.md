@@ -31,7 +31,7 @@
 | 주차·자료 | 기존 자료 연결·해제 | `POST·DELETE /api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}` | 주차 자료 목록 갱신 | 자료 중복 연결, 자료·강의실 소유권 |
 | 강의실 자료 업로드 | PDF와 강의실·주차 part 제출 | `POST /api/materials` | 처리 중 자료를 해당 주차에 즉시 표시 | INSTRUCTOR 소유권, part 조합·파일 오류 |
 | 강의실 자료 학습 | 공개 자료 열기·통합학습 시작 | `GET /api/materials/{materialId}`, `GET .../file`, `POST /api/sessions` | PDF 뷰어와 사용자×자료 공유 세션으로 이동 | 공개 취소·연결 해제·멤버십 |
-| 공지 | 목록·즉시 게시·수정·삭제 | `GET·POST /api/classrooms/{id}/notices`, `PATCH·DELETE .../notices/{noticeId}` | 최신 공지 목록 갱신 | 강사 권한, 완료 상태 |
+| 공지 | 목록·즉시/예약 게시·수정·삭제 | `GET·POST /api/classrooms/{id}/notices`, `PATCH·DELETE .../notices/{noticeId}` | 전체/주차 공지를 표시. 강사는 예약 포함 전체, 학습자는 게시 시각이 도래한 공지만 표시 | 강사 권한, 주차 범위, 완료 상태 |
 | 캘린더 | 기간·강의실 필터 조회, 개인 일정 생성·수정·삭제 | `GET·POST /api/users/me/schedule`, `PATCH·DELETE /api/users/me/schedule/{scheduleId}` | 주차 공개·공지·본인 개인 일정을 시간순 표시하고 개인 일정만 편집 | 날짜·시간 범위, 강의실 접근권, 개인 일정 소유권 |
 | 시험 관리 | 시험 생성·목록·상세·수정 | `POST·GET /api/classrooms/{classroomId}/exams`, `GET·PATCH /api/exams/{examId}` | DRAFT 편집기와 전체 상태 목록 표시. rubric 편집기는 기본 접힘·미입력 상태 | 강사 권한, 완료 강의실, DRAFT 편집 상태 |
 | 시험 관리 | 자료 기반 AI 문항 초안 | `POST /api/classrooms/{classroomId}/exams/{examId}/draft-questions` | 보조 버튼으로 초안을 받아 편집기에 채우되 자동 저장하지 않음. `truncated=true`면 30페이지 제한 안내 | 소유 강사, DRAFT 상태, READY 자료, AI 오류 |

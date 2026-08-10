@@ -20,6 +20,18 @@ public interface ClassroomNoticeRepository
 
 	Page<ClassroomNotice> findByClassroom_Id(Long classroomId, Pageable pageable);
 
+	@Query("""
+		select notice
+		from ClassroomNotice notice
+		where notice.classroom.id = :classroomId
+		  and (notice.publishAt is null or notice.publishAt <= :now)
+		""")
+	Page<ClassroomNotice> findPublishedByClassroomId(
+		@Param("classroomId") Long classroomId,
+		@Param("now") Instant now,
+		Pageable pageable
+	);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 		select notice
