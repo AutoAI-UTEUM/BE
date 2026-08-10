@@ -53,13 +53,17 @@ public class MaterialExtractionPersistenceService {
 	}
 
 	@Transactional
-	public boolean fail(Long materialId) {
+	public boolean fail(
+		Long materialId,
+		MaterialFailureReason failureReason,
+		String traceId
+	) {
 		LearningMaterial material = materialRepository.findByIdForUpdate(materialId)
 			.orElse(null);
 		if (material == null || !material.isActiveAndProcessing()) {
 			return false;
 		}
-		material.markFailed();
+		material.markFailed(failureReason, traceId);
 		return true;
 	}
 

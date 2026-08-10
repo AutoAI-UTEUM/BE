@@ -46,7 +46,21 @@ class TraceIdFilterTest {
 	void generatesUuidWhenHeaderIsMissingOrInvalid() throws Exception {
 		assertGeneratedTraceId(null);
 		assertGeneratedTraceId(" invalid trace ");
-		assertGeneratedTraceId("x".repeat(129));
+		assertGeneratedTraceId("x".repeat(65));
+	}
+
+	@Test
+	void acceptsTraceIdUpToFailureMetadataColumnLength() throws Exception {
+		String traceId = "x".repeat(64);
+		MockHttpServletRequest request = new MockHttpServletRequest();
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		request.addHeader(TraceIdFilter.TRACE_ID_HEADER, traceId);
+
+		filter.doFilter(request, response, (servletRequest, servletResponse) -> {
+		});
+
+		assertThat(response.getHeader(TraceIdFilter.TRACE_ID_HEADER))
+			.isEqualTo(traceId);
 	}
 
 	@Test

@@ -144,6 +144,8 @@ class MaterialApiContractTest {
 			"자료.pdf",
 			null,
 			MaterialProcessingStatus.PROCESSING,
+			null,
+			null,
 			Instant.parse("2026-07-25T00:00:00Z")
 		));
 
@@ -182,6 +184,8 @@ class MaterialApiContractTest {
 			"자료",
 			2,
 			MaterialProcessingStatus.READY,
+			null,
+			null,
 			Instant.parse("2026-07-25T00:00:00Z")
 		);
 		when(materialService.list(1L, 0, 20)).thenReturn(
@@ -194,6 +198,8 @@ class MaterialApiContractTest {
 				2,
 				MaterialProcessingStatus.READY,
 				true,
+				null,
+				null,
 				Instant.parse("2026-07-25T00:00:00Z")
 			)
 		);
@@ -202,6 +208,12 @@ class MaterialApiContractTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.items[0].materialId").value(10))
+			.andExpect(jsonPath("$.data.items[0].failureReason").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.items[0].traceId").value(
+				org.hamcrest.Matchers.nullValue()
+			))
 			.andExpect(jsonPath("$.data.page").value(0))
 			.andExpect(jsonPath("$.data.size").value(20))
 			.andExpect(jsonPath("$.data.totalElements").value(1));
@@ -210,7 +222,80 @@ class MaterialApiContractTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.processingStatus").value("READY"))
-			.andExpect(jsonPath("$.data.learningAvailable").value(true));
+			.andExpect(jsonPath("$.data.learningAvailable").value(true))
+			.andExpect(jsonPath("$.data.failureReason").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.traceId").value(
+				org.hamcrest.Matchers.nullValue()
+			));
+	}
+
+	@Test
+	void failedMaterialExposesStructuredReasonAndAllowsLegacyNulls()
+		throws Exception {
+		MaterialSummaryResponse failedItem = new MaterialSummaryResponse(
+			10L,
+			"failed",
+			null,
+			MaterialProcessingStatus.FAILED,
+			MaterialFailureReason.EXTRACTION_FAILED,
+			"upload-trace-10",
+			Instant.parse("2026-07-25T00:00:00Z")
+		);
+		when(materialService.list(1L, 0, 20)).thenReturn(
+			new MaterialListResponse(List.of(failedItem), 0, 20, 1, 1)
+		);
+		when(materialService.detail(1L, 10L)).thenReturn(
+			new MaterialDetailResponse(
+				10L,
+				"failed",
+				null,
+				MaterialProcessingStatus.FAILED,
+				false,
+				MaterialFailureReason.EXTRACTION_FAILED,
+				"upload-trace-10",
+				Instant.parse("2026-07-25T00:00:00Z")
+			)
+		);
+		when(materialService.detail(1L, 11L)).thenReturn(
+			new MaterialDetailResponse(
+				11L,
+				"legacy failed",
+				null,
+				MaterialProcessingStatus.FAILED,
+				false,
+				null,
+				null,
+				Instant.parse("2026-07-24T00:00:00Z")
+			)
+		);
+
+		mockMvc.perform(get("/api/materials")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items[0].failureReason")
+				.value("EXTRACTION_FAILED"))
+			.andExpect(jsonPath("$.data.items[0].traceId")
+				.value("upload-trace-10"));
+
+		mockMvc.perform(get("/api/materials/10")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.failureReason")
+				.value("EXTRACTION_FAILED"))
+			.andExpect(jsonPath("$.data.traceId").value("upload-trace-10"));
+
+		mockMvc.perform(get("/api/materials/11")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.processingStatus").value("FAILED"))
+			.andExpect(jsonPath("$.data.failureReason").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.traceId").value(
+				org.hamcrest.Matchers.nullValue()
+			));
 	}
 
 	@Test

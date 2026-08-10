@@ -50,6 +50,10 @@ class MaterialExtractionEventListenerTest {
 			new MaterialExtractionRequested(10L, "trace-10")
 		);
 
-		verify(persistenceService).fail(10L);
+		verify(persistenceService).fail(
+			10L,
+			MaterialFailureReason.SCHEDULING_FAILED,
+			"trace-10"
+		);
 	}
 }

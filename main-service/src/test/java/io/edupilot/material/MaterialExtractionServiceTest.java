@@ -66,7 +66,11 @@ class MaterialExtractionServiceTest {
 		extractionService.extract(10L, "trace-1");
 
 		verify(persistenceService).complete(10L, pages);
-		verify(persistenceService, never()).fail(10L);
+		verify(persistenceService, never()).fail(
+			org.mockito.ArgumentMatchers.anyLong(),
+			org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.any()
+		);
 	}
 
 	@Test
@@ -79,7 +83,11 @@ class MaterialExtractionServiceTest {
 
 		extractionService.extract(10L, "trace-1");
 
-		verify(persistenceService).fail(10L);
+		verify(persistenceService).fail(
+			10L,
+			MaterialFailureReason.PAGE_LIMIT_EXCEEDED,
+			"trace-1"
+		);
 		verify(persistenceService, never()).complete(10L, pages);
 	}
 
@@ -91,7 +99,11 @@ class MaterialExtractionServiceTest {
 
 		extractionService.extract(10L, "trace-1");
 
-		verify(persistenceService).fail(10L);
+		verify(persistenceService).fail(
+			10L,
+			MaterialFailureReason.EXTRACTION_FAILED,
+			"trace-1"
+		);
 	}
 
 	@Test

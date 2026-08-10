@@ -26,6 +26,36 @@ class MaterialExtractionPersistenceServiceTest {
 	private MaterialPageRepository pageRepository;
 
 	@Test
+	void failureStoresStructuredReasonAndUploadTraceId() {
+		User owner = User.create("owner@example.com", "hash", "owner");
+		LearningMaterial material = LearningMaterial.create(
+			owner,
+			"material",
+			"materials/key.pdf"
+		);
+		when(materialRepository.findByIdForUpdate(10L))
+			.thenReturn(Optional.of(material));
+		MaterialExtractionPersistenceService service =
+			new MaterialExtractionPersistenceService(
+				materialRepository,
+				pageRepository
+			);
+
+		boolean applied = service.fail(
+			10L,
+			MaterialFailureReason.EXTRACTION_FAILED,
+			"upload-trace-10"
+		);
+
+		assertThat(applied).isTrue();
+		assertThat(material.getProcessingStatus())
+			.isEqualTo(MaterialProcessingStatus.FAILED);
+		assertThat(material.getFailureReason())
+			.isEqualTo(MaterialFailureReason.EXTRACTION_FAILED);
+		assertThat(material.getFailureTraceId()).isEqualTo("upload-trace-10");
+	}
+
+	@Test
 	void deletedMaterialCannotReturnToReady() {
 		User owner = User.create("owner@example.com", "hash", "소유자");
 		LearningMaterial material = LearningMaterial.create(
