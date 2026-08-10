@@ -35,6 +35,10 @@ _NEXT_PAGE_GUIDANCE = (
     "다음 페이지 내용은 페이지를 이동한 뒤에 설명드릴게요. 아래에서 이동을 선택해 주세요."
 )
 _PREVIOUS_PAGE_GUIDANCE = "이전 페이지 내용은 해당 페이지로 이동하시면 다시 설명드릴 수 있어요."
+_EMPTY_PAGE_EXPLANATION = (
+    "이 페이지에는 설명할 텍스트 내용이 없어요. 이미지나 도형 중심 페이지라면 "
+    "다음 페이지로 이동해 학습을 이어가 주세요."
+)
 
 
 def detect_page_redirect(message: str) -> Literal["NEXT", "PREVIOUS"] | None:
@@ -99,6 +103,16 @@ class ExplainerAgent:
         *,
         timeout_seconds: float,
     ) -> AgentResult:
+        if not (context.current_page_text or "").strip():
+            return AgentResult(
+                agent="ExplainerAgent",
+                message=Message(
+                    message_type="EXPLANATION",
+                    content=_EMPTY_PAGE_EXPLANATION,
+                ),
+                state_patch={"pageStatus": "EXPLAINED"},
+                usage=LlmUsage(self._profile.model, 0, 0, None),
+            )
         result = await self._llm.complete_json(
             messages=explainer_messages(context, detail_level),
             response_model=AgentOutput,
@@ -119,11 +133,13 @@ class ExplainerAgent:
         *,
         timeout_seconds: float,
     ) -> AgentTextStream:
-        return AgentTextStream(
-            agent="ExplainerAgent",
-            message_type="EXPLANATION",
-            state_patch={"pageStatus": "EXPLAINED"},
-            items=self._llm.complete_text_stream(
+        items = (
+            _fixed_text_stream(
+                _EMPTY_PAGE_EXPLANATION,
+                model=self._profile.model,
+            )
+            if not (context.current_page_text or "").strip()
+            else self._llm.complete_text_stream(
                 messages=explainer_messages(
                     context,
                     detail_level,
@@ -131,7 +147,13 @@ class ExplainerAgent:
                 ),
                 profile=self._profile,
                 timeout_seconds=timeout_seconds,
-            ),
+            )
+        )
+        return AgentTextStream(
+            agent="ExplainerAgent",
+            message_type="EXPLANATION",
+            state_patch={"pageStatus": "EXPLAINED"},
+            items=items,
         )
 
 

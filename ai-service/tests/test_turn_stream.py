@@ -193,6 +193,48 @@ async def test_explain_ndjson_golden_sequence_and_content_invariant(
     assert "모든 학습자 대상 텍스트" in stream_system_prompt
 
 
+async def test_explain_empty_page_streams_fixed_guidance_without_agent_llm(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "EXPLAIN_CURRENT_PAGE",
+        "payload": {"detailLevel": "NORMAL"},
+    }
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["currentPageText"] = ""
+    fake_llm.queue(
+        make_plan(
+            ToolName.EXPLAIN_PAGE,
+            {"page": 3, "detailLevel": "NORMAL"},
+            "EXPLAIN_CURRENT_PAGE",
+        )
+    )
+
+    response = await client.post(
+        "/internal/ai/turn",
+        json=payload,
+        headers={**auth_headers, "Accept": "application/x-ndjson"},
+    )
+
+    assert response.status_code == 200
+    events = parse_events(response)
+    deltas = "".join(str(event["text"]) for event in events if event["type"] == "content_delta")
+    completed = TurnResponse.model_validate(events[-1]["result"])
+    assert deltas == (
+        "이 페이지에는 설명할 텍스트 내용이 없어요. 이미지나 도형 중심 페이지라면 "
+        "다음 페이지로 이동해 학습을 이어가 주세요."
+    )
+    assert deltas == completed.messages[0].content
+    assert completed.state_patch == {"pageStatus": "EXPLAINED"}
+    assert len(fake_llm.calls) == 1  # Planner only; fixed text stream used afterward.
+    assert fake_llm.stream_calls == []
+
+
 async def test_qa_ndjson_golden_sequence_preserves_thread_ref(
     client: httpx.AsyncClient,
     fake_llm: FakeLlm,
