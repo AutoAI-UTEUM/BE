@@ -101,7 +101,7 @@ class PlanContext(PlanContextModel):
         if qa_digest is not None:
             thread_ref = context.qa_thread_ref()
             if isinstance(qa_digest, dict):
-                summary = qa_digest.get("summary")
+                summary = qa_digest.get("digest") or qa_digest.get("summary")
             else:
                 summary = qa_digest
             plan_qa_digest = PlanQaThreadDigest(
@@ -111,11 +111,16 @@ class PlanContext(PlanContextModel):
 
         recent_messages = [
             PlanRecentMessage(
-                role=item.get("role") if isinstance(item.get("role"), str) else None,
+                role=(
+                    role
+                    if isinstance(
+                        role := item.get("senderType") or item.get("role"),
+                        str,
+                    )
+                    else None
+                ),
                 content=(
-                    item.get("content", "")[:120]
-                    if isinstance(item.get("content"), str)
-                    else ""
+                    item.get("content", "")[:120] if isinstance(item.get("content"), str) else ""
                 ),
             )
             for item in context.recent_messages[-3:]
