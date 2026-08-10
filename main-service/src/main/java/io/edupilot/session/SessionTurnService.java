@@ -191,13 +191,6 @@ public class SessionTurnService {
 						streamConnection,
 						cancellation
 					);
-			if (streamConnection != null && cancellation.isCancelled()) {
-				throw new AiClientException(
-					ErrorCode.AI_STREAM_INTERRUPTED,
-					true,
-					null
-				);
-			}
 			PersistedTurn persisted = persistenceService.persist(
 				userId,
 				sessionId,
@@ -210,7 +203,12 @@ public class SessionTurnService {
 			promoteMemory(userId, persisted);
 			TurnResponse response = persisted.response();
 			if (streamConnection != null) {
-				streamService.complete(streamConnection, response);
+				completeStream(
+					streamConnection,
+					response,
+					sessionId,
+					request.requestId()
+				);
 			}
 			return response;
 		} catch (RuntimeException exception) {
@@ -220,6 +218,26 @@ public class SessionTurnService {
 			throw exception;
 		} finally {
 			claimService.release(sessionId, request.requestId());
+		}
+	}
+
+	private void completeStream(
+		SessionStreamConnection streamConnection,
+		TurnResponse response,
+		Long sessionId,
+		String requestId
+	) {
+		try {
+			streamService.complete(streamConnection, response);
+		} catch (RuntimeException exception) {
+			log.atWarn()
+				.addKeyValue("sessionId", sessionId)
+				.addKeyValue("requestId", requestId)
+				.addKeyValue(
+					"errorType",
+					exception.getClass().getSimpleName()
+				)
+				.log("SSE completion failed after turn persistence");
 		}
 	}
 
