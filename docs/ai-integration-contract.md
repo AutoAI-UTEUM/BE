@@ -385,12 +385,14 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 ### 6.3 POST /internal/ai/quiz-assessment
 
 - 요청: `quizResult{quizId, quizType, score, maxScore, passed, items[]}, quizItems[], studentAnswers[], pageContext, learnerMemoryDigest`
+- 기존 string wire 필드의 값 의미만 다음처럼 정규화합니다. MCQ의 `studentAnswers[].answer`와 model answer는 `choiceId: 선택지 텍스트`, OX는 `O (true)` 또는 `X (false)`이며 SHORT·ESSAY는 기존 텍스트를 유지합니다. 저장된 퀴즈 공개·비공개 JSON 구조는 변경하지 않습니다.
 - 응답 (§4.8): `understandingSummary, strengths[], weaknesses[], suspectedMisconceptions[], recommendedNextDirection, memoryCandidates[]{type, content, confidence}, evidence[]` + `usage`
 - 단일 결과 과잉 단정 금지. Spring이 quiz_assessments 전량 저장 (DEC-011).
 
 ### 6.4 POST /internal/ai/diagnosis
 
 - 요청: `quizAssessment{}, quizResult{}, wrongItems[]{questionId, question, studentAnswer, modelAnswer, feedback}, pageContext, learnerMemoryDigest`
+- `wrongItems[].studentAnswer`와 `modelAnswer`는 §6.3과 동일한 MCQ 선택지 텍스트·OX 의미 텍스트 정규화를 재사용합니다.
 - 응답 (§4.7): `focusConcepts[], suspectedMisconceptions[], diagnosticPrompt, evidence[], repairHint` + `usage`
 - 정답·전체 해설 미제공 원칙. Spring이 Diagnosis(PENDING)·pendingDiagnosis 설정.
 
