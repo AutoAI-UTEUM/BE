@@ -26,16 +26,13 @@ import tools.jackson.databind.JsonNode;
 public class QuizSubmissionPreparationService {
 
 	private final QuizRepository quizRepository;
-	private final QuizSubmissionRepository submissionRepository;
 	private final MaterialPageRepository materialPageRepository;
 
 	public QuizSubmissionPreparationService(
 		QuizRepository quizRepository,
-		QuizSubmissionRepository submissionRepository,
 		MaterialPageRepository materialPageRepository
 	) {
 		this.quizRepository = quizRepository;
-		this.submissionRepository = submissionRepository;
 		this.materialPageRepository = materialPageRepository;
 	}
 
@@ -52,9 +49,6 @@ public class QuizSubmissionPreparationService {
 		}
 		if (!Objects.equals(quiz.getSessionActiveQuizId(), quizId)) {
 			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
-		}
-		if (submissionRepository.existsByQuiz_IdAndUser_Id(quizId, userId)) {
-			throw new BusinessException(ErrorCode.QUIZ_ALREADY_SUBMITTED);
 		}
 		if (request == null
 			|| !StringUtils.hasText(request.requestId())

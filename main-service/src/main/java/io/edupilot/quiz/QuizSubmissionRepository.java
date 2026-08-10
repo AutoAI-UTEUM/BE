@@ -13,6 +13,21 @@ public interface QuizSubmissionRepository
 
 	boolean existsByQuiz_IdAndUser_Id(Long quizId, Long userId);
 
+	@Query("""
+		select submission
+		from QuizSubmission submission
+		join fetch submission.quiz quiz
+		join fetch quiz.session session
+		where quiz.id = :quizId
+		  and submission.user.id = :userId
+		  and submission.requestId = :requestId
+		""")
+	Optional<QuizSubmission> findByRequest(
+		@Param("quizId") Long quizId,
+		@Param("userId") Long userId,
+		@Param("requestId") String requestId
+	);
+
 	List<QuizSubmission> findByQuiz_IdInAndUser_Id(
 		Collection<Long> quizIds,
 		Long userId

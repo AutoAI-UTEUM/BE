@@ -114,6 +114,30 @@ class TurnClaimServiceTest {
 		);
 	}
 
+	@Test
+	void reportsSessionConflictWhenQuizPipelineOwnsClaim() {
+		ReflectionTestUtils.setField(
+			session,
+			"activeTurnRequestId",
+			"quiz:claim-id"
+		);
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(sessionRepository.claimTurn(
+			100L,
+			1L,
+			"turn-request",
+			NOW,
+			NOW,
+			NOW.minusSeconds(300)
+		)).thenReturn(0);
+
+		assertError(
+			() -> claimService.claim(1L, 100L, "turn-request"),
+			ErrorCode.SESSION_STATE_CONFLICT
+		);
+	}
+
 	private void assertError(Runnable operation, ErrorCode errorCode) {
 		assertThatThrownBy(operation::run)
 			.isInstanceOfSatisfying(BusinessException.class, exception ->

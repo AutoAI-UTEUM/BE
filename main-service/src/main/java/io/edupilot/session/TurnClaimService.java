@@ -59,11 +59,18 @@ public class TurnClaimService {
 		if (messageRepository.existsBySession_IdAndRequestId(sessionId, requestId)) {
 			throw new BusinessException(ErrorCode.TURN_ALREADY_PROCESSED);
 		}
+		if (isQuizClaim(current.getActiveTurnRequestId())) {
+			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
+		}
 		throw new BusinessException(ErrorCode.TURN_IN_PROGRESS);
 	}
 
 	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public void release(Long sessionId, String requestId) {
 		sessionRepository.releaseTurn(sessionId, requestId, clock.instant());
+	}
+
+	private boolean isQuizClaim(String requestId) {
+		return requestId != null && requestId.startsWith("quiz:");
 	}
 }
