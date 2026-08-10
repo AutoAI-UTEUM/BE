@@ -33,8 +33,14 @@ public class ClassroomNotice {
 	@Column(nullable = false, columnDefinition = "TEXT")
 	private String content;
 
+	@Column(name = "week_number")
+	private Integer weekNumber;
+
 	@Column(name = "published_at", nullable = false)
 	private Instant publishedAt;
+
+	@Column(name = "publish_at")
+	private Instant publishAt;
 
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
@@ -51,11 +57,15 @@ public class ClassroomNotice {
 		Classroom classroom,
 		String title,
 		String content,
+		Integer weekNumber,
+		Instant publishAt,
 		Instant publishedAt
 	) {
 		this.classroom = classroom;
 		this.title = title;
 		this.content = content;
+		this.weekNumber = weekNumber;
+		this.publishAt = publishAt;
 		this.publishedAt = publishedAt;
 	}
 
@@ -65,15 +75,57 @@ public class ClassroomNotice {
 		String content,
 		Instant publishedAt
 	) {
-		return new ClassroomNotice(classroom, title, content, publishedAt);
+		return create(
+			classroom,
+			title,
+			content,
+			null,
+			null,
+			publishedAt
+		);
+	}
+
+	public static ClassroomNotice create(
+		Classroom classroom,
+		String title,
+		String content,
+		Integer weekNumber,
+		Instant publishAt,
+		Instant publishedAt
+	) {
+		return new ClassroomNotice(
+			classroom,
+			title,
+			content,
+			weekNumber,
+			publishAt,
+			publishedAt
+		);
 	}
 
 	public void update(String title, String content) {
+		update(title, content, false, null, false, null);
+	}
+
+	public void update(
+		String title,
+		String content,
+		boolean weekNumberPresent,
+		Integer weekNumber,
+		boolean publishAtPresent,
+		Instant publishAt
+	) {
 		if (title != null) {
 			this.title = title;
 		}
 		if (content != null) {
 			this.content = content;
+		}
+		if (weekNumberPresent) {
+			this.weekNumber = weekNumber;
+		}
+		if (publishAtPresent) {
+			this.publishAt = publishAt;
 		}
 	}
 
@@ -93,8 +145,20 @@ public class ClassroomNotice {
 		return content;
 	}
 
+	public Integer getWeekNumber() {
+		return weekNumber;
+	}
+
 	public Instant getPublishedAt() {
 		return publishedAt;
+	}
+
+	public Instant getPublishAt() {
+		return publishAt;
+	}
+
+	public boolean isPublished(Instant now) {
+		return publishAt == null || !publishAt.isAfter(now);
 	}
 
 	public Instant getCreatedAt() {
