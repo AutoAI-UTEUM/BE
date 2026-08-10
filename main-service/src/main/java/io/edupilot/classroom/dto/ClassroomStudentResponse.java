@@ -9,6 +9,29 @@ public record ClassroomStudentResponse(
 	String affiliation,
 	Instant joinedAt,
 	String status,
-	Instant lastActiveAt
+	Instant lastActiveAt,
+	int averageProgressRate,
+	long aiQuestionCountLast7Days
 ) {
+	public ClassroomStudentResponse(
+		Long studentId,
+		String name,
+		String email,
+		String affiliation,
+		Instant joinedAt,
+		String status,
+		Instant lastActiveAt
+	) {
+		this(
+			studentId,
+			name,
+			email,
+			affiliation,
+			joinedAt,
+			status,
+			lastActiveAt,
+			0,
+			0
+		);
+	}
 }

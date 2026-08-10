@@ -37,10 +37,12 @@ public class ClassroomStudentController {
 		@AuthenticationPrincipal AuthenticatedUser user,
 		@PathVariable Long classroomId,
 		@RequestParam(defaultValue = "0") @Min(0) int page,
-		@RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
+		@RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+		@RequestParam(required = false) String q,
+		@RequestParam(required = false) ClassroomStudentSort sort
 	) {
 		return ApiResponse.success(studentService.list(
-			user.userId(), user.role(), classroomId, page, size
+			user.userId(), user.role(), classroomId, page, size, q, sort
 		));
 	}
 

@@ -1585,11 +1585,20 @@ MVP에서는 공지를 물리 삭제하고 `data:null`을 반환합니다.
 `ACCESS_DENIED`(403)를 반환합니다. 외부 `reportId`는 generation ID의 string 표현이며
 생성 접수부터 완료 상세까지 바뀌지 않습니다. StudentReport의 DB PK는 노출하지 않습니다.
 
-### GET `/api/classrooms/{classroomId}/students?page=0&size=20`
+### GET `/api/classrooms/{classroomId}/students?page=0&size=20&q=&sort=`
 
-수강생을 `joinedAt DESC`로 페이지네이션합니다. `lastActiveAt`은 해당 강의실 자료의
-삭제되지 않은 학습 세션 중 가장 최근 `updatedAt`이며, 세션이 없으면 `null`입니다.
-현재 멤버십 모델은 활성 행만 저장하므로 조회 항목의 `status`는 `ACTIVE`입니다.
+수강생을 페이지네이션합니다. `q`는 이름 부분 일치 검색이며 앞뒤 공백을 제거하고,
+생략하거나 공백만 보내면 전체를 조회합니다. `sort`를 생략하면 기존과 같이
+`joinedAt DESC`를 유지합니다. 지원 정렬은 다음과 같고, 같은 정렬값은 기존
+`joinedAt DESC` 순서를 유지합니다.
+
+- `NAME`: 이름 오름차순
+- `LOW_PROGRESS`: `averageProgressRate` 오름차순
+- `RECENT_ACTIVITY`: `lastActiveAt` 내림차순, 활동이 없는 학생은 마지막
+
+`lastActiveAt`은 해당 강의실 자료의 삭제되지 않은 학습 세션 중 가장 최근
+`updatedAt`이며, 세션이 없으면 `null`입니다. 현재 멤버십 모델은 활성 행만
+저장하므로 조회 항목의 `status`는 `ACTIVE`입니다.
 
 ```json
 {
@@ -1601,7 +1610,9 @@ MVP에서는 공지를 물리 삭제하고 `data:null`을 반환합니다.
       "affiliation": null,
       "joinedAt": "2026-08-01T00:00:00Z",
       "status": "ACTIVE",
-      "lastActiveAt": "2026-08-03T05:00:00Z"
+      "lastActiveAt": "2026-08-03T05:00:00Z",
+      "averageProgressRate": 25,
+      "aiQuestionCountLast7Days": 4
     }
   ],
   "page": 0,
@@ -1610,6 +1621,13 @@ MVP에서는 공지를 물리 삭제하고 `data:null`을 반환합니다.
   "totalPages": 1
 }
 ```
+
+`averageProgressRate`는 #170 분석과 동일하게 학습자에게 공개된 READY 자료의 고유
+설명 완료 페이지 합을 해당 자료 전체 페이지 합으로 나눈 뒤 정수 반올림합니다.
+`aiQuestionCountLast7Days`는 같은 공개 자료 범위에서 `qa_threads`를 경유한 USER
+QA 메시지 중 응답 계산 시각 기준 정확히 7일 전을 포함해 이후 생성된 수입니다.
+진도·최근 활동·질문 수는 페이지의 학생마다 개별 조회하지 않고 강의실 범위 배치
+쿼리로 계산합니다.
 
 ### DELETE `/api/classrooms/{classroomId}/students/{studentId}`
 

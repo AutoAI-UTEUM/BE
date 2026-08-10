@@ -269,6 +269,12 @@ class MainServiceApplicationTests {
 			.andExpect(jsonPath(
 				"$.components.schemas.ClassroomWeekMaterialResponse.properties.viewerCount"
 			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomStudentResponse.properties.averageProgressRate"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomStudentResponse.properties.aiQuestionCountLast7Days"
+			).exists())
 			.andExpect(jsonPath("$.paths['/api/classroom-join-requests'].post").exists())
 			.andExpect(jsonPath(
 				"$.paths['/api/classrooms/{id}/weeks'].get"
