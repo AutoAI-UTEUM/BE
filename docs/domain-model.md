@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | Identity | User | 인증 주체, 역할, 계정 상태 |
 | Material | LearningMaterial, MaterialPage | PDF 메타데이터와 페이지 문맥 |
-| Classroom | Classroom, ClassroomMember, ClassroomJoinRequest, ClassroomWeek, ClassroomWeekMaterial, ClassroomNotice | 강의실 소유권, 참여, 주차 자료, 즉시 공지 |
+| Classroom | Classroom, ClassroomMember, ClassroomJoinRequest, ClassroomWeek, ClassroomWeekMaterial, ClassroomNotice | 강의실 소유권, 참여, 주차 자료, 즉시·예약 공지 |
 | Learning | LearningSession, ChatMessage | 현재 학습 상태와 대화 기록 |
 | QA | QaThread, QaMessage | 이어지는 질문 문맥 |
 | Quiz | Quiz, QuizSubmission, QuizAssessment | 문제 원본, 제출·채점, 내부 평가 |
@@ -110,8 +110,9 @@ erDiagram
 
 ### ClassroomNotice
 
-- 강사가 즉시 게시하며 예약 게시·읽음 수·별도 상태는 두지 않습니다.
-- 공지 게시 시각은 사용자 캘린더의 `NOTICE_PUBLISH` 일정으로 파생되며, 공지 삭제는 MVP에서 물리 삭제합니다.
+- `weekNumber`는 nullable이며 null이면 전체 공지, 값이 있으면 강의실의 계산된 `weekCount` 범위 안이어야 합니다.
+- `publishAt`은 nullable UTC 시각이며 null 또는 과거이면 즉시 게시하고 미래이면 조회 시각이 도래한 뒤 학습자에게 노출합니다. 스케줄러와 별도 상태는 두지 않으며 강사는 예약 공지를 포함한 전체를 조회합니다.
+- 기존 `publishedAt`은 공지 생성 시각과 목록 정렬·캘린더 `NOTICE_PUBLISH` 파생 기준을 유지합니다. 공지 삭제는 물리 삭제하며 읽음 수는 범위에 포함하지 않습니다.
 
 ### LearningSession
 

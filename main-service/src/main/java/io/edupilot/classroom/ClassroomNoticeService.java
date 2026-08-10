@@ -40,15 +40,25 @@ public class ClassroomNoticeService {
 		int page,
 		int size
 	) {
-		classroomService.requireVisible(userId, role, classroomId);
+		Classroom classroom = classroomService.requireVisible(
+			userId,
+			role,
+			classroomId
+		);
+		var now = clock.instant();
 		PageRequest pageable = PageRequest.of(
 			page,
 			size,
 			Sort.by(Sort.Order.desc("publishedAt"), Sort.Order.desc("id"))
 		);
-		return ClassroomNoticeListResponse.from(
-			noticeRepository.findByClassroom_Id(classroomId, pageable)
-		);
+		var notices = classroom.getInstructorId().equals(userId)
+			? noticeRepository.findByClassroom_Id(classroomId, pageable)
+			: noticeRepository.findPublishedByClassroomId(
+				classroomId,
+				now,
+				pageable
+			);
+		return ClassroomNoticeListResponse.from(notices, now);
 	}
 
 	@Transactional
@@ -59,15 +69,19 @@ public class ClassroomNoticeService {
 		CreateClassroomNoticeRequest request
 	) {
 		Classroom classroom = writableOwner(userId, role, classroomId);
+		validateWeekNumber(classroom, request.weekNumber());
+		var now = clock.instant();
 		ClassroomNotice notice = noticeRepository.saveAndFlush(
 			ClassroomNotice.create(
 				classroom,
 				normalizedRequired(request.title(), 200),
 				normalizedContent(request.content()),
-				clock.instant()
+				request.weekNumber(),
+				request.publishAt(),
+				now
 			)
 		);
-		return ClassroomNoticeResponse.from(notice);
+		return ClassroomNoticeResponse.from(notice, now);
 	}
 
 	@Transactional
@@ -78,11 +92,14 @@ public class ClassroomNoticeService {
 		Long noticeId,
 		UpdateClassroomNoticeRequest request
 	) {
-		writableOwner(userId, role, classroomId);
+		Classroom classroom = writableOwner(userId, role, classroomId);
 		if (!request.hasAnyField()
 			|| request.isTitlePresent() && request.getTitle() == null
 			|| request.isContentPresent() && request.getContent() == null) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+		}
+		if (request.isWeekNumberPresent()) {
+			validateWeekNumber(classroom, request.getWeekNumber());
 		}
 		ClassroomNotice notice = noticeRepository.findForUpdate(
 			classroomId,
@@ -94,10 +111,14 @@ public class ClassroomNoticeService {
 				: null,
 			request.isContentPresent()
 				? normalizedContent(request.getContent())
-				: null
+				: null,
+			request.isWeekNumberPresent(),
+			request.getWeekNumber(),
+			request.isPublishAtPresent(),
+			request.getPublishAt()
 		);
 		noticeRepository.flush();
-		return ClassroomNoticeResponse.from(notice);
+		return ClassroomNoticeResponse.from(notice, clock.instant());
 	}
 
 	@Transactional
@@ -135,6 +156,13 @@ public class ClassroomNoticeService {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}
 		return normalized;
+	}
+
+	private void validateWeekNumber(Classroom classroom, Integer weekNumber) {
+		if (weekNumber != null
+			&& (weekNumber < 1 || weekNumber > classroom.getWeekCount())) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+		}
 	}
 
 	private String normalizedContent(String value) {

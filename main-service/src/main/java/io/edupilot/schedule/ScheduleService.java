@@ -1,5 +1,6 @@
 package io.edupilot.schedule;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -32,19 +33,22 @@ public class ScheduleService {
 	private final ClassroomWeekRepository weekRepository;
 	private final ClassroomNoticeRepository noticeRepository;
 	private final UserScheduleRepository userScheduleRepository;
+	private final Clock clock;
 
 	public ScheduleService(
 		ClassroomService classroomService,
 		ClassroomRepository classroomRepository,
 		ClassroomWeekRepository weekRepository,
 		ClassroomNoticeRepository noticeRepository,
-		UserScheduleRepository userScheduleRepository
+		UserScheduleRepository userScheduleRepository,
+		Clock clock
 	) {
 		this.classroomService = classroomService;
 		this.classroomRepository = classroomRepository;
 		this.weekRepository = weekRepository;
 		this.noticeRepository = noticeRepository;
 		this.userScheduleRepository = userScheduleRepository;
+		this.clock = clock;
 	}
 
 	@Transactional(readOnly = true)
@@ -66,6 +70,7 @@ public class ScheduleService {
 		Instant toExclusive = to.plusDays(1)
 			.atStartOfDay(ZoneOffset.UTC)
 			.toInstant();
+		Instant now = clock.instant();
 		List<ScheduleItemResponse> derivedItems = classrooms.isEmpty()
 			? List.of()
 			: java.util.stream.Stream.concat(
@@ -81,7 +86,12 @@ public class ScheduleService {
 					classroomIds,
 					fromInstant,
 					toExclusive
-				).stream().map(ScheduleItemResponse::from)
+				).stream()
+					.filter(notice ->
+						notice.getClassroom().getInstructorId().equals(userId)
+							|| notice.isPublished(now)
+					)
+					.map(ScheduleItemResponse::from)
 			).toList();
 		List<ScheduleItemResponse> personalItems = classroomId == null
 			? userScheduleRepository.findVisibleInRange(

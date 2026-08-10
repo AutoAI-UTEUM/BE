@@ -5,8 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -56,7 +58,8 @@ class ScheduleServiceTest {
 			classroomRepository,
 			weekRepository,
 			noticeRepository,
-			userScheduleRepository
+			userScheduleRepository,
+			Clock.fixed(BOUNDARY, ZoneOffset.UTC)
 		);
 		User instructor = User.create(
 			"teacher@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
@@ -72,6 +75,39 @@ class ScheduleServiceTest {
 			"AAAA-BBBB"
 		);
 		ReflectionTestUtils.setField(classroom, "id", 30L);
+	}
+
+	@Test
+	void learnerScheduleHidesReservedNoticeUntilPublishAt() {
+		ClassroomNotice reserved = ClassroomNotice.create(
+			classroom,
+			"Reserved",
+			"Content",
+			null,
+			BOUNDARY.plusSeconds(60),
+			BOUNDARY
+		);
+		ReflectionTestUtils.setField(reserved, "id", 70L);
+		when(classroomRepository.findAllVisibleByUserId(2L))
+			.thenReturn(List.of(classroom));
+		when(weekRepository.findScheduleWeeks(
+			List.of(30L),
+			BOUNDARY,
+			Instant.parse("2026-08-03T00:00:00Z")
+		)).thenReturn(List.of());
+		when(noticeRepository.findScheduleNotices(
+			List.of(30L),
+			BOUNDARY,
+			Instant.parse("2026-08-03T00:00:00Z")
+		)).thenReturn(List.of(reserved));
+
+		assertThat(service.list(
+			2L,
+			UserRole.LEARNER,
+			LocalDate.of(2026, 8, 2),
+			LocalDate.of(2026, 8, 2),
+			null
+		).items()).isEmpty();
 	}
 
 	@Test

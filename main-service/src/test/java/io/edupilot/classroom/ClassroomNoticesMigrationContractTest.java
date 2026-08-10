@@ -27,4 +27,21 @@ class ClassroomNoticesMigrationContractTest {
 				.doesNotContain("read_count");
 		}
 	}
+
+	@Test
+	void v22AddsNullableWeekAndPublishAtWithoutRewritingExistingNotices()
+		throws IOException {
+		try (var input = getClass().getResourceAsStream(
+			"/db/migration/V22__classroom_notice_week_publish.sql"
+		)) {
+			assertThat(input).isNotNull();
+			String sql = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+			assertThat(sql)
+				.contains("ADD COLUMN week_number INT NULL")
+				.contains("ADD COLUMN publish_at DATETIME(6) NULL")
+				.contains("CHECK (week_number IS NULL OR week_number >= 1)")
+				.doesNotContain("UPDATE classroom_notices")
+				.doesNotContain("DEFAULT");
+		}
+	}
 }
