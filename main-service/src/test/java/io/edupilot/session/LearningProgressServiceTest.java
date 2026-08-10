@@ -9,8 +9,9 @@ import static org.mockito.Mockito.when;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.Optional;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -187,6 +188,41 @@ class LearningProgressServiceTest {
 		assertThat(snapshot.averageProgressRate(List.of(first, second))).isEqualTo(28);
 		assertThat(snapshot.materialAverageProgressRate(first)).isEqualTo(25);
 		assertThat(snapshot.materialAverageProgressRate(second)).isEqualTo(33);
+		verify(pageRecordRepository).findClassroomProgressCounts(
+			30L,
+			java.util.Set.of(10L, 20L)
+		);
+	}
+
+	@Test
+	void studentProgressRatesReuseClassroomBatchAndWeightedPageDefinition() {
+		LearningMaterial first = org.mockito.Mockito.mock(LearningMaterial.class);
+		LearningMaterial second = org.mockito.Mockito.mock(LearningMaterial.class);
+		when(first.getId()).thenReturn(10L);
+		when(first.getPageCount()).thenReturn(100);
+		when(second.getId()).thenReturn(20L);
+		when(second.getPageCount()).thenReturn(50);
+		when(pageRecordRepository.findClassroomProgressCounts(
+			30L,
+			java.util.Set.of(10L, 20L)
+		)).thenReturn(List.of(
+			new SessionPageRecordRepository.UserMaterialProgressCount(1L, 10L, 50L),
+			new SessionPageRecordRepository.UserMaterialProgressCount(1L, 20L, 25L),
+			new SessionPageRecordRepository.UserMaterialProgressCount(2L, 10L, 30L),
+			new SessionPageRecordRepository.UserMaterialProgressCount(99L, 10L, 100L)
+		));
+
+		Map<Long, Integer> rates = service().calculateStudentProgressRates(
+			30L,
+			List.of(first, second),
+			List.of(1L, 2L, 3L)
+		);
+
+		assertThat(rates).containsExactlyInAnyOrderEntriesOf(Map.of(
+			1L, 50,
+			2L, 20,
+			3L, 0
+		));
 		verify(pageRecordRepository).findClassroomProgressCounts(
 			30L,
 			java.util.Set.of(10L, 20L)

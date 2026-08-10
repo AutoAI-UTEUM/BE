@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -154,6 +155,55 @@ public class LearningProgressService {
 			learnerCount,
 			Map.copyOf(explainedPagesByMaterial)
 		);
+	}
+
+	@Transactional(readOnly = true)
+	public Map<Long, Integer> calculateStudentProgressRates(
+		Long classroomId,
+		Collection<LearningMaterial> materials,
+		Collection<Long> studentIds
+	) {
+		Map<Long, LearningMaterial> validMaterials = new LinkedHashMap<>();
+		long totalPages = 0;
+		for (LearningMaterial material : materials) {
+			if (material.getPageCount() != null && material.getPageCount() > 0
+				&& !validMaterials.containsKey(material.getId())) {
+				validMaterials.put(material.getId(), material);
+				totalPages += material.getPageCount();
+			}
+		}
+		Map<Long, Integer> rates = new LinkedHashMap<>();
+		for (Long studentId : studentIds) {
+			rates.put(studentId, 0);
+		}
+		if (rates.isEmpty() || validMaterials.isEmpty()) {
+			return Map.copyOf(rates);
+		}
+
+		Set<Long> requestedStudentIds = Set.copyOf(studentIds);
+		Map<Long, Long> explainedPagesByStudent = new LinkedHashMap<>();
+		for (var count : pageRecordRepository.findClassroomProgressCounts(
+			classroomId,
+			validMaterials.keySet()
+		)) {
+			if (requestedStudentIds.contains(count.userId())) {
+				explainedPagesByStudent.merge(
+					count.userId(),
+					count.explainedPageCount(),
+					Long::sum
+				);
+			}
+		}
+		for (Long studentId : rates.keySet()) {
+			rates.put(
+				studentId,
+				progressRate(
+					explainedPagesByStudent.getOrDefault(studentId, 0L),
+					totalPages
+				)
+			);
+		}
+		return Map.copyOf(rates);
 	}
 
 	private int progressRate(long explainedPageCount, Integer pageCount) {
