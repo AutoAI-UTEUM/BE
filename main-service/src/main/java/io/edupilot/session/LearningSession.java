@@ -117,10 +117,14 @@ public class LearningSession {
 	public void completeQuizSubmission(
 		Long quizId,
 		List<UiAction> uiActions,
-		boolean passed
+		boolean passed,
+		boolean currentPageQuiz
 	) {
 		if (Objects.equals(this.activeQuizId, quizId)) {
 			this.activeQuizId = null;
+		}
+		if (!currentPageQuiz) {
+			return;
 		}
 		if (passed) {
 			this.pageStatus = PageStatus.EXPLAINED;

@@ -54,17 +54,21 @@ public class QuizSubmissionService {
 			gradingResult.maxScore().multiply(properties.passRatio())
 		) >= 0;
 		try {
-			QuizSubmitResponse persisted = persistenceService.persist(
+			PersistedQuizSubmission persisted = persistenceService.persist(
 				userId,
 				prepared,
 				gradingResult,
 				passed
 			);
+			QuizSubmitResponse response = persisted.response();
+			if (!persisted.currentPageQuiz()) {
+				return response;
+			}
 			List<UiAction> uiActions;
 			try {
 				uiActions = postGradingHook.onGraded(
 					new QuizPostGradingContext(
-						persisted.submissionId(),
+						response.submissionId(),
 						prepared.quizId(),
 						prepared.sessionId(),
 						userId,
@@ -77,14 +81,14 @@ public class QuizSubmissionService {
 						gradingResult,
 						passed,
 						prepared.pageContext(),
-						persisted.uiActions()
+						response.uiActions()
 					)
 				);
 			} catch (RuntimeException exception) {
 				log.atWarn()
 					.addKeyValue(
 						"submissionId",
-						persisted.submissionId()
+						response.submissionId()
 					)
 					.addKeyValue("quizId", prepared.quizId())
 					.addKeyValue(
@@ -92,9 +96,9 @@ public class QuizSubmissionService {
 						exception.getClass().getSimpleName()
 					)
 					.log("Quiz learning-support pipeline failed");
-				uiActions = persisted.uiActions();
+				uiActions = response.uiActions();
 			}
-			return persisted.withUiActions(uiActions);
+			return response.withUiActions(uiActions);
 		} catch (DataIntegrityViolationException exception) {
 			throw new BusinessException(ErrorCode.QUIZ_ALREADY_SUBMITTED);
 		}

@@ -35,7 +35,6 @@ import io.edupilot.memory.LearnerMemoryCandidateRepository;
 import io.edupilot.memory.LearnerMemoryRepository;
 import io.edupilot.memory.MemoryCandidateStatus;
 import io.edupilot.memory.MemoryEvidenceRef;
-import io.edupilot.memory.MemoryWrite;
 import io.edupilot.user.User;
 
 @ExtendWith(MockitoExtension.class)
@@ -494,16 +493,35 @@ class TurnSnapshotServiceTest {
 		User user = (User) ReflectionTestUtils.getField(session, "user");
 		LearningMaterial material = (LearningMaterial)
 			ReflectionTestUtils.getField(session, "material");
-		return LearnerMemory.create(user, material, new MemoryWrite(
-			List.of("strength"),
-			List.of("weakness"),
-			List.of("misconception"),
-			List.of("preference"),
-			List.of("MCQ"),
-			"BALANCED",
-			List.of("goal"),
-			"promoted digest",
-			List.of(1L)
-		));
+		LearnerMemory memory = LearnerMemory.create(user, material);
+		ReflectionTestUtils.setField(memory, "strengths", List.of("strength"));
+		ReflectionTestUtils.setField(memory, "weaknesses", List.of("weakness"));
+		ReflectionTestUtils.setField(
+			memory,
+			"misconceptions",
+			List.of("misconception")
+		);
+		ReflectionTestUtils.setField(
+			memory,
+			"explanationPreferences",
+			List.of("preference")
+		);
+		ReflectionTestUtils.setField(
+			memory,
+			"preferredQuizTypes",
+			List.of("MCQ")
+		);
+		ReflectionTestUtils.setField(memory, "targetDifficulty", "BALANCED");
+		ReflectionTestUtils.setField(
+			memory,
+			"nextCoachingGoals",
+			List.of("goal")
+		);
+		ReflectionTestUtils.setField(
+			memory,
+			"memoryDigest",
+			"promoted digest"
+		);
+		return memory;
 	}
 }

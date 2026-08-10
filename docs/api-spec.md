@@ -845,6 +845,8 @@ Query:
 
 `passed`는 `score/maxScore >= 0.6`(설정 `EDUPILOT_QUIZ_PASS_RATIO` — DEC-010)로 계산합니다. 재제출은 1회 제한이며 재요청은 `QUIZ_ALREADY_SUBMITTED`로 거부합니다(DEC-009).
 
+제출하려는 `quizId`는 세션의 현재 `activeQuizId`와 일치해야 하며, 불일치하거나 활성 퀴즈가 없으면 `SESSION_STATE_CONFLICT`(409)로 거부합니다. 페이지 이동 후에도 활성 퀴즈는 제출할 수 있지만 퀴즈의 생성 페이지가 현재 페이지와 다르면 제출·채점 결과만 저장하고 현재 페이지의 `pageStatus`·`uiActions`와 진단 흐름은 변경하지 않습니다.
+
 MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·채점·기본 UI 액션을 먼저 커밋한 다음, 같은 HTTP 요청 안에서 `quiz-assessment`를 항상 호출하고 기준 미달일 때만 `diagnosis`를 호출합니다. 외부 AI 호출 중에는 DB 트랜잭션을 유지하지 않습니다. 파이프라인 실패와 무관하게 저장된 제출·채점은 유지하고 HTTP 200과 기본 `MOVE_NEXT_PAGE` 액션을 반환합니다. assessment 실패 시 diagnosis는 호출하지 않으며, diagnosis 실패 시 이미 저장된 assessment는 유지합니다. AI 호출 뒤 저장 시점에 세션이 `COMPLETED` 또는 `DELETED`로 전이되었다면 늦게 도착한 assessment·diagnosis와 pending 상태·UI 액션을 폐기합니다.
 
 기준 미달 진단 응답의 UI 액션 계약은 다음과 같습니다. `yesEvent`·`noEvent` 같은 다른 액션용 nullable 필드는 노출하지 않습니다.

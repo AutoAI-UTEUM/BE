@@ -1,15 +1,16 @@
 package io.edupilot.session;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
@@ -448,34 +449,17 @@ public class TurnPersistenceService {
 			return null;
 		}
 		try {
-			return new MemoryWrite(
-				stringList(value.get("strengths")),
-				stringList(value.get("weaknesses")),
-				stringList(value.get("misconceptions")),
-				stringList(value.get("explanationPreferences")),
-				stringList(value.get("preferredQuizTypes")),
-				nullableText(value.get("targetDifficulty")),
-				stringList(value.get("nextCoachingGoals")),
-				nullableText(value.get("memoryDigest")),
-				longList(value.get("candidateIds"))
-			);
+			if (!value.keySet().equals(Set.of("candidateIds"))) {
+				throw new IllegalArgumentException();
+			}
+			List<Long> candidateIds = longList(value.get("candidateIds"));
+			if (candidateIds.isEmpty()) {
+				throw new IllegalArgumentException();
+			}
+			return new MemoryWrite(candidateIds);
 		} catch (RuntimeException exception) {
 			throw new BusinessException(ErrorCode.AI_RESPONSE_INVALID);
 		}
-	}
-
-	private List<String> stringList(Object value) {
-		if (!(value instanceof List<?> list)) {
-			throw new IllegalArgumentException();
-		}
-		List<String> result = new ArrayList<>();
-		for (Object item : list) {
-			if (!(item instanceof String text) || !StringUtils.hasText(text)) {
-				throw new IllegalArgumentException();
-			}
-			result.add(text.trim());
-		}
-		return List.copyOf(result);
 	}
 
 	private List<Long> longList(Object value) {
@@ -484,8 +468,19 @@ public class TurnPersistenceService {
 		}
 		List<Long> result = new ArrayList<>();
 		for (Object item : list) {
-			Long id = nullableLong(item);
-			if (id == null || id < 1) {
+			Long id;
+			if (item instanceof Byte
+				|| item instanceof Short
+				|| item instanceof Integer
+				|| item instanceof Long) {
+				id = ((Number) item).longValue();
+			} else if (item instanceof BigInteger integer
+				&& integer.bitLength() < 63) {
+				id = integer.longValue();
+			} else {
+				throw new IllegalArgumentException();
+			}
+			if (id < 1) {
 				throw new IllegalArgumentException();
 			}
 			result.add(id);
@@ -499,10 +494,6 @@ public class TurnPersistenceService {
 		} catch (RuntimeException exception) {
 			throw policy();
 		}
-	}
-
-	private String nullableText(Object value) {
-		return value instanceof String text ? text : null;
 	}
 
 	private Long nullableLong(Object value) {

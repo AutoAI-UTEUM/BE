@@ -53,18 +53,31 @@ class LearnerMemoryServiceTest {
 	void returnsOnlyPublicMemorySummary() {
 		LearningMaterial material = material();
 		User user = user();
-		MemoryWrite write = new MemoryWrite(
-			List.of("강점"),
-			List.of("약점"),
-			List.of("내부 오개념"),
-			List.of("예시 선호"),
-			List.of("MCQ"),
-			"BALANCED",
-			List.of("내부 코칭 목표"),
-			"공개 digest",
-			List.of(1L, 2L)
+		LearnerMemory memory = LearnerMemory.create(user, material);
+		ReflectionTestUtils.setField(memory, "strengths", List.of("강점"));
+		ReflectionTestUtils.setField(memory, "weaknesses", List.of("약점"));
+		ReflectionTestUtils.setField(
+			memory,
+			"misconceptions",
+			List.of("내부 오개념")
 		);
-		LearnerMemory memory = LearnerMemory.create(user, material, write);
+		ReflectionTestUtils.setField(
+			memory,
+			"explanationPreferences",
+			List.of("예시 선호")
+		);
+		ReflectionTestUtils.setField(
+			memory,
+			"preferredQuizTypes",
+			List.of("MCQ")
+		);
+		ReflectionTestUtils.setField(memory, "targetDifficulty", "BALANCED");
+		ReflectionTestUtils.setField(
+			memory,
+			"nextCoachingGoals",
+			List.of("내부 코칭 목표")
+		);
+		ReflectionTestUtils.setField(memory, "memoryDigest", "공개 digest");
 		ReflectionTestUtils.setField(
 			memory,
 			"updatedAt",

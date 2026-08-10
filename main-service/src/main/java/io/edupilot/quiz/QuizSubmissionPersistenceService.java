@@ -1,6 +1,7 @@
 package io.edupilot.quiz;
 
 import java.util.List;
+import java.util.Objects;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,7 +41,7 @@ public class QuizSubmissionPersistenceService {
 	}
 
 	@Transactional
-	public QuizSubmitResponse persist(
+	public PersistedQuizSubmission persist(
 		Long userId,
 		PreparedQuizSubmission prepared,
 		GradingResult gradingResult,
@@ -59,6 +60,9 @@ public class QuizSubmissionPersistenceService {
 				session.getId()
 			)
 			.orElseThrow(() -> new BusinessException(ErrorCode.QUIZ_NOT_FOUND));
+		if (!Objects.equals(session.getActiveQuizId(), quiz.getId())) {
+			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
+		}
 		if (submissionRepository.existsByQuiz_IdAndUser_Id(
 			quiz.getId(),
 			userId
@@ -77,13 +81,25 @@ public class QuizSubmissionPersistenceService {
 				passed
 			)
 		);
-		List<UiAction> uiActions = uiActionResolver.nextLearning(
-			session.getCurrentPage(),
-			session.getMaterialPageCount()
+		boolean currentPageQuiz = quiz.getPageNumber()
+			== session.getCurrentPage();
+		List<UiAction> uiActions = currentPageQuiz
+			? uiActionResolver.nextLearning(
+				session.getCurrentPage(),
+				session.getMaterialPageCount()
+			)
+			: session.getLastUiActions();
+		session.completeQuizSubmission(
+			quiz.getId(),
+			uiActions,
+			passed,
+			currentPageQuiz
 		);
-		session.completeQuizSubmission(quiz.getId(), uiActions, passed);
 		sessionRepository.flush();
 
-		return QuizSubmitResponse.from(submission, uiActions);
+		return new PersistedQuizSubmission(
+			QuizSubmitResponse.from(submission, uiActions),
+			currentPageQuiz
+		);
 	}
 }

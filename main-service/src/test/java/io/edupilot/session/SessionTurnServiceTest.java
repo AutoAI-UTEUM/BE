@@ -1070,17 +1070,7 @@ class SessionTurnServiceTest {
 			return aiResponse(aiRequest.turnId());
 		});
 		TurnResponse response = publicResponse();
-		MemoryWrite memoryWrite = new MemoryWrite(
-			List.of("strength"),
-			List.of("weakness"),
-			List.of("misconception"),
-			List.of("preference"),
-			List.of("MCQ"),
-			"BALANCED",
-			List.of("goal"),
-			"digest",
-			List.of(1L)
-		);
+		MemoryWrite memoryWrite = new MemoryWrite(List.of(1L));
 		when(persistenceService.persist(
 			any(),
 			any(),

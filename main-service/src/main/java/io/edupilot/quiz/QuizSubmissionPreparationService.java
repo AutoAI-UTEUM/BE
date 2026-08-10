@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -48,6 +49,9 @@ public class QuizSubmissionPreparationService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.QUIZ_NOT_FOUND));
 		if (quiz.getSessionStatus() != SessionStatus.ACTIVE) {
 			throw new BusinessException(ErrorCode.QUIZ_NOT_SUBMITTABLE);
+		}
+		if (!Objects.equals(quiz.getSessionActiveQuizId(), quizId)) {
+			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
 		}
 		if (submissionRepository.existsByQuiz_IdAndUser_Id(quizId, userId)) {
 			throw new BusinessException(ErrorCode.QUIZ_ALREADY_SUBMITTED);

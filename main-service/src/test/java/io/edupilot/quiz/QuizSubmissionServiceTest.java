@@ -62,7 +62,7 @@ class QuizSubmissionServiceTest {
 		when(preparationService.prepare(1L, 50L, request)).thenReturn(prepared);
 		when(gradingService.grade(prepared)).thenReturn(sixty);
 		when(persistenceService.persist(1L, prepared, sixty, true))
-			.thenReturn(new QuizSubmitResponse(
+			.thenReturn(new PersistedQuizSubmission(new QuizSubmitResponse(
 				200L,
 				50L,
 				QuizType.MCQ,
@@ -71,7 +71,7 @@ class QuizSubmissionServiceTest {
 				true,
 				QuizGradingResultResponse.from(sixty),
 				List.of(UiAction.moveNextPage())
-			));
+			), true));
 		when(postGradingHook.onGraded(any()))
 			.thenReturn(List.of(UiAction.moveNextPage()));
 		QuizSubmissionService service = new QuizSubmissionService(
@@ -115,7 +115,7 @@ class QuizSubmissionServiceTest {
 			.thenReturn(valid);
 		QuizSubmitResponse persisted = response(valid, true);
 		when(persistenceService.persist(1L, prepared, valid, true))
-			.thenReturn(persisted);
+			.thenReturn(new PersistedQuizSubmission(persisted, true));
 		when(postGradingHook.onGraded(any()))
 			.thenReturn(List.of(UiAction.moveNextPage()));
 		QuizSubmissionService service = service("0.6");
@@ -147,7 +147,10 @@ class QuizSubmissionServiceTest {
 			.thenReturn(prepared);
 		when(gradingService.grade(prepared)).thenReturn(result);
 		when(persistenceService.persist(1L, prepared, result, false))
-			.thenReturn(response(result, false));
+			.thenReturn(new PersistedQuizSubmission(
+				response(result, false),
+				true
+			));
 		when(postGradingHook.onGraded(any()))
 			.thenThrow(new IllegalStateException("pipeline failed"));
 
@@ -162,6 +165,26 @@ class QuizSubmissionServiceTest {
 			.containsExactly(UiAction.moveNextPage());
 	}
 
+	@Test
+	void offPageQuizSubmissionSkipsLearningSupportPipeline() {
+		PreparedQuizSubmission prepared = prepared();
+		QuizSubmitRequest request = new QuizSubmitRequest(
+			"request-1",
+			List.of()
+		);
+		GradingResult result = result("100.00");
+		QuizSubmitResponse response = response(result, true);
+		when(preparationService.prepare(1L, 50L, request))
+			.thenReturn(prepared);
+		when(gradingService.grade(prepared)).thenReturn(result);
+		when(persistenceService.persist(1L, prepared, result, true))
+			.thenReturn(new PersistedQuizSubmission(response, false));
+
+		assertThat(service("0.6").submit(1L, 50L, request))
+			.isEqualTo(response);
+		verify(postGradingHook, never()).onGraded(any());
+	}
+
 	private void assertPassDecision(
 		String score,
 		String ratio,
@@ -173,7 +196,10 @@ class QuizSubmissionServiceTest {
 		when(preparationService.prepare(1L, 50L, request)).thenReturn(prepared);
 		when(gradingService.grade(prepared)).thenReturn(result);
 		when(persistenceService.persist(1L, prepared, result, expected))
-			.thenReturn(response(result, expected));
+			.thenReturn(new PersistedQuizSubmission(
+				response(result, expected),
+				true
+			));
 		when(postGradingHook.onGraded(any()))
 			.thenReturn(List.of(UiAction.moveNextPage()));
 

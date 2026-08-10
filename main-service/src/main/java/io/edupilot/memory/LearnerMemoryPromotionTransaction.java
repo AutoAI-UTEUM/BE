@@ -67,11 +67,9 @@ class LearnerMemoryPromotionTransaction {
 				User user = userRepository.getReferenceById(userId);
 				LearningMaterial material =
 					materialRepository.getReferenceById(materialId);
-				return LearnerMemory.create(user, material, write);
+				return LearnerMemory.create(user, material);
 			});
-		if (memory.getId() != null) {
-			memory.apply(write);
-		}
+		memory.applyCandidates(candidates);
 		memoryRepository.saveAndFlush(memory);
 		candidates.forEach(LearnerMemoryCandidate::promote);
 		candidateRepository.flush();
@@ -80,12 +78,6 @@ class LearnerMemoryPromotionTransaction {
 
 	private boolean validWrite(MemoryWrite write) {
 		return write != null
-			&& write.strengths() != null
-			&& write.weaknesses() != null
-			&& write.misconceptions() != null
-			&& write.explanationPreferences() != null
-			&& write.preferredQuizTypes() != null
-			&& write.nextCoachingGoals() != null
 			&& write.candidateIds() != null
 			&& !write.candidateIds().isEmpty()
 			&& write.candidateIds().stream()

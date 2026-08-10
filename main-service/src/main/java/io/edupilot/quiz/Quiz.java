@@ -129,6 +129,10 @@ public class Quiz {
 		return session.getMaterialId();
 	}
 
+	public Long getSessionActiveQuizId() {
+		return session.getActiveQuizId();
+	}
+
 	public SessionStatus getSessionStatus() {
 		return session.getStatus();
 	}

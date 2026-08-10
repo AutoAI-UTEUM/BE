@@ -59,6 +59,7 @@ class QuizSubmissionPreparationServiceTest {
 		material.markReady(3);
 		LearningSession session = LearningSession.create(owner, material);
 		ReflectionTestUtils.setField(session, "id", 100L);
+		ReflectionTestUtils.setField(session, "activeQuizId", 50L);
 		quiz = Quiz.create(
 			session,
 			1,
@@ -148,6 +149,19 @@ class QuizSubmissionPreparationServiceTest {
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode())
 					.isEqualTo(ErrorCode.QUIZ_ALREADY_SUBMITTED)
+			);
+	}
+
+	@Test
+	void rejectsQuizThatIsNotTheSessionActiveQuiz() {
+		LearningSession session = (LearningSession)
+			ReflectionTestUtils.getField(quiz, "session");
+		ReflectionTestUtils.setField(session, "activeQuizId", 51L);
+
+		assertThatThrownBy(() -> service.prepare(1L, 50L, null))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.SESSION_STATE_CONFLICT)
 			);
 	}
 
