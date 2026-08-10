@@ -553,6 +553,127 @@ class TurnPersistenceServiceTest {
 			);
 	}
 
+	@Test
+	void acceptsCandidateIdsOnlyMemoryWriteAndPreservesTurnResult() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINED,
+			PageStatus.EXPLAINED,
+			2,
+			3
+		);
+		when(messageRepository.save(any())).thenAnswer(invocation ->
+			invocation.getArgument(0)
+		);
+
+		PersistedTurn persisted = service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.EXPLAIN_CURRENT_PAGE,
+			null,
+			501L,
+			responseWithMemoryWrite(
+				Map.of("candidateIds", List.of(11, 12L)),
+				List.of(Map.of(
+					"messageType", "EXPLANATION",
+					"content", "설명 저장"
+				))
+			)
+		);
+
+		assertThat(persisted.memoryWrite().candidateIds())
+			.containsExactly(11L, 12L);
+		assertThat(persisted.messages())
+			.singleElement()
+			.satisfies(message -> {
+				assertThat(message.messageType())
+					.isEqualTo(MessageType.EXPLANATION);
+				assertThat(message.content()).isEqualTo("설명 저장");
+			});
+		assertThat(persisted.state().currentPage()).isEqualTo(2);
+		assertThat(persisted.state().pageStatus())
+			.isEqualTo(PageStatus.EXPLAINED);
+		verify(session).applyAiTurn(null, List.of(), false);
+	}
+
+	@Test
+	void rejectsLegacyMemoryWriteFields() {
+		activeSession(
+			PageStatus.EXPLAINED,
+			PageStatus.EXPLAINED,
+			1,
+			3
+		);
+		Map<String, Object> legacy = new LinkedHashMap<>();
+		legacy.put("strengths", List.of("강점"));
+		legacy.put("weaknesses", List.of("약점"));
+		legacy.put("misconceptions", List.of("오개념"));
+		legacy.put("explanationPreferences", List.of("예시"));
+		legacy.put("preferredQuizTypes", List.of("MCQ"));
+		legacy.put("nextCoachingGoals", List.of("목표"));
+		legacy.put("candidateIds", List.of(1L));
+
+		assertMemoryWriteRejected(legacy);
+	}
+
+	@Test
+	void rejectsEmptyNonPositiveAndNonIntegerCandidateIds() {
+		activeSession(
+			PageStatus.EXPLAINED,
+			PageStatus.EXPLAINED,
+			1,
+			3
+		);
+
+		for (Map<String, Object> invalid : List.of(
+			Map.<String, Object>of("candidateIds", List.of()),
+			Map.<String, Object>of("candidateIds", List.of(-1)),
+			Map.<String, Object>of(
+				"candidateIds",
+				List.of(new BigDecimal("1.5"))
+			)
+		)) {
+			assertMemoryWriteRejected(invalid);
+		}
+	}
+
+	@Test
+	void generalTurnWithoutMemoryWriteRemainsUnaffected() {
+		activeSession(
+			PageStatus.EXPLAINED,
+			PageStatus.EXPLAINED,
+			1,
+			3
+		);
+
+		PersistedTurn persisted = service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.EXPLAIN_CURRENT_PAGE,
+			null,
+			501L,
+			response(Map.of(), List.of())
+		);
+
+		assertThat(persisted.memoryWrite()).isNull();
+	}
+
+	private void assertMemoryWriteRejected(Map<String, Object> memoryWrite) {
+		assertThatThrownBy(() -> service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.EXPLAIN_CURRENT_PAGE,
+			null,
+			501L,
+			responseWithMemoryWrite(memoryWrite, List.of())
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode())
+				.isEqualTo(ErrorCode.AI_RESPONSE_INVALID)
+		);
+	}
+
 	private LearningSession activeSession(
 		PageStatus previousStatus,
 		PageStatus persistedStatus,
@@ -578,6 +699,25 @@ class TurnPersistenceServiceTest {
 		List<Map<String, Object>> messages
 	) {
 		return response(patch, messages, List.of());
+	}
+
+	private io.edupilot.ai.dto.TurnResponse responseWithMemoryWrite(
+		Map<String, Object> memoryWrite,
+		List<Map<String, Object>> messages
+	) {
+		return new io.edupilot.ai.dto.TurnResponse(
+			"1.0",
+			"turn-1",
+			"EXPLAIN",
+			List.of(),
+			messages,
+			Map.of(),
+			List.of(),
+			null,
+			List.of(),
+			memoryWrite,
+			null
+		);
 	}
 
 	private io.edupilot.ai.dto.TurnResponse responseWithUiActions(

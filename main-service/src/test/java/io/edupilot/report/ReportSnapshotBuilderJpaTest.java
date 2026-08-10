@@ -46,7 +46,6 @@ import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.memory.LearnerMemory;
 import io.edupilot.memory.LearnerMemoryRepository;
-import io.edupilot.memory.MemoryWrite;
 import io.edupilot.quiz.GradingResult;
 import io.edupilot.quiz.Quiz;
 import io.edupilot.quiz.QuizRepository;
@@ -189,14 +188,17 @@ class ReportSnapshotBuilderJpaTest {
 				List.of("evidence"), "hint"
 			)
 		));
-		memoryRepository.saveAndFlush(LearnerMemory.create(
-			student,
-			material,
-			new MemoryWrite(
-				List.of("strength"), List.of("weakness"), List.of("misconception"),
-				List.of(), List.of(), "BALANCED", List.of(), "private digest", List.of()
-			)
-		));
+		LearnerMemory memory = LearnerMemory.create(student, material);
+		ReflectionTestUtils.setField(memory, "strengths", List.of("strength"));
+		ReflectionTestUtils.setField(memory, "weaknesses", List.of("weakness"));
+		ReflectionTestUtils.setField(
+			memory,
+			"misconceptions",
+			List.of("misconception")
+		);
+		ReflectionTestUtils.setField(memory, "targetDifficulty", "BALANCED");
+		ReflectionTestUtils.setField(memory, "memoryDigest", "private digest");
+		memoryRepository.saveAndFlush(memory);
 		gradedSubmission(classroom, student, 1, "80");
 
 		ReportSnapshot snapshot = build(classroom, instructor, student, ReportScope.full());

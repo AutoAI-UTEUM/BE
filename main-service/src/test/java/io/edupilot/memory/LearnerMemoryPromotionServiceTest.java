@@ -96,7 +96,9 @@ class LearnerMemoryPromotionServiceTest {
 			ArgumentCaptor.forClass(LearnerMemory.class);
 		verify(memoryRepository).saveAndFlush(memory.capture());
 		assertThat(memory.getValue().getMemoryDigest())
-			.isEqualTo("digest");
+			.isEqualTo("stored weakness");
+		assertThat(memory.getValue().getWeaknesses())
+			.containsExactly("stored weakness");
 	}
 
 	@Test
@@ -290,17 +292,7 @@ class LearnerMemoryPromotionServiceTest {
 	}
 
 	private MemoryWrite write(List<Long> candidateIds) {
-		return new MemoryWrite(
-			List.of("강점"),
-			List.of("약점"),
-			List.of("오개념"),
-			List.of("예시 선호"),
-			List.of("MCQ"),
-			"BALANCED",
-			List.of("목표"),
-			"digest",
-			candidateIds
-		);
+		return new MemoryWrite(candidateIds);
 	}
 
 	private LearnerMemoryCandidate candidate(
@@ -315,7 +307,7 @@ class LearnerMemoryPromotionServiceTest {
 				user,
 				material,
 				"WEAKNESS",
-				"내용",
+				"stored weakness",
 				confidence,
 				List.of(evidence),
 				"1.0"

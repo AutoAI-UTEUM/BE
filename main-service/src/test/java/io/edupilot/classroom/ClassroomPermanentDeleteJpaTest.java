@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.assessment.QuizAssessment;
@@ -41,7 +42,6 @@ import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.memory.LearnerMemory;
 import io.edupilot.memory.LearnerMemoryRepository;
-import io.edupilot.memory.MemoryWrite;
 import io.edupilot.quiz.GradingResult;
 import io.edupilot.quiz.Quiz;
 import io.edupilot.quiz.QuizRepository;
@@ -220,14 +220,13 @@ class ClassroomPermanentDeleteJpaTest {
 			"Prompt",
 			new DiagnosisData("1.0", List.of(), List.of(), List.of(), "Hint")
 		));
-		LearnerMemory memory = memoryRepository.saveAndFlush(LearnerMemory.create(
-			learner,
-			material,
-			new MemoryWrite(
-				List.of(), List.of(), List.of(), List.of(), List.of(),
-				"BALANCED", List.of(), "Preserved digest", List.of()
-			)
-		));
+		LearnerMemory memory = LearnerMemory.create(learner, material);
+		ReflectionTestUtils.setField(
+			memory,
+			"memoryDigest",
+			"Preserved digest"
+		);
+		memory = memoryRepository.saveAndFlush(memory);
 		UserSchedule schedule = scheduleRepository.saveAndFlush(UserSchedule.create(
 			learner, "Preserved schedule", NOW, NOW.plusSeconds(3600), true
 		));
