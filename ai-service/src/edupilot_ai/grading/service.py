@@ -1,9 +1,10 @@
 """Validated SHORT/ESSAY grading with one schema regeneration."""
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from http import HTTPStatus
+from time import monotonic
 from typing import Literal
 
 from edupilot_ai.core.errors import ErrorCategory, InternalApiError
@@ -18,6 +19,7 @@ from edupilot_ai.models.turn import Usage
 from edupilot_ai.settings import AgentLlmProfile
 
 logger = logging.getLogger(__name__)
+_MIN_RETRY_TIMEOUT_SECONDS = 10.0
 GradeViolationReason = Literal[
     "QUESTION_ID_MISMATCH",
     "RUBRIC_CRITERIA_MISMATCH",
@@ -74,8 +76,7 @@ def grader_messages(
     ]
 
 
-def _verdict(score: float, max_score: float) -> GradeVerdict:
-    ratio = score / max_score
+def _verdict(ratio: float) -> GradeVerdict:
     if ratio >= 0.8:
         return "CORRECT"
     if ratio <= 0.2:
@@ -105,25 +106,34 @@ class GraderAgent:
         llm: LlmBridge,
         profile: AgentLlmProfile,
         timeout_seconds: float,
+        clock: Callable[[], float] = monotonic,
     ) -> None:
         self._llm = llm
         self._profile = profile
         self._timeout_seconds = timeout_seconds
+        self._clock = clock
 
     async def run(self, request: GradeRequest) -> GradeResponse:
         usages: list[LlmUsage] = []
+        deadline = self._clock() + self._timeout_seconds
         for attempt in range(2):
+            remaining_seconds = self._timeout_seconds if attempt == 0 else deadline - self._clock()
+            if attempt > 0 and remaining_seconds < _MIN_RETRY_TIMEOUT_SECONDS:
+                raise LlmBridgeError(
+                    category=ErrorCategory.TIMEOUT,
+                    retryable=True,
+                )
             try:
                 completion = await self._llm.complete_json(
                     messages=grader_messages(request, retry=attempt == 1),
                     response_model=GraderOutput,
                     profile=self._profile,
-                    timeout_seconds=self._timeout_seconds,
+                    timeout_seconds=remaining_seconds,
                 )
                 usages.append(completion.usage)
                 validated = self._validate(request, completion.output)
-                max_score = sum(item.max_score for item in validated.items)
-                score = round(sum(item.score for item in validated.items), 6)
+                max_score = round(sum(item.max_score for item in validated.items), 2)
+                score = sum(item.score for item in validated.items)
                 return GradeResponse(
                     quiz_id=request.quiz_id,
                     quiz_type=request.quiz_type,
@@ -165,8 +175,8 @@ class GraderAgent:
             if len(criteria) != len(set(criteria)) or set(criteria) != set(weights):
                 raise GradeOutputViolation("RUBRIC_CRITERIA_MISMATCH")
             score_ratio = sum(weights[item.criterion] * item.score_ratio for item in rubric_scores)
-            score = round(question.max_score * score_ratio, 6)
-            verdict = _verdict(score, question.max_score)
+            score = round(question.max_score * score_ratio, 2)
+            verdict = _verdict(score_ratio)
             score_difference = abs(item_output.score - score)
             verdict_difference = int(item_output.verdict != verdict)
             if score_difference > 1e-6 or verdict_difference:
@@ -180,7 +190,7 @@ class GraderAgent:
                 GradeResultItem(
                     question_id=question.question_id,
                     score=score,
-                    max_score=question.max_score,
+                    max_score=round(question.max_score, 2),
                     verdict=verdict,
                     feedback=item_output.feedback,
                 )
