@@ -803,6 +803,81 @@ class SessionTurnServiceTest {
 			any(),
 			any()
 		);
+		verify(preparationService).markFailed(501L);
+	}
+
+	@Test
+	void schemaRejectionMarksUserMessageFailedWithoutPersistence()
+		throws Exception {
+		stubPreparedTurn();
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.empty());
+		when(aiClient.executeTurn(any())).thenAnswer(invocation -> {
+			io.edupilot.ai.dto.TurnRequest aiRequest =
+				invocation.getArgument(0);
+			return aiResponse(aiRequest.turnId());
+		});
+		AiClientException rejection = new AiClientException(
+			ErrorCode.AI_RESPONSE_INVALID,
+			false,
+			null
+		);
+		org.mockito.Mockito.doThrow(rejection)
+			.when(responseValidator).validate(
+				any(),
+				anyString(),
+				any(),
+				any(),
+				any(),
+				any()
+			);
+
+		assertThatThrownBy(() -> service().execute(
+			1L,
+			100L,
+			userQuestion()
+		)).isSameAs(rejection);
+
+		verify(preparationService).markFailed(501L);
+		verify(persistenceService, never()).persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		);
+		verify(claimService).release(100L, "request-1");
+	}
+
+	@Test
+	void compensationFailureDoesNotHideOriginalTurnFailure()
+		throws Exception {
+		stubPreparedTurn();
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.empty());
+		AiClientException original = new AiClientException(
+			ErrorCode.AI_SERVICE_UNAVAILABLE,
+			false,
+			null
+		);
+		when(aiClient.executeTurn(any())).thenThrow(original);
+		org.mockito.Mockito.doThrow(new IllegalStateException("mark failed"))
+			.when(preparationService).markFailed(501L);
+
+		assertThatThrownBy(() -> service().execute(
+			1L,
+			100L,
+			userQuestion()
+		)).isSameAs(original);
+		verify(claimService).release(100L, "request-1");
 	}
 
 	private SessionTurnService service() {
@@ -967,7 +1042,7 @@ class SessionTurnServiceTest {
 	}
 
 	@Test
-	void downstreamCancellationBeforeCommitSkipsPersistence()
+	void completedAiResponsePersistsDespiteDownstreamCancellation()
 		throws Exception {
 		stubPreparedTurn();
 		when(aiClientProperties.turnReadTimeout())
@@ -990,16 +1065,20 @@ class SessionTurnServiceTest {
 			return aiResponse(aiRequest.turnId());
 		});
 
-		assertThatThrownBy(() -> service().execute(
-			1L,
-			100L,
-			userQuestion()
-		)).isInstanceOfSatisfying(
-			AiClientException.class,
-			exception -> assertThat(exception.errorCode())
-				.isEqualTo(ErrorCode.AI_STREAM_INTERRUPTED)
-		);
-		verify(persistenceService, never()).persist(
+		TurnResponse response = publicResponse();
+		when(persistenceService.persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		)).thenReturn(persisted(response));
+
+		assertThat(service().execute(1L, 100L, userQuestion()))
+			.isEqualTo(response);
+		verify(persistenceService).persist(
 			any(),
 			any(),
 			anyString(),
@@ -1008,10 +1087,46 @@ class SessionTurnServiceTest {
 			any(),
 			any()
 		);
-		verify(streamService).fail(
-			eq(streamConnection),
-			any(AiClientException.class)
-		);
+		verify(streamService).complete(streamConnection, response);
+		verify(streamService, never()).fail(any(), any());
+	}
+
+	@Test
+	void sseCompletionFailureDoesNotFailPersistedTurn() throws Exception {
+		stubPreparedTurn();
+		when(aiClientProperties.turnReadTimeout())
+			.thenReturn(Duration.ofSeconds(200));
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.of(streamConnection));
+		when(aiClient.executeTurnStream(any(), any(), any(), any()))
+			.thenAnswer(invocation -> {
+				io.edupilot.ai.dto.TurnRequest aiRequest =
+					invocation.getArgument(0);
+				return aiResponse(aiRequest.turnId());
+			});
+		TurnResponse response = publicResponse();
+		when(persistenceService.persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		)).thenReturn(persisted(response));
+		org.mockito.Mockito.doThrow(new AiClientException(
+			ErrorCode.AI_STREAM_INTERRUPTED,
+			true,
+			null
+		)).when(streamService).complete(streamConnection, response);
+
+		assertThat(service().execute(1L, 100L, userQuestion()))
+			.isEqualTo(response);
+		verify(streamService, never()).fail(any(), any());
+		verify(claimService).release(100L, "request-1");
 	}
 
 	@Test
@@ -1051,6 +1166,7 @@ class SessionTurnServiceTest {
 			100L,
 			userQuestion()
 		)).isSameAs(failure);
+		verify(preparationService).markFailed(501L);
 		verify(streamService).fail(streamConnection, failure);
 		verify(streamService, never()).complete(any(), any());
 	}

@@ -85,15 +85,22 @@ class TurnSnapshotServiceTest {
 			"request-1"
 		);
 		ReflectionTestUtils.setField(current, "id", 501L);
+		ChatMessage failed = ChatMessage.user(
+			session,
+			"실패한 질문",
+			"failed-request"
+		);
+		ReflectionTestUtils.setField(failed, "id", 499L);
+		failed.markFailed();
 
 		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
 			.thenReturn(Optional.of(session));
 		when(messageRepository
-			.findBySession_IdOrderByCreatedAtDescIdDesc(
+			.findRecentContextMessages(
 				org.mockito.ArgumentMatchers.eq(100L),
 				org.mockito.ArgumentMatchers.any(Pageable.class)
 			))
-			.thenReturn(List.of(current, previous));
+			.thenReturn(List.of(current, previous, failed));
 		when(qaThreadRepository
 			.findTopBySession_IdAndStatusOrderByUpdatedAtDescIdDesc(
 				100L,
@@ -132,7 +139,7 @@ class TurnSnapshotServiceTest {
 			.singleElement()
 			.asString()
 			.contains("이전 답변")
-			.doesNotContain("현재 질문");
+			.doesNotContain("현재 질문", "실패한 질문");
 		assertThat(snapshot.context().get("learnerConfidence")).isNull();
 		assertThat(snapshot.context())
 			.doesNotContainKey("conversationSummary");
@@ -144,7 +151,7 @@ class TurnSnapshotServiceTest {
 		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
 			.thenReturn(Optional.of(session));
 		when(messageRepository
-			.findBySession_IdOrderByCreatedAtDescIdDesc(
+			.findRecentContextMessages(
 				org.mockito.ArgumentMatchers.eq(100L),
 				org.mockito.ArgumentMatchers.any(Pageable.class)
 			))
@@ -296,7 +303,7 @@ class TurnSnapshotServiceTest {
 		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
 			.thenReturn(Optional.of(session));
 		when(messageRepository
-			.findBySession_IdOrderByCreatedAtDescIdDesc(
+			.findRecentContextMessages(
 				org.mockito.ArgumentMatchers.eq(100L),
 				org.mockito.ArgumentMatchers.any(Pageable.class)
 			))
@@ -365,7 +372,7 @@ class TurnSnapshotServiceTest {
 		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
 			.thenReturn(Optional.of(session));
 		when(messageRepository
-			.findBySession_IdOrderByCreatedAtDescIdDesc(
+			.findRecentContextMessages(
 				org.mockito.ArgumentMatchers.eq(100L),
 				org.mockito.ArgumentMatchers.any(Pageable.class)
 			))

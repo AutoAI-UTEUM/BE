@@ -140,6 +140,7 @@ public class SessionTurnService {
 		);
 		claimService.claim(userId, sessionId, request.requestId());
 		SessionStreamConnection streamConnection = null;
+		Long userMessageId = null;
 		try {
 			PreparedTurn prepared;
 			try {
@@ -161,10 +162,11 @@ public class SessionTurnService {
 					ErrorCode.TURN_ALREADY_PROCESSED
 				);
 			}
+			userMessageId = prepared.userMessageId();
 			TurnSnapshot snapshot = snapshotService.build(
 				userId,
 				sessionId,
-				prepared.userMessageId(),
+				userMessageId,
 				payload.includeCurrentPage()
 			);
 			AiStreamCancellation cancellation = new AiStreamCancellation();
@@ -191,35 +193,81 @@ public class SessionTurnService {
 						streamConnection,
 						cancellation
 					);
-			if (streamConnection != null && cancellation.isCancelled()) {
-				throw new AiClientException(
-					ErrorCode.AI_STREAM_INTERRUPTED,
-					true,
-					null
-				);
-			}
 			PersistedTurn persisted = persistenceService.persist(
 				userId,
 				sessionId,
 				request.requestId(),
 				eventType,
 				payload.diagnosisId(),
-				prepared.userMessageId(),
+				userMessageId,
 				aiResponse
 			);
 			promoteMemory(userId, persisted);
 			TurnResponse response = persisted.response();
 			if (streamConnection != null) {
-				streamService.complete(streamConnection, response);
+				completeStream(
+					streamConnection,
+					response,
+					sessionId,
+					request.requestId()
+				);
 			}
 			return response;
 		} catch (RuntimeException exception) {
+			markFailedMessage(
+				userMessageId,
+				sessionId,
+				request.requestId()
+			);
 			if (streamConnection != null) {
 				streamService.fail(streamConnection, exception);
 			}
 			throw exception;
 		} finally {
 			claimService.release(sessionId, request.requestId());
+		}
+	}
+
+	private void markFailedMessage(
+		Long userMessageId,
+		Long sessionId,
+		String requestId
+	) {
+		if (userMessageId == null) {
+			return;
+		}
+		try {
+			preparationService.markFailed(userMessageId);
+		} catch (RuntimeException exception) {
+			log.atWarn()
+				.addKeyValue("sessionId", sessionId)
+				.addKeyValue("requestId", requestId)
+				.addKeyValue("userMessageId", userMessageId)
+				.addKeyValue(
+					"errorType",
+					exception.getClass().getSimpleName()
+				)
+				.log("Failed to mark unsuccessful turn message");
+		}
+	}
+
+	private void completeStream(
+		SessionStreamConnection streamConnection,
+		TurnResponse response,
+		Long sessionId,
+		String requestId
+	) {
+		try {
+			streamService.complete(streamConnection, response);
+		} catch (RuntimeException exception) {
+			log.atWarn()
+				.addKeyValue("sessionId", sessionId)
+				.addKeyValue("requestId", requestId)
+				.addKeyValue(
+					"errorType",
+					exception.getClass().getSimpleName()
+				)
+				.log("SSE completion failed after turn persistence");
 		}
 	}
 

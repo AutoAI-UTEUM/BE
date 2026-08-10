@@ -86,20 +86,25 @@ class TurnClaimServiceTest {
 	void rejectsProcessedAndConcurrentTurnsWithStableErrors() {
 		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
 			.thenReturn(Optional.of(session));
-		when(messageRepository.existsBySession_IdAndRequestId(
+		ChatMessage completed = ChatMessage.user(
+			session,
+			"processed",
+			"duplicate"
+		);
+		when(messageRepository.findBySession_IdAndRequestId(
 			100L,
 			"duplicate"
-		)).thenReturn(true);
+		)).thenReturn(Optional.of(completed));
 
 		assertError(
 			() -> claimService.claim(1L, 100L, "duplicate"),
 			ErrorCode.TURN_ALREADY_PROCESSED
 		);
 
-		when(messageRepository.existsBySession_IdAndRequestId(
+		when(messageRepository.findBySession_IdAndRequestId(
 			100L,
 			"request-2"
-		)).thenReturn(false);
+		)).thenReturn(Optional.empty());
 		when(sessionRepository.claimTurn(
 			100L,
 			1L,
@@ -111,6 +116,41 @@ class TurnClaimServiceTest {
 		assertError(
 			() -> claimService.claim(1L, 100L, "request-2"),
 			ErrorCode.TURN_IN_PROGRESS
+		);
+	}
+
+	@Test
+	void failedMessageAllowsSameRequestIdToClaimAgain() {
+		ChatMessage failed = ChatMessage.user(
+			session,
+			"retry",
+			"retry-request"
+		);
+		failed.markFailed();
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(messageRepository.findBySession_IdAndRequestId(
+			100L,
+			"retry-request"
+		)).thenReturn(Optional.of(failed));
+		when(sessionRepository.claimTurn(
+			100L,
+			1L,
+			"retry-request",
+			NOW,
+			NOW,
+			NOW.minusSeconds(300)
+		)).thenReturn(1);
+
+		claimService.claim(1L, 100L, "retry-request");
+
+		verify(sessionRepository).claimTurn(
+			100L,
+			1L,
+			"retry-request",
+			NOW,
+			NOW,
+			NOW.minusSeconds(300)
 		);
 	}
 

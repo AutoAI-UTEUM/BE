@@ -177,13 +177,14 @@ public class TurnSnapshotService {
 		Instant conversationResetAt
 	) {
 		List<ChatMessage> messages = new ArrayList<>(
-			messageRepository.findBySession_IdOrderByCreatedAtDescIdDesc(
+			messageRepository.findRecentContextMessages(
 				sessionId,
 				PageRequest.of(0, MESSAGE_LIMIT + 1)
 			)
 		);
 		messages.removeIf(message ->
-			message.getId().equals(excludedMessageId)
+			message.getStatus() == ChatMessageStatus.FAILED
+				|| message.getId().equals(excludedMessageId)
 				|| isBeforeOrAtReset(
 					message.getCreatedAt(),
 					conversationResetAt

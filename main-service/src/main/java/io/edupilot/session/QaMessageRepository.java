@@ -11,8 +11,16 @@ import org.springframework.data.repository.query.Param;
 
 public interface QaMessageRepository extends JpaRepository<QaMessage, Long> {
 
+	@Query("""
+		select message
+		from QaMessage message
+		where message.thread.id = :threadId
+		  and message.chatMessage.status <>
+		    io.edupilot.session.ChatMessageStatus.FAILED
+		order by message.createdAt desc, message.id desc
+		""")
 	List<QaMessage> findByThread_IdOrderByCreatedAtDescIdDesc(
-		Long threadId,
+		@Param("threadId") Long threadId,
 		Pageable pageable
 	);
 

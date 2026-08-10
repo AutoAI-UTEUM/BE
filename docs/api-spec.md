@@ -585,7 +585,7 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 
 `USER_QUESTION.payload.includeCurrentPage`는 boolean만 허용합니다. 생략하거나 `true`이면 현재·이전·다음 페이지 텍스트를 기존처럼 내부 context에 포함합니다. `false`이면 Spring은 `currentPageText`, `previousPageText`, `nextPageText` 세 필드의 값을 모두 null로 전달하되 context 12키 구조를 유지합니다. 이때 QaAgent는 일반 학습 지식으로 답변할 수 있지만 업로드 자료 내용을 추측하지 않고 학습과 무관한 요청에는 기존 한계 안내를 적용합니다. QA thread와 `latestRepair` 문맥은 플래그와 무관하게 승계합니다. 다른 eventType에 `includeCurrentPage`를 보내거나 boolean 외 값을 보내면 `VALIDATION_FAILED`입니다.
 
-동일 `requestId` 재전송 처리(확정): **`TURN_ALREADY_PROCESSED`(409)로 거부**합니다. 기존 결과를 재반환하는 replay는 제공하지 않으며, FE는 409 수신 시 세션 상세·메시지 재조회로 최신 상태를 복원합니다(DEC-024 복원 체계 재사용). 스트리밍 재연결 요구가 생기면 기존 결과 반환 방식으로 확장을 재검토합니다(이후 개선안).
+동일 `requestId` 재전송 처리(확정): 기존 사용자 메시지의 `status=FAILED`이면 해당 메시지를 `COMPLETED`로 복귀시켜 재사용하고 턴을 다시 수행합니다. 질문 행은 추가하지 않습니다. 기존 메시지가 성공 또는 진행 상태이면 **`TURN_ALREADY_PROCESSED`(409)**를 유지합니다. FE는 실패 턴의 통신 재시도에 새 ID를 만들지 않고 같은 `requestId`를 다시 사용합니다.
 
 `data`:
 
@@ -600,6 +600,7 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
       "messageType": "QA",
       "content": "편차는 어떤 값이 평균에서 얼마나 떨어져 있는지를 뜻합니다.",
       "pageNumber": 3,
+      "status": "COMPLETED",
       "createdAt": "2026-07-10T09:00:00Z"
     }
   ],
@@ -647,10 +648,11 @@ Query:
   "items": [
     {
       "messageId": 498,
-      "senderType": "AI",
-      "messageType": "EXPLANATION",
-      "content": "...",
+      "senderType": "USER",
+      "messageType": "TEXT",
+      "content": "편차가 정확히 무슨 뜻이야?",
       "pageNumber": 3,
+      "status": "FAILED",
       "createdAt": "2026-07-10T09:00:00Z"
     }
   ],
@@ -660,6 +662,7 @@ Query:
 ```
 
 - 서버는 커서 기준 **더 과거 방향**으로 `size`개를 조회하고, `items`는 시간 오름차순으로 반환합니다(FE는 리스트 앞에 prepend). 첫 호출(커서 없음)은 최신 `size`개를 반환합니다.
+- `status`는 `PENDING | COMPLETED | FAILED`입니다. 현재 턴 저장 경로의 정상 메시지는 `COMPLETED`이며 실패 턴의 사용자 메시지는 이력에는 `FAILED`로 남지만 다음 AI 스냅샷의 `recentMessages`와 `qaThreadDigest`에서는 제외합니다. FE는 `FAILED`를 전송 실패로 표시하고 같은 `requestId`로 재시도할 수 있습니다.
 - `nextCursor`는 다음(더 과거) 조회에 그대로 전달하는 불투명 문자열이며, 더 없으면 `null`·`hasMore=false`입니다. 구현은 `(created_at, id)` 복합 정렬 커서를 권장하되 커서 값의 내부 구조에 FE가 의존하지 않습니다.
 - Base64 형식·내부 필드·시간·메시지 ID가 유효하지 않은 커서는 `VALIDATION_FAILED`(400)로 거부합니다.
 - 삭제·완료된 세션도 소유자는 메시지를 조회할 수 있는지: 완료(COMPLETED)는 조회 허용, 삭제(DELETED)는 목록·조회와 동일하게 차단합니다.
@@ -1932,7 +1935,7 @@ data: {"action":{"type":"DIAGNOSIS_QUESTION","content":"왜 역수를 곱하는�
 
 ```text
 event: completed
-data: {"result":{"turnId":"turn-123","sessionId":100,"messages":[{"messageId":501,"senderType":"AI","messageType":"EXPLANATION","content":"편차는 평균과 관측값의 차이입니다.","pageNumber":3,"createdAt":"2026-07-28T09:00:00Z"}],"uiActions":[{"type":"BINARY_DECISION","content":"퀴즈를 진행할까요?","yesEvent":"SHOW_QUIZ_TYPE_SELECT","noEvent":"MOVE_NEXT_PAGE"}],"state":{"currentPage":3,"pageStatus":"EXPLAINED","activeQuizId":null}}}
+data: {"result":{"turnId":"turn-123","sessionId":100,"messages":[{"messageId":501,"senderType":"AI","messageType":"EXPLANATION","content":"편차는 평균과 관측값의 차이입니다.","pageNumber":3,"status":"COMPLETED","createdAt":"2026-07-28T09:00:00Z"}],"uiActions":[{"type":"BINARY_DECISION","content":"퀴즈를 진행할까요?","yesEvent":"SHOW_QUIZ_TYPE_SELECT","noEvent":"MOVE_NEXT_PAGE"}],"state":{"currentPage":3,"pageStatus":"EXPLAINED","activeQuizId":null}}}
 ```
 
 오류 data는 Spring의 안정된 외부 오류 코드와 공개 메시지만 포함합니다.
@@ -1951,6 +1954,7 @@ data: {"code":"AI_SERVICE_TIMEOUT","category":"TIMEOUT","message":"AI 서비스 
   합니다.
 - 내부 completed 전체 검증과 메시지·상태 저장 트랜잭션 커밋 후
   `[ui_action] → completed → 종료` 순서로 외부 terminal을 전송합니다.
+- 내부 completed 응답 검증이 끝나면 SSE cancellation 상태와 무관하게 저장합니다. 저장 커밋 후 외부 `completed` 전송이 실패해도 저장된 턴을 실패 처리하지 않고 FE의 세션·메시지 복원 경로로 수렴합니다.
 - error, terminal 전 EOF, schema 오류, 저장 실패에는 completed를 보내지
   않으며 중간 content는 확정 메시지로 저장하지 않습니다.
 - 완성된 내부 이벤트를 30초 동안 받지 못하면
