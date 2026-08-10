@@ -143,6 +143,12 @@ public class SessionTurnService {
 		try {
 			PreparedTurn prepared;
 			try {
+				preparationService.assertEventAllowed(
+					userId,
+					sessionId,
+					request.requestId(),
+					eventType
+				);
 				prepared = preparationService.prepare(
 					userId,
 					sessionId,

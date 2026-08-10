@@ -61,7 +61,7 @@ public class DiagnosisService {
 	}
 
 	@Transactional
-	public void completeDiagnosis(Long diagnosisId, String repairContent) {
+	public boolean completeDiagnosis(Long diagnosisId, String repairContent) {
 		Diagnosis diagnosis = diagnosisRepository.findByIdForUpdate(diagnosisId)
 			.orElseThrow(() ->
 				new BusinessException(ErrorCode.DIAGNOSIS_NOT_FOUND));
@@ -87,10 +87,13 @@ public class DiagnosisService {
 			)
 		);
 		diagnosis.complete();
-		session.completeDiagnosis(diagnosisId);
+		boolean currentPageDiagnosis = diagnosis.getQuizPageNumber()
+			== session.getCurrentPage();
+		session.completeDiagnosis(diagnosisId, currentPageDiagnosis);
 		repairResultRepository.flush();
 		diagnosisRepository.flush();
 		sessionRepository.flush();
+		return currentPageDiagnosis;
 	}
 
 	@Transactional(readOnly = true)

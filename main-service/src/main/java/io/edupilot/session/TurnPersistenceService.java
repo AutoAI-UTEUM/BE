@@ -147,43 +147,48 @@ public class TurnPersistenceService {
 			);
 			session.activateQuiz(activeQuizId, uiActions);
 		} else {
+			boolean applyPageTransition = true;
 			if (eventType == TurnEventType.DIAGNOSIS_ANSWER_SUBMITTED) {
-				completeDiagnosis(
+				applyPageTransition = completeDiagnosis(
 					diagnosisId,
 					aiMessages,
 					nextPageStatus,
 					aiResponse.statePatch()
 				);
 			}
-			PageStatus finalPageStatus = nextPageStatus == null
-				? session.getPageStatus()
-				: nextPageStatus;
-			boolean pageStatusChanged =
-				finalPageStatus != previousPageStatus;
-			boolean quizEligible = isQuizEligible(
-				session,
-				eventType,
-				finalPageStatus,
-				pageStatusChanged
-			);
-			uiActions = uiActionResolver.forPageTransition(
-				previousPageStatus,
-				finalPageStatus,
-				session.getCurrentPage(),
-				session.getMaterialPageCount(),
-				quizEligible
-			);
-			uiActions = applyAllowedAiUiAction(
-				eventType,
-				session,
-				uiActions,
-				aiResponse
-			);
-			session.applyAiTurn(
-				nextPageStatus,
-				uiActions,
-				pageStatusChanged
-			);
+			if (!applyPageTransition) {
+				uiActions = session.getLastUiActions();
+			} else {
+				PageStatus finalPageStatus = nextPageStatus == null
+					? session.getPageStatus()
+					: nextPageStatus;
+				boolean pageStatusChanged =
+					finalPageStatus != previousPageStatus;
+				boolean quizEligible = isQuizEligible(
+					session,
+					eventType,
+					finalPageStatus,
+					pageStatusChanged
+				);
+				uiActions = uiActionResolver.forPageTransition(
+					previousPageStatus,
+					finalPageStatus,
+					session.getCurrentPage(),
+					session.getMaterialPageCount(),
+					quizEligible
+				);
+				uiActions = applyAllowedAiUiAction(
+					eventType,
+					session,
+					uiActions,
+					aiResponse
+				);
+				session.applyAiTurn(
+					nextPageStatus,
+					uiActions,
+					pageStatusChanged
+				);
+			}
 			if (eventType == TurnEventType.EXPLAIN_CURRENT_PAGE
 				&& nextPageStatus == PageStatus.EXPLAINED) {
 				pageRecordRepository.upsertExplainedPage(
@@ -373,7 +378,7 @@ public class TurnPersistenceService {
 		}
 	}
 
-	private void completeDiagnosis(
+	private boolean completeDiagnosis(
 		Long diagnosisId,
 		List<ChatMessage> messages,
 		PageStatus nextPageStatus,
@@ -390,7 +395,7 @@ public class TurnPersistenceService {
 			|| patch.get("pendingDiagnosis") != null) {
 			throw policy();
 		}
-		diagnosisService.completeDiagnosis(
+		return diagnosisService.completeDiagnosis(
 			diagnosisId,
 			repairs.getFirst().getContent()
 		);

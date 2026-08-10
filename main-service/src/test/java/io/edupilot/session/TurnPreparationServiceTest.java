@@ -76,6 +76,28 @@ class TurnPreparationServiceTest {
 		);
 	}
 
+	@Test
+	void rejectsQuizSelectionWhileDiagnosisIsPending() {
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(session.getActiveTurnRequestId()).thenReturn("request-1");
+		when(session.getPageStatus())
+			.thenReturn(PageStatus.DIAGNOSIS_PENDING);
+
+		assertThatThrownBy(() -> service().assertEventAllowed(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.QUIZ_TYPE_SELECTED
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode())
+				.isEqualTo(ErrorCode.SESSION_STATE_CONFLICT)
+		);
+		verify(messageRepository, never()).saveAndFlush(
+			org.mockito.ArgumentMatchers.any()
+		);
+	}
+
 	private void givenAnsweredDiagnosis() {
 		when(sessionRepository.findOwnedForUpdate(100L, 1L))
 			.thenReturn(Optional.of(session));

@@ -120,6 +120,10 @@ public class Diagnosis {
 		return submission.getId();
 	}
 
+	public int getQuizPageNumber() {
+		return submission.getQuizPageNumber();
+	}
+
 	public String getDiagnosticPrompt() {
 		return diagnosticPrompt;
 	}

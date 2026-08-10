@@ -408,6 +408,11 @@ class TurnPersistenceServiceTest {
 		Map<String, Object> patch = new LinkedHashMap<>();
 		patch.put("pageStatus", "REPAIR_COMPLETED");
 		patch.put("pendingDiagnosis", null);
+		when(diagnosisService.completeDiagnosis(
+			org.mockito.ArgumentMatchers.eq(30L),
+			org.mockito.ArgumentMatchers.anyString()
+		))
+			.thenReturn(true);
 
 		PersistedTurn persisted = service().persist(
 			1L,
@@ -439,6 +444,61 @@ class TurnPersistenceServiceTest {
 			any(),
 			org.mockito.ArgumentMatchers.anyInt(),
 			any()
+		);
+	}
+
+	@Test
+	void offPageDiagnosisPreservesCurrentPageStateAndActions() {
+		LearningSession session = activeSession(
+			PageStatus.NOT_EXPLAINED,
+			PageStatus.NOT_EXPLAINED,
+			4,
+			5
+		);
+		org.mockito.Mockito.reset(session);
+		when(session.getStatus()).thenReturn(SessionStatus.ACTIVE);
+		when(session.getActiveTurnRequestId()).thenReturn("request-1");
+		when(session.getPageStatus()).thenReturn(
+			PageStatus.NOT_EXPLAINED,
+			PageStatus.NOT_EXPLAINED
+		);
+		when(session.getCurrentPage()).thenReturn(4);
+		when(session.getMaterialId()).thenReturn(10L);
+		List<UiAction> currentActions = List.of(UiAction.pageExplanation());
+		when(session.getLastUiActions()).thenReturn(currentActions);
+		when(messageRepository.save(any())).thenAnswer(invocation ->
+			invocation.getArgument(0)
+		);
+		when(diagnosisService.completeDiagnosis(
+			org.mockito.ArgumentMatchers.eq(30L),
+			org.mockito.ArgumentMatchers.anyString()
+		)).thenReturn(false);
+		Map<String, Object> patch = new LinkedHashMap<>();
+		patch.put("pageStatus", "REPAIR_COMPLETED");
+		patch.put("pendingDiagnosis", null);
+
+		PersistedTurn persisted = service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.DIAGNOSIS_ANSWER_SUBMITTED,
+			30L,
+			501L,
+			response(
+				patch,
+				List.of(Map.of(
+					"messageType", "REPAIR",
+					"content", "repair"
+				))
+			)
+		);
+
+		assertThat(persisted.uiActions()).isEqualTo(currentActions);
+		verify(diagnosisService).completeDiagnosis(30L, "repair");
+		verify(session, never()).applyAiTurn(
+			org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.anyList(),
+			org.mockito.ArgumentMatchers.anyBoolean()
 		);
 	}
 
