@@ -52,4 +52,20 @@ class ExamMigrationContractTest {
 			.contains("idx_exam_submissions_status_submitted (status, submitted_at)")
 			.doesNotContain("CHECK");
 	}
+
+	@Test
+	void v24AddsNonNegativeGradingRetryCount() throws Exception {
+		String migration;
+		try (var input = getClass().getResourceAsStream(
+			"/db/migration/V24__exam_grading_retry.sql"
+		)) {
+			assertThat(input).isNotNull();
+			migration = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+		}
+
+		assertThat(migration)
+			.contains("ADD COLUMN grading_retry_count INT NOT NULL DEFAULT 0")
+			.contains("chk_exam_submissions_grading_retry_count")
+			.contains("CHECK (grading_retry_count >= 0)");
+	}
 }
