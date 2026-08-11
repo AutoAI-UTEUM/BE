@@ -11,7 +11,7 @@ from enum import StrEnum
 from math import isclose
 from typing import Annotated, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from edupilot_ai.models.base import ContractModel
 
@@ -55,6 +55,13 @@ class QuestionBase(ContractModel):
     question_text: str = Field(min_length=1)
     points: float = Field(gt=0)
 
+    @field_validator("points", mode="before")
+    @classmethod
+    def normalize_points(cls, value: object) -> object:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return value
+        return round(float(value), 2)
+
 
 class McqQuestion(QuestionBase):
     """MCQ choices are public; answerChoiceId and explanation are private."""
@@ -86,12 +93,34 @@ class ShortQuestion(QuestionBase):
     reference_answer: str = Field(min_length=1)
     grading_criteria: Annotated[list[str], Field(min_length=1)]
 
+    @field_validator("grading_criteria")
+    @classmethod
+    def deduplicate_grading_criteria(cls, value: list[str]) -> list[str]:
+        deduplicated = list(dict.fromkeys(value))
+        if not deduplicated:
+            raise ValueError("gradingCriteria must contain at least one item")
+        return deduplicated
+
 
 class EssayQuestion(QuestionBase):
     """modelAnswer and rubric are private."""
 
     model_answer: str = Field(min_length=1)
     rubric: Annotated[list[RubricCriterion], Field(min_length=1)]
+
+    @field_validator("rubric")
+    @classmethod
+    def merge_duplicate_rubric_criteria(
+        cls,
+        value: list[RubricCriterion],
+    ) -> list[RubricCriterion]:
+        merged_weights: dict[str, float] = {}
+        for item in value:
+            merged_weights[item.criterion] = merged_weights.get(item.criterion, 0.0) + item.weight
+        return [
+            RubricCriterion(criterion=criterion, weight=weight)
+            for criterion, weight in merged_weights.items()
+        ]
 
     @model_validator(mode="after")
     def validate_rubric_weight(self) -> EssayQuestion:
@@ -118,6 +147,13 @@ class QuizGeneration(ContractModel):
     title: str = Field(min_length=1)
     question_count: int = Field(ge=5, le=10)
     questions: Annotated[list[QuizQuestion], Field(min_length=5, max_length=10)]
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return value.strip()[:255]
 
     @model_validator(mode="after")
     def validate_questions(self) -> QuizGeneration:
