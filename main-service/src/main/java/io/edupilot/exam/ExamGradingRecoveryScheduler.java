@@ -3,7 +3,9 @@ package io.edupilot.exam;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,17 +38,24 @@ public class ExamGradingRecoveryScheduler {
 	public void recover() {
 		Instant now = clock.instant();
 		Instant cutoff = now.minus(GRADING_CUTOFF);
-		int expired = persistenceService.failExpiredSubmissions(cutoff, now, BATCH_SIZE);
+		int failed = persistenceService.failExhaustedSubmissions(cutoff, now, BATCH_SIZE);
+		List<ExamGradingCandidate> requeued = persistenceService.requeueExpiredSubmissions(
+			cutoff, now, BATCH_SIZE
+		);
 		List<ExamGradingCandidate> recoverable = persistenceService.findRecoverableGradings(
 			cutoff, now, BATCH_SIZE
 		);
-		for (ExamGradingCandidate candidate : recoverable) {
+		Map<Long, ExamGradingCandidate> candidates = new LinkedHashMap<>();
+		requeued.forEach(candidate -> candidates.put(candidate.submissionId(), candidate));
+		recoverable.forEach(candidate -> candidates.put(candidate.submissionId(), candidate));
+		for (ExamGradingCandidate candidate : candidates.values()) {
 			gradingDispatcher.dispatch(candidate.submissionId(), candidate.examId());
 		}
-		if (expired > 0 || !recoverable.isEmpty()) {
+		if (failed > 0 || !candidates.isEmpty()) {
 			log.atInfo()
-				.addKeyValue("expired", expired)
-				.addKeyValue("redispatched", recoverable.size())
+				.addKeyValue("failed", failed)
+				.addKeyValue("requeued", requeued.size())
+				.addKeyValue("redispatched", candidates.size())
 				.log("Recovered pending exam grading submissions");
 		}
 	}

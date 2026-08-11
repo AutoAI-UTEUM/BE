@@ -32,6 +32,8 @@ import io.edupilot.user.UserRole;
 @Service
 public class ExamSubmissionPersistenceService {
 	private static final Instant NO_GRADING_LEASE = Instant.EPOCH;
+	private static final int MAX_GRADING_RETRIES = 3;
+	private static final int REQUEUE_LIMIT = MAX_GRADING_RETRIES - 1;
 
 	private static final List<GradeRequest.Rubric> DEFAULT_RUBRIC = List.of(
 		new GradeRequest.Rubric("모범 답안 부합도", BigDecimal.ONE)
@@ -259,16 +261,60 @@ public class ExamSubmissionPersistenceService {
 	}
 
 	@Transactional
-	public int failExpiredSubmissions(Instant cutoff, Instant now, int batchSize) {
-		List<Long> submissionIds = submissionRepository.findExpiredSubmissionIds(
-			cutoff, PageRequest.of(0, batchSize)
+	public List<ExamGradingCandidate> requeueExpiredSubmissions(
+		Instant cutoff,
+		Instant now,
+		int batchSize
+	) {
+		List<ExamGradingCandidate> candidates = submissionRepository
+			.findRetryableExpiredSubmissions(
+				cutoff, REQUEUE_LIMIT, PageRequest.of(0, batchSize)
+			);
+		if (candidates.isEmpty()) {
+			return List.of();
+		}
+		List<Long> submissionIds = candidates.stream()
+			.map(ExamGradingCandidate::submissionId)
+			.toList();
+		int requeued = submissionRepository.requeueExpiredSubmissions(
+			submissionIds, cutoff, REQUEUE_LIMIT, NO_GRADING_LEASE, now
+		);
+		if (requeued == 0) {
+			return List.of();
+		}
+		return List.copyOf(candidates);
+	}
+
+	@Transactional
+	public int failExhaustedSubmissions(Instant cutoff, Instant now, int batchSize) {
+		List<Long> submissionIds = submissionRepository.findExhaustedSubmissionIds(
+			cutoff, REQUEUE_LIMIT, PageRequest.of(0, batchSize)
 		);
 		if (submissionIds.isEmpty()) {
 			return 0;
 		}
-		return submissionRepository.failExpiredSubmissions(
-			submissionIds, cutoff, NO_GRADING_LEASE, now
+		return submissionRepository.failExhaustedSubmissions(
+			submissionIds, cutoff, REQUEUE_LIMIT, MAX_GRADING_RETRIES,
+			NO_GRADING_LEASE, now
 		);
+	}
+
+	@Transactional
+	public ExamSubmissionResponse regradeFailedSubmission(Long examId, Long submissionId) {
+		Instant now = clock.instant();
+		if (submissionRepository.requeueFailedSubmission(
+			examId, submissionId, NO_GRADING_LEASE, now
+		) != 1) {
+			if (submissionRepository.findByIdAndExam_Id(submissionId, examId).isEmpty()) {
+				throw new BusinessException(ErrorCode.EXAM_NOT_FOUND);
+			}
+			throw new BusinessException(ErrorCode.EXAM_ALREADY_SUBMITTED);
+		}
+		gradingDispatcher.dispatchAfterCommit(submissionId, examId);
+		ExamSubmission submission = submissionRepository.findByIdAndExam_Id(
+			submissionId, examId
+		).orElseThrow(() -> new BusinessException(ErrorCode.EXAM_NOT_FOUND));
+		return response(submission);
 	}
 
 	@Transactional(readOnly = true)

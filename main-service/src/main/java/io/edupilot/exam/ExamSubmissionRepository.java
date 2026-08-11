@@ -89,40 +89,93 @@ public interface ExamSubmissionRepository extends JpaRepository<ExamSubmission, 
 	@Query("select submission from ExamSubmission submission where submission.id = :submissionId")
 	Optional<ExamSubmission> findByIdForUpdate(@Param("submissionId") Long submissionId);
 
+	@Query("select new io.edupilot.exam.ExamGradingCandidate("
+		+ "submission.id, submission.exam.id) "
+		+ "from ExamSubmission submission "
+		+ "where submission.status = io.edupilot.exam.SubmissionStatus.SUBMITTED "
+		+ "and submission.updatedAt <= :cutoff "
+		+ "and submission.gradingRetryCount < :requeueLimit "
+		+ "order by submission.updatedAt, submission.id")
+	List<ExamGradingCandidate> findRetryableExpiredSubmissions(
+		@Param("cutoff") Instant cutoff,
+		@Param("requeueLimit") int requeueLimit,
+		Pageable pageable
+	);
+
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("update ExamSubmission submission "
+		+ "set submission.gradingRetryCount = submission.gradingRetryCount + 1, "
+		+ "submission.gradingLeaseToken = null, "
+		+ "submission.gradingLeaseUntil = :noLease, submission.updatedAt = :now "
+		+ "where submission.id in :submissionIds "
+		+ "and submission.status = io.edupilot.exam.SubmissionStatus.SUBMITTED "
+		+ "and submission.updatedAt <= :cutoff "
+		+ "and submission.gradingRetryCount < :requeueLimit")
+	int requeueExpiredSubmissions(
+		@Param("submissionIds") List<Long> submissionIds,
+		@Param("cutoff") Instant cutoff,
+		@Param("requeueLimit") int requeueLimit,
+		@Param("noLease") Instant noLease,
+		@Param("now") Instant now
+	);
+
 	@Query("select submission.id from ExamSubmission submission "
 		+ "where submission.status = io.edupilot.exam.SubmissionStatus.SUBMITTED "
-		+ "and submission.submittedAt <= :cutoff "
-		+ "order by submission.submittedAt, submission.id")
-	List<Long> findExpiredSubmissionIds(
+		+ "and submission.updatedAt <= :cutoff "
+		+ "and submission.gradingRetryCount >= :requeueLimit "
+		+ "order by submission.updatedAt, submission.id")
+	List<Long> findExhaustedSubmissionIds(
 		@Param("cutoff") Instant cutoff,
+		@Param("requeueLimit") int requeueLimit,
 		Pageable pageable
 	);
 
 	@Modifying(clearAutomatically = true, flushAutomatically = true)
 	@Query("update ExamSubmission submission "
 		+ "set submission.status = io.edupilot.exam.SubmissionStatus.GRADING_FAILED, "
+		+ "submission.gradingRetryCount = :maxRetries, "
 		+ "submission.score = null, submission.normalizedScore = null, "
 		+ "submission.gradedAt = null, submission.gradingLeaseToken = null, "
 		+ "submission.gradingLeaseUntil = :noLease, submission.updatedAt = :now "
 		+ "where submission.id in :submissionIds "
 		+ "and submission.status = io.edupilot.exam.SubmissionStatus.SUBMITTED "
-		+ "and submission.submittedAt <= :cutoff")
-	int failExpiredSubmissions(
+		+ "and submission.updatedAt <= :cutoff "
+		+ "and submission.gradingRetryCount >= :requeueLimit")
+	int failExhaustedSubmissions(
 		@Param("submissionIds") List<Long> submissionIds,
 		@Param("cutoff") Instant cutoff,
+		@Param("requeueLimit") int requeueLimit,
+		@Param("maxRetries") int maxRetries,
 		@Param("noLease") Instant noLease,
 		@Param("now") Instant now
 	);
 
 	@Query("select submission from ExamSubmission submission "
 		+ "where submission.status = io.edupilot.exam.SubmissionStatus.SUBMITTED "
-		+ "and submission.submittedAt > :cutoff "
+		+ "and submission.updatedAt > :cutoff "
 		+ "and submission.gradingLeaseUntil < :now "
-		+ "order by submission.submittedAt, submission.id")
+		+ "order by submission.updatedAt, submission.id")
 	List<ExamSubmission> findRecoverableSubmissions(
 		@Param("cutoff") Instant cutoff,
 		@Param("now") Instant now,
 		Pageable pageable
+	);
+
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("update ExamSubmission submission "
+		+ "set submission.status = io.edupilot.exam.SubmissionStatus.SUBMITTED, "
+		+ "submission.score = null, submission.normalizedScore = null, "
+		+ "submission.gradedAt = null, submission.gradingRetryCount = 0, "
+		+ "submission.gradingLeaseToken = null, "
+		+ "submission.gradingLeaseUntil = :noLease, submission.updatedAt = :now "
+		+ "where submission.id = :submissionId "
+		+ "and submission.exam.id = :examId "
+		+ "and submission.status = io.edupilot.exam.SubmissionStatus.GRADING_FAILED")
+	int requeueFailedSubmission(
+		@Param("examId") Long examId,
+		@Param("submissionId") Long submissionId,
+		@Param("noLease") Instant noLease,
+		@Param("now") Instant now
 	);
 
 	@Query("""

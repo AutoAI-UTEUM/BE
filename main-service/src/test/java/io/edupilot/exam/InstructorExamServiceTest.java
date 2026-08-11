@@ -44,6 +44,7 @@ class InstructorExamServiceTest {
 	@Mock private ExamQuestionRepository questionRepository;
 	@Mock private ExamSubmissionRepository submissionRepository;
 	@Mock private ExamAnswerRepository answerRepository;
+	@Mock private ExamSubmissionPersistenceService submissionPersistenceService;
 
 	private InstructorExamService service;
 	private Classroom classroom;
@@ -56,6 +57,7 @@ class InstructorExamServiceTest {
 			questionRepository,
 			submissionRepository,
 			answerRepository,
+			submissionPersistenceService,
 			Clock.fixed(NOW, ZoneOffset.UTC)
 		);
 		User instructor = User.create(
@@ -177,6 +179,20 @@ class InstructorExamServiceTest {
 		service.delete(1L, UserRole.INSTRUCTOR, 100L);
 		verify(questionRepository).deleteByExam_Id(100L);
 		verify(examRepository).delete(draft);
+	}
+
+	@Test
+	void regradeRequiresOwnedExamAndDelegatesFailedSubmissionRecovery() {
+		Exam exam = exam(false);
+		when(examRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(exam));
+
+		service.regrade(1L, UserRole.INSTRUCTOR, 100L, 300L);
+
+		verify(submissionPersistenceService).regradeFailedSubmission(100L, 300L);
+		assertError(
+			() -> service.regrade(2L, UserRole.INSTRUCTOR, 100L, 300L),
+			ErrorCode.CLASSROOM_NOT_FOUND
+		);
 	}
 
 	private Exam exam(boolean resetClassroom) {
