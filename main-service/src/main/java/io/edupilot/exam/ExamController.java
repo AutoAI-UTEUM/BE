@@ -132,6 +132,22 @@ public class ExamController {
 		));
 	}
 
+	@PostMapping("/{examId}/submissions/{submissionId}/regrade")
+	@Operation(
+		summary = "실패한 시험 제출 재채점",
+		description = "소유 강사가 GRADING_FAILED 제출을 저장된 답안으로 다시 채점 큐에 등록합니다."
+	)
+	public ResponseEntity<ApiResponse<ExamSubmissionResponse>> regrade(
+		@AuthenticationPrincipal AuthenticatedUser user,
+		@PathVariable Long examId,
+		@PathVariable Long submissionId
+	) {
+		ExamSubmissionResponse response = instructorExamService.regrade(
+			user.userId(), user.role(), examId, submissionId
+		);
+		return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(response));
+	}
+
 	@PostMapping("/{examId}/submissions")
 	@Operation(summary = "시험 제출")
 	@ApiResponses({

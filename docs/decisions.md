@@ -420,13 +420,13 @@
 - 선택:
   - 응답 있는 SHORT/ESSAY가 있으면 제출을 `SUBMITTED`로 커밋하고 동일한 `ExamSubmissionResponse` 봉투를 HTTP 202로 즉시 반환합니다. MCQ/OX 전용 또는 주관식 전부 미응답은 기존대로 즉시 `GRADED`, HTTP 200입니다. FE는 HTTP 코드가 아니라 본문의 `status`로 분기합니다.
   - `SUBMITTED` 응답은 총점·정규화 점수·채점 시각뿐 아니라 이미 계산된 MCQ/OX의 문항별 `score`, `verdict`, `feedback`도 null로 마스킹합니다. 본인 `answer`, `maxScore`, `questionId`는 유지하며 문항별 결과는 `GRADED | GRADING_FAILED`에서만 공개합니다. 이는 재응시 허용 시험에서 객관식 정오답 선공개로 생기는 정보 이득을 막기 위함입니다.
-  - 제출 커밋 뒤 bounded executor(core 2, max 4, queue 100, AbortPolicy)에 직접 전달합니다. worker는 5분 lease를 조건부 claim하고 `status=SUBMITTED AND grading_lease_token=:token`일 때만 terminal 결과를 반영해 늦은 worker 덮어쓰기를 막습니다.
-  - scheduler는 30초마다 최대 100건을 처리합니다. 제출 후 30분이 지난 `SUBMITTED`는 active lease보다 우선해 `GRADING_FAILED`로 종결하고, 30분 미만의 만료 lease만 재전달합니다. 일반 AI 오류와 잡힌 worker 예외는 즉시 실패 처리합니다.
+  - 제출 커밋 뒤 bounded executor(core 4, max 4, queue 100, AbortPolicy)에 직접 전달합니다. worker는 5분 lease를 조건부 claim하고 `status=SUBMITTED AND grading_lease_token=:token`일 때만 terminal 결과를 반영해 늦은 worker 덮어쓰기를 막습니다.
+  - scheduler는 30초마다 최대 100건을 처리합니다. `SUBMITTED.updated_at`을 마지막 채점 시도 시작 시각으로 사용하며 30분 컷오프에서 첫 두 번은 재큐잉하고 세 번째는 `GRADING_FAILED`로 종결합니다. 카운트와 상태 변경은 기존 CAS 조건을 유지하며 active lease보다 우선합니다. 강사는 실패 제출을 저장 답안으로 재채점할 수 있고 이때 카운트를 0으로 초기화합니다. 일반 AI 오류와 잡힌 worker 예외는 즉시 실패 처리합니다.
   - 비동기 worker가 `AI_REQUEST_INVALID`을 받으면 재시도하지 않고 `GRADING_FAILED`로 종결하며 ERROR 로그로 Spring-AI 계약 결함을 구분합니다. 원 POST에 500을 반환하거나 이미 커밋된 제출을 보상 삭제하지 않습니다. 이 항목은 DEC-031의 동기 처리 규칙을 대체합니다.
   - 같은 `requestId`는 기존 상태를 반환합니다. 최신 제출이 `SUBMITTED`이면 새 requestId를 거부하고, `GRADING_FAILED`는 `allowRetake`와 무관하게 응시권을 소모하지 않아 새 requestId로 다음 attempt를 만들 수 있습니다.
   - 운영 조회·polling·제출 제한의 최신 시도는 상태와 무관한 `MAX(attempt_no)`입니다. 성적·리포트 대표 제출은 `MAX(attempt_no WHERE status=GRADED)`이며 실패 시도는 제외합니다. 예를 들어 1회차 `GRADED` 80점 뒤 2회차 `GRADING_FAILED`이면 대표 성적은 1회차 80점입니다. GRADED 시도가 없는 학생은 점수·성취도 집계에서 제외합니다.
 - 이유: 외부 AI 호출을 요청 트랜잭션과 분리하면서 프로세스 종료·executor 포화·늦은 worker에도 제출을 회수할 수 있어야 합니다. 채점 실패는 시스템 장애이므로 이미 확정된 학생 성적을 지우거나 응시권을 영구 소모해서는 안 됩니다.
-- 대안과 trade-off: 동기 채점은 구현이 단순하지만 요청 지연과 고아 제출 복구가 어렵습니다. 재채점 API·시도 카운터는 운영 복잡도가 커 MVP에서 제외하고 lease와 절대 컷오프를 채택합니다.
+- 대안과 trade-off: 동기 채점은 구현이 단순하지만 요청 지연과 고아 제출 복구가 어렵습니다. 단일 30분 절대 컷오프는 executor 적체와 일시 장애를 영구 실패로 만들 수 있어, 제한된 3개 채점 창과 강사 재채점 API를 추가하고 기존 lease·CAS 구조는 유지합니다.
 - 후속 변경 문서: [API 명세](api-spec.md) §6.2, [데이터베이스](database.md), [도메인 모델](domain-model.md), [에러 코드](error-code.md), [화면-API 매핑](screen-api-map.md), [리포트 설계](report-agent-design.md)
 
 ### DEC-033 — 리포트 범위·평가 정책

@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -403,14 +404,16 @@ class StudentExamJpaTest {
 			new BigDecimal("30.00"),
 			now.minusSeconds(31 * 60L)
 		));
+		ReflectionTestUtils.setField(submission, "gradingRetryCount", 3);
+		submissionRepository.saveAndFlush(submission);
 		assertThat(persistenceService.claimGradingLease(
 			submission.getId(),
 			"00000000-0000-0000-0000-000000000003",
-			now.minusSeconds(60),
+			now.minusSeconds(31 * 60L),
 			now.plusSeconds(300)
 		)).isTrue();
 
-		assertThat(persistenceService.failExpiredSubmissions(
+		assertThat(persistenceService.failExhaustedSubmissions(
 			now.minusSeconds(30 * 60L), now, 100
 		)).isEqualTo(1);
 

@@ -37,6 +37,7 @@ public class InstructorExamService {
 	private final ExamQuestionRepository questionRepository;
 	private final ExamSubmissionRepository submissionRepository;
 	private final ExamAnswerRepository answerRepository;
+	private final ExamSubmissionPersistenceService submissionPersistenceService;
 	private final Clock clock;
 
 	public InstructorExamService(
@@ -45,6 +46,7 @@ public class InstructorExamService {
 		ExamQuestionRepository questionRepository,
 		ExamSubmissionRepository submissionRepository,
 		ExamAnswerRepository answerRepository,
+		ExamSubmissionPersistenceService submissionPersistenceService,
 		Clock clock
 	) {
 		this.classroomService = classroomService;
@@ -52,6 +54,7 @@ public class InstructorExamService {
 		this.questionRepository = questionRepository;
 		this.submissionRepository = submissionRepository;
 		this.answerRepository = answerRepository;
+		this.submissionPersistenceService = submissionPersistenceService;
 		this.clock = clock;
 	}
 
@@ -236,6 +239,17 @@ public class InstructorExamService {
 			submission,
 			answerRepository.findBySubmission_IdOrderByQuestion_Id(submissionId)
 		);
+	}
+
+	@Transactional
+	public ExamSubmissionResponse regrade(
+		Long userId,
+		UserRole role,
+		Long examId,
+		Long submissionId
+	) {
+		requireOwnedExamForUpdate(userId, role, examId);
+		return submissionPersistenceService.regradeFailedSubmission(examId, submissionId);
 	}
 
 	private List<ExamQuestion> replaceQuestions(

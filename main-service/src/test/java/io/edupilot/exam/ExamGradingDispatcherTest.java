@@ -46,12 +46,12 @@ class ExamGradingDispatcherTest {
 	void createsBoundedAbortPolicyExecutor() {
 		ExamGradingProperties properties = new ExamGradingProperties(
 			Duration.ofMinutes(5),
-			new ExamGradingProperties.Executor(2, 4, 100)
+			new ExamGradingProperties.Executor(4, 4, 100)
 		);
 		ThreadPoolTaskExecutor executor = new ExamGradingConfig()
 			.examGradingExecutor(properties);
 
-		assertThat(executor.getCorePoolSize()).isEqualTo(2);
+		assertThat(executor.getCorePoolSize()).isEqualTo(4);
 		assertThat(executor.getMaxPoolSize()).isEqualTo(4);
 		assertThat(executor.getQueueCapacity()).isEqualTo(100);
 		assertThat(executor.getThreadNamePrefix()).isEqualTo("exam-grading-");

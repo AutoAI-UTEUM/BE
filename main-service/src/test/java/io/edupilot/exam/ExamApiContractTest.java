@@ -227,6 +227,30 @@ class ExamApiContractTest {
 	}
 
 	@Test
+	void instructorCanRegradeFailedSubmissionAndStateConflictReturns409() throws Exception {
+		when(instructorExamService.regrade(1L, UserRole.INSTRUCTOR, 30L, 10L))
+			.thenReturn(submission(10L, SubmissionStatus.SUBMITTED));
+		doThrow(new BusinessException(ErrorCode.EXAM_ALREADY_SUBMITTED))
+			.when(instructorExamService).regrade(1L, UserRole.INSTRUCTOR, 30L, 11L);
+		doThrow(new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND))
+			.when(instructorExamService).regrade(1L, UserRole.INSTRUCTOR, 30L, 12L);
+
+		mockMvc.perform(post("/api/exams/30/submissions/10/regrade")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isAccepted())
+			.andExpect(jsonPath("$.data.submissionId").value(10))
+			.andExpect(jsonPath("$.data.status").value("SUBMITTED"));
+		mockMvc.perform(post("/api/exams/30/submissions/11/regrade")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.error.code").value("EXAM_ALREADY_SUBMITTED"));
+		mockMvc.perform(post("/api/exams/30/submissions/12/regrade")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("CLASSROOM_NOT_FOUND"));
+	}
+
+	@Test
 	void completedClassroomAllowsCloseAndDraftDeleteButBlocksLearningWrites() throws Exception {
 		doThrow(new BusinessException(ErrorCode.CLASSROOM_COMPLETED))
 			.when(instructorExamService).create(eq(1L), eq(UserRole.INSTRUCTOR), eq(20L), any());
@@ -276,6 +300,10 @@ class ExamApiContractTest {
 		assertThat(responses.get("200").get("content")).isNotNull();
 		assertThat(responses.get("202").get("content"))
 			.isEqualTo(responses.get("200").get("content"));
+		assertThat(objectMapper.readTree(result.getResponse().getContentAsByteArray())
+			.get("paths")
+			.get("/api/exams/{examId}/submissions/{submissionId}/regrade")
+			.has("post")).isTrue();
 	}
 
 	private org.springframework.test.web.servlet.ResultActions submit(String requestId)

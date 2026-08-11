@@ -68,6 +68,9 @@ public class ExamSubmission {
 	@Column(name = "grading_lease_until", nullable = false)
 	private Instant gradingLeaseUntil = NO_GRADING_LEASE;
 
+	@Column(name = "grading_retry_count", nullable = false)
+	private int gradingRetryCount;
+
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
@@ -153,4 +156,6 @@ public class ExamSubmission {
 	public BigDecimal getNormalizedScore() { return normalizedScore; }
 	public String getGradingLeaseToken() { return gradingLeaseToken; }
 	public Instant getGradingLeaseUntil() { return gradingLeaseUntil; }
+	public int getGradingRetryCount() { return gradingRetryCount; }
+	public Instant getUpdatedAt() { return updatedAt; }
 }

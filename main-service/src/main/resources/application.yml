@@ -60,7 +60,7 @@ edupilot:
     grading:
       lease-duration: PT5M
       executor:
-        core-size: 2
+        core-size: 4
         max-size: 4
         queue-capacity: 100
   report:
