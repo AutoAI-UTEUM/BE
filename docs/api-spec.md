@@ -83,6 +83,7 @@
 | GET | `/api/sessions/{sessionId}/messages` | 메시지 조회 | Y | 세션 소유자 |
 | GET | `/api/sessions/{sessionId}/quizzes` | 퀴즈 기록 조회 | Y | 세션 소유자 |
 | GET | `/api/quizzes/{quizId}` | 퀴즈 공개 문항 조회 | Y | 세션 소유자 |
+| GET | `/api/quizzes/{quizId}/submission` | 내 퀴즈 제출 결과 조회 | Y | 제출한 세션 소유자 |
 | POST | `/api/quizzes/{quizId}/submit` | 퀴즈 제출 | Y | 세션 소유자 |
 | POST | `/api/classrooms/{classroomId}/exams` | 별도 시험 DRAFT 생성 | Y | 소유 INSTRUCTOR |
 | POST | `/api/classrooms/{classroomId}/exams/{examId}/draft-questions` | 자료 기반 AI 문항 초안 생성(무저장) | Y | 소유 INSTRUCTOR |
@@ -310,7 +311,7 @@ Bearer 인증 후 저장된 이미지의 실제 Media-Type으로 private/no-stor
 }
 ```
 
-업로드 직후 응답은 `processingStatus=PROCESSING`, `pageCount=null`, `failureReason=null`, `traceId=null`입니다. Spring이 백그라운드에서 내부 API `POST /internal/ai/extract`로 추출을 요청하고, 결과 저장 후 `READY`(실패 시 `FAILED`)로 전이합니다(DEC-006). `processingStatus`는 `PROCESSING`, `READY`, `FAILED` 3값을 사용합니다. FE는 자료 상세 재조회로 상태를 확인합니다.
+업로드 직후 응답은 `processingStatus=PROCESSING`, `pageCount=null`, `failureReason=null`, `traceId=null`입니다. Spring이 백그라운드에서 내부 API `POST /internal/ai/extract`로 추출을 요청하고, 결과 저장 후 `READY`(실패 시 `FAILED`)로 전이합니다(DEC-006). `processingStatus`는 `PROCESSING`, `READY`, `FAILED` 3값을 사용합니다. FE는 자료 상세 재조회로 상태를 확인합니다. `PROCESSING`이 마지막 갱신 후 30분을 초과하면 자동으로 `FAILED`와 `failureReason=EXTRACTION_FAILED`로 전이하며 자동 재추출은 하지 않습니다.
 
 `FAILED` 자료는 `failureReason`과 실패한 업로드 요청의 `traceId`를 목록·상세 응답에 반환합니다. `failureReason`은 `EXTRACTION_FAILED | PAGE_LIMIT_EXCEEDED | SCHEDULING_FAILED` 중 하나이며 자유 텍스트를 반환하지 않습니다. V23 이전에 실패한 자료는 원인을 복원할 수 없어 두 필드가 `null`일 수 있습니다. FE는 `failureReason=null`이면 일반 실패 문구를 표시합니다. `PROCESSING | READY` 자료에서는 두 필드가 항상 `null`입니다.
 
@@ -800,6 +801,41 @@ Query:
   않습니다.
 - 유형별 답안 형식(submit의 `answers[].answer`): MCQ = `optionId` 문자열, OX = `"true"`/`"false"`, SHORT/ESSAY = 자유 텍스트. 문항 누락·알 수 없는 questionId는 `INVALID_QUIZ_ANSWER`(400).
 - 이 확정안은 BE·AI·FE 3자 리뷰 대상이며, 승인 후 AI 생성 JSON Schema(구조 검증용)의 기준이 됩니다.
+
+#### GET `/api/quizzes/{quizId}/submission`
+
+본인이 제출한 퀴즈 결과를 조회합니다. 제출 완료 후에만 정답과 해설을
+노출하며, 미제출 퀴즈·존재하지 않는 퀴즈·다른 사용자의 퀴즈는 모두
+`QUIZ_NOT_FOUND`(404)로 은닉합니다.
+
+```json
+{
+  "quizId": 50,
+  "submissionId": 200,
+  "submittedAt": "2026-08-12T10:00:00Z",
+  "score": 10,
+  "maxScore": 20,
+  "passed": false,
+  "items": [
+    {
+      "questionId": "q1",
+      "submittedAnswer": "a",
+      "correctAnswer": "b",
+      "verdict": "PARTIAL",
+      "score": 10,
+      "maxScore": 20,
+      "feedback": "개념은 맞지만 선택이 부정확합니다.",
+      "explanation": "b가 정의에 맞습니다."
+    }
+  ]
+}
+```
+
+`correctAnswer`는 유형과 관계없이 문자열이며 MCQ의 `answerChoiceId`, OX의
+`"true"`/`"false"`, SHORT의 `referenceAnswer`, ESSAY의 `modelAnswer`를
+퀴즈 문항 정본에서 조립합니다. `explanation`은 정본에 해설이 있는 MCQ/OX만
+문자열이고 SHORT/ESSAY는 `null`입니다. `verdict`는
+`CORRECT | PARTIAL | WRONG` 중 하나입니다.
 
 #### POST `/api/quizzes/{quizId}/submit`
 
@@ -1767,6 +1803,10 @@ COMPLETED 응답은 `version`, `previousVersion`, `overallScore`, `overallStage`
 `criteria`, `evidence`, `createdAt`을 포함합니다. criterion 항목은 `criterionKey`,
 `criterionVersion`, nullable `score`, nullable `trend`, `status`, `narrative`, `evidenceIds`를
 포함합니다. `INSUFFICIENT_DATA`의 `score:null`은 0점과 구분해 명시적으로 직렬화합니다.
+`version`, `previousVersion`, criterion `trend`는 같은 scope 체인에서만 계산합니다.
+FULL은 FULL끼리, WEEK는 같은 `weekNumber`끼리 독립된 체인을 사용합니다. V25 이전에
+생성된 리포트의 `previousVersion`과 `trend`는 구 혼합 체인 기준일 수 있으며 역사적
+값을 보정하지 않습니다.
 evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLabel`, `occurredAt`으로
 노출하며 `sourceRef`, `minimalFact`, hash와 generation lease 정보는 외부 응답에 포함하지
 않습니다. 없는 리포트는 `REPORT_NOT_FOUND`(404)입니다.

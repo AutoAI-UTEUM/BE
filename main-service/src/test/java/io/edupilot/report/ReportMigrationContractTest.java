@@ -56,6 +56,41 @@ class ReportMigrationContractTest {
 		);
 	}
 
+	@Test
+	void v25BackfillsMixedScopeKeysBeforeReplacingVersionUnique() throws Exception {
+		String migration = migration("V25__report_scope_chain.sql");
+
+		int addNullable = migration.indexOf(
+			"ADD COLUMN scope_key VARCHAR(16) NULL"
+		);
+		int backfill = migration.indexOf("UPDATE student_reports report");
+		int makeNotNull = migration.indexOf(
+			"MODIFY COLUMN scope_key VARCHAR(16) NOT NULL"
+		);
+		int dropOldUnique = migration.indexOf(
+			"DROP INDEX uk_student_reports_classroom_student_version"
+		);
+		int addScopeUnique = migration.indexOf(
+			"uk_student_reports_classroom_student_scope_version"
+		);
+
+		assertThat(addNullable).isGreaterThanOrEqualTo(0);
+		assertThat(backfill).isGreaterThan(addNullable);
+		assertThat(makeNotNull).isGreaterThan(backfill);
+		assertThat(dropOldUnique).isGreaterThan(makeNotNull);
+		assertThat(addScopeUnique).isGreaterThan(dropOldUnique);
+		assertThat(migration)
+			.contains("JOIN report_generations generation")
+			.contains("generation.scope_type = 'FULL'")
+			.contains("THEN 'FULL'")
+			.contains("generation.scope_type = 'WEEK'")
+			.contains("THEN CONCAT('WEEK:', generation.week_number)")
+			.contains("ELSE NULL")
+			.contains("UNIQUE (classroom_id, student_id, scope_key, version)")
+			.doesNotContain("COALESCE")
+			.doesNotContain("DEFAULT 'FULL'");
+	}
+
 	private String migration(String filename) throws Exception {
 		try (var input = getClass().getResourceAsStream("/db/migration/" + filename)) {
 			assertThat(input).isNotNull();

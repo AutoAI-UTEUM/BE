@@ -322,6 +322,41 @@ class ReportJpaTest {
 	}
 
 	@Test
+	void versionsPreviousReportsAndTrendsWithinEachScopeChain() {
+		apply(frozenGeneration("scope-full-1", ReportScopeType.FULL, null), 60);
+		apply(frozenGeneration("scope-week-3-1", ReportScopeType.WEEK, 3), 20);
+		apply(frozenGeneration("scope-week-5-1", ReportScopeType.WEEK, 5), 40);
+		apply(frozenGeneration("scope-full-2", ReportScopeType.FULL, null), 70);
+		apply(frozenGeneration("scope-week-3-2", ReportScopeType.WEEK, 3), 10);
+
+		StudentReport full = reportRepository
+			.findFirstByClassroom_IdAndStudent_IdAndScopeKeyOrderByVersionDesc(
+				classroom.getId(), student.getId(), "FULL"
+			)
+			.orElseThrow();
+		StudentReport weekThree = reportRepository
+			.findFirstByClassroom_IdAndStudent_IdAndScopeKeyOrderByVersionDesc(
+				classroom.getId(), student.getId(), "WEEK:3"
+			)
+			.orElseThrow();
+		StudentReport weekFive = reportRepository
+			.findFirstByClassroom_IdAndStudent_IdAndScopeKeyOrderByVersionDesc(
+				classroom.getId(), student.getId(), "WEEK:5"
+			)
+			.orElseThrow();
+
+		assertThat(full.getVersion()).isEqualTo(2);
+		assertThat(full.getPreviousVersion()).isEqualTo(1);
+		assertThat(trend(full)).isEqualTo(ReportTrend.UP);
+		assertThat(weekThree.getVersion()).isEqualTo(2);
+		assertThat(weekThree.getPreviousVersion()).isEqualTo(1);
+		assertThat(trend(weekThree)).isEqualTo(ReportTrend.DOWN);
+		assertThat(weekFive.getVersion()).isEqualTo(1);
+		assertThat(weekFive.getPreviousVersion()).isNull();
+		assertThat(trend(weekFive)).isNull();
+	}
+
+	@Test
 	void sessionOnlyEvidenceCanBeAssessedAndStored() {
 		ReportGeneration generation = sessionFrozenGeneration("session-assessed");
 		evidenceRepository.saveAllAndFlush(List.of(
@@ -365,8 +400,8 @@ class ReportJpaTest {
 			generated
 		)).isTrue();
 		StudentReport savedReport = reportRepository
-			.findFirstByClassroom_IdAndStudent_IdOrderByVersionDesc(
-				classroom.getId(), student.getId()
+			.findFirstByClassroom_IdAndStudent_IdAndScopeKeyOrderByVersionDesc(
+				classroom.getId(), student.getId(), "FULL"
 			)
 			.orElseThrow();
 		assertThat(resultRepository
@@ -396,13 +431,21 @@ class ReportJpaTest {
 	}
 
 	private ReportGeneration frozenGeneration(String requestId) {
+		return frozenGeneration(requestId, ReportScopeType.FULL, null);
+	}
+
+	private ReportGeneration frozenGeneration(
+		String requestId,
+		ReportScopeType scopeType,
+		Integer weekNumber
+	) {
 		ReportGeneration generation = ReportGeneration.create(
 			classroom,
 			student,
 			instructor,
 			requestId,
-			ReportScopeType.FULL,
-			null,
+			scopeType,
+			weekNumber,
 			"scope-hash-" + requestId,
 			"1.0"
 		);
@@ -414,6 +457,25 @@ class ReportJpaTest {
 		generationRepository.saveAndFlush(generation);
 		evidenceRepository.saveAndFlush(evidence(generation, "evidence-1"));
 		return generation;
+	}
+
+	private void apply(ReportGeneration generation, int score) {
+		String token = "token-" + generation.getRequestId();
+		Instant now = Instant.now();
+		assertThat(persistenceService.claimGenerationLease(
+			generation.getId(), token, now, now.plusSeconds(300)
+		)).isTrue();
+		assertThat(persistenceService.applyGeneratedReport(
+			generation.getId(),
+			token,
+			new ReportAiGenerationService.GeneratedReport(validResponse(score))
+		)).isTrue();
+	}
+
+	private ReportTrend trend(StudentReport report) {
+		return resultRepository.findByReport_IdOrderByCriterionKey(report.getId())
+			.getFirst()
+			.getTrend();
 	}
 
 	private ReportGeneration sessionFrozenGeneration(String requestId) {

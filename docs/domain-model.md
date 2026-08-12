@@ -193,6 +193,12 @@ erDiagram
 - 강점, 약점, 오개념, 설명 선호, 퀴즈 선호, 목표 난이도, 다음 코칭 목표를 관리합니다.
 - 장기 메모리 갱신에는 반복 근거가 필요하며 근거 추적 방식은 구현 전 확정합니다.
 
+### StudentReport / ReportCriterionResult
+
+- 학생 리포트의 version, previous report, criterion trend는 scope별 체인입니다. FULL은 FULL끼리, WEEK는 같은 주차끼리만 연결합니다.
+- 저장용 `scopeKey`는 `FULL | WEEK:{weekNumber}`이며 주차가 다른 WEEK 리포트는 서로의 version과 trend에 영향을 주지 않습니다.
+- V25 이전 생성분의 previous report와 trend는 구 혼합 체인의 역사적 값을 유지하고, V25 이후 생성분부터 scope별 정합성을 보장합니다.
+
 ## 4. 상태값
 
 ### LearningSession.status

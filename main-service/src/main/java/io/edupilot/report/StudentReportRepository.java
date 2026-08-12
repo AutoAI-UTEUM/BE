@@ -14,8 +14,9 @@ public interface StudentReportRepository extends JpaRepository<StudentReport, Lo
 		Long studentId
 	);
 
-	Optional<StudentReport> findFirstByClassroom_IdAndStudent_IdOrderByVersionDesc(
+	Optional<StudentReport> findFirstByClassroom_IdAndStudent_IdAndScopeKeyOrderByVersionDesc(
 		Long classroomId,
-		Long studentId
+		Long studentId,
+		String scopeKey
 	);
 }

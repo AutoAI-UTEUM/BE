@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.quiz.dto.QuizSubmitRequest;
+import io.edupilot.quiz.dto.QuizSubmissionDetailResponse;
 import io.edupilot.quiz.dto.QuizSubmitResponse;
 import io.edupilot.session.TurnClaimService;
 import io.edupilot.session.UiAction;
@@ -151,6 +152,13 @@ public class QuizSubmissionService {
 		} finally {
 			claimService.release(prepared.sessionId(), claimRequestId);
 		}
+	}
+
+	public QuizSubmissionDetailResponse detail(Long userId, Long quizId) {
+		return persistenceService.findDetail(userId, quizId)
+			.orElseThrow(() ->
+				new BusinessException(ErrorCode.QUIZ_NOT_FOUND)
+			);
 	}
 
 	private String quizClaimRequestId(String requestId) {

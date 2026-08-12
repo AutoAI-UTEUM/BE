@@ -32,8 +32,8 @@ import jakarta.persistence.UniqueConstraint;
 			columnNames = "generation_id"
 		),
 		@UniqueConstraint(
-			name = "uk_student_reports_classroom_student_version",
-			columnNames = {"classroom_id", "student_id", "version"}
+			name = "uk_student_reports_classroom_student_scope_version",
+			columnNames = {"classroom_id", "student_id", "scope_key", "version"}
 		)
 	}
 )
@@ -56,6 +56,9 @@ public class StudentReport {
 	@ManyToOne(fetch = FetchType.LAZY, optional = false)
 	@JoinColumn(name = "student_id", nullable = false)
 	private User student;
+
+	@Column(name = "scope_key", nullable = false, length = 16)
+	private String scopeKey;
 
 	@Column(nullable = false)
 	private int version;
@@ -110,6 +113,7 @@ public class StudentReport {
 		this.generation = generation;
 		this.classroom = classroom;
 		this.student = student;
+		this.scopeKey = generation.getScopeKey();
 		this.version = version;
 		this.previousReport = previousReport;
 		this.overallScore = overallScore;
@@ -152,6 +156,7 @@ public class StudentReport {
 	public Long getGenerationId() { return generation.getId(); }
 	public Long getClassroomId() { return classroom.getId(); }
 	public Long getStudentId() { return student.getId(); }
+	public String getScopeKey() { return scopeKey; }
 	public int getVersion() { return version; }
 	public Long getPreviousReportId() {
 		return previousReport == null ? null : previousReport.getId();
