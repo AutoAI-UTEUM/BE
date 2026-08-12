@@ -9,7 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterial;
-import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.material.MaterialStatus;
 import io.edupilot.note.dto.CreateNoteRequest;
 import io.edupilot.note.dto.NoteListResponse;
@@ -30,20 +30,20 @@ public class NoteService {
 
 	private final NoteRepository noteRepository;
 	private final LearningSessionRepository sessionRepository;
-	private final LearningMaterialRepository materialRepository;
+	private final MaterialAccessService materialAccessService;
 	private final ChatMessageRepository messageRepository;
 	private final UserRepository userRepository;
 
 	public NoteService(
 		NoteRepository noteRepository,
 		LearningSessionRepository sessionRepository,
-		LearningMaterialRepository materialRepository,
+		MaterialAccessService materialAccessService,
 		ChatMessageRepository messageRepository,
 		UserRepository userRepository
 	) {
 		this.noteRepository = noteRepository;
 		this.sessionRepository = sessionRepository;
-		this.materialRepository = materialRepository;
+		this.materialAccessService = materialAccessService;
 		this.messageRepository = messageRepository;
 		this.userRepository = userRepository;
 	}
@@ -56,7 +56,7 @@ public class NoteService {
 	) {
 		String content = validateContent(request.content());
 		LearningSession session = visibleOwnedSession(userId, sessionId);
-		LearningMaterial material = activeOwnedMaterial(
+		LearningMaterial material = materialAccessService.requireAccessible(
 			userId,
 			session.getMaterialId()
 		);
@@ -84,7 +84,7 @@ public class NoteService {
 		int page,
 		int size
 	) {
-		activeOwnedMaterial(userId, materialId);
+		materialAccessService.requireAccessible(userId, materialId);
 		PageRequest pageable = PageRequest.of(
 			page,
 			size,
@@ -133,14 +133,6 @@ public class NoteService {
 		return sessionRepository.findByIdAndUser_Id(sessionId, userId)
 			.filter(session -> session.getStatus() != SessionStatus.DELETED)
 			.orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
-	}
-
-	private LearningMaterial activeOwnedMaterial(Long userId, Long materialId) {
-		return materialRepository.findByIdAndOwner_IdAndStatus(
-			materialId,
-			userId,
-			MaterialStatus.ACTIVE
-		).orElseThrow(() -> new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
 	}
 
 	private ChatMessage sourceMessage(Long sessionId, Long sourceMessageId) {
