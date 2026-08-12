@@ -10,9 +10,12 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -64,6 +67,10 @@ import io.edupilot.session.SessionPageRecordRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 @SpringBootTest(
 	webEnvironment = SpringBootTest.WebEnvironment.MOCK,
@@ -102,6 +109,7 @@ class ReportSnapshotBuilderJpaTest {
 	@Autowired private LearnerMemoryRepository memoryRepository;
 	@Autowired private ExamRepository examRepository;
 	@Autowired private ExamSubmissionRepository examSubmissionRepository;
+	@Autowired private ReportCriterionRepository criterionRepository;
 	@Autowired private ReportSnapshotBuilder snapshotBuilder;
 	@Autowired private ReportCriterionCatalog criterionCatalog;
 	@MockitoBean private SessionPageRecordRepository pageRecordRepository;
@@ -283,6 +291,58 @@ class ReportSnapshotBuilderJpaTest {
 				"exam-submission:" + failedRetry.getId(),
 				"exam-submission:" + failedOnly.getId()
 			);
+	}
+
+	@Test
+	void legacyBuiltinKeyCollisionKeepsDefaultAndAllowsReportSnapshot() {
+		criterionRepository.saveAndFlush(ReportCriterion.create(
+			classroom,
+			" Concept-Understanding ",
+			"Conflicting custom criterion",
+			"Legacy collision",
+			Map.of("summary", "Legacy collision"),
+			List.of(ReportSourceType.SESSION.name()),
+			2,
+			BigDecimal.ONE,
+			1,
+			true
+		));
+		Logger logger = (Logger)LoggerFactory.getLogger(ReportCriterionCatalog.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		MDC.put("traceId", "criterion-collision-trace");
+
+		try {
+			List<ReportCriterionDefinition> catalog =
+				criterionCatalog.effectiveCatalog(classroom.getId());
+			ReportSnapshot snapshot = snapshotBuilder.build(
+				instructor.getId(),
+				classroom.getId(),
+				student.getId(),
+				ReportScope.full(),
+				catalog
+			);
+
+			assertThat(catalog).hasSize(9);
+			assertThat(catalog)
+				.filteredOn(item -> item.key().equals("concept_understanding"))
+				.singleElement()
+				.satisfies(item -> assertThat(item.version())
+					.isEqualTo(ReportCriterionCatalog.CATALOG_VERSION));
+			assertThat(snapshot.dataQuality().criterionEligibility())
+				.containsKey("concept_understanding");
+			assertThat(appender.list).anySatisfy(event -> {
+				assertThat(event.getLevel()).isEqualTo(Level.WARN);
+				assertThat(event.getFormattedMessage())
+					.isEqualTo("Ignored duplicate custom report criterion key");
+				assertThat(event.getMDCPropertyMap())
+					.containsEntry("traceId", "criterion-collision-trace");
+			});
+		} finally {
+			MDC.remove("traceId");
+			logger.detachAppender(appender);
+		}
 	}
 
 	@Test

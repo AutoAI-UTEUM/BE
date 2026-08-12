@@ -1,14 +1,21 @@
 package io.edupilot.report;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 @Component
 public class ReportCriterionCatalog {
+	private static final Logger log = LoggerFactory.getLogger(ReportCriterionCatalog.class);
 
 	public static final String CATALOG_VERSION = "1.0";
 	private static final int DEFAULT_MIN_EVIDENCE = 2;
@@ -87,6 +94,10 @@ public class ReportCriterionCatalog {
 			ReportSourceType.MEMORY
 		)
 	);
+	private static final Set<String> DEFAULT_KEYS = DEFAULT_CRITERIA.stream()
+		.map(ReportCriterionDefinition::key)
+		.map(ReportCriterionCatalog::normalizeKeyForComparison)
+		.collect(Collectors.toUnmodifiableSet());
 
 	private final ReportCriterionRepository criterionRepository;
 
@@ -95,17 +106,38 @@ public class ReportCriterionCatalog {
 	}
 
 	public List<ReportCriterionDefinition> effectiveCatalog(Long classroomId) {
-		List<ReportCriterionDefinition> catalog = new ArrayList<>(DEFAULT_CRITERIA);
+		Map<String, ReportCriterionDefinition> catalog = new LinkedHashMap<>();
+		DEFAULT_CRITERIA.forEach(criterion ->
+			catalog.put(normalizeKeyForComparison(criterion.key()), criterion)
+		);
 		criterionRepository
 			.findByClassroom_IdAndActiveTrueOrderByCriterionKeyAscVersionDesc(classroomId)
-			.stream()
-			.map(this::customDefinition)
-			.forEach(catalog::add);
-		return List.copyOf(catalog);
+			.forEach(criterion -> {
+				ReportCriterionDefinition custom = customDefinition(criterion);
+				String normalizedKey = normalizeKeyForComparison(custom.key());
+				if (catalog.putIfAbsent(normalizedKey, custom) != null) {
+					log.atWarn()
+						.addKeyValue("classroomId", classroomId)
+						.addKeyValue("criterionKey", normalizedKey)
+						.addKeyValue("retainedBuiltin", DEFAULT_KEYS.contains(normalizedKey))
+						.log("Ignored duplicate custom report criterion key");
+				}
+			});
+		return List.copyOf(catalog.values());
 	}
 
 	public List<ReportCriterionDefinition> defaultCriteria() {
 		return DEFAULT_CRITERIA;
+	}
+
+	public boolean isDefaultKey(String criterionKey) {
+		return DEFAULT_KEYS.contains(normalizeKeyForComparison(criterionKey));
+	}
+
+	static String normalizeKeyForComparison(String criterionKey) {
+		return criterionKey.trim()
+			.toLowerCase(Locale.ROOT)
+			.replaceAll("[\\s-]+", "_");
 	}
 
 	private ReportCriterionDefinition customDefinition(ReportCriterion criterion) {

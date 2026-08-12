@@ -69,7 +69,8 @@ public class ReportCriterionService {
 			instructorId, role, classroomId
 		);
 		String key = normalizedKey(request.criterionKey());
-		if (criterionRepository.existsByClassroom_IdAndCriterionKey(classroomId, key)) {
+		if (criterionCatalog.isDefaultKey(key)
+			|| criterionRepository.existsByClassroom_IdAndCriterionKey(classroomId, key)) {
 			throw duplicate();
 		}
 		validateActivation(classroomId, request.name(), null, true);
@@ -218,9 +219,9 @@ public class ReportCriterionService {
 	}
 
 	private String normalizedKey(String value) {
-		String normalized = normalizedRequired(value)
-			.toLowerCase(Locale.ROOT)
-			.replaceAll("[\\s-]+", "_");
+		String normalized = ReportCriterionCatalog.normalizeKeyForComparison(
+			normalizedRequired(value)
+		);
 		if (!normalized.matches("[a-z0-9_]+") || normalized.length() > 50) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}

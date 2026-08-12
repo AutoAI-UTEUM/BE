@@ -16,6 +16,8 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -98,6 +100,62 @@ class ReportCriterionServiceTest {
 				assertThat(exception.errorCode())
 					.isEqualTo(ErrorCode.REPORT_CRITERION_DUPLICATE)
 			);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"concept_understanding", "  CONCEPT-UNDERSTANDING "})
+	void rejectsBuiltinKeyAfterNormalization(String requestedKey) {
+		when(criterionCatalog.isDefaultKey("concept_understanding")).thenReturn(true);
+
+		assertThatThrownBy(() -> service.create(
+			1L,
+			UserRole.INSTRUCTOR,
+			30L,
+			createRequest(requestedKey, "Custom criterion")
+		))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.REPORT_CRITERION_DUPLICATE)
+			);
+	}
+
+	@Test
+	void rejectsExistingCustomKeyDuplicate() {
+		when(criterionRepository.existsByClassroom_IdAndCriterionKey(
+			30L, "custom_key"
+		)).thenReturn(true);
+
+		assertThatThrownBy(() -> service.create(
+			1L,
+			UserRole.INSTRUCTOR,
+			30L,
+			createRequest("Custom-Key", "Custom criterion")
+		))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.REPORT_CRITERION_DUPLICATE)
+			);
+	}
+
+	@Test
+	void createsNormalCustomCriterionWithNormalizedKey() {
+		when(criterionRepository.save(any(ReportCriterion.class)))
+			.thenAnswer(invocation -> {
+				ReportCriterion saved = invocation.getArgument(0);
+				ReflectionTestUtils.setField(saved, "id", 12L);
+				return saved;
+			});
+
+		var response = service.create(
+			1L,
+			UserRole.INSTRUCTOR,
+			30L,
+			createRequest(" Weekly-Consistency ", "Weekly consistency")
+		);
+
+		assertThat(response.criterionId()).isEqualTo(12L);
+		assertThat(response.criterionKey()).isEqualTo("weekly_consistency");
+		assertThat(response.builtin()).isFalse();
 	}
 
 	@Test
