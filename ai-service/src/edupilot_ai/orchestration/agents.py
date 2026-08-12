@@ -30,7 +30,7 @@ from edupilot_ai.settings import AgentLlmProfile
 _NEXT_PAGE_EXPLAIN = re.compile(
     r"(다음|뒤|뒷)\s*(페이지|장|쪽).{0,12}(설명|알려|보여|가르쳐|넘어가)"
 )
-_PREV_PAGE_EXPLAIN = re.compile(r"(이전|앞)\s*(페이지|장|쪽).{0,12}(설명|알려|보여|가르쳐)")
+_PREV_PAGE_EXPLAIN = re.compile(r"(이전|앞)\s*(페이지|장|쪽).{0,12}(설명|보여|가르쳐)")
 _NEXT_PAGE_GUIDANCE = (
     "다음 페이지 내용은 페이지를 이동한 뒤에 설명드릴게요. 아래에서 이동을 선택해 주세요."
 )
