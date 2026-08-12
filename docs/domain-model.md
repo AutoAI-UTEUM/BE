@@ -13,6 +13,7 @@
 | Identity | User | 인증 주체, 역할, 계정 상태 |
 | Material | LearningMaterial, MaterialPage | PDF 메타데이터와 페이지 문맥 |
 | Classroom | Classroom, ClassroomMember, ClassroomJoinRequest, ClassroomWeek, ClassroomWeekMaterial, ClassroomNotice | 강의실 소유권, 참여, 주차 자료, 즉시·예약 공지 |
+| Notification | Notification | 사용자 귀속 인앱 알림, 읽음·보관 수명 |
 | Learning | LearningSession, ChatMessage | 현재 학습 상태와 대화 기록 |
 | QA | QaThread, QaMessage | 이어지는 질문 문맥 |
 | Quiz | Quiz, QuizSubmission, QuizAssessment | 문제 원본, 제출·채점, 내부 평가 |
@@ -20,7 +21,7 @@
 | Repair | Diagnosis, RepairResult | 진단 질문과 오개념 교정 |
 | Personalization | LearnerMemory | 반복 근거 기반 장기 개인화 정보 |
 
-DEC-030에 따라 강의실 최소셋은 MVP 영속 모델에 포함합니다. Course, Lecture, Assignment, File, Notification은 별도 도메인으로 도입하지 않으며 통계·리마인더·예약 게시·CUSTOM 일정도 Phase C로 유지합니다.
+DEC-030에 따라 강의실 최소셋을 MVP 영속 모델에 포함하고 인앱 알림은 자료·공지·입장 요청 네 트리거로 한정합니다. Course, Lecture, Assignment, File과 이메일·푸시·학습 리마인더는 범위 밖입니다.
 
 ## 2. 엔티티 관계
 
@@ -34,6 +35,7 @@ erDiagram
   USER ||--o{ CLASSROOM_MEMBER : joins
   USER ||--o{ CLASSROOM_JOIN_REQUEST : requests
   USER ||--o{ EXAM_SUBMISSION : submits
+  USER ||--o{ NOTIFICATION : receives
 
   CLASSROOM ||--o{ CLASSROOM_MEMBER : contains
   CLASSROOM ||--o{ CLASSROOM_JOIN_REQUEST : receives
@@ -112,8 +114,15 @@ erDiagram
 ### ClassroomNotice
 
 - `weekNumber`는 nullable이며 null이면 전체 공지, 값이 있으면 강의실의 계산된 `weekCount` 범위 안이어야 합니다.
-- `publishAt`은 nullable UTC 시각이며 null 또는 과거이면 즉시 게시하고 미래이면 조회 시각이 도래한 뒤 학습자에게 노출합니다. 스케줄러와 별도 상태는 두지 않으며 강사는 예약 공지를 포함한 전체를 조회합니다.
-- 기존 `publishedAt`은 공지 생성 시각과 목록 정렬·캘린더 `NOTICE_PUBLISH` 파생 기준을 유지합니다. 공지 삭제는 물리 삭제하며 읽음 수는 범위에 포함하지 않습니다.
+- `publishAt`은 nullable UTC 시각이며 null 또는 과거이면 즉시 게시하고 미래이면 조회 시각이 도래한 뒤 학습자에게 노출합니다. 공지 API 노출 판정은 조회 시각에 파생하며 강사는 예약 공지를 포함한 전체를 조회합니다.
+- 기존 `publishedAt`은 공지 생성 시각과 목록 정렬·캘린더 `NOTICE_PUBLISH` 파생 기준을 유지합니다. `notificationSentAt`은 예약 공지 알림의 1회 생성 표식이며 공지 자체의 게시 상태가 아닙니다. 공지 삭제는 물리 삭제합니다.
+
+### Notification
+
+- 알림은 한 사용자에게 귀속하며 `MATERIAL_UPLOADED | NOTICE_PUBLISHED | JOIN_REQUEST_RECEIVED | JOIN_REQUEST_PROCESSED` 네 유형만 저장합니다.
+- `link`는 FE 라우팅에 필요한 리소스 식별자만 담고, `readAt=null`은 읽지 않음을 뜻합니다. 읽음 처리는 최초 시각을 보존하는 멱등 전이입니다.
+- 강의실 멤버 대상 알림은 멤버를 로드하지 않고 DB `INSERT ... SELECT`로 일괄 생성합니다. 예약 공지는 공지 행 잠금 아래 알림 생성과 `notificationSentAt` 갱신을 한 트랜잭션으로 처리합니다.
+- 생성 후 30일을 초과한 알림은 배치 물리 삭제하며 이메일·푸시 전송은 하지 않습니다.
 
 ### LearningSession
 

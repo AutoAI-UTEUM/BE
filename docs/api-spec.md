@@ -64,6 +64,9 @@
 | DELETE | `/api/users/me/avatar` | 내 아바타 삭제 | Y | 본인 |
 | GET | `/api/users/me/preferences` | 내 학습 환경설정 조회 | Y | 본인 |
 | PATCH | `/api/users/me/preferences` | 내 학습 환경설정 수정 | Y | 본인 |
+| GET | `/api/users/me/notifications` | 내 인앱 알림 목록 조회 | Y | 본인 |
+| PATCH | `/api/users/me/notifications/{notificationId}/read` | 내 인앱 알림 읽음 처리 | Y | 본인 |
+| DELETE | `/api/users/me/notifications/{notificationId}` | 내 인앱 알림 삭제 | Y | 본인 |
 | DELETE | `/api/users/me` | 회원 탈퇴(논리 삭제+익명화 — DEC-028) | Y | 본인 (비밀번호 재확인) |
 | POST | `/api/materials` | 개인 PDF 업로드 또는 강의실 주차 업로드 | Y | LEARNER, INSTRUCTOR, ADMIN; 강의실 part는 소유 INSTRUCTOR만 |
 | GET | `/api/materials` | 자료 목록 | Y | 본인 소유 자료 (DEC-026) |
@@ -1099,7 +1102,7 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 }
 ```
 
-기존 사용자와 미설정 사용자의 기본값은 `true`, `true`, `NORMAL`입니다. 알림 두 필드는 저장만 하며 실제 발송은 Phase C 범위입니다.
+기존 사용자와 미설정 사용자의 기본값은 `true`, `true`, `NORMAL`입니다. 이메일·푸시와 학습 리마인더 발송은 범위 밖이며, 인앱 알림은 아래 네 가지 트리거에 한해 제공합니다.
 
 ### PATCH `/api/users/me/preferences`
 
@@ -1121,6 +1124,54 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 | payload 생략 + `CONCISE` 설정 | `NORMAL` |
 | payload 생략 + `NORMAL` 설정 | `NORMAL` |
 | payload 생략 + `DETAILED` 설정 | `DETAILED` |
+
+### GET `/api/users/me/notifications?page=0&size=20`
+
+본인 인앱 알림을 `createdAt DESC, notificationId DESC`로 조회합니다. `size`는 최대 100입니다.
+
+`data`:
+
+```json
+{
+  "items": [
+    {
+      "notificationId": 100,
+      "type": "NOTICE_PUBLISHED",
+      "title": "중간고사 안내",
+      "body": "3주차 공지를 확인해 주세요.",
+      "link": {
+        "classroomId": 30,
+        "noticeId": 70
+      },
+      "readAt": null,
+      "createdAt": "2026-08-14T03:00:00Z"
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+`type`과 `link`의 리소스 참조는 다음 네 종류입니다.
+
+| type | 수신자·생성 시점 | link |
+| --- | --- | --- |
+| `MATERIAL_UPLOADED` | 강의실 자료 업로드 시 승인 멤버 전원 | `{classroomId, materialId}` |
+| `NOTICE_PUBLISHED` | 즉시 공지는 생성·게시 시, 예약 공지는 `publishAt` 도래 후 승인 멤버 전원 | `{classroomId, noticeId}` |
+| `JOIN_REQUEST_RECEIVED` | 입장 요청·재요청 시 강의실 소유 강사 | `{classroomId, joinRequestId}` |
+| `JOIN_REQUEST_PROCESSED` | 입장 요청 승인·거절 시 요청 학생 | `{classroomId, joinRequestId}` |
+
+예약 공지는 30초 주기 스캔에서 수신자 bulk insert와 공지의 발송 표식을 한 트랜잭션으로 처리해 한 번만 생성합니다. 알림은 생성 후 30일이 지나면 배치로 물리 삭제합니다.
+
+### PATCH `/api/users/me/notifications/{notificationId}/read`
+
+본인 알림의 `readAt`을 최초 읽음 시각으로 기록하고 전체 알림 항목을 반환합니다. 이미 읽은 알림은 기존 `readAt`을 유지하는 멱등 요청입니다. 타인 알림과 존재하지 않는 알림은 `RESOURCE_NOT_FOUND`(404)로 동일하게 은닉합니다.
+
+### DELETE `/api/users/me/notifications/{notificationId}`
+
+본인 알림을 물리 삭제하고 `data:null`을 반환합니다. 타인 알림과 존재하지 않는 알림은 `RESOURCE_NOT_FOUND`(404)입니다.
 
 ### GET `/api/users/me/memory?materialId={materialId}`
 

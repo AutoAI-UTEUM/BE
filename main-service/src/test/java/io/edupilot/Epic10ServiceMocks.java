@@ -20,6 +20,9 @@ import io.edupilot.exam.ExamDraftPreparationService;
 import io.edupilot.exam.ExamSubmissionPersistenceService;
 import io.edupilot.exam.StudentExamService;
 import io.edupilot.material.MaterialAccessService;
+import io.edupilot.notification.NotificationBulkRepository;
+import io.edupilot.notification.NotificationService;
+import io.edupilot.notification.NotificationTriggerService;
 import io.edupilot.report.ReportCriterionCatalog;
 import io.edupilot.report.ReportCriterionService;
 import io.edupilot.report.ReportAiGenerationService;
@@ -39,6 +42,9 @@ import io.edupilot.schedule.PersonalScheduleService;
 	ClassroomStudentService.class,
 	ClassroomWeekService.class,
 	MaterialAccessService.class,
+	NotificationService.class,
+	NotificationTriggerService.class,
+	NotificationBulkRepository.class,
 	LearningProgressService.class,
 	ClassroomWeekMaterialRepository.class,
 	ClassroomNoticeService.class,

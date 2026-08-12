@@ -64,9 +64,16 @@ public class NotificationBulkRepository {
 	public int deleteExpired(Instant cutoff, int limit) {
 		return jdbcTemplate.update("""
 			DELETE FROM notifications
-			WHERE created_at < :cutoff
-			ORDER BY created_at, id
-			LIMIT :limit
+			WHERE id IN (
+			    SELECT id
+			    FROM (
+			        SELECT id
+			        FROM notifications
+			        WHERE created_at < :cutoff
+			        ORDER BY created_at, id
+			        LIMIT :limit
+			    ) expired
+			)
 			""", new MapSqlParameterSource()
 			.addValue("cutoff", cutoff)
 			.addValue("limit", limit));

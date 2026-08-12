@@ -26,6 +26,7 @@ import io.edupilot.classroom.dto.CreateClassroomNoticeRequest;
 import io.edupilot.classroom.dto.UpdateClassroomNoticeRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.notification.NotificationTriggerService;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRole;
 
@@ -38,6 +39,8 @@ class ClassroomNoticeServiceTest {
 	private ClassroomService classroomService;
 	@Mock
 	private ClassroomNoticeRepository noticeRepository;
+	@Mock
+	private NotificationTriggerService notificationTriggerService;
 
 	private ClassroomNoticeService service;
 	private Classroom classroom;
@@ -47,6 +50,7 @@ class ClassroomNoticeServiceTest {
 		service = new ClassroomNoticeService(
 			classroomService,
 			noticeRepository,
+			notificationTriggerService,
 			Clock.fixed(NOW, ZoneOffset.UTC)
 		);
 		User instructor = User.create(
@@ -246,6 +250,7 @@ class ClassroomNoticeServiceTest {
 		ClassroomNoticeService afterPublishService = new ClassroomNoticeService(
 			classroomService,
 			noticeRepository,
+			notificationTriggerService,
 			Clock.fixed(publishAt, ZoneOffset.UTC)
 		);
 		assertThat(afterPublishService.list(
