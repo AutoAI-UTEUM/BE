@@ -21,6 +21,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.edupilot.quiz.dto.QuizSubmitRequest;
+import io.edupilot.quiz.dto.QuizSubmissionDetailResponse;
 import io.edupilot.quiz.dto.QuizSubmitResponse;
 import io.edupilot.quiz.dto.QuizGradingResultResponse;
 import io.edupilot.global.error.BusinessException;
@@ -276,6 +277,36 @@ class QuizSubmissionServiceTest {
 		verify(gradingService, never()).grade(any());
 		verify(preparationService, never()).prepare(any(), any(), any());
 		verify(claimService, never()).claim(any(), any(), any());
+	}
+
+	@Test
+	void missingOrUnownedSubmissionIsHiddenAsQuizNotFound() {
+		when(persistenceService.findDetail(1L, 50L))
+			.thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service("0.6").detail(1L, 50L))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.QUIZ_NOT_FOUND)
+			);
+	}
+
+	@Test
+	void returnsReconstructedSubmissionDetail() {
+		QuizSubmissionDetailResponse expected =
+			new QuizSubmissionDetailResponse(
+				50L,
+				200L,
+				null,
+				new BigDecimal("50.00"),
+				new BigDecimal("100.00"),
+				false,
+				List.of()
+			);
+		when(persistenceService.findDetail(1L, 50L))
+			.thenReturn(Optional.of(expected));
+
+		assertThat(service("0.6").detail(1L, 50L)).isEqualTo(expected);
 	}
 
 	private void assertPassDecision(

@@ -158,6 +158,14 @@ public class QuizSubmission {
 		return gradingResult;
 	}
 
+	List<SubmittedAnswer> getSubmittedAnswers() {
+		return List.copyOf(submittedAnswerData.answers());
+	}
+
+	List<PrivateQuizQuestion> getPrivateQuestions() {
+		return quiz.getPrivateQuestions();
+	}
+
 	public Instant getCreatedAt() {
 		return createdAt;
 	}

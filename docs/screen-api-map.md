@@ -73,6 +73,7 @@
 | 퀴즈 유형 선택 | MCQ/OX/SHORT/ESSAY 선택 | 같은 turns API | 응답의 `state.activeQuizId`로 퀴즈 문항 조회 후 UI 열기 | 지원하지 않는 타입 |
 | 퀴즈 풀이 | 문항 표시/새로고침 복원 | `GET /api/quizzes/{quizId}` | 공개 문항 렌더링 | 퀴즈 없음/세션 권한 |
 | 퀴즈 풀이 | 제출 | `POST /api/quizzes/{quizId}/submit` | 동기 채점·평가 결과, 기준 미달이면 `DIAGNOSIS_QUESTION` 표시 | 중복 제출/답안 오류. 제출 후 AI 파이프라인 실패는 기본 이동 액션으로 격리 |
+| 퀴즈 결과 | 과거 제출 결과 진입 | `GET /api/quizzes/{quizId}/submission` | 제출 답안·문항별 판정·점수·피드백과 정답·해설 표시 | 미제출·비소유·없는 퀴즈는 `QUIZ_NOT_FOUND` 404로 은닉 |
 | 학습 기록 | 퀴즈 탭 진입 | `GET /api/sessions/{sessionId}/quizzes` | 퀴즈/점수 요약 | 세션 권한 |
 | 학습 분석 | 메모리 화면 진입 | `GET /api/users/me/memory?materialId={materialId}` | 해당 자료의 공개 가능한 개인화 요약 | 데이터 없음 |
 | 학습 세션 | 종료 버튼 | `POST /api/sessions/{sessionId}/complete` | 완료 화면/목록 이동 | 이미 완료/상태 충돌 |

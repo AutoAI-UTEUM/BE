@@ -83,6 +83,7 @@
 | GET | `/api/sessions/{sessionId}/messages` | 메시지 조회 | Y | 세션 소유자 |
 | GET | `/api/sessions/{sessionId}/quizzes` | 퀴즈 기록 조회 | Y | 세션 소유자 |
 | GET | `/api/quizzes/{quizId}` | 퀴즈 공개 문항 조회 | Y | 세션 소유자 |
+| GET | `/api/quizzes/{quizId}/submission` | 내 퀴즈 제출 결과 조회 | Y | 제출한 세션 소유자 |
 | POST | `/api/quizzes/{quizId}/submit` | 퀴즈 제출 | Y | 세션 소유자 |
 | POST | `/api/classrooms/{classroomId}/exams` | 별도 시험 DRAFT 생성 | Y | 소유 INSTRUCTOR |
 | POST | `/api/classrooms/{classroomId}/exams/{examId}/draft-questions` | 자료 기반 AI 문항 초안 생성(무저장) | Y | 소유 INSTRUCTOR |
@@ -800,6 +801,41 @@ Query:
   않습니다.
 - 유형별 답안 형식(submit의 `answers[].answer`): MCQ = `optionId` 문자열, OX = `"true"`/`"false"`, SHORT/ESSAY = 자유 텍스트. 문항 누락·알 수 없는 questionId는 `INVALID_QUIZ_ANSWER`(400).
 - 이 확정안은 BE·AI·FE 3자 리뷰 대상이며, 승인 후 AI 생성 JSON Schema(구조 검증용)의 기준이 됩니다.
+
+#### GET `/api/quizzes/{quizId}/submission`
+
+본인이 제출한 퀴즈 결과를 조회합니다. 제출 완료 후에만 정답과 해설을
+노출하며, 미제출 퀴즈·존재하지 않는 퀴즈·다른 사용자의 퀴즈는 모두
+`QUIZ_NOT_FOUND`(404)로 은닉합니다.
+
+```json
+{
+  "quizId": 50,
+  "submissionId": 200,
+  "submittedAt": "2026-08-12T10:00:00Z",
+  "score": 10,
+  "maxScore": 20,
+  "passed": false,
+  "items": [
+    {
+      "questionId": "q1",
+      "submittedAnswer": "a",
+      "correctAnswer": "b",
+      "verdict": "PARTIAL",
+      "score": 10,
+      "maxScore": 20,
+      "feedback": "개념은 맞지만 선택이 부정확합니다.",
+      "explanation": "b가 정의에 맞습니다."
+    }
+  ]
+}
+```
+
+`correctAnswer`는 유형과 관계없이 문자열이며 MCQ의 `answerChoiceId`, OX의
+`"true"`/`"false"`, SHORT의 `referenceAnswer`, ESSAY의 `modelAnswer`를
+퀴즈 문항 정본에서 조립합니다. `explanation`은 정본에 해설이 있는 MCQ/OX만
+문자열이고 SHORT/ESSAY는 `null`입니다. `verdict`는
+`CORRECT | PARTIAL | WRONG` 중 하나입니다.
 
 #### POST `/api/quizzes/{quizId}/submit`
 
