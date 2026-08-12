@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.InputStream;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -71,7 +72,7 @@ class MaterialServiceTest {
 			pageRepository,
 			userRepository,
 			fileStorage,
-			new MaterialProperties(45, 300),
+			new MaterialProperties(45, 300, Duration.ofMinutes(30)),
 			deletionGuard,
 			eventPublisher,
 			accessService,

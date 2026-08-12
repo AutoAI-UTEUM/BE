@@ -5,6 +5,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 
@@ -44,7 +45,7 @@ class MaterialExtractionServiceTest {
 			persistenceService,
 			fileStorage,
 			aiClient,
-			new MaterialProperties(45, 300)
+			new MaterialProperties(45, 300, Duration.ofMinutes(30))
 		);
 		resource = new ByteArrayResource("%PDF-test".getBytes());
 		when(persistenceService.snapshot(10L)).thenReturn(Optional.of(

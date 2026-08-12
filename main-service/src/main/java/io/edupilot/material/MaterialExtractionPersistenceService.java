@@ -1,8 +1,10 @@
 package io.edupilot.material;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -65,6 +67,22 @@ public class MaterialExtractionPersistenceService {
 		}
 		material.markFailed(failureReason, traceId);
 		return true;
+	}
+
+	@Transactional
+	public int failStuckExtractions(
+		Instant cutoff,
+		Instant now,
+		int batchSize
+	) {
+		List<Long> materialIds = materialRepository.findStuckProcessingIds(
+			cutoff,
+			PageRequest.of(0, batchSize)
+		);
+		if (materialIds.isEmpty()) {
+			return 0;
+		}
+		return materialRepository.failStuckProcessing(materialIds, cutoff, now);
 	}
 
 	public record ExtractionSnapshot(

@@ -310,7 +310,7 @@ Bearer 인증 후 저장된 이미지의 실제 Media-Type으로 private/no-stor
 }
 ```
 
-업로드 직후 응답은 `processingStatus=PROCESSING`, `pageCount=null`, `failureReason=null`, `traceId=null`입니다. Spring이 백그라운드에서 내부 API `POST /internal/ai/extract`로 추출을 요청하고, 결과 저장 후 `READY`(실패 시 `FAILED`)로 전이합니다(DEC-006). `processingStatus`는 `PROCESSING`, `READY`, `FAILED` 3값을 사용합니다. FE는 자료 상세 재조회로 상태를 확인합니다.
+업로드 직후 응답은 `processingStatus=PROCESSING`, `pageCount=null`, `failureReason=null`, `traceId=null`입니다. Spring이 백그라운드에서 내부 API `POST /internal/ai/extract`로 추출을 요청하고, 결과 저장 후 `READY`(실패 시 `FAILED`)로 전이합니다(DEC-006). `processingStatus`는 `PROCESSING`, `READY`, `FAILED` 3값을 사용합니다. FE는 자료 상세 재조회로 상태를 확인합니다. `PROCESSING`이 마지막 갱신 후 30분을 초과하면 자동으로 `FAILED`와 `failureReason=EXTRACTION_FAILED`로 전이하며 자동 재추출은 하지 않습니다.
 
 `FAILED` 자료는 `failureReason`과 실패한 업로드 요청의 `traceId`를 목록·상세 응답에 반환합니다. `failureReason`은 `EXTRACTION_FAILED | PAGE_LIMIT_EXCEEDED | SCHEDULING_FAILED` 중 하나이며 자유 텍스트를 반환하지 않습니다. V23 이전에 실패한 자료는 원인을 복원할 수 없어 두 필드가 `null`일 수 있습니다. FE는 `failureReason=null`이면 일반 실패 문구를 표시합니다. `PROCESSING | READY` 자료에서는 두 필드가 항상 `null`입니다.
 
