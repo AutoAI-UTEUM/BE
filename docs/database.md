@@ -30,7 +30,7 @@
 | `exam_answers` | id, submission_id, question_id, answer(nullable), score(nullable), max_score, verdict(nullable), feedback(nullable), timestamps | `FK(submission_id)`, `FK(question_id)`, `UK(submission_id,question_id)`, 점수·판정 CHECK |
 | `report_criteria` | id, classroom_id, criterion_key, name, description(nullable), rubric_json, allowed_sources_json, min_evidence, weight, version, active, timestamps | `FK(classroom_id)`, `UK(classroom_id,criterion_key,version)`, `IDX(classroom_id,active)`, 최소 근거·weight·version CHECK |
 | `report_generations` | id, classroom_id, student_id, requested_by, request_id, scope_type, week_number(nullable), scope_hash, snapshot_hash(nullable), criterion_catalog_json(nullable), policy_version, source_data_as_of(nullable), status, failure_code(nullable), model(nullable), prompt_version(nullable), generation lease, timestamps | 강의실·학생·요청자 FK, `UK(classroom_id,student_id,request_id)`, status+lease·학생별 상태 인덱스, 범위·주차·상태 CHECK |
-| `student_reports` | id, generation_id, classroom_id, student_id, version, previous_report_id(nullable), overall_score(nullable), overall_stage(nullable), summary(nullable), data_quality_json, model, prompt_version, timestamps | generation·강의실·학생·이전 리포트 FK, `UK(generation_id)`, `UK(classroom_id,student_id,version)`, version·점수 CHECK |
+| `student_reports` | id, generation_id, classroom_id, student_id, scope_key, version, previous_report_id(nullable), overall_score(nullable), overall_stage(nullable), summary(nullable), data_quality_json, model, prompt_version, timestamps | generation·강의실·학생·이전 리포트 FK, `UK(generation_id)`, `UK(classroom_id,student_id,scope_key,version)`, scope key·version·점수 CHECK |
 | `report_criterion_results` | id, report_id, criterion_key, criterion_version, score(nullable), trend(nullable), status, narrative(nullable), evidence_ids_json, timestamps | `FK(report_id)`, `UK(report_id,criterion_key)`, 점수·trend·status·ASSESSED 점수 필수 CHECK |
 | `report_evidence_snapshots` | id, generation_id, evidence_id, source_type, source_ref, occurred_at, public_label, minimal_fact_json, source_hash, timestamps | `FK(generation_id)`, `UK(generation_id,evidence_id)`, `IDX(generation_id,source_type)` |
 | `learning_sessions` | id, user_id, material_id, current_page, page_status, status, conversation_summary, last_ui_actions_json, active_quiz_id, pending_diagnosis_id, active_turn_request_id, active_turn_started_at, conversation_reset_at, conversation_reset_count, version, timestamps | `FK(user_id)`, `FK(material_id)`, `IDX(user_id,status,updated_at)`, `CHECK(conversation_reset_count >= 0)` |
@@ -71,8 +71,9 @@
 - AI 채점 전·실패 상태에서는 제출 `score`, `normalized_score`, `graded_at`과 해당 AI 답안의 `score`, `verdict`, `feedback`이 NULL입니다. 결정적 MCQ/OX 결과는 즉시 저장하고, 미응답은 `answer=NULL`, `score=0`, `verdict=WRONG`, `feedback=NULL`로 확정합니다. 따라서 답안 점수 제약은 `score IS NULL OR (score >= 0 AND score <= max_score)` 형태입니다.
 - 시험과 문항 FK에는 자동 cascade를 두지 않습니다. DRAFT 물리 삭제와 문항 전체 교체는 하위 `exam_questions`를 서비스 트랜잭션에서 먼저 제거하며 PUBLISHED 이후에는 삭제·교체하지 않습니다.
 - 기본 평가 기준 9종은 버전 상수를 포함한 코드 카탈로그로 관리합니다. `report_criteria`는 강의실 커스텀 기준 전용이며, 기본 기준을 DB seed로 넣지 않습니다. 기본 9종과 활성 커스텀 기준의 합계 20개 상한 및 정규화 이름 중복은 criterion CRUD 서비스가 검증합니다.
-- `report_generations`는 비동기 생성 회수를 위해 시험 채점과 같은 token·epoch lease 표현을 사용합니다. 완료 generation당 리포트 1건과 학생별 리포트 version 중복은 UNIQUE로 막고, FAILED generation 승격 금지와 완료 버전 불변성은 서비스 불변식으로 검증합니다.
-- `report_criterion_results.trend`는 Spring이 점수 이력으로 결정적으로 계산해 저장하며 AI 요청·응답에는 포함하지 않습니다. `report_questions`는 Phase 3에서 별도 migration으로 추가합니다.
+- `report_generations`는 비동기 생성 회수를 위해 시험 채점과 같은 token·epoch lease 표현을 사용합니다. 완료 generation당 리포트 1건과 학생·scope 체인별 리포트 version 중복은 UNIQUE로 막고, FAILED generation 승격 금지와 완료 버전 불변성은 서비스 불변식으로 검증합니다.
+- `student_reports.scope_key`는 `FULL` 또는 `WEEK:{weekNumber}`입니다. FULL과 주차별 WEEK는 version·`previous_report_id`·trend 체인을 각각 독립적으로 유지합니다. V25 backfill은 generation의 scope를 사용하되 기존 `previous_report_id`와 trend는 역사적 값으로 보존합니다.
+- `report_criterion_results.trend`는 같은 scope 체인의 직전 점수 이력으로 Spring이 결정적으로 계산해 저장하며 AI 요청·응답에는 포함하지 않습니다. `report_questions`는 Phase 3에서 별도 migration으로 추가합니다.
 - `classroom_join_requests`는 사용자×강의실당 한 행입니다. `REJECTED` 재요청은 같은 행을 `PENDING`으로 갱신하고 `requested_at`을 새로 기록하며 `processed_at=NULL`로 되돌립니다.
 - 강의실 자료 업로드 시 `learning_materials` 행과 `classroom_week_materials` 연결은 한 DB 트랜잭션으로 저장합니다. 파일 storage는 DB 트랜잭션에 참여하지 않으므로 DB 실패 시 저장 파일을 보상 삭제합니다.
 - `notes`는 사용자와 자료에 귀속하며 세션·페이지·원본 채팅 메시지는 nullable 참조입니다. 목록은 사용자×ACTIVE 자료 범위로 조회하므로 자료가 논리 삭제되면 노트 행은 보존하되 API 목록에서는 제외합니다. 최신순은 `(created_at DESC, id DESC)`로 고정합니다.
@@ -196,6 +197,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V22__classroom_notice_week_publish.sql`은 공지의 nullable 주차 번호와 예약 게시 시각을 추가합니다. 기존 행은 두 컬럼 모두 null로 유지해 전체 공지·즉시 게시 동작을 보존합니다.
 - `V23__material_failure_metadata.sql`은 자료 처리 실패의 nullable 코드 사유와 업로드 요청 traceId를 추가합니다. 기존 FAILED 행은 복원할 수 없어 두 컬럼을 null로 유지합니다.
 - `V24__exam_grading_retry.sql`은 시험 채점의 30분 창 재시도 횟수와 non-negative CHECK를 추가합니다. 기존 제출은 0으로 초기화합니다.
+- `V25__report_scope_chain.sql`은 generation의 scope를 `student_reports.scope_key`로 backfill하고 학생별 전역 version 유니크를 학생·scope 체인별 version 유니크로 교체합니다. backfill할 수 없는 행은 임의 기본값 없이 NOT NULL 전환에서 배포를 중단합니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.

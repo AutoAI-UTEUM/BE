@@ -54,7 +54,7 @@ public class ReportGenerationWorker implements ReportGenerationTask {
 		try {
 			ReportAiGenerationService.GeneratedReport generated =
 				aiGenerationService.generate(generationId);
-			boolean applied = persistenceService.applyGeneratedReport(
+			boolean applied = applyWithVersionRetry(
 				generationId,
 				leaseToken,
 				generated
@@ -64,6 +64,13 @@ public class ReportGenerationWorker implements ReportGenerationTask {
 				.addKeyValue("applied", applied)
 				.addKeyValue("durationMs", elapsedMillis(startedAt))
 				.log("Report generation worker completed");
+		} catch (ReportVersionConflictException exception) {
+			log.atWarn()
+				.addKeyValue("generationId", generationId)
+				.addKeyValue("scopeKey", exception.scopeKey())
+				.addKeyValue("conflictVersion", exception.version())
+				.addKeyValue("durationMs", elapsedMillis(startedAt))
+				.log("Report version conflict remained after one apply retry");
 		} catch (DataIntegrityViolationException exception) {
 			log.atWarn()
 				.addKeyValue("generationId", generationId)
@@ -81,6 +88,27 @@ public class ReportGenerationWorker implements ReportGenerationTask {
 				.addKeyValue("failureCode", failureCode)
 				.addKeyValue("durationMs", elapsedMillis(startedAt))
 				.log("Report generation worker failed");
+		}
+	}
+
+	private boolean applyWithVersionRetry(
+		Long generationId,
+		String leaseToken,
+		ReportAiGenerationService.GeneratedReport generated
+	) {
+		try {
+			return persistenceService.applyGeneratedReport(
+				generationId, leaseToken, generated
+			);
+		} catch (ReportVersionConflictException exception) {
+			log.atWarn()
+				.addKeyValue("generationId", generationId)
+				.addKeyValue("scopeKey", exception.scopeKey())
+				.addKeyValue("conflictVersion", exception.version())
+				.log("Retrying report apply after scope version conflict");
+			return persistenceService.applyGeneratedReport(
+				generationId, leaseToken, generated
+			);
 		}
 	}
 

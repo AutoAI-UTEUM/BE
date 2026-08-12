@@ -1765,6 +1765,10 @@ COMPLETED 응답은 `version`, `previousVersion`, `overallScore`, `overallStage`
 `criteria`, `evidence`, `createdAt`을 포함합니다. criterion 항목은 `criterionKey`,
 `criterionVersion`, nullable `score`, nullable `trend`, `status`, `narrative`, `evidenceIds`를
 포함합니다. `INSUFFICIENT_DATA`의 `score:null`은 0점과 구분해 명시적으로 직렬화합니다.
+`version`, `previousVersion`, criterion `trend`는 같은 scope 체인에서만 계산합니다.
+FULL은 FULL끼리, WEEK는 같은 `weekNumber`끼리 독립된 체인을 사용합니다. V25 이전에
+생성된 리포트의 `previousVersion`과 `trend`는 구 혼합 체인 기준일 수 있으며 역사적
+값을 보정하지 않습니다.
 evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLabel`, `occurredAt`으로
 노출하며 `sourceRef`, `minimalFact`, hash와 generation lease 정보는 외부 응답에 포함하지
 않습니다. 없는 리포트는 `REPORT_NOT_FOUND`(404)입니다.

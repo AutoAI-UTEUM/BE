@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -129,19 +130,29 @@ public class ReportGenerationPersistenceService {
 			.toList();
 		ReportScoreCalculator.OverallResult overall = scoreCalculator.overall(scores);
 		int version = previous == null ? 1 : previous.getVersion() + 1;
-		StudentReport report = reportRepository.saveAndFlush(StudentReport.create(
-			generation,
-			generation.classroom(),
-			generation.student(),
-			version,
-			previous,
-			overall.score(),
-			overall.stage(),
-			summary(response),
-			dataQuality(input.dataQuality()),
-			response.usage().model(),
-			"1.0"
-		));
+		StudentReport report;
+		try {
+			report = reportRepository.saveAndFlush(StudentReport.create(
+				generation,
+				generation.classroom(),
+				generation.student(),
+				version,
+				previous,
+				overall.score(),
+				overall.stage(),
+				summary(response),
+				dataQuality(input.dataQuality()),
+				response.usage().model(),
+				"1.0"
+			));
+		} catch (DataIntegrityViolationException exception) {
+			if (ReportVersionConflictException.matches(exception)) {
+				throw new ReportVersionConflictException(
+					generation.getScopeKey(), version, exception
+				);
+			}
+			throw exception;
+		}
 		List<ReportCriterionResult> results = response.criterionResults().stream()
 			.map(result -> {
 				FrozenCriterion criterion = criteria.get(result.criterionKey());
