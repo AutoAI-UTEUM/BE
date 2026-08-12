@@ -102,7 +102,7 @@ class ClassroomStudentJpaTest {
 	}
 
 	@Test
-	void returnsThreeStudentMetricsAtSevenDayBoundaryWithFixedQueryCount() {
+	void privateWeekMaterialsContributeToStudentAndAnalyticsMetrics() {
 		User instructor = user("instructor@example.com", "Instructor", UserRole.INSTRUCTOR);
 		Classroom classroom = classroomRepository.saveAndFlush(Classroom.create(
 			instructor,
@@ -118,7 +118,7 @@ class ClassroomStudentJpaTest {
 			1,
 			"Week 1",
 			null,
-			ClassroomWeekStatus.PUBLISHED,
+			ClassroomWeekStatus.PRIVATE,
 			1
 		));
 		LearningMaterial material = material(instructor);

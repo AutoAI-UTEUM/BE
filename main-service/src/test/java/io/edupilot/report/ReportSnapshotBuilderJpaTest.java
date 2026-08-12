@@ -134,7 +134,7 @@ class ReportSnapshotBuilderJpaTest {
 		memberRepository.save(ClassroomMember.create(otherClassroom, student, now()));
 
 		week = weekRepository.save(ClassroomWeek.create(
-			classroom, 1, "Week 1", null, ClassroomWeekStatus.PUBLISHED, 1
+			classroom, 1, "Week 1", null, ClassroomWeekStatus.PRIVATE, 1
 		));
 		ClassroomWeek otherWeek = weekRepository.save(ClassroomWeek.create(
 			otherClassroom, 1, "Other week", null, ClassroomWeekStatus.PUBLISHED, 1

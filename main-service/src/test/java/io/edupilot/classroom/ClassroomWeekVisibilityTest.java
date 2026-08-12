@@ -29,7 +29,7 @@ class ClassroomWeekVisibilityTest {
 	}
 
 	@Test
-	void materialAccessAndProgressCandidatesUseTheSameWeekVisibilityRule() {
+	void allMaterialCandidatesIgnoreWeekVisibilityWhileVisibleQueriesRemain() {
 		ClassroomWeekMaterialRepository repository = mock(
 			ClassroomWeekMaterialRepository.class,
 			CALLS_REAL_METHODS
@@ -58,12 +58,19 @@ class ClassroomWeekVisibilityTest {
 
 		assertThat(repository.existsVisibleAccess(2L, 10L, NOW)).isFalse();
 		assertThat(repository.existsVisibleAccess(2L, 20L, NOW)).isTrue();
+		assertThat(repository.existsAccess(2L, 10L)).isTrue();
+		assertThat(repository.existsAccess(2L, 20L)).isTrue();
 		assertThat(repository.findDistinctVisibleReadyMaterials(
 			30L,
 			NOW,
 			MaterialStatus.ACTIVE,
 			MaterialProcessingStatus.READY
 		)).containsExactly(breakMaterial);
+		assertThat(repository.findDistinctReadyMaterials(
+			30L,
+			MaterialStatus.ACTIVE,
+			MaterialProcessingStatus.READY
+		)).containsExactly(hiddenMaterial, breakMaterial);
 	}
 
 	private void assertVisibility(

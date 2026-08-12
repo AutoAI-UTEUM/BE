@@ -1,7 +1,5 @@
 package io.edupilot.material;
 
-import java.time.Clock;
-
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,18 +16,15 @@ public class MaterialAccessService {
 	private final LearningMaterialRepository materialRepository;
 	private final ClassroomWeekMaterialRepository weekMaterialRepository;
 	private final LearningSessionRepository sessionRepository;
-	private final Clock clock;
 
 	public MaterialAccessService(
 		LearningMaterialRepository materialRepository,
 		ClassroomWeekMaterialRepository weekMaterialRepository,
-		LearningSessionRepository sessionRepository,
-		Clock clock
+		LearningSessionRepository sessionRepository
 	) {
 		this.materialRepository = materialRepository;
 		this.weekMaterialRepository = weekMaterialRepository;
 		this.sessionRepository = sessionRepository;
-		this.clock = clock;
 	}
 
 	@Transactional(readOnly = true)
@@ -72,10 +67,9 @@ public class MaterialAccessService {
 		LearningMaterial material
 	) {
 		if (material.getOwnerId().equals(userId)
-			|| weekMaterialRepository.existsVisibleAccess(
+			|| weekMaterialRepository.existsAccess(
 				userId,
-				material.getId(),
-				clock.instant()
+				material.getId()
 			)) {
 			return material;
 		}

@@ -67,25 +67,14 @@ public class ClassroomWeekService {
 		UserRole role,
 		Long classroomId
 	) {
-		Classroom classroom = classroomService.requireVisible(
+		classroomService.requireVisible(
 			userId,
 			role,
 			classroomId
 		);
-		boolean ownerView = classroom.getInstructorId().equals(userId);
 		var weeks = weekRepository
 			.findByClassroom_IdOrderByDisplayOrderAscIdAsc(classroomId);
-		var materialWeeks = ownerView
-			? weeks
-			: weeks.stream()
-				.filter(week -> week.getStatus() == ClassroomWeekStatus.PUBLISHED
-					|| week.getStatus() == ClassroomWeekStatus.BREAK)
-				.toList();
-		return new ClassroomWeekListResponse(responses(
-			classroomId,
-			weeks,
-			materialWeeks
-		));
+		return new ClassroomWeekListResponse(responses(classroomId, weeks));
 	}
 
 	@Transactional

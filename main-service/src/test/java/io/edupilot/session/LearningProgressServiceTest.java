@@ -6,9 +6,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -130,9 +127,8 @@ class LearningProgressServiceTest {
 			.thenReturn(Optional.of(classroom));
 		when(memberRepository.existsByClassroom_IdAndUser_Id(30L, 1L))
 			.thenReturn(true);
-		when(weekMaterialRepository.findDistinctVisibleReadyMaterials(
+		when(weekMaterialRepository.findDistinctReadyMaterials(
 			30L,
-			Instant.parse("2026-08-02T00:00:00Z"),
 			io.edupilot.material.MaterialStatus.ACTIVE,
 			io.edupilot.material.MaterialProcessingStatus.READY
 		)).thenReturn(List.of(material));
@@ -236,11 +232,7 @@ class LearningProgressServiceTest {
 			pageRecordRepository,
 			classroomRepository,
 			memberRepository,
-			weekMaterialRepository,
-			Clock.fixed(
-				Instant.parse("2026-08-02T00:00:00Z"),
-				ZoneOffset.UTC
-			)
+			weekMaterialRepository
 		);
 	}
 }

@@ -27,10 +27,10 @@
 | 초대 관리 | 코드 확인·재발급 | `GET /api/classrooms/{id}/invite-code`, `POST .../regenerate` | 새 코드를 복사·공유 | 소유권, 완료 상태 |
 | 강의실 참여 | 초대 코드 제출·내 요청 조회 | `POST /api/classroom-join-requests`, `GET /api/classroom-join-requests/me` | PENDING 상태와 처리 결과 표시 | 무효 코드, 멤버/대기 요청 중복 |
 | 참여 요청 관리 | 요청 목록·승인·거절 | `GET /api/classrooms/{id}/join-requests`, `POST .../{requestId}/approve|reject` | 목록에서 처리 상태·학습자 정보 갱신 | 이미 처리됨, 완료 상태 |
-| 주차·자료 | 주차 목록·생성·수정·삭제·상태·순서 변경 | `GET·POST /api/classrooms/{id}/weeks`, `PATCH·DELETE .../weeks/{weekNumber}`, `PATCH .../weeks/{weekId}/status`, `PATCH .../weeks/reorder` | `weekId`로 상태 변경, `displayOrder`로 정렬하며 `weekNumber`는 유지. 학습자도 전체 주차 메타를 표시하되 `PRIVATE`·`SCHEDULED` 자료는 빈 배열로 처리 | 전체 주차 ID 집합 검증, 주차 중복·범위·소유권·완료 상태, 미공개 자료 접근 404 유지 |
+| 주차·자료 | 주차 목록·생성·수정·삭제·상태·순서 변경 | `GET·POST /api/classrooms/{id}/weeks`, `PATCH·DELETE .../weeks/{weekNumber}`, `PATCH .../weeks/{weekId}/status`, `PATCH .../weeks/reorder` | `weekId`로 상태 변경, `displayOrder`로 정렬하며 `weekNumber`는 유지. 학습자는 상태와 관계없이 전체 주차 메타와 연결 자료를 표시 | 전체 주차 ID 집합 검증, 주차 중복·범위·소유권·완료 상태, 비멤버 자료 접근 404 유지 |
 | 주차·자료 | 기존 자료 연결·해제 | `POST·DELETE /api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}` | 주차 자료 목록 갱신 | 자료 중복 연결, 자료·강의실 소유권 |
 | 강의실 자료 업로드 | PDF와 강의실·주차 part 제출 | `POST /api/materials` | 처리 중 자료를 해당 주차에 즉시 표시 | INSTRUCTOR 소유권, part 조합·파일 오류 |
-| 강의실 자료 학습 | 공개 자료 열기·통합학습 시작 | `GET /api/materials/{materialId}`, `GET .../file`, `POST /api/sessions` | PDF 뷰어와 사용자×자료 공유 세션으로 이동 | 공개 취소·연결 해제·멤버십 |
+| 강의실 자료 학습 | 연결 자료 열기·통합학습 시작 | `GET /api/materials/{materialId}`, `GET .../file`, `POST /api/sessions` | 주차 상태와 관계없이 PDF 뷰어와 사용자×자료 공유 세션으로 이동 | 연결 해제·멤버십 |
 | 공지 | 목록·즉시/예약 게시·수정·삭제 | `GET·POST /api/classrooms/{id}/notices`, `PATCH·DELETE .../notices/{noticeId}` | 전체/주차 공지를 표시. 강사는 예약 포함 전체, 학습자는 게시 시각이 도래한 공지만 표시 | 강사 권한, 주차 범위, 완료 상태 |
 | 캘린더 | 기간·강의실 필터 조회, 개인 일정 생성·수정·삭제 | `GET·POST /api/users/me/schedule`, `PATCH·DELETE /api/users/me/schedule/{scheduleId}` | 주차 공개·공지·본인 개인 일정을 시간순 표시하고 개인 일정만 편집 | 날짜·시간 범위, 강의실 접근권, 개인 일정 소유권 |
 | 시험 관리 | 시험 생성·목록·상세·수정 | `POST·GET /api/classrooms/{classroomId}/exams`, `GET·PATCH /api/exams/{examId}` | DRAFT 편집기와 전체 상태 목록 표시. rubric 편집기는 기본 접힘·미입력 상태 | 강사 권한, 완료 강의실, DRAFT 편집 상태 |
