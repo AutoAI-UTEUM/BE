@@ -16,7 +16,8 @@
 | 앱 초기 진입 | 인증 상태 확인 | `GET /api/users/me` | 사용자 정보/권한 반영 | 토큰 만료 |
 | 계정 설정 | 이름·소속 수정 | `PATCH /api/users/me` | 확장 사용자 정보 갱신 | 빈 변경, 길이 오류 |
 | 계정 설정 | 아바타 업로드·교체·삭제 | `POST·GET·DELETE /api/users/me/avatar` | 인증 fetch로 Blob object URL 생성·교체 | 형식/2MiB 초과, 인증 실패 |
-| 계정 설정 | 학습 환경설정 조회·수정 | `GET·PATCH /api/users/me/preferences` | 알림 설정·AI 답변 스타일 저장 | 빈 변경, enum 오류 |
+| 계정 설정 | 학습 환경설정 조회·수정 | `GET·PATCH /api/users/me/preferences` | 이메일 수신·학습 리마인더 설정과 AI 답변 스타일 저장 | 빈 변경, enum 오류 |
+| 인앱 알림 | 목록 조회·읽음·삭제 | `GET /api/users/me/notifications`, `PATCH .../{notificationId}/read`, `DELETE .../{notificationId}` | `type`과 `link`로 자료·공지·입장 요청 화면에 라우팅하고 읽음 상태 반영. 예약 공지도 게시 시각 이후 한 번만 표시 | 비인증, 타인·부재 알림 404, 페이지네이션 |
 | 피드백 화면/모달 | 피드백 제출 | `POST /api/feedback` | 접수 ID·시각 확인 후 완료 표시 | 비인증, category·내용 길이 오류 |
 | 강의실 목록 | 화면 진입·검색·정렬·페이지 이동 | `GET /api/classrooms` | 역할별 소유/참여 강의실, 진도·최근 학습 또는 승인 대기 수 표시 | 권한, 페이지네이션 |
 | 강의실 개설 | 생성 폼 제출 | `POST /api/classrooms` | 계산된 주차 수·초대 코드가 포함된 상세로 이동 | INSTRUCTOR 권한, 날짜·색상 검증 |

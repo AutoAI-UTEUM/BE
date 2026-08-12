@@ -26,6 +26,7 @@ import io.edupilot.material.dto.MaterialPageResponse;
 import io.edupilot.material.dto.MaterialSummaryResponse;
 import io.edupilot.material.storage.FileStorage;
 import io.edupilot.material.storage.StorageException;
+import io.edupilot.notification.NotificationTriggerService;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
@@ -45,6 +46,7 @@ public class MaterialService {
 	private final ApplicationEventPublisher eventPublisher;
 	private final MaterialAccessService accessService;
 	private final ClassroomWeekService weekService;
+	private final NotificationTriggerService notificationTriggerService;
 
 	public MaterialService(
 		LearningMaterialRepository materialRepository,
@@ -55,7 +57,8 @@ public class MaterialService {
 		MaterialDeletionGuard deletionGuard,
 		ApplicationEventPublisher eventPublisher,
 		MaterialAccessService accessService,
-		ClassroomWeekService weekService
+		ClassroomWeekService weekService,
+		NotificationTriggerService notificationTriggerService
 	) {
 		this.materialRepository = materialRepository;
 		this.pageRepository = pageRepository;
@@ -66,6 +69,7 @@ public class MaterialService {
 		this.eventPublisher = eventPublisher;
 		this.accessService = accessService;
 		this.weekService = weekService;
+		this.notificationTriggerService = notificationTriggerService;
 	}
 
 	@Transactional
@@ -109,6 +113,11 @@ public class MaterialService {
 					classroomId,
 					weekNumber,
 					material
+				);
+				notificationTriggerService.materialUploaded(
+					classroomId,
+					material.getId(),
+					material.getTitle()
 				);
 			}
 			eventPublisher.publishEvent(new MaterialExtractionRequested(

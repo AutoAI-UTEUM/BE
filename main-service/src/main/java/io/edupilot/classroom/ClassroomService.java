@@ -32,6 +32,7 @@ import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.MaterialProcessingStatus;
 import io.edupilot.material.MaterialStatus;
+import io.edupilot.notification.NotificationTriggerService;
 import io.edupilot.session.LearningProgressService;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.session.SessionStatus;
@@ -55,6 +56,7 @@ public class ClassroomService {
 	private final LearningSessionRepository sessionRepository;
 	private final UserRepository userRepository;
 	private final ClassroomInviteCodeGenerator inviteCodeGenerator;
+	private final NotificationTriggerService notificationTriggerService;
 	private final Clock clock;
 
 	public ClassroomService(
@@ -68,6 +70,7 @@ public class ClassroomService {
 		LearningSessionRepository sessionRepository,
 		UserRepository userRepository,
 		ClassroomInviteCodeGenerator inviteCodeGenerator,
+		NotificationTriggerService notificationTriggerService,
 		Clock clock
 	) {
 		this.classroomRepository = classroomRepository;
@@ -80,6 +83,7 @@ public class ClassroomService {
 		this.sessionRepository = sessionRepository;
 		this.userRepository = userRepository;
 		this.inviteCodeGenerator = inviteCodeGenerator;
+		this.notificationTriggerService = notificationTriggerService;
 		this.clock = clock;
 	}
 
@@ -323,6 +327,7 @@ public class ClassroomService {
 			}
 			joinRequest.requestAgain(clock.instant());
 			joinRequestRepository.flush();
+			notificationTriggerService.joinRequestReceived(joinRequest);
 			return JoinRequestResponse.from(joinRequest);
 		}
 
@@ -330,6 +335,7 @@ public class ClassroomService {
 		ClassroomJoinRequest created = joinRequestRepository.saveAndFlush(
 			ClassroomJoinRequest.create(classroom, user, clock.instant())
 		);
+		notificationTriggerService.joinRequestReceived(created);
 		return JoinRequestResponse.from(created);
 	}
 
@@ -399,6 +405,7 @@ public class ClassroomService {
 		));
 		request.approve(now);
 		joinRequestRepository.flush();
+		notificationTriggerService.joinRequestProcessed(request);
 		return JoinRequestProcessResponse.from(request);
 	}
 
@@ -414,6 +421,7 @@ public class ClassroomService {
 		ClassroomJoinRequest request = pendingRequest(classroomId, requestId);
 		request.reject(clock.instant());
 		joinRequestRepository.flush();
+		notificationTriggerService.joinRequestProcessed(request);
 		return JoinRequestProcessResponse.from(request);
 	}
 

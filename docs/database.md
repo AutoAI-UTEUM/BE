@@ -22,7 +22,8 @@
 | `classroom_join_requests` | id, classroom_id, user_id, status, requested_at, processed_at(nullable), timestamps | `FK(classroom_id)`, `FK(user_id)`, `UK(classroom_id,user_id)`, 요청 목록 인덱스, 상태 CHECK |
 | `classroom_weeks` | id, classroom_id, week_number, title, release_at(nullable), status, display_order, timestamps | `FK(classroom_id)`, `UK(classroom_id,week_number)`, `IDX(classroom_id,display_order)`, 주차 번호·상태·표시 순서 CHECK |
 | `classroom_week_materials` | id, week_id, material_id, added_at, timestamps | `FK(week_id)`, `FK(material_id)`, `UK(week_id,material_id)`, `IDX(material_id)` |
-| `classroom_notices` | id, classroom_id, week_number(nullable), title, content, published_at, publish_at(nullable), timestamps | `FK(classroom_id)`, `IDX(classroom_id,published_at,id)`, 주차 번호 CHECK |
+| `classroom_notices` | id, classroom_id, week_number(nullable), title, content, published_at, publish_at(nullable), notification_sent_at(nullable), timestamps | `FK(classroom_id)`, `IDX(classroom_id,published_at,id)`, 주차 번호 CHECK |
+| `notifications` | id, user_id, type, title, body, link_json, read_at(nullable), created_at | `FK(user_id)`, `IDX(user_id,created_at)`, type CHECK |
 | `user_schedules` | id, user_id, title, starts_at, ends_at, has_time, timestamps | `FK(user_id)`, `IDX(user_id,starts_at)`, `CHECK(ends_at >= starts_at)` |
 | `exams` | id, classroom_id, week_number(nullable), title, description(nullable), status, allow_retake, total_score, published_at(nullable), closed_at(nullable), timestamps | `FK(classroom_id)`, `IDX(classroom_id,status)`, 상태·총점 CHECK |
 | `exam_questions` | id, exam_id, question_no, question_type, points, public_question_json, private_answer_json, schema_version, timestamps | `FK(exam_id)`, `UK(exam_id,question_no)`, 유형·점수 CHECK |
@@ -73,6 +74,7 @@
 - 기본 평가 기준 9종은 버전 상수를 포함한 코드 카탈로그로 관리합니다. `report_criteria`는 강의실 커스텀 기준 전용이며, 기본 기준을 DB seed로 넣지 않습니다. 기본 9종과 활성 커스텀 기준의 합계 20개 상한 및 정규화 이름 중복은 criterion CRUD 서비스가 검증합니다.
 - `report_generations`는 비동기 생성 회수를 위해 시험 채점과 같은 token·epoch lease 표현을 사용합니다. 완료 generation당 리포트 1건과 학생·scope 체인별 리포트 version 중복은 UNIQUE로 막고, FAILED generation 승격 금지와 완료 버전 불변성은 서비스 불변식으로 검증합니다.
 - `student_reports.scope_key`는 `FULL` 또는 `WEEK:{weekNumber}`입니다. FULL과 주차별 WEEK는 version·`previous_report_id`·trend 체인을 각각 독립적으로 유지합니다. V25 backfill은 generation의 scope를 사용하되 기존 `previous_report_id`와 trend는 역사적 값으로 보존합니다.
+- `notifications`는 인앱 전용이며 `MATERIAL_UPLOADED | NOTICE_PUBLISHED | JOIN_REQUEST_RECEIVED | JOIN_REQUEST_PROCESSED` 네 유형과 FE 라우팅용 `link_json`을 저장합니다. 타인 알림은 소유권 조회에서 은닉하고 생성 후 30일 초과분은 배치 물리 삭제합니다. 예약 공지는 `classroom_notices.notification_sent_at`을 발송 표식으로 사용하고 수신자 bulk insert와 같은 트랜잭션에서 기록합니다.
 - `report_criterion_results.trend`는 같은 scope 체인의 직전 점수 이력으로 Spring이 결정적으로 계산해 저장하며 AI 요청·응답에는 포함하지 않습니다. `report_questions`는 Phase 3에서 별도 migration으로 추가합니다.
 - `classroom_join_requests`는 사용자×강의실당 한 행입니다. `REJECTED` 재요청은 같은 행을 `PENDING`으로 갱신하고 `requested_at`을 새로 기록하며 `processed_at=NULL`로 되돌립니다.
 - 강의실 자료 업로드 시 `learning_materials` 행과 `classroom_week_materials` 연결은 한 DB 트랜잭션으로 저장합니다. 파일 storage는 DB 트랜잭션에 참여하지 않으므로 DB 실패 시 저장 파일을 보상 삭제합니다.
@@ -165,6 +167,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - 내 참여 요청: `classroom_join_requests(user_id, status, requested_at, id)`
 - 주차 자료 역조회: `classroom_week_materials(material_id)`
 - 강의실 공지: `classroom_notices(classroom_id, published_at, id)`
+- 내 인앱 알림: `notifications(user_id, created_at)`
 - 강의실 시험 목록: `exams(classroom_id, status, created_at, id)`
 - 학생별 시험 시도: `exam_submissions(exam_id, user_id, attempt_no)` UNIQUE
 - 시험 제출 멱등성: `exam_submissions(exam_id, user_id, request_id)` UNIQUE
@@ -198,6 +201,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V23__material_failure_metadata.sql`은 자료 처리 실패의 nullable 코드 사유와 업로드 요청 traceId를 추가합니다. 기존 FAILED 행은 복원할 수 없어 두 컬럼을 null로 유지합니다.
 - `V24__exam_grading_retry.sql`은 시험 채점의 30분 창 재시도 횟수와 non-negative CHECK를 추가합니다. 기존 제출은 0으로 초기화합니다.
 - `V25__report_scope_chain.sql`은 generation의 scope를 `student_reports.scope_key`로 backfill하고 학생별 전역 version 유니크를 학생·scope 체인별 version 유니크로 교체합니다. backfill할 수 없는 행은 임의 기본값 없이 NOT NULL 전환에서 배포를 중단합니다.
+- `V26__in_app_notifications.sql`은 사용자 귀속 인앱 알림 테이블과 최신순 인덱스, 예약 공지 1회 생성 표식을 추가합니다. 기존 즉시 게시·이미 도래한 공지는 발송 완료로 backfill하고 미래 예약 공지만 스캔 대상으로 남깁니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.

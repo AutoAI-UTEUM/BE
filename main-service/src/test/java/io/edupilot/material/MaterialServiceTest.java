@@ -34,6 +34,7 @@ import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.classroom.ClassroomWeekService;
 import io.edupilot.material.storage.FileStorage;
+import io.edupilot.notification.NotificationTriggerService;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
@@ -62,6 +63,8 @@ class MaterialServiceTest {
 	private MaterialAccessService accessService;
 	@Mock
 	private ClassroomWeekService weekService;
+	@Mock
+	private NotificationTriggerService notificationTriggerService;
 
 	private MaterialService materialService;
 	private User owner;
@@ -77,7 +80,8 @@ class MaterialServiceTest {
 			deletionGuard,
 			eventPublisher,
 			accessService,
-			weekService
+			weekService,
+			notificationTriggerService
 		);
 		owner = User.create("owner@example.com", "hash", "소유자");
 		ReflectionTestUtils.setField(owner, "id", 1L);
@@ -164,6 +168,11 @@ class MaterialServiceTest {
 			eq(30L),
 			eq(1),
 			any(LearningMaterial.class)
+		);
+		verify(notificationTriggerService).materialUploaded(
+			30L,
+			10L,
+			"Class material"
 		);
 		assertThatThrownBy(() -> materialService.upload(
 			1L, UserRole.INSTRUCTOR, file, "Class material", 30L, null

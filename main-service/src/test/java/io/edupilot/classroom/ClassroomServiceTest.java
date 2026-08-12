@@ -31,6 +31,7 @@ import io.edupilot.classroom.dto.PermanentDeleteClassroomRequest;
 import io.edupilot.classroom.dto.UpdateClassroomRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.notification.NotificationTriggerService;
 import io.edupilot.session.LearningProgressService;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.User;
@@ -62,6 +63,8 @@ class ClassroomServiceTest {
 	private UserRepository userRepository;
 	@Mock
 	private ClassroomInviteCodeGenerator inviteCodeGenerator;
+	@Mock
+	private NotificationTriggerService notificationTriggerService;
 
 	private ClassroomService service;
 	private User instructor;
@@ -81,6 +84,7 @@ class ClassroomServiceTest {
 			sessionRepository,
 			userRepository,
 			inviteCodeGenerator,
+			notificationTriggerService,
 			Clock.fixed(NOW, ZoneOffset.UTC)
 		);
 		instructor = user(1L, "teacher@example.com", "홍강사", UserRole.INSTRUCTOR);
@@ -467,6 +471,8 @@ class ClassroomServiceTest {
 
 		assertThat(approved.status()).isEqualTo(ClassroomJoinRequestStatus.APPROVED);
 		verify(memberRepository).save(any(ClassroomMember.class));
+		verify(notificationTriggerService).joinRequestReceived(any());
+		verify(notificationTriggerService).joinRequestProcessed(request);
 	}
 
 	@Test
