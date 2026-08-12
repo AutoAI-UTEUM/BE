@@ -443,6 +443,7 @@
   - 종합 단계는 **우수 / 양호 / 보통 / 보완 필요**의 4단계입니다. 종합 점수와 단계는 Spring이 충분한 항목만 대상으로 결정적으로 계산합니다.
   - 페이지 진도는 `progressDataAvailable=true`로 포함합니다. V9 `session_page_records`가 성공한 `EXPLAIN_CURRENT_PAGE` 턴이 `EXPLAINED`로 완료된 페이지만 기록하므로 설계 §3.2의 설명 완료 근거 요건을 충족합니다. 기록은 `TurnPersistenceService`, 집계는 `SessionPageRecordRepository.countDistinctByUserIdAndMaterialId`, 진도율은 `LearningProgressService`를 재사용합니다.
   - 별도 시험 도메인의 병합·배포가 완료됐으므로 리포트는 처음부터 별도 시험을 포함하고 Phase 1과 Phase 2를 통합 착수합니다.
+  - 학생 리포트의 version·previous report·trend는 scope별 체인으로 관리합니다. FULL은 FULL끼리, WEEK는 같은 주차끼리 연결하며 V25 이전 혼합 체인의 역사적 연결·trend는 보정하지 않습니다.
   - 리포트 snapshot과 리포트 QA는 무기한 보관하고 학생 탈퇴 시 기존 `UserWithdrawalHook` 패턴에 연동해 삭제합니다. 보관 기한 단축은 TBD입니다.
   - evidence는 공개 가능한 label과 최소 fact만 노출합니다. 전체 원문·정답·루브릭은 노출하지 않습니다.
   - 리포트 생성용 read timeout은 구현 이슈에서 `edupilot.ai.report-read-timeout=180s` 프로퍼티로 신설합니다.
