@@ -62,7 +62,8 @@ def with_question(
     ("message", "expected"),
     [
         ("다음 페이지 설명해줘", "NEXT"),
-        ("이전 장 알려줘", "PREVIOUS"),
+        ("이전 장 설명해줘", "PREVIOUS"),
+        ("앞 페이지에서 나온 편차가 뭐였는지 알려줘", None),
         ("다음 페이지랑 이어지는 개념이야?", None),
         ("편차가 뭐야?", None),
     ],
@@ -152,6 +153,9 @@ def test_qa_prompt_contains_cross_page_explanation_backstop(
 
     system_prompt = qa_messages(context, QaThreadMode.START_NEW)[0]["content"]
 
-    assert "다른 페이지(다음·이전·특정 번호)" in system_prompt
+    assert "학생이 아직 학습하지 않은 페이지" in system_prompt
     assert "해당 페이지로 이동한 뒤 설명하겠다고 안내만 하라" in system_prompt
-    assert "다른 페이지와의 관계·연결을 묻는 질문은 정상적으로 답하라" in system_prompt
+    assert "이미 학습한 내용에 대한 구체적인 질문" in system_prompt
+    assert "제공된 이전 페이지 텍스트를 근거로 정상적으로 답하라" in system_prompt
+    assert "이전 페이지 전체를 처음부터 다시 설명해 달라는 요청" in system_prompt
+    assert "페이지 간 관계·연결을 묻는 질문은 정상적으로 답하라" in system_prompt

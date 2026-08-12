@@ -134,10 +134,12 @@ def qa_messages(
         f"{LEARNER_KOREAN_INSTRUCTION} {output_instruction}"
     )
     system += (
-        " 질문이 현재 페이지가 아닌 다른 페이지(다음·이전·특정 번호)의 내용을 "
-        "설명해 달라는 요청이면, 그 페이지 내용을 답변에 풀지 말고 해당 페이지로 "
-        "이동한 뒤 설명하겠다고 안내만 하라. 다른 페이지와의 관계·연결을 묻는 "
-        "질문은 정상적으로 답하라."
+        " 다음 페이지 등 학생이 아직 학습하지 않은 페이지의 내용은 답변에 풀지 "
+        "말고, 해당 페이지로 이동한 뒤 설명하겠다고 안내만 하라. 이전 페이지처럼 "
+        '이미 학습한 내용에 대한 구체적인 질문("앞에서 나온 ○○이 뭐였지?" 류)은 '
+        "제공된 이전 페이지 텍스트를 근거로 정상적으로 답하라. 단, 이전 페이지 "
+        "전체를 처음부터 다시 설명해 달라는 요청이면 해당 페이지로 이동해 "
+        "설명받도록 안내하라. 페이지 간 관계·연결을 묻는 질문은 정상적으로 답하라."
     )
     if not context.page_attached:
         system += (
@@ -162,16 +164,15 @@ def quiz_messages(
     page_context = [
         {"pageNumber": current_page, "text": context.current_page_text},
     ]
-    if context.previous_page_text is not None and current_page > 1:
-        page_context.insert(
-            0,
-            {"pageNumber": current_page - 1, "text": context.previous_page_text},
-        )
-    if context.next_page_text is not None:
-        page_context.append({"pageNumber": current_page + 1, "text": context.next_page_text})
+    reference_context = (
+        [{"pageNumber": current_page - 1, "text": context.previous_page_text}]
+        if context.previous_page_text is not None and current_page > 1
+        else []
+    )
     payload = {
         "quizType": quiz_type.value,
         "pageContext": page_context,
+        "referenceContext": reference_context,
         "currentPage": current_page,
         "learnerLevel": context.learner_level,
         "learnerConfidence": context.learner_confidence,
@@ -183,8 +184,12 @@ def quiz_messages(
         {
             "role": "system",
             "content": (
-                "너는 EduPilot의 퀴즈 생성 에이전트다. 제공된 pageContext만 근거로 "
-                "선택된 유형의 QuizGeneration JSON을 생성하라. 문항은 5~10개이며 "
+                "너는 EduPilot의 퀴즈 생성 에이전트다. 요청에 별도 출제 범위가 "
+                "명시되지 않았으므로 문항은 pageContext(현재 페이지)의 내용에서만 "
+                "출제하라. referenceContext는 용어·맥락 연결 참고용일 뿐 출제 "
+                "근거로 쓰지 마라. coverage는 현재 페이지 단일(startPage와 endPage "
+                "모두 현재 페이지)로 설정하라. 선택된 유형의 QuizGeneration JSON을 "
+                "생성하라. 문항은 5~10개이며 "
                 "questionCount와 questions 길이는 반드시 같아야 한다. 학생이 이미 "
                 "잘하는 내용만 반복 출제하지 말고 약점과 메모리를 반영하라. "
                 f"{confidence_instruction} generationId는 AI가 생성하는 추적용 "

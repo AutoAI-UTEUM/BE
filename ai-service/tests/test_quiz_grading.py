@@ -1,5 +1,6 @@
 """Confirmed #30 quiz generation and grading contracts."""
 
+import json
 from copy import deepcopy
 from typing import Literal
 
@@ -164,6 +165,74 @@ def test_quiz_prompt_branches_on_learner_confidence_enum(
     messages = quiz_messages(context, QuizType.MCQ)
 
     assert instruction in messages[0]["content"]
+
+
+async def test_quiz_prompt_scopes_generation_to_current_page(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "QUIZ_TYPE_SELECTED",
+        "payload": {"quizType": "MCQ"},
+    }
+    context_payload = payload["context"]
+    assert isinstance(context_payload, dict)
+    context_payload.update(
+        {
+            "currentPageText": "현재 페이지 출제 근거",
+            "previousPageText": "이전 페이지 참고 문맥",
+            "nextPageText": "아직 배우지 않은 다음 페이지 원문",
+        }
+    )
+    fake_llm.queue(
+        make_plan(ToolName.GENERATE_QUIZ_MCQ, {"quizType": "MCQ"}, "GENERATE_QUIZ"),
+        make_quiz(QuizType.MCQ),
+    )
+
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 200
+    quiz_user_message = fake_llm.calls[1][0][1]["content"]
+    assert "아직 배우지 않은 다음 페이지 원문" not in quiz_user_message
+    prompt_payload = json.loads(quiz_user_message)
+    assert prompt_payload["pageContext"] == [{"pageNumber": 3, "text": "현재 페이지 출제 근거"}]
+    assert prompt_payload["referenceContext"] == [
+        {"pageNumber": 2, "text": "이전 페이지 참고 문맥"}
+    ]
+
+
+def test_quiz_prompt_has_no_reference_context_on_first_page(
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    session = payload["session"]
+    context_payload = payload["context"]
+    assert isinstance(session, dict)
+    assert isinstance(context_payload, dict)
+    session["currentPage"] = 1
+    context_payload["currentPageText"] = "첫 페이지 내용"
+    context_payload["previousPageText"] = "존재하면 안 되는 이전 페이지"
+    context = ContextBuilder().build(TurnRequest.model_validate(payload))
+
+    messages = quiz_messages(context, QuizType.MCQ)
+    prompt_payload = json.loads(messages[1]["content"])
+
+    assert prompt_payload["pageContext"] == [{"pageNumber": 1, "text": "첫 페이지 내용"}]
+    assert prompt_payload["referenceContext"] == []
+
+
+def test_quiz_prompt_restricts_evidence_and_coverage_to_current_page(
+    turn_payload: dict[str, object],
+) -> None:
+    context = ContextBuilder().build(TurnRequest.model_validate(turn_payload))
+
+    system_prompt = quiz_messages(context, QuizType.MCQ)[0]["content"]
+
+    assert "출제 근거로 쓰지 마라" in system_prompt
+    assert "coverage는 현재 페이지 단일" in system_prompt
 
 
 @pytest.mark.parametrize(

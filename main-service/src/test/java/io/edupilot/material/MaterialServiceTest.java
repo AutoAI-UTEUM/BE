@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.io.InputStream;
@@ -205,6 +206,72 @@ class MaterialServiceTest {
 			1L, UserRole.INSTRUCTOR, file, "Class material", 30L, 1
 		)).isInstanceOf(BusinessException.class);
 		verify(fileStorage).delete("materials/class.pdf");
+	}
+
+	@Test
+	void renameUpdatesOnlyOwnedActiveMaterialTitle() {
+		LearningMaterial material = LearningMaterial.create(
+			owner,
+			"기존 제목",
+			"materials/00000000-0000-0000-0000-000000000001.pdf"
+		);
+		ReflectionTestUtils.setField(material, "id", 10L);
+		when(materialRepository.findByIdAndOwner_IdAndStatus(
+			10L,
+			1L,
+			MaterialStatus.ACTIVE
+		)).thenReturn(Optional.of(material));
+
+		var response = materialService.rename(1L, 10L, "  새 제목  ");
+
+		assertThat(material.getTitle()).isEqualTo("새 제목");
+		assertThat(response.title()).isEqualTo("새 제목");
+		assertThat(material.getStorageKey()).isEqualTo(
+			"materials/00000000-0000-0000-0000-000000000001.pdf"
+		);
+		assertThat(material.getProcessingStatus())
+			.isEqualTo(MaterialProcessingStatus.PROCESSING);
+		verify(materialRepository).flush();
+		verifyNoInteractions(accessService);
+	}
+
+	@Test
+	void renameHidesOtherOwnersAndDeletedMaterials() {
+		when(materialRepository.findByIdAndOwner_IdAndStatus(
+			10L,
+			2L,
+			MaterialStatus.ACTIVE
+		)).thenReturn(Optional.empty());
+		when(materialRepository.findByIdAndOwner_IdAndStatus(
+			11L,
+			1L,
+			MaterialStatus.ACTIVE
+		)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> materialService.rename(2L, 10L, "새 제목"))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.MATERIAL_NOT_FOUND)
+			);
+		assertThatThrownBy(() -> materialService.rename(1L, 11L, "새 제목"))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.MATERIAL_NOT_FOUND)
+			);
+		verifyNoInteractions(accessService);
+	}
+
+	@Test
+	void renameRejectsBlankAndOversizedTitles() {
+		for (String title : List.of("", "   ", "a".repeat(256))) {
+			assertThatThrownBy(() -> materialService.rename(1L, 10L, title))
+				.isInstanceOfSatisfying(BusinessException.class, exception ->
+					assertThat(exception.errorCode())
+						.isEqualTo(ErrorCode.VALIDATION_FAILED)
+				);
+		}
+		verify(materialRepository, never())
+			.findByIdAndOwner_IdAndStatus(any(), any(), any());
 	}
 
 	@Test
