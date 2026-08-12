@@ -23,6 +23,7 @@ import io.edupilot.classroom.dto.CreateClassroomRequest;
 import io.edupilot.classroom.dto.CreateJoinRequest;
 import io.edupilot.classroom.dto.CreateClassroomWeekRequest;
 import io.edupilot.classroom.dto.CreateClassroomNoticeRequest;
+import io.edupilot.classroom.dto.UpdateClassroomWeekStatusRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterial;
@@ -188,6 +189,59 @@ class ClassroomJpaContextTest {
 					});
 			});
 		assertThat(materialService.list(learner.getId(), 0, 20).items()).isEmpty();
+
+		var privateWeek = weekService.create(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.classroomId(),
+			new CreateClassroomWeekRequest(15, "Private week", null)
+		);
+		LearningMaterial privateMaterial = LearningMaterial.create(
+			instructor,
+			"Private material",
+			"materials/private.pdf"
+		);
+		privateMaterial.markReady(12);
+		privateMaterial = materialRepository.saveAndFlush(privateMaterial);
+		weekService.link(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.classroomId(),
+			15,
+			privateMaterial.getId()
+		);
+		weekService.changeStatus(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.classroomId(),
+			privateWeek.weekId(),
+			new UpdateClassroomWeekStatusRequest(ClassroomWeekStatus.PRIVATE)
+		);
+
+		assertThat(weekService.list(
+			learner.getId(), UserRole.LEARNER, classroom.classroomId()
+		).items()).filteredOn(week -> week.weekId().equals(privateWeek.weekId()))
+			.singleElement()
+			.satisfies(week -> {
+				assertThat(week.status()).isEqualTo(ClassroomWeekStatus.PRIVATE);
+				assertThat(week.materials()).isEmpty();
+			});
+		Long privateMaterialId = privateMaterial.getId();
+		assertThatThrownBy(() -> materialService.detail(
+			learner.getId(), privateMaterialId
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode()).isEqualTo(ErrorCode.MATERIAL_NOT_FOUND)
+		);
+		assertThatThrownBy(() -> materialService.file(
+			learner.getId(), privateMaterialId
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode()).isEqualTo(ErrorCode.MATERIAL_NOT_FOUND)
+		);
+		assertThatThrownBy(() -> sessionService.create(
+			learner.getId(), privateMaterialId
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode()).isEqualTo(ErrorCode.MATERIAL_NOT_FOUND)
+		);
 
 		weekService.unlink(
 			instructor.getId(),

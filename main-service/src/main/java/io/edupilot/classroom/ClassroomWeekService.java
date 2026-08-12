@@ -73,13 +73,19 @@ public class ClassroomWeekService {
 			classroomId
 		);
 		boolean ownerView = classroom.getInstructorId().equals(userId);
-		var now = clock.instant();
 		var weeks = weekRepository
-			.findByClassroom_IdOrderByDisplayOrderAscIdAsc(classroomId)
-			.stream()
-			.filter(week -> ownerView || week.isVisibleToLearner(now))
-			.toList();
-		return new ClassroomWeekListResponse(responses(classroomId, weeks));
+			.findByClassroom_IdOrderByDisplayOrderAscIdAsc(classroomId);
+		var materialWeeks = ownerView
+			? weeks
+			: weeks.stream()
+				.filter(week -> week.getStatus() == ClassroomWeekStatus.PUBLISHED
+					|| week.getStatus() == ClassroomWeekStatus.BREAK)
+				.toList();
+		return new ClassroomWeekListResponse(responses(
+			classroomId,
+			weeks,
+			materialWeeks
+		));
 	}
 
 	@Transactional
@@ -309,16 +315,27 @@ public class ClassroomWeekService {
 		Long classroomId,
 		List<ClassroomWeek> weeks
 	) {
+		return responses(classroomId, weeks, weeks);
+	}
+
+	private List<ClassroomWeekResponse> responses(
+		Long classroomId,
+		List<ClassroomWeek> weeks,
+		List<ClassroomWeek> materialWeeks
+	) {
 		if (weeks.isEmpty()) {
 			return List.of();
 		}
-		var linksByWeekId = weekMaterialRepository.findByWeekIds(
-			weeks.stream().map(ClassroomWeek::getId).toList()
-		).stream().collect(Collectors.groupingBy(
-			ClassroomWeekMaterial::getWeekId,
-			LinkedHashMap::new,
-			Collectors.toList()
-		));
+		Map<Long, List<ClassroomWeekMaterial>> linksByWeekId =
+			materialWeeks.isEmpty()
+				? Map.of()
+				: weekMaterialRepository.findByWeekIds(
+					materialWeeks.stream().map(ClassroomWeek::getId).toList()
+				).stream().collect(Collectors.groupingBy(
+					ClassroomWeekMaterial::getWeekId,
+					LinkedHashMap::new,
+					Collectors.toList()
+				));
 		Map<Long, LearningMaterial> distinctMaterials = linksByWeekId.values()
 			.stream()
 			.flatMap(List::stream)
