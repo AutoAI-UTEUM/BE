@@ -44,6 +44,20 @@ public interface ClassroomNoticeRepository
 		@Param("noticeId") Long noticeId
 	);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		select notice
+		from ClassroomNotice notice
+		join fetch notice.classroom
+		where notice.notificationSentAt is null
+		  and (notice.publishAt is null or notice.publishAt <= :now)
+		order by notice.publishAt, notice.id
+		""")
+	List<ClassroomNotice> findNotificationCandidates(
+		@Param("now") Instant now,
+		Pageable pageable
+	);
+
 	@EntityGraph(attributePaths = "classroom")
 	@Query("""
 		select notice

@@ -13,6 +13,7 @@ import io.edupilot.classroom.dto.CreateClassroomNoticeRequest;
 import io.edupilot.classroom.dto.UpdateClassroomNoticeRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.notification.NotificationTriggerService;
 import io.edupilot.user.UserRole;
 
 @Service
@@ -20,15 +21,18 @@ public class ClassroomNoticeService {
 
 	private final ClassroomService classroomService;
 	private final ClassroomNoticeRepository noticeRepository;
+	private final NotificationTriggerService notificationTriggerService;
 	private final Clock clock;
 
 	public ClassroomNoticeService(
 		ClassroomService classroomService,
 		ClassroomNoticeRepository noticeRepository,
+		NotificationTriggerService notificationTriggerService,
 		Clock clock
 	) {
 		this.classroomService = classroomService;
 		this.noticeRepository = noticeRepository;
+		this.notificationTriggerService = notificationTriggerService;
 		this.clock = clock;
 	}
 
@@ -81,6 +85,7 @@ public class ClassroomNoticeService {
 				now
 			)
 		);
+		notificationTriggerService.noticePublished(notice, now);
 		return ClassroomNoticeResponse.from(notice, now);
 	}
 
@@ -117,8 +122,10 @@ public class ClassroomNoticeService {
 			request.isPublishAtPresent(),
 			request.getPublishAt()
 		);
+		var now = clock.instant();
+		notificationTriggerService.noticePublished(notice, now);
 		noticeRepository.flush();
-		return ClassroomNoticeResponse.from(notice, clock.instant());
+		return ClassroomNoticeResponse.from(notice, now);
 	}
 
 	@Transactional
