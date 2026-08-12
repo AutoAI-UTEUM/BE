@@ -1392,7 +1392,7 @@ PENDING 요청만 처리합니다. 승인은 같은 트랜잭션에서 `classroo
 
 ### GET `/api/classrooms/{id}/weeks`
 
-강사는 전체 주차, 학습자는 `PRIVATE`을 제외하고 `PUBLISHED`·`BREAK` 및 공개일이 지난 `SCHEDULED` 주차만 조회합니다. `status`는 `PRIVATE | SCHEDULED | PUBLISHED | BREAK` 정본이며, `SCHEDULED`만 `releaseAt`과 현재 UTC 시각으로 노출 여부를 조회 시점에 판정합니다. 목록은 `displayOrder ASC`로 정렬합니다.
+강사와 학습자 모두 전체 주차 메타데이터를 조회합니다. 학습자 응답에서는 `PUBLISHED`·`BREAK` 주차만 자료를 포함하고 `PRIVATE`·`SCHEDULED` 주차는 `materials: []`로 마스킹합니다. 목록은 역할과 관계없이 `displayOrder ASC`, `id ASC`로 정렬합니다. 미공개 주차의 메타데이터 노출은 자료 접근 허용을 의미하지 않으며 자료 상세·파일·세션·퀴즈 등 실사용 API는 기존 공개 판정과 404 은닉 규칙을 그대로 적용합니다.
 
 ```json
 {
@@ -1416,12 +1416,22 @@ PENDING 요청만 처리합니다. 승인은 같은 트랜잭션에서 `classroo
           "viewRate": 50
         }
       ]
+    },
+    {
+      "weekId": 102,
+      "weekNumber": 2,
+      "title": "다중회귀 예고",
+      "status": "SCHEDULED",
+      "displayOrder": 2,
+      "releaseAt": "2026-09-08T00:00:00Z",
+      "averageProgressRate": 0,
+      "materials": []
     }
   ]
 }
 ```
 
-`averageProgressRate`는 해당 주차의 고유 자료에 대한 멤버 평균 진도율입니다. `viewerCount`와 `viewRate`는 강의실 멤버의 ACTIVE·COMPLETED 세션을 기준으로 계산하며 멤버가 없으면 0입니다.
+`averageProgressRate`는 응답에 포함된 해당 주차의 고유 자료에 대한 멤버 평균 진도율입니다. 따라서 학습자에게 자료가 마스킹된 주차는 0입니다. `viewerCount`와 `viewRate`는 강의실 멤버의 ACTIVE·COMPLETED 세션을 기준으로 계산하며 멤버가 없으면 0입니다.
 
 ### POST `/api/classrooms/{id}/weeks`
 

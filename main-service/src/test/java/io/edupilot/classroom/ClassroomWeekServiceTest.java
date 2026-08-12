@@ -3,6 +3,7 @@ package io.edupilot.classroom;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -13,6 +14,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -28,6 +30,7 @@ import io.edupilot.classroom.dto.UpdateClassroomWeekRequest;
 import io.edupilot.classroom.dto.UpdateClassroomWeekStatusRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.session.LearningProgressService;
 import io.edupilot.session.LearningSessionRepository;
@@ -56,6 +59,7 @@ class ClassroomWeekServiceTest {
 
 	private ClassroomWeekService service;
 	private Classroom classroom;
+	private User instructor;
 
 	@BeforeEach
 	void setUp() {
@@ -69,7 +73,7 @@ class ClassroomWeekServiceTest {
 			sessionRepository,
 			Clock.fixed(NOW, ZoneOffset.UTC)
 		);
-		User instructor = User.create(
+		instructor = User.create(
 			"teacher@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
 		);
 		ReflectionTestUtils.setField(instructor, "id", 1L);
@@ -86,23 +90,93 @@ class ClassroomWeekServiceTest {
 	}
 
 	@Test
-	void learnerListContainsOnlyReleasedWeeks() {
-		ClassroomWeek released = week(1, null);
-		ClassroomWeek scheduled = week(2, NOW.plusSeconds(60));
+	void learnerListContainsAllWeeksAndMasksUnreleasedMaterials() {
+		ClassroomWeek published = week(
+			4, ClassroomWeekStatus.PUBLISHED, 1, null
+		);
+		ClassroomWeek privateWeek = week(
+			2, ClassroomWeekStatus.PRIVATE, 2, null
+		);
+		ClassroomWeek scheduled = week(
+			3, ClassroomWeekStatus.SCHEDULED, 3, NOW.plusSeconds(60)
+		);
+		ClassroomWeek breakWeek = week(
+			1, ClassroomWeekStatus.BREAK, 4, null
+		);
+		LearningMaterial publishedMaterial = material(10L, "Published");
+		LearningMaterial breakMaterial = material(20L, "Break");
 		when(classroomService.requireVisible(2L, UserRole.LEARNER, 30L))
 			.thenReturn(classroom);
 		when(weekRepository.findByClassroom_IdOrderByDisplayOrderAscIdAsc(30L))
-			.thenReturn(List.of(released, scheduled));
-		when(weekMaterialRepository.findByWeekIds(any()))
+			.thenReturn(List.of(published, privateWeek, scheduled, breakWeek));
+		when(weekMaterialRepository.findByWeekIds(List.of(4L, 1L)))
+			.thenReturn(List.of(
+				ClassroomWeekMaterial.create(published, publishedMaterial, NOW),
+				ClassroomWeekMaterial.create(breakWeek, breakMaterial, NOW)
+			));
+		when(memberRepository.countByClassroom_Id(30L)).thenReturn(2L);
+		when(progressService.calculateClassroomProgressSnapshot(
+			eq(30L), any(), eq(2L)
+		)).thenReturn(new LearningProgressService.ClassroomProgressSnapshot(
+			2L,
+			Map.of()
+		));
+		when(sessionRepository.findMaterialViewerCounts(eq(30L), any(), any()))
 			.thenReturn(List.of());
 
 		var response = service.list(2L, UserRole.LEARNER, 30L);
 
-		assertThat(response.items()).singleElement()
-			.satisfies(item -> {
-				assertThat(item.weekNumber()).isEqualTo(1);
-				assertThat(item.status()).isEqualTo(ClassroomWeekStatus.PUBLISHED);
-			});
+		assertThat(response.items()).extracting(
+			item -> item.weekNumber(),
+			item -> item.status(),
+			item -> item.displayOrder()
+		).containsExactly(
+			org.assertj.core.groups.Tuple.tuple(4, ClassroomWeekStatus.PUBLISHED, 1),
+			org.assertj.core.groups.Tuple.tuple(2, ClassroomWeekStatus.PRIVATE, 2),
+			org.assertj.core.groups.Tuple.tuple(3, ClassroomWeekStatus.SCHEDULED, 3),
+			org.assertj.core.groups.Tuple.tuple(1, ClassroomWeekStatus.BREAK, 4)
+		);
+		assertThat(response.items()).extracting(item -> item.materials().size())
+			.containsExactly(1, 0, 0, 1);
+		assertThat(response.items().get(1).averageProgressRate()).isZero();
+		assertThat(response.items().get(2).averageProgressRate()).isZero();
+		verify(weekMaterialRepository).findByWeekIds(List.of(4L, 1L));
+	}
+
+	@Test
+	void instructorListStillIncludesMaterialsForAllWeekStatuses() {
+		ClassroomWeek privateWeek = week(
+			1, ClassroomWeekStatus.PRIVATE, 1, null
+		);
+		ClassroomWeek scheduled = week(
+			2, ClassroomWeekStatus.SCHEDULED, 2, NOW.plusSeconds(60)
+		);
+		LearningMaterial privateMaterial = material(10L, "Private");
+		LearningMaterial scheduledMaterial = material(20L, "Scheduled");
+		when(classroomService.requireVisible(1L, UserRole.INSTRUCTOR, 30L))
+			.thenReturn(classroom);
+		when(weekRepository.findByClassroom_IdOrderByDisplayOrderAscIdAsc(30L))
+			.thenReturn(List.of(privateWeek, scheduled));
+		when(weekMaterialRepository.findByWeekIds(List.of(1L, 2L)))
+			.thenReturn(List.of(
+				ClassroomWeekMaterial.create(privateWeek, privateMaterial, NOW),
+				ClassroomWeekMaterial.create(scheduled, scheduledMaterial, NOW)
+			));
+		when(memberRepository.countByClassroom_Id(30L)).thenReturn(0L);
+		when(progressService.calculateClassroomProgressSnapshot(
+			eq(30L), any(), eq(0L)
+		)).thenReturn(new LearningProgressService.ClassroomProgressSnapshot(
+			0L,
+			Map.of()
+		));
+		when(sessionRepository.findMaterialViewerCounts(eq(30L), any(), any()))
+			.thenReturn(List.of());
+
+		var response = service.list(1L, UserRole.INSTRUCTOR, 30L);
+
+		assertThat(response.items()).extracting(item -> item.materials().size())
+			.containsExactly(1, 1);
+		verify(weekMaterialRepository).findByWeekIds(List.of(1L, 2L));
 	}
 
 	@Test
@@ -260,10 +334,28 @@ class ClassroomWeekServiceTest {
 		ClassroomWeekStatus status = releaseAt == null || !releaseAt.isAfter(NOW)
 			? ClassroomWeekStatus.PUBLISHED
 			: ClassroomWeekStatus.SCHEDULED;
+		return week(number, status, number, releaseAt);
+	}
+
+	private ClassroomWeek week(
+		int number,
+		ClassroomWeekStatus status,
+		int displayOrder,
+		Instant releaseAt
+	) {
 		ClassroomWeek week = ClassroomWeek.create(
-			classroom, number, "Week " + number, releaseAt, status, number
+			classroom, number, "Week " + number, releaseAt, status, displayOrder
 		);
 		ReflectionTestUtils.setField(week, "id", (long) number);
 		return week;
+	}
+
+	private LearningMaterial material(Long id, String title) {
+		LearningMaterial material = LearningMaterial.create(
+			instructor, title, "materials/" + id + ".pdf"
+		);
+		material.markReady(10);
+		ReflectionTestUtils.setField(material, "id", id);
+		return material;
 	}
 }
