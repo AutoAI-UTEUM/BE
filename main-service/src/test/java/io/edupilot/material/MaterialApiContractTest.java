@@ -7,6 +7,7 @@ import static org.springframework.security.test.web.servlet.setup.SecurityMockMv
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -22,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.mock.web.MockPart;
 import org.springframework.test.context.ActiveProfiles;
@@ -229,6 +231,32 @@ class MaterialApiContractTest {
 			.andExpect(jsonPath("$.data.traceId").value(
 				org.hamcrest.Matchers.nullValue()
 			));
+	}
+
+	@Test
+	void renameUsesDetailEnvelope() throws Exception {
+		when(materialService.rename(1L, 10L, "수정된 제목")).thenReturn(
+			new MaterialDetailResponse(
+				10L,
+				"수정된 제목",
+				2,
+				MaterialProcessingStatus.READY,
+				true,
+				null,
+				null,
+				Instant.parse("2026-07-25T00:00:00Z")
+			)
+		);
+
+		mockMvc.perform(patch("/api/materials/10")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"title\":\"수정된 제목\"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.materialId").value(10))
+			.andExpect(jsonPath("$.data.title").value("수정된 제목"))
+			.andExpect(jsonPath("$.data.processingStatus").value("READY"))
+			.andExpect(jsonPath("$.data.learningAvailable").value(true));
 	}
 
 	@Test

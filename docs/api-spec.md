@@ -347,6 +347,18 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 자료 제목, 페이지 수, 처리 상태, 학습 가능 여부와 실패 시 `failureReason`·`traceId`를 반환합니다. 실패 필드의 nullable·enum 규칙은 위 목록 응답과 같습니다. 소유자 또는 자료가 연결된 강의실의 승인 멤버에게 주차 상태와 관계없이 허용합니다. 강의실 자료는 전역 `GET /api/materials` 목록에는 포함하지 않고 강의실 주차 API에서 발견합니다.
 
+### PATCH `/api/materials/{materialId}`
+
+자료 소유자만 제목을 수정할 수 있습니다. 강의실 멤버의 열람 권한은 제목 수정 권한을 포함하지 않으며, 비소유자·삭제 자료·존재하지 않는 자료는 모두 `MATERIAL_NOT_FOUND`(404)로 은닉합니다. 제목은 앞뒤 공백을 제거한 뒤 비어 있지 않아야 하며 최대 255자입니다.
+
+```json
+{
+  "title": "수정된 학습 자료 제목"
+}
+```
+
+성공 응답의 `data`는 `GET /api/materials/{materialId}`와 같은 자료 상세 스키마입니다.
+
 ### GET `/api/materials/{materialId}/file`
 
 Spring이 인증된 PDF 스트림을 반환합니다. 자료 상세와 같은 소유자·강의실 승인 멤버 권한을 적용하며, S3 전환 시 presigned URL 방식으로 변경합니다(DEC-005).
