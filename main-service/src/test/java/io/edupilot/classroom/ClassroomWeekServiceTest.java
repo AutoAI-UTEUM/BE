@@ -90,7 +90,7 @@ class ClassroomWeekServiceTest {
 	}
 
 	@Test
-	void learnerListContainsAllWeeksAndMasksUnreleasedMaterials() {
+	void learnerListContainsMaterialsForAllWeekStatuses() {
 		ClassroomWeek published = week(
 			4, ClassroomWeekStatus.PUBLISHED, 1, null
 		);
@@ -104,14 +104,18 @@ class ClassroomWeekServiceTest {
 			1, ClassroomWeekStatus.BREAK, 4, null
 		);
 		LearningMaterial publishedMaterial = material(10L, "Published");
-		LearningMaterial breakMaterial = material(20L, "Break");
+		LearningMaterial privateMaterial = material(20L, "Private");
+		LearningMaterial scheduledMaterial = material(30L, "Scheduled");
+		LearningMaterial breakMaterial = material(40L, "Break");
 		when(classroomService.requireVisible(2L, UserRole.LEARNER, 30L))
 			.thenReturn(classroom);
 		when(weekRepository.findByClassroom_IdOrderByDisplayOrderAscIdAsc(30L))
 			.thenReturn(List.of(published, privateWeek, scheduled, breakWeek));
-		when(weekMaterialRepository.findByWeekIds(List.of(4L, 1L)))
+		when(weekMaterialRepository.findByWeekIds(List.of(4L, 2L, 3L, 1L)))
 			.thenReturn(List.of(
 				ClassroomWeekMaterial.create(published, publishedMaterial, NOW),
+				ClassroomWeekMaterial.create(privateWeek, privateMaterial, NOW),
+				ClassroomWeekMaterial.create(scheduled, scheduledMaterial, NOW),
 				ClassroomWeekMaterial.create(breakWeek, breakMaterial, NOW)
 			));
 		when(memberRepository.countByClassroom_Id(30L)).thenReturn(2L);
@@ -137,10 +141,8 @@ class ClassroomWeekServiceTest {
 			org.assertj.core.groups.Tuple.tuple(1, ClassroomWeekStatus.BREAK, 4)
 		);
 		assertThat(response.items()).extracting(item -> item.materials().size())
-			.containsExactly(1, 0, 0, 1);
-		assertThat(response.items().get(1).averageProgressRate()).isZero();
-		assertThat(response.items().get(2).averageProgressRate()).isZero();
-		verify(weekMaterialRepository).findByWeekIds(List.of(4L, 1L));
+			.containsExactly(1, 1, 1, 1);
+		verify(weekMaterialRepository).findByWeekIds(List.of(4L, 2L, 3L, 1L));
 	}
 
 	@Test

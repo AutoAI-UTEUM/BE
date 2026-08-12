@@ -344,11 +344,11 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 ### GET `/api/materials/{materialId}`
 
-자료 제목, 페이지 수, 처리 상태, 학습 가능 여부와 실패 시 `failureReason`·`traceId`를 반환합니다. 실패 필드의 nullable·enum 규칙은 위 목록 응답과 같습니다. 소유자 또는 승인 멤버가 접근 가능한 `PUBLISHED` 주차에 연결된 자료만 허용합니다. 강의실 자료는 전역 `GET /api/materials` 목록에는 포함하지 않고 강의실 주차 API에서 발견합니다.
+자료 제목, 페이지 수, 처리 상태, 학습 가능 여부와 실패 시 `failureReason`·`traceId`를 반환합니다. 실패 필드의 nullable·enum 규칙은 위 목록 응답과 같습니다. 소유자 또는 자료가 연결된 강의실의 승인 멤버에게 주차 상태와 관계없이 허용합니다. 강의실 자료는 전역 `GET /api/materials` 목록에는 포함하지 않고 강의실 주차 API에서 발견합니다.
 
 ### GET `/api/materials/{materialId}/file`
 
-Spring이 인증된 PDF 스트림을 반환합니다. 자료 상세와 같은 소유자·공개 주차 멤버 권한을 적용하며, S3 전환 시 presigned URL 방식으로 변경합니다(DEC-005).
+Spring이 인증된 PDF 스트림을 반환합니다. 자료 상세와 같은 소유자·강의실 승인 멤버 권한을 적용하며, S3 전환 시 presigned URL 방식으로 변경합니다(DEC-005).
 
 ### DELETE `/api/materials/{materialId}`
 
@@ -1392,7 +1392,7 @@ PENDING 요청만 처리합니다. 승인은 같은 트랜잭션에서 `classroo
 
 ### GET `/api/classrooms/{id}/weeks`
 
-강사와 학습자 모두 전체 주차 메타데이터를 조회합니다. 학습자 응답에서는 `PUBLISHED`·`BREAK` 주차만 자료를 포함하고 `PRIVATE`·`SCHEDULED` 주차는 `materials: []`로 마스킹합니다. 목록은 역할과 관계없이 `displayOrder ASC`, `id ASC`로 정렬합니다. 미공개 주차의 메타데이터 노출은 자료 접근 허용을 의미하지 않으며 자료 상세·파일·세션·퀴즈 등 실사용 API는 기존 공개 판정과 404 은닉 규칙을 그대로 적용합니다.
+강사와 학습자 모두 전체 주차 메타데이터와 연결 자료를 조회합니다. `PRIVATE | SCHEDULED | PUBLISHED | BREAK` 상태와 `releaseAt`은 표시 전용이며 학습자 자료 접근을 제한하지 않습니다. 목록은 역할과 관계없이 `displayOrder ASC`, `id ASC`로 정렬합니다. 자료 상세·파일·세션·퀴즈 등 학습 API는 주차 상태와 관계없이 강의실 승인 멤버에게 허용하고, 비멤버에게는 기존 404 은닉 규칙을 그대로 적용합니다.
 
 ```json
 {
@@ -1425,13 +1425,23 @@ PENDING 요청만 처리합니다. 승인은 같은 트랜잭션에서 `classroo
       "displayOrder": 2,
       "releaseAt": "2026-09-08T00:00:00Z",
       "averageProgressRate": 0,
-      "materials": []
+      "materials": [
+        {
+          "materialId": 11,
+          "title": "다중회귀 예고.pdf",
+          "pageCount": 18,
+          "processingStatus": "READY",
+          "uploadedAt": "2026-09-02T00:00:00Z",
+          "viewerCount": 0,
+          "viewRate": 0
+        }
+      ]
     }
   ]
 }
 ```
 
-`averageProgressRate`는 응답에 포함된 해당 주차의 고유 자료에 대한 멤버 평균 진도율입니다. 따라서 학습자에게 자료가 마스킹된 주차는 0입니다. `viewerCount`와 `viewRate`는 강의실 멤버의 ACTIVE·COMPLETED 세션을 기준으로 계산하며 멤버가 없으면 0입니다.
+`averageProgressRate`는 응답에 포함된 해당 주차의 고유 자료에 대한 멤버 평균 진도율입니다. `viewerCount`와 `viewRate`는 강의실 멤버의 ACTIVE·COMPLETED 세션을 기준으로 계산하며 멤버가 없으면 0입니다.
 
 ### POST `/api/classrooms/{id}/weeks`
 

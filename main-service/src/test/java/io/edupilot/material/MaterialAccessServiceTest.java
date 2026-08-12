@@ -5,9 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -25,8 +22,6 @@ import io.edupilot.user.User;
 @ExtendWith(MockitoExtension.class)
 class MaterialAccessServiceTest {
 
-	private static final Instant NOW = Instant.parse("2026-08-02T00:00:00Z");
-
 	@Mock
 	private LearningMaterialRepository materialRepository;
 	@Mock
@@ -35,14 +30,14 @@ class MaterialAccessServiceTest {
 	private LearningSessionRepository sessionRepository;
 
 	@Test
-	void allowsOwnerOrMemberOfReleasedWeekAndHidesOthers() {
+	void allowsOwnerOrMemberOfLinkedClassroomAndHidesOthers() {
 		LearningMaterial material = material(1L, 10L);
 		when(materialRepository.findById(10L)).thenReturn(Optional.of(material));
 		MaterialAccessService service = service();
 
 		assertThat(service.requireAccessible(1L, 10L)).isSameAs(material);
 
-		when(weekMaterialRepository.existsVisibleAccess(2L, 10L, NOW))
+		when(weekMaterialRepository.existsAccess(2L, 10L))
 			.thenReturn(true);
 		assertThat(service.requireAccessible(2L, 10L)).isSameAs(material);
 
@@ -50,15 +45,14 @@ class MaterialAccessServiceTest {
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MATERIAL_NOT_FOUND)
 			);
-		verify(weekMaterialRepository).existsVisibleAccess(3L, 10L, NOW);
+		verify(weekMaterialRepository).existsAccess(3L, 10L);
 	}
 
 	private MaterialAccessService service() {
 		return new MaterialAccessService(
 			materialRepository,
 			weekMaterialRepository,
-			sessionRepository,
-			Clock.fixed(NOW, ZoneOffset.UTC)
+			sessionRepository
 		);
 	}
 

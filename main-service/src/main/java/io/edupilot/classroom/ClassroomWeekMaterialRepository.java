@@ -109,6 +109,10 @@ public interface ClassroomWeekMaterialRepository
 		Long getMaterialCount();
 	}
 
+	default boolean existsAccess(Long userId, Long materialId) {
+		return !findAccessCandidates(userId, materialId).isEmpty();
+	}
+
 	default boolean existsVisibleAccess(
 		Long userId,
 		Long materialId,

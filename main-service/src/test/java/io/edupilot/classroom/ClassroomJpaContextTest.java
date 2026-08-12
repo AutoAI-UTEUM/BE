@@ -98,6 +98,12 @@ class ClassroomJpaContextTest {
 		User learner = userRepository.save(User.create(
 			"learner@example.com", "hash", "김학습", UserRole.LEARNER
 		));
+		User otherInstructor = userRepository.save(User.create(
+			"other-instructor@example.com",
+			"hash",
+			"Other instructor",
+			UserRole.INSTRUCTOR
+		));
 		var classroom = classroomService.create(
 			instructor.getId(),
 			UserRole.INSTRUCTOR,
@@ -196,6 +202,17 @@ class ClassroomJpaContextTest {
 			classroom.classroomId(),
 			new CreateClassroomWeekRequest(15, "Private week", null)
 		);
+		classroomService.create(
+			otherInstructor.getId(),
+			UserRole.INSTRUCTOR,
+			new CreateClassroomRequest(
+				"Other classroom",
+				LocalDate.of(2026, 9, 1),
+				LocalDate.of(2026, 12, 15),
+				ClassroomColor.GREEN,
+				null
+			)
+		);
 		LearningMaterial privateMaterial = LearningMaterial.create(
 			instructor,
 			"Private material",
@@ -218,27 +235,28 @@ class ClassroomJpaContextTest {
 			new UpdateClassroomWeekStatusRequest(ClassroomWeekStatus.PRIVATE)
 		);
 
+		Long privateMaterialId = privateMaterial.getId();
 		assertThat(weekService.list(
 			learner.getId(), UserRole.LEARNER, classroom.classroomId()
 		).items()).filteredOn(week -> week.weekId().equals(privateWeek.weekId()))
 			.singleElement()
 			.satisfies(week -> {
 				assertThat(week.status()).isEqualTo(ClassroomWeekStatus.PRIVATE);
-				assertThat(week.materials()).isEmpty();
+				assertThat(week.materials()).singleElement()
+					.satisfies(item -> assertThat(item.materialId())
+						.isEqualTo(privateMaterialId));
 			});
-		Long privateMaterialId = privateMaterial.getId();
+		assertThat(materialService.detail(
+			learner.getId(), privateMaterialId
+		).materialId()).isEqualTo(privateMaterialId);
+		assertThat(materialService.file(
+			learner.getId(), privateMaterialId
+		).materialId()).isEqualTo(privateMaterialId);
+		assertThat(sessionService.create(
+			learner.getId(), privateMaterialId
+		).materialId()).isEqualTo(privateMaterialId);
 		assertThatThrownBy(() -> materialService.detail(
-			learner.getId(), privateMaterialId
-		)).isInstanceOfSatisfying(BusinessException.class, exception ->
-			assertThat(exception.errorCode()).isEqualTo(ErrorCode.MATERIAL_NOT_FOUND)
-		);
-		assertThatThrownBy(() -> materialService.file(
-			learner.getId(), privateMaterialId
-		)).isInstanceOfSatisfying(BusinessException.class, exception ->
-			assertThat(exception.errorCode()).isEqualTo(ErrorCode.MATERIAL_NOT_FOUND)
-		);
-		assertThatThrownBy(() -> sessionService.create(
-			learner.getId(), privateMaterialId
+			otherInstructor.getId(), privateMaterialId
 		)).isInstanceOfSatisfying(BusinessException.class, exception ->
 			assertThat(exception.errorCode()).isEqualTo(ErrorCode.MATERIAL_NOT_FOUND)
 		);

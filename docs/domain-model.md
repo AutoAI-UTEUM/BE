@@ -106,7 +106,7 @@ erDiagram
 
 - 주차 번호는 `1 <= weekNumber <= weekCount`이고 `(classroomId, weekNumber)`는 유일합니다. 시험·리포트·자료가 참조하는 의미 식별자이므로 표시 순서 변경으로 수정하지 않습니다.
 - 주차 상태는 `PRIVATE | SCHEDULED | PUBLISHED | BREAK` 정본으로 저장하고 `displayOrder`를 별도로 관리합니다.
-- 학습자는 `PRIVATE`을 조회할 수 없고, `SCHEDULED`는 `releaseAt`이 도래한 경우에만 조회합니다. `PUBLISHED`와 `BREAK`는 공개하며 강사는 전체 주차를 조회합니다.
+- 학습자와 강사는 모든 주차와 연결 자료를 조회합니다. `PRIVATE | SCHEDULED | PUBLISHED | BREAK` 상태와 `releaseAt`은 표시 전용이며 자료 접근·진도·분석·리포트 선별을 제한하지 않습니다. 자료 접근은 강의실 멤버십과 자료 소유권을 기준으로 검증합니다.
 - 자료 연결은 `(weekId, materialId)`당 하나입니다. 주차 삭제는 연결을 제거하지만 자료 자체를 삭제하지 않습니다.
 
 ### ClassroomNotice
