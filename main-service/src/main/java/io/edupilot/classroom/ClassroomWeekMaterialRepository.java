@@ -113,6 +113,32 @@ public interface ClassroomWeekMaterialRepository
 		return !findAccessCandidates(userId, materialId).isEmpty();
 	}
 
+	default List<LearningMaterial> findDistinctReadyMaterials(
+		Long classroomId,
+		MaterialStatus materialStatus,
+		MaterialProcessingStatus processingStatus
+	) {
+		return distinctMaterials(findReadyMaterialCandidates(
+			classroomId,
+			materialStatus,
+			processingStatus
+		));
+	}
+
+	default List<LearningMaterial> findReportMaterials(
+		Long classroomId,
+		Integer weekNumber,
+		MaterialStatus materialStatus,
+		MaterialProcessingStatus processingStatus
+	) {
+		return distinctMaterials(findReportMaterialCandidates(
+			classroomId,
+			weekNumber,
+			materialStatus,
+			processingStatus
+		));
+	}
+
 	default boolean existsVisibleAccess(
 		Long userId,
 		Long materialId,
@@ -162,6 +188,15 @@ public interface ClassroomWeekMaterialRepository
 	) {
 		return candidates.stream()
 			.filter(link -> link.getWeek().isVisibleToLearner(now))
+			.map(ClassroomWeekMaterial::getMaterial)
+			.distinct()
+			.toList();
+	}
+
+	private static List<LearningMaterial> distinctMaterials(
+		List<ClassroomWeekMaterial> candidates
+	) {
+		return candidates.stream()
 			.map(ClassroomWeekMaterial::getMaterial)
 			.distinct()
 			.toList();

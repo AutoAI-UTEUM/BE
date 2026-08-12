@@ -67,11 +67,11 @@
 | DELETE | `/api/users/me` | 회원 탈퇴(논리 삭제+익명화 — DEC-028) | Y | 본인 (비밀번호 재확인) |
 | POST | `/api/materials` | 개인 PDF 업로드 또는 강의실 주차 업로드 | Y | LEARNER, INSTRUCTOR, ADMIN; 강의실 part는 소유 INSTRUCTOR만 |
 | GET | `/api/materials` | 자료 목록 | Y | 본인 소유 자료 (DEC-026) |
-| GET | `/api/materials/{materialId}` | 자료 상세 | Y | 소유자 또는 승인 멤버의 공개 주차 자료 |
-| GET | `/api/materials/{materialId}/file` | PDF 원본 스트리밍 | Y | 소유자 또는 승인 멤버의 공개 주차 자료 |
+| GET | `/api/materials/{materialId}` | 자료 상세 | Y | 소유자 또는 승인 멤버의 강의실 연결 자료 |
+| GET | `/api/materials/{materialId}/file` | PDF 원본 스트리밍 | Y | 소유자 또는 승인 멤버의 강의실 연결 자료 |
 | DELETE | `/api/materials/{materialId}` | 자료 논리 삭제 (DEC-028) | Y | 본인 소유 자료 |
 | GET | `/api/materials/{materialId}/pages/{pageNumber}` | 페이지 텍스트 | Y | 접근 가능한 자료 — 운영 비노출, dev/디버깅 한정(DEC-025) |
-| POST | `/api/sessions` | 학습 세션 생성 | Y | 본인 소유 또는 승인 멤버의 공개 주차 자료 |
+| POST | `/api/sessions` | 학습 세션 생성 | Y | 본인 소유 또는 승인 멤버의 강의실 연결 자료 |
 | GET | `/api/sessions` | 내 세션 목록 조회 | Y | 본인 |
 | GET | `/api/sessions/{sessionId}` | 세션 상태 조회 | Y | 세션 소유자 |
 | DELETE | `/api/sessions/{sessionId}` | 세션 논리 삭제 | Y | 세션 소유자 |
@@ -391,7 +391,7 @@ Spring이 인증된 PDF 스트림을 반환합니다. 자료 상세와 같은 �
 
 같은 자료에 기존 `ACTIVE` 세션이 있으면 새로 만들지 않고 그 세션을 반환하며 `reused: true`로 표시합니다(DEC-024). 처음부터 다시 시작하려면 기존 세션을 삭제한 뒤 생성합니다.
 
-자료 소유자 또는 승인 멤버가 접근 가능한 공개 주차 자료만 세션을 생성할 수 있습니다. 세션은 `classroomId`를 저장하지 않으므로 동일 사용자의 동일 자료 ACTIVE 세션은 개인 학습과 여러 강의실에서 공유됩니다. 자료 연결 해제 또는 공개 취소로 강의실 접근권을 잃으면 신규 세션 생성과 기존 세션의 추가 학습 턴은 차단하되 기존 세션·메시지·퀴즈 기록은 보존합니다.
+자료 소유자 또는 자료가 연결된 강의실의 승인 멤버만 세션을 생성할 수 있습니다. 주차 상태와 `releaseAt`은 접근 판정에 사용하지 않습니다. 세션은 `classroomId`를 저장하지 않으므로 동일 사용자의 동일 자료 ACTIVE 세션은 개인 학습과 여러 강의실에서 공유됩니다. 모든 강의실 연결 해제로 접근권을 잃으면 신규 세션 생성과 기존 세션의 추가 학습 턴은 차단하되 기존 세션·메시지·퀴즈 기록은 보존합니다.
 
 ### GET `/api/sessions`
 
@@ -1226,8 +1226,8 @@ Query:
 - 멤버 관계의 항목은 `progressRate`, `lastStudied`를 포함하고 `pendingRequestCount`는 `null`입니다.
 - 소유자 관계의 항목은 `pendingRequestCount`를 포함하고 `progressRate`, `lastStudied`는 `null`입니다.
 - `materialCount`는 강의실 전체 주차에 연결된 고유 자료 수입니다.
-- `lastStudied`는 공개 주차에 연결된 고유 자료 중 사용자의 가장 최근 ACTIVE·COMPLETED 세션이며 없으면 `null`입니다. 세션을 어느 화면에서 시작했는지는 구분하지 않습니다.
-- `progressRate`는 공개 주차의 고유 READY 자료에 대해 `고유 (materialId,pageNumber) 설명 완료 수 ÷ 고유 자료 pageCount 합 × 100`을 정수 반올림합니다. 이력 또는 유효 분모가 없으면 0입니다.
+- `lastStudied`는 상태와 관계없이 모든 주차에 연결된 고유 자료 중 사용자의 가장 최근 ACTIVE·COMPLETED 세션이며 없으면 `null`입니다. 세션을 어느 화면에서 시작했는지는 구분하지 않습니다.
+- `progressRate`는 상태와 관계없이 모든 주차의 고유 READY 자료에 대해 `고유 (materialId,pageNumber) 설명 완료 수 ÷ 고유 자료 pageCount 합 × 100`을 정수 반올림합니다. 이력 또는 유효 분모가 없으면 0입니다.
 - `currentWeek`은 `Asia/Seoul`의 오늘을 기준으로 계산하고 시작 전은 1, 종료 후는 `weekCount`입니다.
 - `PROGRESS_ASC`, `NEW_MATERIAL`, `newMaterialCount`는 Phase C입니다.
 
@@ -1237,7 +1237,7 @@ Query:
 
 ### GET `/api/classrooms/{id}/analytics`
 
-소유 `INSTRUCTOR` 전용이며 다른 강사의 강의실은 `CLASSROOM_NOT_FOUND`로 은닉합니다. 모든 비율은 0~100 정수로 반올림하고, 멤버 또는 유효한 자료가 없으면 0입니다. 자료 집계 대상은 공개 주차에 연결된 고유 ACTIVE·READY 자료입니다.
+소유 `INSTRUCTOR` 전용이며 다른 강사의 강의실은 `CLASSROOM_NOT_FOUND`로 은닉합니다. 모든 비율은 0~100 정수로 반올림하고, 멤버 또는 유효한 자료가 없으면 0입니다. 자료 집계 대상은 주차 상태와 관계없이 연결된 모든 고유 ACTIVE·READY 자료입니다.
 
 ```json
 {
@@ -1287,7 +1287,7 @@ Query:
 
 모든 필드는 선택이지만 하나 이상 필요합니다. 필드 생략은 변경 없음, `description:null`은 설명 삭제입니다. `startDate`와 `endDate`를 함께 또는 각각 변경할 수 있으며 변경 후 `startDate <= endDate`여야 합니다.
 
-`shiftWeekReleaseDates`는 `startDate` 변경 시 기존 주차 공개일을 함께 이동할지 선택하며 생략하거나 `false`이면 이동하지 않습니다. `true`이면 `새 startDate - 기존 startDate`의 일수만큼 해당 강의실 모든 주차의 `releaseAt`을 같은 트랜잭션에서 이동합니다. `releaseAt=null`은 무기한 공개 의미를 유지하기 위해 변경하지 않습니다. 주차의 `status`는 변경하지 않으므로 `PRIVATE`·`PUBLISHED`·`BREAK`는 그대로이고, `SCHEDULED`는 이동된 공개일과 조회 시각으로 노출 여부를 판정합니다.
+`shiftWeekReleaseDates`는 `startDate` 변경 시 기존 주차 표시 일정을 함께 이동할지 선택하며 생략하거나 `false`이면 이동하지 않습니다. `true`이면 `새 startDate - 기존 startDate`의 일수만큼 해당 강의실 모든 주차의 `releaseAt`을 같은 트랜잭션에서 이동합니다. `releaseAt=null`은 일정 없음 의미를 유지하기 위해 변경하지 않습니다. 주차의 `status`는 변경하지 않으며 이동된 `releaseAt`과 상태는 학습자 접근을 제한하지 않습니다.
 
 날짜 변경으로 계산한 새 `weekCount`보다 기존 최대 `weekNumber`가 크면 주차를 암묵적으로 삭제하지 않고 `CLASSROOM_WEEK_RANGE_CONFLICT`(409)를 반환합니다. 완료 강의실은 `CLASSROOM_COMPLETED`(409), 비소유 강의실은 `CLASSROOM_NOT_FOUND`(404)입니다. 성공 시 갱신된 상세를 반환합니다.
 
@@ -1464,7 +1464,7 @@ PENDING 요청만 처리합니다. 승인은 같은 트랜잭션에서 `classroo
 }
 ```
 
-필드 생략은 변경 없음입니다. `releaseAt` 변경은 정본 `status`를 변경하지 않으며 공개 상태는 별도 status API로 전환합니다. 자료 공개가 취소되고 다른 소유권·공개 주차 접근 경로도 없으면 신규 자료·파일 조회, 세션 생성과 기존 세션의 추가 턴을 차단하고 기존 학습 기록은 보존합니다.
+필드 생략은 변경 없음입니다. `releaseAt` 변경은 정본 `status`를 변경하지 않으며 상태는 별도 status API로 전환합니다. `releaseAt`과 주차 상태 변경은 표시 정보만 바꾸며 자료·파일 조회, 세션 생성과 기존 세션의 추가 턴 접근권에는 영향을 주지 않습니다.
 
 ### PATCH `/api/classrooms/{id}/weeks/{weekId}/status`
 
@@ -1496,7 +1496,7 @@ PENDING 요청만 처리합니다. 승인은 같은 트랜잭션에서 `classroo
 
 ### DELETE `/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}`
 
-연결만 제거하고 자료와 기존 학습 기록은 유지합니다. 연결이 이미 없으면 멱등 성공합니다. 연결 해제 후 다른 소유권·공개 주차 접근 경로가 없는 사용자는 신규 자료·파일 조회, 세션 생성과 기존 세션의 추가 턴이 차단됩니다.
+연결만 제거하고 자료와 기존 학습 기록은 유지합니다. 연결이 이미 없으면 멱등 성공합니다. 연결 해제 후 다른 소유권·강의실 연결 접근 경로가 없는 사용자는 신규 자료·파일 조회, 세션 생성과 기존 세션의 추가 턴이 차단됩니다.
 
 ### GET `/api/classrooms/{id}/notices?page&size`
 

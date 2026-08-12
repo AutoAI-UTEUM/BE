@@ -122,8 +122,8 @@ class ClassroomStudentServiceTest {
 		when(material.getId()).thenReturn(50L);
 		when(memberRepository.findByClassroom_Id(eq(30L), any(Sort.class)))
 			.thenReturn(members);
-		when(weekMaterialRepository.findVisibleReportMaterials(
-			eq(30L), eq(null), eq(NOW), any(), any()
+		when(weekMaterialRepository.findReportMaterials(
+			eq(30L), eq(null), any(), any()
 		)).thenReturn(List.of(material));
 		when(progressService.calculateStudentProgressRates(
 			30L, List.of(material), List.of(40L, 41L, 42L)

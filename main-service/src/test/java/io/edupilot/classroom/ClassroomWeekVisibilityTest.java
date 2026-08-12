@@ -66,6 +66,11 @@ class ClassroomWeekVisibilityTest {
 			MaterialStatus.ACTIVE,
 			MaterialProcessingStatus.READY
 		)).containsExactly(breakMaterial);
+		assertThat(repository.findDistinctReadyMaterials(
+			30L,
+			MaterialStatus.ACTIVE,
+			MaterialProcessingStatus.READY
+		)).containsExactly(hiddenMaterial, breakMaterial);
 	}
 
 	private void assertVisibility(

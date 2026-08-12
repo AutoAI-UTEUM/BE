@@ -1,6 +1,5 @@
 package io.edupilot.session;
 
-import java.time.Clock;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,7 +27,6 @@ public class LearningProgressService {
 	private final ClassroomRepository classroomRepository;
 	private final ClassroomMemberRepository memberRepository;
 	private final ClassroomWeekMaterialRepository weekMaterialRepository;
-	private final Clock clock;
 
 	public LearningProgressService(
 		LearningSessionRepository sessionRepository,
@@ -36,8 +34,7 @@ public class LearningProgressService {
 		SessionPageRecordRepository pageRecordRepository,
 		ClassroomRepository classroomRepository,
 		ClassroomMemberRepository memberRepository,
-		ClassroomWeekMaterialRepository weekMaterialRepository,
-		Clock clock
+		ClassroomWeekMaterialRepository weekMaterialRepository
 	) {
 		this.sessionRepository = sessionRepository;
 		this.materialRepository = materialRepository;
@@ -45,7 +42,6 @@ public class LearningProgressService {
 		this.classroomRepository = classroomRepository;
 		this.memberRepository = memberRepository;
 		this.weekMaterialRepository = weekMaterialRepository;
-		this.clock = clock;
 	}
 
 	@Transactional(readOnly = true)
@@ -84,9 +80,8 @@ public class LearningProgressService {
 			throw new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND);
 		}
 		List<LearningMaterial> materials = weekMaterialRepository
-			.findDistinctVisibleReadyMaterials(
+			.findDistinctReadyMaterials(
 				classroomId,
-				clock.instant(),
 				io.edupilot.material.MaterialStatus.ACTIVE,
 				io.edupilot.material.MaterialProcessingStatus.READY
 			);

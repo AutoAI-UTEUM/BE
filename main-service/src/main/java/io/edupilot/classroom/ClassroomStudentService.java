@@ -105,10 +105,9 @@ public class ClassroomStudentService {
 		}
 
 		Instant now = clock.instant();
-		var materials = weekMaterialRepository.findVisibleReportMaterials(
+		var materials = weekMaterialRepository.findReportMaterials(
 			classroomId,
 			null,
-			now,
 			MaterialStatus.ACTIVE,
 			MaterialProcessingStatus.READY
 		);

@@ -79,8 +79,8 @@ class ClassroomAnalyticsServiceTest {
 
 	@Test
 	void aggregatesProgressViewersQuestionsAndSevenDayActivityBoundary() {
-		when(weekMaterialRepository.findVisibleReportMaterials(
-			eq(30L), eq(null), eq(NOW), any(), any()
+		when(weekMaterialRepository.findReportMaterials(
+			eq(30L), eq(null), any(), any()
 		)).thenReturn(List.of(firstMaterial, secondMaterial));
 		when(memberRepository.findUserIdsByClassroomId(30L))
 			.thenReturn(List.of(101L, 102L, 103L));
@@ -139,8 +139,8 @@ class ClassroomAnalyticsServiceTest {
 
 	@Test
 	void emptyClassroomReturnsZeroMetricsWithoutAggregateQueries() {
-		when(weekMaterialRepository.findVisibleReportMaterials(
-			eq(30L), eq(null), eq(NOW), any(), any()
+		when(weekMaterialRepository.findReportMaterials(
+			eq(30L), eq(null), any(), any()
 		)).thenReturn(List.of());
 		when(memberRepository.findUserIdsByClassroomId(30L)).thenReturn(List.of());
 
