@@ -55,6 +55,7 @@ edupilot:
   material:
     upload-max-mb: ${EDUPILOT_UPLOAD_MAX_MB:45}
     max-pages: 300
+    extraction-stuck-threshold: ${EDUPILOT_MATERIAL_EXTRACTION_STUCK_THRESHOLD:PT30M}
     page-text-api-enabled: false
   exam:
     grading:
