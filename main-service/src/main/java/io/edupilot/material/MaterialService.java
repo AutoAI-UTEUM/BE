@@ -147,6 +147,25 @@ public class MaterialService {
 		));
 	}
 
+	@Transactional
+	public MaterialDetailResponse rename(
+		Long ownerId,
+		Long materialId,
+		String title
+	) {
+		String normalizedTitle = validateTitle(title);
+		LearningMaterial material = materialRepository
+			.findByIdAndOwner_IdAndStatus(
+				materialId,
+				ownerId,
+				MaterialStatus.ACTIVE
+			)
+			.orElseThrow(() -> new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
+		material.rename(normalizedTitle);
+		materialRepository.flush();
+		return MaterialDetailResponse.from(material);
+	}
+
 	@Transactional(readOnly = true)
 	public MaterialFile file(Long ownerId, Long materialId) {
 		LearningMaterial material = accessService.requireAccessible(ownerId, materialId);

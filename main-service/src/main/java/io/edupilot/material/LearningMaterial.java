@@ -111,6 +111,10 @@ public class LearningMaterial {
 		this.status = MaterialStatus.DELETED;
 	}
 
+	public void rename(String title) {
+		this.title = title;
+	}
+
 	public boolean isActiveAndProcessing() {
 		return status == MaterialStatus.ACTIVE
 			&& processingStatus == MaterialProcessingStatus.PROCESSING;
