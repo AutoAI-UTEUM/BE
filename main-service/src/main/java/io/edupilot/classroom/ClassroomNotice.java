@@ -42,6 +42,9 @@ public class ClassroomNotice {
 	@Column(name = "publish_at")
 	private Instant publishAt;
 
+	@Column(name = "notification_sent_at")
+	private Instant notificationSentAt;
+
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
@@ -159,6 +162,20 @@ public class ClassroomNotice {
 
 	public boolean isPublished(Instant now) {
 		return publishAt == null || !publishAt.isAfter(now);
+	}
+
+	public boolean isNotificationSent() {
+		return notificationSentAt != null;
+	}
+
+	public void markNotificationSent(Instant now) {
+		if (notificationSentAt == null) {
+			notificationSentAt = now;
+		}
+	}
+
+	public Instant getNotificationSentAt() {
+		return notificationSentAt;
 	}
 
 	public Instant getCreatedAt() {
