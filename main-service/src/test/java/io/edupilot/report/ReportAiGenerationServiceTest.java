@@ -105,7 +105,9 @@ class ReportAiGenerationServiceTest {
 			.findByGeneration_IdOrderByOccurredAtAscEvidenceIdAsc(1L))
 			.thenReturn(List.of(evidence));
 		when(reportRepository
-			.findFirstByClassroom_IdAndStudent_IdOrderByVersionDesc(null, null))
+			.findFirstByClassroom_IdAndStudent_IdAndScopeKeyOrderByVersionDesc(
+				null, null, "FULL"
+			))
 			.thenReturn(Optional.empty());
 	}
 

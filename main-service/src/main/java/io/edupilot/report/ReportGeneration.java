@@ -220,6 +220,11 @@ public class ReportGeneration {
 	public String getRequestId() { return requestId; }
 	public ReportScopeType getScopeType() { return scopeType; }
 	public Integer getWeekNumber() { return weekNumber; }
+	public String getScopeKey() {
+		return scopeType == ReportScopeType.FULL
+			? "FULL"
+			: "WEEK:" + weekNumber;
+	}
 	public String getScopeHash() { return scopeHash; }
 	public String getSnapshotHash() { return snapshotHash; }
 	public Map<String, Object> getGenerationInput() { return generationInput; }

@@ -98,9 +98,10 @@ public class ReportGenerationPersistenceService {
 			FrozenInput.class
 		);
 		StudentReport previous = reportRepository
-			.findFirstByClassroom_IdAndStudent_IdOrderByVersionDesc(
+			.findFirstByClassroom_IdAndStudent_IdAndScopeKeyOrderByVersionDesc(
 				generation.getClassroomId(),
-				generation.getStudentId()
+				generation.getStudentId(),
+				generation.getScopeKey()
 			)
 			.orElse(null);
 		Map<String, ReportCriterionResult> previousResults = new HashMap<>();
