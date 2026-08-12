@@ -23,9 +23,10 @@ import org.springframework.test.util.ReflectionTestUtils;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterial;
-import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.material.MaterialStatus;
 import io.edupilot.note.dto.CreateNoteRequest;
+import io.edupilot.note.dto.NoteResponse;
 import io.edupilot.note.dto.UpdateNoteRequest;
 import io.edupilot.session.ChatMessage;
 import io.edupilot.session.ChatMessageRepository;
@@ -46,7 +47,7 @@ class NoteServiceTest {
 	private LearningSessionRepository sessionRepository;
 
 	@Mock
-	private LearningMaterialRepository materialRepository;
+	private MaterialAccessService materialAccessService;
 
 	@Mock
 	private ChatMessageRepository messageRepository;
@@ -64,7 +65,7 @@ class NoteServiceTest {
 		noteService = new NoteService(
 			noteRepository,
 			sessionRepository,
-			materialRepository,
+			materialAccessService,
 			messageRepository,
 			userRepository
 		);
@@ -81,7 +82,7 @@ class NoteServiceTest {
 	void createsNotesWithAndWithoutOptionalReferences() {
 		ChatMessage message = ChatMessage.user(session, "질문", "request-1");
 		ReflectionTestUtils.setField(message, "id", 501L);
-		stubOwnedSessionAndMaterial();
+		stubSessionAndAccessibleMaterial();
 		when(messageRepository.findByIdAndSession_Id(501L, 100L))
 			.thenReturn(Optional.of(message));
 		when(userRepository.getReferenceById(1L)).thenReturn(user);
@@ -127,7 +128,7 @@ class NoteServiceTest {
 			ErrorCode.VALIDATION_FAILED
 		);
 
-		stubOwnedSessionAndMaterial();
+		stubSessionAndAccessibleMaterial();
 		assertError(
 			() -> noteService.create(
 				1L,
@@ -151,7 +152,7 @@ class NoteServiceTest {
 			ErrorCode.SESSION_NOT_FOUND
 		);
 
-		stubOwnedSessionAndMaterial();
+		stubSessionAndAccessibleMaterial();
 		when(messageRepository.findByIdAndSession_Id(501L, 100L))
 			.thenReturn(Optional.empty());
 		assertError(
@@ -170,7 +171,7 @@ class NoteServiceTest {
 			Note.create(user, material, session, 3, null, "내용"),
 			1000L
 		);
-		stubOwnedSessionAndMaterial();
+		stubSessionAndAccessibleMaterial();
 		when(noteRepository.findByUser_IdAndMaterial_IdAndMaterial_Status(
 			org.mockito.ArgumentMatchers.eq(1L),
 			org.mockito.ArgumentMatchers.eq(10L),
@@ -205,12 +206,99 @@ class NoteServiceTest {
 
 	@Test
 	void excludesDeletedMaterialsFromLists() {
-		when(materialRepository.findByIdAndOwner_IdAndStatus(
-			10L,
-			1L,
-			MaterialStatus.ACTIVE
-		)).thenReturn(Optional.empty());
+		when(materialAccessService.requireAccessible(1L, 10L))
+			.thenThrow(new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
 
+		assertError(
+			() -> noteService.listByMaterial(1L, 10L, 0, 50),
+			ErrorCode.MATERIAL_NOT_FOUND
+		);
+	}
+
+	@Test
+	void classroomMemberCreatesAndListsOwnNotesAcrossAllRoutes() {
+		User instructor = User.create("instructor@example.com", "hash", "강사");
+		ReflectionTestUtils.setField(instructor, "id", 2L);
+		LearningMaterial classroomMaterial = LearningMaterial.create(
+			instructor,
+			"강의실 자료",
+			"materials/classroom.pdf"
+		);
+		ReflectionTestUtils.setField(classroomMaterial, "id", 20L);
+		classroomMaterial.markReady(5);
+		LearningSession classroomSession = LearningSession.create(
+			user,
+			classroomMaterial
+		);
+		ReflectionTestUtils.setField(classroomSession, "id", 200L);
+		Note note = persisted(
+			Note.create(
+				user,
+				classroomMaterial,
+				classroomSession,
+				2,
+				null,
+				"학생 노트"
+			),
+			2000L
+		);
+
+		when(sessionRepository.findByIdAndUser_Id(200L, 1L))
+			.thenReturn(Optional.of(classroomSession));
+		when(materialAccessService.requireAccessible(1L, 20L))
+			.thenReturn(classroomMaterial);
+		when(userRepository.getReferenceById(1L)).thenReturn(user);
+		when(noteRepository.saveAndFlush(any(Note.class))).thenReturn(note);
+		when(noteRepository.findByUser_IdAndMaterial_IdAndMaterial_Status(
+			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(20L),
+			org.mockito.ArgumentMatchers.eq(MaterialStatus.ACTIVE),
+			any(Pageable.class)
+		)).thenAnswer(invocation -> new PageImpl<>(
+			List.of(note),
+			invocation.getArgument(3),
+			1
+		));
+
+		var created = noteService.create(
+			1L,
+			200L,
+			new CreateNoteRequest("학생 노트", 2, null)
+		);
+		var sessionNotes = noteService.listBySession(1L, 200L, 0, 50);
+		var materialNotes = noteService.listByMaterial(1L, 20L, 0, 50);
+
+		assertThat(created.materialId()).isEqualTo(20L);
+		assertThat(sessionNotes.items()).containsExactly(NoteResponse.from(note));
+		assertThat(materialNotes.items()).containsExactly(NoteResponse.from(note));
+		verify(noteRepository, org.mockito.Mockito.times(2))
+			.findByUser_IdAndMaterial_IdAndMaterial_Status(
+				org.mockito.ArgumentMatchers.eq(1L),
+				org.mockito.ArgumentMatchers.eq(20L),
+				org.mockito.ArgumentMatchers.eq(MaterialStatus.ACTIVE),
+				any(Pageable.class)
+			);
+	}
+
+	@Test
+	void inaccessibleClassroomMaterialIsHiddenAcrossAllRoutes() {
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(materialAccessService.requireAccessible(1L, 10L))
+			.thenThrow(new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
+
+		assertError(
+			() -> noteService.create(
+				1L,
+				100L,
+				new CreateNoteRequest("내용", null, null)
+			),
+			ErrorCode.MATERIAL_NOT_FOUND
+		);
+		assertError(
+			() -> noteService.listBySession(1L, 100L, 0, 50),
+			ErrorCode.MATERIAL_NOT_FOUND
+		);
 		assertError(
 			() -> noteService.listByMaterial(1L, 10L, 0, 50),
 			ErrorCode.MATERIAL_NOT_FOUND
@@ -252,14 +340,11 @@ class NoteServiceTest {
 		);
 	}
 
-	private void stubOwnedSessionAndMaterial() {
+	private void stubSessionAndAccessibleMaterial() {
 		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
 			.thenReturn(Optional.of(session));
-		when(materialRepository.findByIdAndOwner_IdAndStatus(
-			10L,
-			1L,
-			MaterialStatus.ACTIVE
-		)).thenReturn(Optional.of(material));
+		when(materialAccessService.requireAccessible(1L, 10L))
+			.thenReturn(material);
 	}
 
 	private Note persisted(Note note, Long id) {
