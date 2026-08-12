@@ -12,6 +12,8 @@ import io.edupilot.diagnosis.DiagnosisRepository;
 import io.edupilot.diagnosis.DiagnosisStatus;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.material.MaterialAccessService;
+import io.edupilot.quiz.dto.QuizSubmissionDetailResponse;
 import io.edupilot.quiz.dto.QuizSubmitResponse;
 import io.edupilot.session.LearningSession;
 import io.edupilot.session.LearningSessionRepository;
@@ -30,6 +32,7 @@ public class QuizSubmissionPersistenceService {
 	private final UserRepository userRepository;
 	private final UiActionResolver uiActionResolver;
 	private final DiagnosisRepository diagnosisRepository;
+	private final MaterialAccessService materialAccessService;
 
 	public QuizSubmissionPersistenceService(
 		LearningSessionRepository sessionRepository,
@@ -37,7 +40,8 @@ public class QuizSubmissionPersistenceService {
 		QuizSubmissionRepository submissionRepository,
 		UserRepository userRepository,
 		UiActionResolver uiActionResolver,
-		DiagnosisRepository diagnosisRepository
+		DiagnosisRepository diagnosisRepository,
+		MaterialAccessService materialAccessService
 	) {
 		this.sessionRepository = sessionRepository;
 		this.quizRepository = quizRepository;
@@ -45,6 +49,7 @@ public class QuizSubmissionPersistenceService {
 		this.userRepository = userRepository;
 		this.uiActionResolver = uiActionResolver;
 		this.diagnosisRepository = diagnosisRepository;
+		this.materialAccessService = materialAccessService;
 	}
 
 	@Transactional(readOnly = true)
@@ -60,10 +65,24 @@ public class QuizSubmissionPersistenceService {
 			quizId,
 			userId,
 			requestId
-		).map(submission -> QuizSubmitResponse.from(
-			submission,
+		).map(submission -> reconstruct(submission).toSubmitResponse(
 			replayUiActions(submission)
 		));
+	}
+
+	@Transactional(readOnly = true)
+	public Optional<QuizSubmissionDetailResponse> findDetail(
+		Long userId,
+		Long quizId
+	) {
+		return submissionRepository.findOwnedByQuizId(quizId, userId)
+			.map(submission -> {
+				materialAccessService.assertSessionAccessible(
+					userId,
+					submission.getSessionId()
+				);
+				return reconstruct(submission).toDetailResponse();
+			});
 	}
 
 	@Transactional(readOnly = true)
@@ -150,5 +169,11 @@ public class QuizSubmissionPersistenceService {
 			));
 		}
 		return submission.getSessionUiActions();
+	}
+
+	private QuizSubmissionReconstruction reconstruct(
+		QuizSubmission submission
+	) {
+		return QuizSubmissionReconstruction.from(submission);
 	}
 }

@@ -28,6 +28,21 @@ public interface QuizSubmissionRepository
 		@Param("requestId") String requestId
 	);
 
+	@Query("""
+		select submission
+		from QuizSubmission submission
+		join fetch submission.quiz quiz
+		join fetch quiz.session session
+		where quiz.id = :quizId
+		  and submission.user.id = :userId
+		  and session.user.id = :userId
+		  and session.status <> io.edupilot.session.SessionStatus.DELETED
+		""")
+	Optional<QuizSubmission> findOwnedByQuizId(
+		@Param("quizId") Long quizId,
+		@Param("userId") Long userId
+	);
+
 	List<QuizSubmission> findByQuiz_IdInAndUser_Id(
 		Collection<Long> quizIds,
 		Long userId

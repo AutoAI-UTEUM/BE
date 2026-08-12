@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 import io.edupilot.auth.AuthenticatedUser;
 import io.edupilot.global.response.ApiResponse;
 import io.edupilot.quiz.dto.QuizDetailResponse;
+import io.edupilot.quiz.dto.QuizSubmissionDetailResponse;
 import io.edupilot.quiz.dto.QuizSubmitRequest;
 import io.edupilot.quiz.dto.QuizSubmitResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -43,6 +44,18 @@ public class QuizController {
 		return ApiResponse.success(
 			quizService.detail(authenticatedUser.userId(), quizId)
 		);
+	}
+
+	@GetMapping("/{quizId}/submission")
+	@Operation(summary = "내 퀴즈 제출 결과 조회")
+	public ApiResponse<QuizSubmissionDetailResponse> submission(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long quizId
+	) {
+		return ApiResponse.success(submissionService.detail(
+			authenticatedUser.userId(),
+			quizId
+		));
 	}
 
 	@PostMapping("/{quizId}/submit")

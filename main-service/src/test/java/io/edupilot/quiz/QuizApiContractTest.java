@@ -39,6 +39,7 @@ import io.edupilot.note.NoteRepository;
 import io.edupilot.quiz.dto.QuizDetailResponse;
 import io.edupilot.quiz.dto.QuizListResponse;
 import io.edupilot.quiz.dto.QuizGradingResultResponse;
+import io.edupilot.quiz.dto.QuizSubmissionDetailResponse;
 import io.edupilot.quiz.dto.QuizSubmitResponse;
 import io.edupilot.quiz.dto.QuizSummaryResponse;
 import io.edupilot.quiz.dto.QuizQuestionResponse;
@@ -120,6 +121,67 @@ class QuizApiContractTest {
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.error.code")
 				.value("AUTHENTICATION_REQUIRED"));
+		mockMvc.perform(get("/api/quizzes/50/submission"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code")
+				.value("AUTHENTICATION_REQUIRED"));
+	}
+
+	@Test
+	void submissionDetailExposesCanonicalAnswerOnlyAfterSubmission()
+		throws Exception {
+		when(submissionService.detail(1L, 50L)).thenReturn(
+			new QuizSubmissionDetailResponse(
+				50L,
+				200L,
+				NOW,
+				new BigDecimal("10.00"),
+				new BigDecimal("20.00"),
+				false,
+				List.of(new QuizSubmissionDetailResponse.Item(
+					"q1",
+					"a",
+					"b",
+					GradingVerdict.PARTIAL,
+					new BigDecimal("10.00"),
+					new BigDecimal("20.00"),
+					"개념은 맞지만 선택이 부정확합니다.",
+					"b가 정의에 맞습니다."
+				))
+			)
+		);
+
+		mockMvc.perform(get("/api/quizzes/50/submission")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.quizId").value(50))
+			.andExpect(jsonPath("$.data.submissionId").value(200))
+			.andExpect(jsonPath("$.data.submittedAt")
+				.value("2026-07-25T10:00:00Z"))
+			.andExpect(jsonPath("$.data.items[0].submittedAnswer")
+				.value("a"))
+			.andExpect(jsonPath("$.data.items[0].correctAnswer")
+				.value("b"))
+			.andExpect(jsonPath("$.data.items[0].verdict")
+				.value("PARTIAL"))
+			.andExpect(jsonPath("$.data.items[0].feedback")
+				.value("개념은 맞지만 선택이 부정확합니다."))
+			.andExpect(jsonPath("$.data.items[0].explanation")
+				.value("b가 정의에 맞습니다."));
+
+		when(submissionService.detail(1L, 51L))
+			.thenThrow(new BusinessException(ErrorCode.QUIZ_NOT_FOUND));
+		mockMvc.perform(get("/api/quizzes/51/submission")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("QUIZ_NOT_FOUND"));
+
+		when(submissionService.detail(1L, 999L))
+			.thenThrow(new BusinessException(ErrorCode.QUIZ_NOT_FOUND));
+		mockMvc.perform(get("/api/quizzes/999/submission")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("QUIZ_NOT_FOUND"));
 	}
 
 	@Test

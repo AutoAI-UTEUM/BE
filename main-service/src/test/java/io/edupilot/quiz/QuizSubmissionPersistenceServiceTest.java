@@ -21,6 +21,7 @@ import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.diagnosis.DiagnosisRepository;
 import io.edupilot.material.LearningMaterial;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.session.LearningSession;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.session.PageStatus;
@@ -46,6 +47,9 @@ class QuizSubmissionPersistenceServiceTest {
 
 	@Mock
 	private DiagnosisRepository diagnosisRepository;
+
+	@Mock
+	private MaterialAccessService materialAccessService;
 
 	@Test
 	void persistsSubmissionAndClearsActiveQuiz() {
@@ -108,7 +112,8 @@ class QuizSubmissionPersistenceServiceTest {
 				submissionRepository,
 				userRepository,
 				new io.edupilot.session.UiActionResolver(),
-				diagnosisRepository
+				diagnosisRepository,
+				materialAccessService
 			);
 
 		var persisted = service.persist(1L, prepared, result, true);
@@ -375,6 +380,32 @@ class QuizSubmissionPersistenceServiceTest {
 			.containsExactly(UiAction.initialExplanation());
 	}
 
+	@Test
+	void findsOwnedSubmissionDetailAndChecksMaterialAccess() {
+		Fixture fixture = fixture();
+		User owner = (User) ReflectionTestUtils.getField(
+			fixture.session(),
+			"user"
+		);
+		QuizSubmission submission = QuizSubmission.create(
+			fixture.quiz(),
+			owner,
+			"request-1",
+			List.of(),
+			fixture.result(),
+			true
+		);
+		ReflectionTestUtils.setField(submission, "id", 200L);
+		when(submissionRepository.findOwnedByQuizId(50L, 1L))
+			.thenReturn(Optional.of(submission));
+
+		var detail = service().findDetail(1L, 50L);
+
+		assertThat(detail).isPresent();
+		assertThat(detail.orElseThrow().submissionId()).isEqualTo(200L);
+		verify(materialAccessService).assertSessionAccessible(1L, 100L);
+	}
+
 	private QuizSubmissionPersistenceService service() {
 		return new QuizSubmissionPersistenceService(
 			sessionRepository,
@@ -382,7 +413,8 @@ class QuizSubmissionPersistenceServiceTest {
 			submissionRepository,
 			userRepository,
 			new io.edupilot.session.UiActionResolver(),
-			diagnosisRepository
+			diagnosisRepository,
+			materialAccessService
 		);
 	}
 
