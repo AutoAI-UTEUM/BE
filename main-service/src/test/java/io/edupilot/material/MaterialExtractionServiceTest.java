@@ -12,12 +12,15 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.io.ByteArrayResource;
 
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
+import io.edupilot.ai.AiFailureCategory;
 import io.edupilot.ai.dto.ExtractResponse;
 import io.edupilot.ai.dto.ExtractedPage;
 import io.edupilot.global.error.ErrorCode;
@@ -97,6 +100,63 @@ class MaterialExtractionServiceTest {
 		when(aiClient.extract(resource)).thenThrow(
 			new AiClientException(ErrorCode.AI_SERVICE_TIMEOUT)
 		);
+
+		extractionService.extract(10L, "trace-1");
+
+		verify(persistenceService).fail(
+			10L,
+			MaterialFailureReason.EXTRACTION_FAILED,
+			"trace-1"
+		);
+	}
+
+	@ParameterizedTest
+	@CsvSource({
+		"UNSUPPORTED_FORMAT, UNSUPPORTED_FORMAT",
+		"ENCRYPTED_PDF, ENCRYPTED_PDF",
+		"NO_TEXT_CONTENT, NO_TEXT_CONTENT",
+		"FILE_TOO_LARGE, FILE_TOO_LARGE",
+		"PAGE_LIMIT_EXCEEDED, PAGE_LIMIT_EXCEEDED"
+	})
+	void mapsKnownAiFailureCode(
+		String upstreamCode,
+		MaterialFailureReason expectedReason
+	) {
+		when(aiClient.extract(resource)).thenThrow(new AiClientException(
+			ErrorCode.AI_RESPONSE_INVALID,
+			AiFailureCategory.POLICY,
+			false,
+			upstreamCode,
+			null
+		));
+
+		extractionService.extract(10L, "trace-1");
+
+		verify(persistenceService).fail(10L, expectedReason, "trace-1");
+	}
+
+	@Test
+	void unknownAiFailureCodeFallsBackToExtractionFailed() {
+		when(aiClient.extract(resource)).thenThrow(new AiClientException(
+			ErrorCode.AI_RESPONSE_INVALID,
+			AiFailureCategory.POLICY,
+			false,
+			"UNKNOWN_EXTRACTION_ERROR",
+			null
+		));
+
+		extractionService.extract(10L, "trace-1");
+
+		verify(persistenceService).fail(
+			10L,
+			MaterialFailureReason.EXTRACTION_FAILED,
+			"trace-1"
+		);
+	}
+
+	@Test
+	void nonAiFailureFallsBackToExtractionFailed() {
+		when(aiClient.extract(resource)).thenThrow(new IllegalStateException("failed"));
 
 		extractionService.extract(10L, "trace-1");
 

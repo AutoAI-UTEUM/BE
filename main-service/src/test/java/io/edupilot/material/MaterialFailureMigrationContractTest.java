@@ -27,4 +27,27 @@ class MaterialFailureMigrationContractTest {
 				.doesNotContain("DEFAULT");
 		}
 	}
+
+	@Test
+	void v27ExpandsStructuredFailureReasonCheckWithoutBackfill() throws Exception {
+		try (var input = getClass().getResourceAsStream(
+			"/db/migration/V27__material_failure_reason_expansion.sql"
+		)) {
+			assertThat(input).isNotNull();
+			String sql = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+
+			assertThat(sql)
+				.contains("DROP CHECK chk_learning_materials_failure_reason")
+				.contains("ADD CONSTRAINT chk_learning_materials_failure_reason")
+				.contains("'EXTRACTION_FAILED'")
+				.contains("'PAGE_LIMIT_EXCEEDED'")
+				.contains("'SCHEDULING_FAILED'")
+				.contains("'UNSUPPORTED_FORMAT'")
+				.contains("'ENCRYPTED_PDF'")
+				.contains("'NO_TEXT_CONTENT'")
+				.contains("'FILE_TOO_LARGE'")
+				.doesNotContain("chk_learning_materials_failure_metadata")
+				.doesNotContain("UPDATE learning_materials");
+		}
+	}
 }

@@ -76,7 +76,7 @@ public class MaterialExtractionService {
 		} catch (RuntimeException exception) {
 			persistenceService.fail(
 				materialId,
-				MaterialFailureReason.EXTRACTION_FAILED,
+				failureReason(exception),
 				traceId
 			);
 			log.atWarn()
@@ -90,6 +90,21 @@ public class MaterialExtractionService {
 				MDC.setContextMap(previousContext);
 			}
 		}
+	}
+
+	private MaterialFailureReason failureReason(RuntimeException exception) {
+		if (!(exception instanceof AiClientException aiException)
+			|| aiException.upstreamCode() == null) {
+			return MaterialFailureReason.EXTRACTION_FAILED;
+		}
+		return switch (aiException.upstreamCode()) {
+			case "UNSUPPORTED_FORMAT" -> MaterialFailureReason.UNSUPPORTED_FORMAT;
+			case "ENCRYPTED_PDF" -> MaterialFailureReason.ENCRYPTED_PDF;
+			case "NO_TEXT_CONTENT" -> MaterialFailureReason.NO_TEXT_CONTENT;
+			case "FILE_TOO_LARGE" -> MaterialFailureReason.FILE_TOO_LARGE;
+			case "PAGE_LIMIT_EXCEEDED" -> MaterialFailureReason.PAGE_LIMIT_EXCEEDED;
+			default -> MaterialFailureReason.EXTRACTION_FAILED;
+		};
 	}
 
 	private String safeReason(RuntimeException exception) {

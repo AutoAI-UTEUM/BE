@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
@@ -78,6 +80,31 @@ class MaterialFailureJpaTest {
 		assertThat(saved.getFailureReason())
 			.isEqualTo(MaterialFailureReason.PAGE_LIMIT_EXCEEDED);
 		assertThat(saved.getFailureTraceId()).isEqualTo("upload-trace-jpa");
+	}
+
+	@ParameterizedTest
+	@EnumSource(
+		value = MaterialFailureReason.class,
+		names = {
+			"UNSUPPORTED_FORMAT",
+			"ENCRYPTED_PDF",
+			"NO_TEXT_CONTENT",
+			"FILE_TOO_LARGE"
+		}
+	)
+	void persistsExpandedFailureReason(MaterialFailureReason failureReason) {
+		LearningMaterial material = material(owner(), "expanded-failure");
+
+		material.markFailed(failureReason, "expanded-trace");
+		materialRepository.flush();
+		entityManager.clear();
+
+		LearningMaterial saved = materialRepository.findById(material.getId())
+			.orElseThrow();
+		assertThat(saved.getProcessingStatus())
+			.isEqualTo(MaterialProcessingStatus.FAILED);
+		assertThat(saved.getFailureReason()).isEqualTo(failureReason);
+		assertThat(saved.getFailureTraceId()).isEqualTo("expanded-trace");
 	}
 
 	@Test
