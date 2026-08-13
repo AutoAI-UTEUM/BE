@@ -316,7 +316,7 @@ Bearer 인증 후 저장된 이미지의 실제 Media-Type으로 private/no-stor
 
 업로드 직후 응답은 `processingStatus=PROCESSING`, `pageCount=null`, `failureReason=null`, `traceId=null`입니다. Spring이 백그라운드에서 내부 API `POST /internal/ai/extract`로 추출을 요청하고, 결과 저장 후 `READY`(실패 시 `FAILED`)로 전이합니다(DEC-006). `processingStatus`는 `PROCESSING`, `READY`, `FAILED` 3값을 사용합니다. FE는 자료 상세 재조회로 상태를 확인합니다. `PROCESSING`이 마지막 갱신 후 30분을 초과하면 자동으로 `FAILED`와 `failureReason=EXTRACTION_FAILED`로 전이하며 자동 재추출은 하지 않습니다.
 
-`FAILED` 자료는 `failureReason`과 실패한 업로드 요청의 `traceId`를 목록·상세 응답에 반환합니다. `failureReason`은 `EXTRACTION_FAILED | PAGE_LIMIT_EXCEEDED | SCHEDULING_FAILED` 중 하나이며 자유 텍스트를 반환하지 않습니다. V23 이전에 실패한 자료는 원인을 복원할 수 없어 두 필드가 `null`일 수 있습니다. FE는 `failureReason=null`이면 일반 실패 문구를 표시합니다. `PROCESSING | READY` 자료에서는 두 필드가 항상 `null`입니다.
+`FAILED` 자료는 `failureReason`과 실패한 업로드 요청의 `traceId`를 목록·상세 응답에 반환합니다. `failureReason`은 `EXTRACTION_FAILED | PAGE_LIMIT_EXCEEDED | SCHEDULING_FAILED | UNSUPPORTED_FORMAT | ENCRYPTED_PDF | NO_TEXT_CONTENT | FILE_TOO_LARGE` 중 하나이며 자유 텍스트를 반환하지 않습니다. V23 이전에 실패한 자료는 원인을 복원할 수 없어 두 필드가 `null`일 수 있습니다. FE는 `failureReason=null`이면 일반 실패 문구를 표시합니다. `PROCESSING | READY` 자료에서는 두 필드가 항상 `null`입니다.
 
 개인 업로드는 `LEARNER | INSTRUCTOR | ADMIN`이 사용할 수 있습니다. `ADMIN`은 기존 예약 역할 계약만 유지하며 강의실 기능은 제공하지 않습니다. `classroomId`와 `weekNumber`는 둘 다 생략하거나 둘 다 제공해야 하며, 강의실 업로드는 해당 강의실 소유 `INSTRUCTOR`만 가능합니다. 자료 행과 주차 연결은 한 DB 트랜잭션으로 저장하고 DB 저장 실패 시 이미 저장된 파일을 보상 삭제합니다.
 

@@ -79,7 +79,7 @@ erDiagram
 
 - PDF 파일과 학습용 메타데이터를 나타냅니다.
 - 처리 상태는 `PROCESSING → READY | FAILED`이며 `READY`만 학습 가능합니다.
-- FAILED 전이는 자유 텍스트 대신 `EXTRACTION_FAILED | PAGE_LIMIT_EXCEEDED | SCHEDULING_FAILED` 사유 코드와 업로드 요청 traceId를 저장합니다. V23 이전 FAILED 자료는 두 값이 null일 수 있고, FAILED가 아닌 자료에는 실패 메타데이터를 노출하지 않습니다.
+- FAILED 전이는 자유 텍스트 대신 `EXTRACTION_FAILED | PAGE_LIMIT_EXCEEDED | SCHEDULING_FAILED | UNSUPPORTED_FORMAT | ENCRYPTED_PDF | NO_TEXT_CONTENT | FILE_TOO_LARGE` 사유 코드와 업로드 요청 traceId를 저장합니다. V23 이전 FAILED 자료는 두 값이 null일 수 있고, FAILED가 아닌 자료에는 실패 메타데이터를 노출하지 않습니다.
 - 전역 자료 목록·수정·삭제는 소유자 전용이고 삭제는 `ACTIVE → DELETED` 논리 전이입니다. 승인된 강의실 멤버는 주차 상태와 관계없이 연결 자료의 상세·원본 파일을 조회하고 본인 통합학습 세션을 생성할 수 있지만 자료를 수정·삭제·연결할 수 없습니다.
 - 원본 물리 경로 대신 저장소 독립적인 `storageKey`를 저장하며, 삭제 시 파일과 페이지 문맥은 보존합니다.
 - 비동기 추출 결과는 적용 직전에 상태를 다시 확인하고, 그 사이 삭제됐다면 폐기합니다.
