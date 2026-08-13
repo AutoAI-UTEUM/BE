@@ -1,6 +1,9 @@
 """HTTP contract tests for POST /internal/ai/extract."""
 
+import logging
+
 import httpx
+import pytest
 from pydantic import TypeAdapter
 
 from edupilot_ai.core.errors import InternalErrorResponse
@@ -51,10 +54,14 @@ async def test_extract_rejects_non_pdf_extension(
     response = await client.post(
         "/internal/ai/extract",
         headers=auth_headers,
-        files={"file": ("lesson.txt", make_pdf("text"), "application/pdf")},
+        files={"file": ("lesson.ppt", make_pdf("text"), "application/pdf")},
     )
 
-    assert_extraction_failure(response, reason_phrase="invalid or corrupted")
+    assert_extraction_failure(
+        response,
+        code="UNSUPPORTED_FORMAT",
+        reason_phrase="invalid or corrupted",
+    )
 
 
 async def test_extract_rejects_non_pdf_magic_bytes(
@@ -67,7 +74,28 @@ async def test_extract_rejects_non_pdf_magic_bytes(
         files={"file": ("lesson.pdf", b"not-a-pdf", "application/pdf")},
     )
 
-    assert_extraction_failure(response, reason_phrase="invalid or corrupted")
+    assert_extraction_failure(
+        response,
+        code="UNSUPPORTED_FORMAT",
+        reason_phrase="invalid or corrupted",
+    )
+
+
+async def test_extract_rejects_empty_upload_as_unsupported_format(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    response = await client.post(
+        "/internal/ai/extract",
+        headers=auth_headers,
+        files={"file": ("lesson.pdf", b"", "application/pdf")},
+    )
+
+    assert_extraction_failure(
+        response,
+        code="UNSUPPORTED_FORMAT",
+        reason_phrase="invalid or corrupted",
+    )
 
 
 async def test_extract_rejects_non_pdf_content_type(
@@ -80,7 +108,11 @@ async def test_extract_rejects_non_pdf_content_type(
         files={"file": ("lesson.pdf", make_pdf("text"), "application/octet-stream")},
     )
 
-    assert_extraction_failure(response, reason_phrase="invalid or corrupted")
+    assert_extraction_failure(
+        response,
+        code="UNSUPPORTED_FORMAT",
+        reason_phrase="invalid or corrupted",
+    )
 
 
 async def test_extract_rejects_scanned_document(
@@ -93,7 +125,11 @@ async def test_extract_rejects_scanned_document(
         files={"file": ("scanned.pdf", make_blank_pdf(2), "application/pdf")},
     )
 
-    assert_extraction_failure(response, reason_phrase="no text layer")
+    assert_extraction_failure(
+        response,
+        code="NO_TEXT_CONTENT",
+        reason_phrase="no text layer",
+    )
 
 
 async def test_extract_rejects_encrypted_document(
@@ -112,7 +148,11 @@ async def test_extract_rejects_encrypted_document(
         },
     )
 
-    assert_extraction_failure(response, reason_phrase="encrypted")
+    assert_extraction_failure(
+        response,
+        code="ENCRYPTED_PDF",
+        reason_phrase="encrypted",
+    )
 
 
 async def test_extract_rejects_corrupted_document_without_raw_error(
@@ -125,8 +165,46 @@ async def test_extract_rejects_corrupted_document_without_raw_error(
         files={"file": ("broken.pdf", b"%PDF-broken", "application/pdf")},
     )
 
-    assert_extraction_failure(response, reason_phrase="invalid or corrupted")
+    assert_extraction_failure(
+        response,
+        code="UNSUPPORTED_FORMAT",
+        reason_phrase="invalid or corrupted",
+    )
     assert "EOF marker" not in response.text
+
+
+async def test_extract_failure_log_contains_reason_without_file_data(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    private_filename = "PRIVATE-STUDENT-FILE.pdf"
+    private_content = b"PRIVATE-PDF-CONTENT"
+    extract_logger = logging.getLogger("edupilot_ai.api.extract")
+    extract_logger.addHandler(caplog.handler)
+    try:
+        response = await client.post(
+            "/internal/ai/extract",
+            headers=auth_headers,
+            files={
+                "file": (
+                    private_filename,
+                    private_content,
+                    "application/pdf",
+                )
+            },
+        )
+    finally:
+        extract_logger.removeHandler(caplog.handler)
+
+    assert response.status_code == 400
+    record = next(item for item in caplog.records if item.message == "PDF extraction failed")
+    assert record.levelno == logging.WARNING
+    assert record.__dict__["errorCode"] == "UNSUPPORTED_FORMAT"
+    assert record.__dict__["status"] == 400
+    assert record.__dict__["sizeBytes"] == len(private_content)
+    assert private_filename not in caplog.text
+    assert private_content.decode() not in caplog.text
 
 
 async def test_extract_accepts_exactly_300_pages(
@@ -208,11 +286,19 @@ async def test_extract_rejects_size_as_soon_as_configured_limit_is_exceeded(
     assert error.error.retryable is False
 
 
-def assert_extraction_failure(response: httpx.Response, *, reason_phrase: str) -> None:
+def assert_extraction_failure(
+    response: httpx.Response,
+    *,
+    code: str,
+    reason_phrase: str,
+) -> None:
     assert response.status_code == 400
     payload = response.json()
     TypeAdapter(InternalErrorResponse).validate_python(payload)
-    assert payload["error"]["code"] == "EXTRACTION_FAILED"
+    assert set(payload) == {"schemaVersion", "error", "traceId"}
+    assert payload["schemaVersion"] == "1.0"
+    assert payload["error"]["code"] == code
     assert payload["error"]["category"] == "INTERNAL"
     assert payload["error"]["retryable"] is False
     assert reason_phrase in payload["error"]["message"]
+    assert payload["traceId"] == "contract-test-trace"
