@@ -123,6 +123,7 @@ async def unexpected_exception_handler(
     logger.error(
         "internal API request failed unexpectedly",
         extra={"status": 500, "errorCode": "AI_INTERNAL_ERROR"},
+        exc_info=_exception,
     )
     return build_error_response(
         status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
