@@ -41,6 +41,7 @@ import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.dto.MaterialDetailResponse;
 import io.edupilot.material.dto.MaterialListResponse;
+import io.edupilot.material.dto.MaterialOverviewResponse;
 import io.edupilot.material.dto.MaterialSummaryResponse;
 import io.edupilot.session.ChatMessageRepository;
 import io.edupilot.session.LearningSessionRepository;
@@ -67,6 +68,9 @@ class MaterialApiContractTest {
 
 	@MockitoBean
 	private MaterialService materialService;
+
+	@Autowired
+	private MaterialOverviewService overviewService;
 
 	@MockitoBean
 	private UserRepository userRepository;
@@ -231,6 +235,34 @@ class MaterialApiContractTest {
 			.andExpect(jsonPath("$.data.traceId").value(
 				org.hamcrest.Matchers.nullValue()
 			));
+	}
+
+	@Test
+	void overviewReturnsPendingEnvelopeAndHidesAccessFailure() throws Exception {
+		when(overviewService.get(1L, 10L)).thenReturn(
+			MaterialOverviewResponse.pending(10L)
+		);
+
+		mockMvc.perform(get("/api/materials/10/overview")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.materialId").value(10))
+			.andExpect(jsonPath("$.data.content").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.status").value("PENDING"))
+			.andExpect(jsonPath("$.data.updatedAt").value(
+				org.hamcrest.Matchers.nullValue()
+			));
+
+		when(overviewService.get(1L, 99L)).thenThrow(
+			new BusinessException(ErrorCode.MATERIAL_NOT_FOUND)
+		);
+
+		mockMvc.perform(get("/api/materials/99/overview")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("MATERIAL_NOT_FOUND"));
 	}
 
 	@Test

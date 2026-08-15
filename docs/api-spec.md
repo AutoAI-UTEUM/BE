@@ -71,6 +71,7 @@
 | POST | `/api/materials` | 개인 PDF 업로드 또는 강의실 주차 업로드 | Y | LEARNER, INSTRUCTOR, ADMIN; 강의실 part는 소유 INSTRUCTOR만 |
 | GET | `/api/materials` | 자료 목록 | Y | 본인 소유 자료 (DEC-026) |
 | GET | `/api/materials/{materialId}` | 자료 상세 | Y | 소유자 또는 승인 멤버의 강의실 연결 자료 |
+| GET | `/api/materials/{materialId}/overview` | 자료 개요 조회 | Y | 소유자 또는 승인 멤버의 강의실 연결 자료 |
 | GET | `/api/materials/{materialId}/file` | PDF 원본 스트리밍 | Y | 소유자 또는 승인 멤버의 강의실 연결 자료 |
 | DELETE | `/api/materials/{materialId}` | 자료 논리 삭제 (DEC-028) | Y | 본인 소유 자료 |
 | GET | `/api/materials/{materialId}/pages/{pageNumber}` | 페이지 텍스트 | Y | 접근 가능한 자료 — 운영 비노출, dev/디버깅 한정(DEC-025) |
@@ -349,6 +350,21 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 ### GET `/api/materials/{materialId}`
 
 자료 제목, 페이지 수, 처리 상태, 학습 가능 여부와 실패 시 `failureReason`·`traceId`를 반환합니다. 실패 필드의 nullable·enum 규칙은 위 목록 응답과 같습니다. 소유자 또는 자료가 연결된 강의실의 승인 멤버에게 주차 상태와 관계없이 허용합니다. 강의실 자료는 전역 `GET /api/materials` 목록에는 포함하지 않고 강의실 주차 API에서 발견합니다.
+
+### GET `/api/materials/{materialId}/overview`
+
+자료 소유자 또는 자료가 연결된 강의실의 승인 멤버가 저장된 자료 개요를 조회합니다. 비접근·삭제·미존재 자료는 `MATERIAL_NOT_FOUND`(404)로 은닉합니다. `material_overviews` 행이 아직 없으면 404 대신 `PENDING` 합성 응답을 반환하며 `content`와 `updatedAt`은 `null`입니다. 행이 있으면 저장된 `status`와 `updatedAt`을 반환하되 `content`는 `READY`일 때만 반환하고 `PENDING | FAILED`에서는 `null`입니다. 이번 API는 조회만 제공하며 개요 생성·AI 호출은 수행하지 않습니다.
+
+```json
+{
+  "materialId": 10,
+  "content": null,
+  "status": "PENDING",
+  "updatedAt": null
+}
+```
+
+`status`는 `PENDING | READY | FAILED` 중 하나입니다.
 
 ### PATCH `/api/materials/{materialId}`
 
