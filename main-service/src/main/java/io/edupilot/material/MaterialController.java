@@ -22,6 +22,7 @@ import io.edupilot.auth.AuthenticatedUser;
 import io.edupilot.global.response.ApiResponse;
 import io.edupilot.material.dto.MaterialDetailResponse;
 import io.edupilot.material.dto.MaterialListResponse;
+import io.edupilot.material.dto.MaterialOverviewResponse;
 import io.edupilot.material.dto.MaterialSummaryResponse;
 import io.edupilot.material.dto.UpdateMaterialRequest;
 import io.swagger.v3.oas.annotations.Operation;
@@ -42,9 +43,26 @@ import jakarta.validation.constraints.Min;
 public class MaterialController {
 
 	private final MaterialService materialService;
+	private final MaterialOverviewService overviewService;
 
-	public MaterialController(MaterialService materialService) {
+	public MaterialController(
+		MaterialService materialService,
+		MaterialOverviewService overviewService
+	) {
 		this.materialService = materialService;
+		this.overviewService = overviewService;
+	}
+
+	@GetMapping("/{materialId}/overview")
+	@Operation(summary = "학습 자료 개요 조회")
+	public ApiResponse<MaterialOverviewResponse> overview(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long materialId
+	) {
+		return ApiResponse.success(overviewService.get(
+			authenticatedUser.userId(),
+			materialId
+		));
 	}
 
 	@PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

@@ -11,7 +11,7 @@
 | 도메인 | 주요 모델 | 책임 |
 | --- | --- | --- |
 | Identity | User | 인증 주체, 역할, 계정 상태 |
-| Material | LearningMaterial, MaterialPage | PDF 메타데이터와 페이지 문맥 |
+| Material | LearningMaterial, MaterialPage, MaterialOverview | PDF 메타데이터, 페이지 문맥과 자료 개요 |
 | Classroom | Classroom, ClassroomMember, ClassroomJoinRequest, ClassroomWeek, ClassroomWeekMaterial, ClassroomNotice | 강의실 소유권, 참여, 주차 자료, 즉시·예약 공지 |
 | Notification | Notification | 사용자 귀속 인앱 알림, 읽음·보관 수명 |
 | Learning | LearningSession, ChatMessage | 현재 학습 상태와 대화 기록 |
@@ -46,6 +46,7 @@ erDiagram
   LEARNING_MATERIAL ||--o{ CLASSROOM_WEEK_MATERIAL : assigned_as
 
   LEARNING_MATERIAL ||--o{ MATERIAL_PAGE : contains
+  LEARNING_MATERIAL ||--o| MATERIAL_OVERVIEW : summarizes
   LEARNING_MATERIAL ||--o{ LEARNING_SESSION : studied_in
   LEARNING_MATERIAL ||--o{ LEARNER_MEMORY : scopes
 
@@ -89,6 +90,13 @@ erDiagram
 - `(materialId, pageNumber)`는 유일합니다.
 - 페이지 번호는 1부터 시작합니다.
 - 추출 텍스트는 AI 문맥이며 원본 PDF의 유일한 표현으로 간주하지 않습니다.
+
+### MaterialOverview
+
+- 자료당 최대 하나의 개요를 저장하며 상태는 `PENDING | READY | FAILED`입니다.
+- READY가 아닌 상태의 조회 응답에서는 `content`를 노출하지 않습니다.
+- 저장 행이 없으면 조회 API가 `PENDING`, `content=null`, `updatedAt=null`을 합성합니다.
+- V28 범위는 저장 구조와 조회뿐이며 개요 생성·AI 호출은 후속 이슈에서 구현합니다.
 
 ### Classroom / ClassroomMember
 
