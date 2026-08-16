@@ -154,6 +154,8 @@ async def extract_document(
             document = extract_pdf(
                 temporary_path,
                 max_pages=settings.edupilot_extract_max_pages,
+                min_chars_per_page=settings.edupilot_extract_min_chars_per_page,
+                min_meaningful_page_ratio=settings.edupilot_extract_min_meaningful_page_ratio,
             )
         except PdfPageLimitError as exception:
             raise _logged_extraction_failure(

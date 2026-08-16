@@ -115,6 +115,18 @@ class Settings(BaseSettings):
         le=300,
         validation_alias="EDUPILOT_EXTRACT_MAX_PAGES",
     )
+    # Image-only samples yield 0–65 symbols/page; 50 chars on 5% of pages is conservative.
+    edupilot_extract_min_chars_per_page: int = Field(
+        default=50,
+        ge=1,
+        validation_alias="EDUPILOT_EXTRACT_MIN_CHARS_PER_PAGE",
+    )
+    edupilot_extract_min_meaningful_page_ratio: float = Field(
+        default=0.05,
+        gt=0,
+        le=1,
+        validation_alias="EDUPILOT_EXTRACT_MIN_MEANINGFUL_PAGE_RATIO",
+    )
 
     agent_reasoning_effort: ReasoningEffort = Field(
         default=ReasoningEffort.MEDIUM,

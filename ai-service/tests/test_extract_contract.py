@@ -12,6 +12,11 @@ from edupilot_ai.settings import Settings
 from tests.pdf_factory import make_blank_pdf, make_pdf
 
 
+def test_extract_quality_threshold_defaults(settings: Settings) -> None:
+    assert settings.edupilot_extract_min_chars_per_page == 50
+    assert settings.edupilot_extract_min_meaningful_page_ratio == 0.05
+
+
 async def test_extract_returns_versioned_pages(
     client: httpx.AsyncClient,
     auth_headers: dict[str, str],
@@ -19,7 +24,16 @@ async def test_extract_returns_versioned_pages(
     response = await client.post(
         "/internal/ai/extract",
         headers=auth_headers,
-        files={"file": ("lesson.pdf", make_pdf("First page", None), "application/pdf")},
+        files={
+            "file": (
+                "lesson.pdf",
+                make_pdf(
+                    "First page contains enough explanatory text for normal extraction.",
+                    None,
+                ),
+                "application/pdf",
+            )
+        },
     )
 
     assert response.status_code == 200
@@ -27,7 +41,10 @@ async def test_extract_returns_versioned_pages(
         "schemaVersion": "1.0",
         "pageCount": 2,
         "pages": [
-            {"pageNumber": 1, "text": "First page"},
+            {
+                "pageNumber": 1,
+                "text": "First page contains enough explanatory text for normal extraction.",
+            },
             {"pageNumber": 2, "text": ""},
         ],
     }
@@ -132,6 +149,69 @@ async def test_extract_rejects_scanned_document(
     )
 
 
+async def test_extract_rejects_negligible_symbol_text_across_pages(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    response = await client.post(
+        "/internal/ai/extract",
+        headers=auth_headers,
+        files={
+            "file": (
+                "image-only.pdf",
+                make_pdf("*", "**", "***", "*", "**", "***", "*", "**", "***", "*"),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert_extraction_failure(
+        response,
+        code="NO_TEXT_CONTENT",
+        reason_phrase="no text layer",
+    )
+
+
+async def test_extract_accepts_sparse_document_at_meaningful_page_ratio_boundary(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    meaningful_text = "A" * 50
+    response = await client.post(
+        "/internal/ai/extract",
+        headers=auth_headers,
+        files={
+            "file": (
+                "sparse-but-readable.pdf",
+                make_pdf(meaningful_text, *(None for _ in range(9))),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    body = ExtractResponse.model_validate(response.json())
+    assert body.page_count == 10
+    assert body.pages[0].text == meaningful_text
+
+
+async def test_extract_rejects_single_page_with_negligible_text(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    response = await client.post(
+        "/internal/ai/extract",
+        headers=auth_headers,
+        files={"file": ("short.pdf", make_pdf("12345"), "application/pdf")},
+    )
+
+    assert_extraction_failure(
+        response,
+        code="NO_TEXT_CONTENT",
+        reason_phrase="no text layer",
+    )
+
+
 async def test_extract_rejects_encrypted_document(
     client: httpx.AsyncClient,
     auth_headers: dict[str, str],
@@ -217,7 +297,7 @@ async def test_extract_accepts_exactly_300_pages(
         files={
             "file": (
                 "boundary.pdf",
-                make_pdf("Boundary page", *(None for _ in range(299))),
+                make_pdf(*("B" * 50 for _ in range(15)), *(None for _ in range(285))),
                 "application/pdf",
             )
         },
@@ -252,7 +332,7 @@ async def test_extract_accepts_file_equal_to_configured_size_limit(
     settings: Settings,
 ) -> None:
     settings.edupilot_upload_max_mb = 1
-    pdf = make_pdf("At the byte boundary")
+    pdf = make_pdf("At the byte boundary with enough text to pass extraction checks." * 2)
     exact_limit = pdf + (b"\x00" * (settings.upload_max_bytes - len(pdf)))
 
     response = await client.post(
