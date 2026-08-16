@@ -74,6 +74,10 @@ def validate_generate_output(
             if eligibility.get(result.criterion_key) is False:
                 raise ReportValidationError("INELIGIBLE_CRITERION_ASSESSED")
 
+    if any(result.status == "ASSESSED" for result in output.criterion_results):
+        if not output.summary.recommended_actions:
+            raise ReportValidationError("EMPTY_RECOMMENDED_ACTIONS")
+
     for statement in output.summary.misconception_candidates:
         if len(set(statement.evidence_ids)) < 2:
             raise ReportValidationError("MISCONCEPTION_SINGLE_EVIDENCE")

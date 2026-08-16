@@ -117,12 +117,12 @@ class ReportCriterionResult(ContractModel):
     criterion_key: str = Field(min_length=1)
     status: CriterionStatus
     score: int | None = Field(default=None, ge=0, le=100)
-    narrative: str = Field(min_length=1)
+    narrative: str = Field(min_length=40)
     evidence_ids: list[str]
 
 
 class ReportSummary(ContractModel):
-    overview: str = Field(min_length=1)
+    overview: str = Field(min_length=40)
     strengths: list[EvidencedStatement]
     improvements: list[EvidencedStatement]
     misconception_candidates: list[EvidencedStatement]
