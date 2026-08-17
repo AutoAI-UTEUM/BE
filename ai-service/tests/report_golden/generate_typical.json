@@ -66,18 +66,18 @@
   },
   "llmOutput": {
     "criterionResults": [
-      {"criterionKey": "concept-understanding", "status": "ASSESSED", "score": 82, "narrative": "네트워크 계층 퀴즈에서 OSI 역할 5개 중 4개를 해결했고, 주소 변환 교정에서 NAT와 DNS를 구분해 설명했습니다.", "evidenceIds": ["typ-quiz-1", "typ-repair-1"]},
-      {"criterionKey": "question-specificity", "status": "ASSESSED", "score": 86, "narrative": "TCP 연결 질문에서 응답 플래그가 필요한 단계를 짚었고, HTTP 캐시 응용 질문에서도 비교 대상을 명확히 제시했습니다.", "evidenceIds": ["typ-qa-1", "typ-qa-2"]},
-      {"criterionKey": "problem-solving", "status": "ASSESSED", "score": 81, "narrative": "중간 점검 시험에서 서브넷 계산과 라우팅 원리를 적용했고, HTTP 상태 코드 퀴즈에서도 장애 대응 문항을 해결했습니다.", "evidenceIds": ["typ-exam-1", "typ-quiz-2"]},
-      {"criterionKey": "application-transfer", "status": "ASSESSED", "score": 79, "narrative": "HTTP 캐시 응용 질문에서 배포 상황으로 개념을 확장했고, 중간 점검 시험에서 라우팅 원리를 계산 문제에 적용했습니다.", "evidenceIds": ["typ-qa-2", "typ-exam-1"]},
-      {"criterionKey": "quiz-exam-accuracy", "status": "ASSESSED", "score": 84, "narrative": "중간 점검 시험의 84점 기록과 HTTP 상태 코드 퀴즈 5문항 전부 정답이라는 제공 근거를 함께 확인했습니다.", "evidenceIds": ["typ-exam-1", "typ-quiz-2"]},
-      {"criterionKey": "learning-persistence", "status": "ASSESSED", "score": 78, "narrative": "반복 학습 관찰에서 서로 다른 3개 세션의 복습 완료가 기록됐고, 이후 HTTP 상태 코드 퀴즈까지 학습 활동을 이어갔습니다.", "evidenceIds": ["typ-memory-1", "typ-quiz-2"]},
-      {"criterionKey": "error-reflection", "status": "ASSESSED", "score": 83, "narrative": "주소 변환 진단에서 NAT와 DNS 혼동이 관찰됐으나, 주소 변환 교정 후 두 역할을 구분해 다시 설명했습니다.", "evidenceIds": ["typ-diag-1", "typ-repair-1"]},
-      {"criterionKey": "class-participation", "status": "ASSESSED", "score": 80, "narrative": "TCP 연결과 HTTP 캐시에 대해 구체적으로 질문했고, 서로 다른 세션에서 복습 활동도 완료했습니다.", "evidenceIds": ["typ-qa-1", "typ-memory-1"]},
-      {"criterionKey": "growth-flow", "status": "ASSESSED", "score": 80, "narrative": "직전 리포트의 개념 이해도 72점과 현재 퀴즈·교정 관찰을 비교하면 설명에 활용한 근거가 더 구체적입니다.", "evidenceIds": ["typ-quiz-1", "typ-repair-1"]}
+      {"criterionKey": "concept-understanding", "status": "ASSESSED", "score": 82, "narrative": "네트워크 계층의 역할을 이해하고 주소 변환 과정에서 NAT와 DNS를 구분하는 경향이 확인됩니다. 다음 수업에서 두 기술의 역할을 요청 흐름에 연결해 설명하게 해 주세요.", "evidenceIds": ["typ-quiz-1", "typ-repair-1"]},
+      {"criterionKey": "question-specificity", "status": "ASSESSED", "score": 86, "narrative": "TCP 연결과 HTTP 캐시를 질문할 때 확인할 단계와 비교 대상을 명확히 제시하는 경향이 확인됩니다. 다음 수업에서 장애 상황의 원인을 좁히는 질문을 직접 구성하게 해 주세요.", "evidenceIds": ["typ-qa-1", "typ-qa-2"]},
+      {"criterionKey": "problem-solving", "status": "ASSESSED", "score": 81, "narrative": "서브넷 계산과 라우팅 원리를 장애 대응 상황에 적용하는 문제 해결력이 확인됩니다. 다음 수업에서 선택한 해결 절차의 근거를 말로 설명하게 해 주세요.", "evidenceIds": ["typ-exam-1", "typ-quiz-2"]},
+      {"criterionKey": "application-transfer", "status": "ASSESSED", "score": 79, "narrative": "HTTP 캐시와 라우팅 원리를 배포 상황과 계산 문제로 확장하는 경향이 확인됩니다. 다음 수업에서 다른 네트워크 환경에도 같은 원리를 적용하게 해 주세요.", "evidenceIds": ["typ-qa-2", "typ-exam-1"]},
+      {"criterionKey": "quiz-exam-accuracy", "status": "ASSESSED", "score": 84, "narrative": "시험과 퀴즈에서 HTTP 상태 코드의 의미를 안정적으로 구분하는 경향이 확인됩니다. 다음 수업에서 오류 상황별 대응 방법까지 설명하게 해 주세요.", "evidenceIds": ["typ-exam-1", "typ-quiz-2"]},
+      {"criterionKey": "learning-persistence", "status": "ASSESSED", "score": 78, "narrative": "복습을 마친 뒤에도 HTTP 상태 코드 퀴즈까지 학습 활동을 이어가는 경향이 확인됩니다. 다음 수업에서 복습 내용을 새로운 장애 상황에 적용하게 해 주세요.", "evidenceIds": ["typ-memory-1", "typ-quiz-2"]},
+      {"criterionKey": "error-reflection", "status": "ASSESSED", "score": 83, "narrative": "주소 변환 과정에서 NAT와 DNS를 혼동한 뒤 두 역할을 구분해 다시 설명하는 성찰이 확인됩니다. 다음 수업에서 처음 판단이 바뀐 이유를 말하게 해 주세요.", "evidenceIds": ["typ-diag-1", "typ-repair-1"]},
+      {"criterionKey": "class-participation", "status": "ASSESSED", "score": 80, "narrative": "TCP 연결과 HTTP 캐시에 대해 구체적으로 질문하고 복습 활동을 이어가는 참여가 확인됩니다. 다음 수업에서 학습한 내용을 동료에게 설명하는 활동에 참여하게 해 주세요.", "evidenceIds": ["typ-qa-1", "typ-memory-1"]},
+      {"criterionKey": "growth-flow", "status": "ASSESSED", "score": 80, "narrative": "개념 이해도는 이전보다 구체적인 근거를 활용하는 방향으로 나아가고 있습니다. 다음 수업에서 풀이 근거를 말로 설명하게 해 성장 흐름을 확인해 주세요.", "evidenceIds": ["typ-quiz-1", "typ-repair-1"]}
     ],
     "summary": {
-      "overview": "이번 관찰에서는 네트워크 개념을 질문과 평가에 연결하고, 오개념을 교정한 과정이 구체적으로 확인됩니다.",
+      "overview": "이번 관찰에서는 네트워크 개념을 질문과 평가에 연결하는 점이 강점으로 확인됩니다. 주소 변환 과정의 개념 구분도 교정 후 나아졌습니다. 서브넷 계산의 풀이 근거는 더 구체적으로 설명할 필요가 있습니다. 다음 수업에서 계산 과정과 라우팅 결정을 함께 말하게 해 주세요.",
       "strengths": [
         {"content": "TCP 연결 질문과 HTTP 캐시 응용 질문에서 확인하려는 단계와 비교 대상을 구체적으로 표현했습니다.", "evidenceIds": ["typ-qa-1", "typ-qa-2"]},
         {"content": "주소 변환 교정 후 NAT와 DNS의 역할을 구분해 설명했습니다.", "evidenceIds": ["typ-diag-1", "typ-repair-1"]}
@@ -89,7 +89,7 @@
         {"content": "NAT와 DNS의 역할 구분은 이후 문제에서도 다시 확인할 필요가 있습니다.", "evidenceIds": ["typ-diag-1", "typ-repair-1"]}
       ],
       "recommendedActions": [
-        {"content": "서브넷 예제 하나를 선택해 계산 과정과 라우팅 결정을 세 문장으로 정리합니다.", "evidenceIds": ["typ-exam-1", "typ-quiz-1"]},
+        {"content": "서브넷 예제를 선택해 계산 과정과 라우팅 결정을 짧게 정리하게 해 주세요.", "evidenceIds": ["typ-exam-1", "typ-quiz-1"]},
         {"content": "NAT와 DNS가 각각 동작하는 요청 흐름을 화살표로 비교합니다.", "evidenceIds": ["typ-diag-1", "typ-repair-1"]}
       ]
     },

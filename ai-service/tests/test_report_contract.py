@@ -147,9 +147,9 @@ def report_output(
                     "status": status,
                     "score": score,
                     "narrative": (
-                        "퀴즈 1의 정답률 80%와 질문 1의 편차 정의 확인이 관찰됩니다. "
-                        "rubric 기준으로 핵심 정의 이해가 확인됩니다. 다음 수업에서 편차 "
-                        "계산 예시를 직접 설명하게 해 주세요."
+                        "최근 평가와 질문에서 편차의 핵심 정의를 이해하는 경향이 "
+                        "확인됩니다. 다음 수업에서 편차 계산 예시를 직접 설명하게 해 "
+                        "주세요."
                     ),
                     "evidenceIds": evidence_ids if evidence_ids is not None else ["ev-1"],
                 }
@@ -202,6 +202,8 @@ async def test_report_generate_endpoint_returns_contract_response(
     assert "지도 포인트" in fake_llm.calls[0][0][0]["content"]
     assert "나쁜 예" in fake_llm.calls[0][0][0]["content"]
     assert "일반론은 금지" in fake_llm.calls[0][0][0]["content"]
+    assert "내부 필드명·ID·키 이름은 절대 본문에" in fake_llm.calls[0][0][0]["content"]
+    assert "label과 fact를 구체적으로 언급" not in fake_llm.calls[0][0][0]["content"]
 
 
 @pytest.mark.parametrize(
