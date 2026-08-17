@@ -8,8 +8,7 @@ from edupilot_ai.models.turn import DetailLevel, QaThreadMode
 from edupilot_ai.orchestration.context import AgentContext, PlanContext
 
 LEARNER_KOREAN_INSTRUCTION = (
-    "모든 학습자 대상 텍스트(설명, 답변, 교정, 문항·보기, 피드백, "
-    "thoughtSummary)는 한국어로 작성한다."
+    "모든 학습자 대상 텍스트(설명, 답변, 교정, 문항·보기, 피드백)는 한국어로 작성한다."
 )
 
 
@@ -86,7 +85,7 @@ def explainer_messages(
         "learnerMemoryDigest": context.learner_memory_digest,
     }
     output_instruction = (
-        "Return AgentOutput JSON with a short thoughtSummary."
+        "Return AgentOutput JSON."
         if structured
         else "Return only the learner-facing Markdown explanation."
     )
@@ -123,7 +122,7 @@ def qa_messages(
         "learnerMemoryDigest": context.learner_memory_digest,
     }
     output_instruction = (
-        "Return AgentOutput JSON with a short thoughtSummary."
+        "Return AgentOutput JSON."
         if structured
         else "Return only the learner-facing Markdown answer."
     )

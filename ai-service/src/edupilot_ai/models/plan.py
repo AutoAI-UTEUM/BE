@@ -59,4 +59,3 @@ class TurnPlan(ContractModel):
 
 class AgentOutput(ContractModel):
     markdown: str = Field(min_length=1)
-    thought_summary: str = Field(min_length=1)

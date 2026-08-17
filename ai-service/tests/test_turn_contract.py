@@ -70,7 +70,7 @@ async def test_explain_current_page_turn(
             {"page": 3, "detailLevel": "DETAILED"},
             "EXPLAIN_CURRENT_PAGE",
         ),
-        AgentOutput(markdown="상세한 현재 페이지 설명", thought_summary="페이지 설명"),
+        AgentOutput(markdown="상세한 현재 페이지 설명"),
     )
 
     response = await post_turn(client, auth_headers, payload)
@@ -204,7 +204,7 @@ async def test_explain_policy_records_adjustment(
     }
     fake_llm.queue(
         make_plan(ToolName.EXPLAIN_PAGE, plan_args, "EXPLAIN_CURRENT_PAGE"),
-        AgentOutput(markdown="보정된 현재 페이지 설명", thought_summary="페이지 설명"),
+        AgentOutput(markdown="보정된 현재 페이지 설명"),
     )
 
     response = await post_turn(client, auth_headers, payload)
@@ -237,7 +237,7 @@ async def test_explain_policy_normalizes_page_number_alias(
             {"pageNumber": 1, "detailLevel": "NORMAL"},
             "EXPLAIN_CURRENT_PAGE",
         ),
-        AgentOutput(markdown="별칭 보정 후 설명", thought_summary="페이지 설명"),
+        AgentOutput(markdown="별칭 보정 후 설명"),
     )
 
     response = await post_turn(client, auth_headers, payload)
@@ -331,7 +331,7 @@ async def test_user_question_start_new(
             {"qaThreadMode": "START_NEW", "threadRef": None},
             "ANSWER_USER_QUESTION",
         ),
-        AgentOutput(markdown="편차는 평균에서 떨어진 정도입니다.", thought_summary="근거 연결"),
+        AgentOutput(markdown="편차는 평균에서 떨어진 정도입니다."),
     )
 
     response = await post_turn(client, auth_headers, payload)
@@ -359,7 +359,7 @@ async def test_user_question_new_alias_strips_invented_thread_ref(
             {"qaThreadMode": mode_alias, "threadRef": "qa-invented"},
             "ANSWER_USER_QUESTION",
         ),
-        AgentOutput(markdown="편차는 평균과의 차이입니다.", thought_summary="근거 연결"),
+        AgentOutput(markdown="편차는 평균과의 차이입니다."),
     )
 
     response = await post_turn(client, auth_headers, turn_payload)
@@ -387,7 +387,7 @@ async def test_user_question_follow_up_includes_thread_and_latest_repair(
             {"qaThreadMode": "FOLLOW_UP", "threadRef": "qa-7"},
             "ANSWER_FOLLOW_UP",
         ),
-        AgentOutput(markdown="앞선 설명과 연결하면...", thought_summary="후속 연결"),
+        AgentOutput(markdown="앞선 설명과 연결하면..."),
     )
 
     response = await post_turn(client, auth_headers, payload)
@@ -503,7 +503,7 @@ async def test_plan_schema_failure_regenerates_once(
             {"qaThreadMode": "START_NEW", "threadRef": None},
             "ANSWER_USER_QUESTION",
         ),
-        AgentOutput(markdown="재생성 후 답변", thought_summary="재생성"),
+        AgentOutput(markdown="재생성 후 답변"),
     )
 
     response = await post_turn(client, auth_headers, turn_payload)
@@ -572,7 +572,7 @@ async def test_turn_aggregates_plan_and_agent_usage(
         LlmUsage("grok-4.5", 10, 4, 2),
     )
     fake_llm.queue_completion(
-        AgentOutput(markdown="usage answer", thought_summary="usage"),
+        AgentOutput(markdown="usage answer"),
         LlmUsage("grok-4.5", 5, 8, 3),
     )
 
@@ -800,7 +800,7 @@ async def test_dispatcher_marks_partial_failure(
     )
     PolicyVerifier().verify(plan, context)
     fake_llm.queue(
-        AgentOutput(markdown="first answer", thought_summary="first"),
+        AgentOutput(markdown="first answer"),
         LlmBridgeError(category=ErrorCategory.TIMEOUT, retryable=True),
     )
     dispatcher = ToolDispatcher(
@@ -823,6 +823,11 @@ async def test_dispatcher_marks_partial_failure(
 def test_state_patch_allowlist_rejects_unknown_key() -> None:
     with pytest.raises(PolicyViolation):
         merge_state_patch({}, {"sessionStatus": "COMPLETED"})
+
+
+def test_state_patch_allowlist_rejects_active_quiz_id() -> None:
+    with pytest.raises(PolicyViolation, match="statePatch key is not allowed"):
+        merge_state_patch({}, {"activeQuizId": 99})
 
 
 def test_state_patch_rejects_conflicting_values() -> None:
