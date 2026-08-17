@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -28,7 +28,7 @@ CRITERION_NAMES = [
 
 
 def _load_golden(name: str) -> dict[str, Any]:
-    return json.loads((GOLDEN_DIRECTORY / name).read_text())
+    return cast(dict[str, Any], json.loads((GOLDEN_DIRECTORY / name).read_text()))
 
 
 @pytest.mark.parametrize(
@@ -52,8 +52,8 @@ async def test_report_golden_fixture(
     expected = golden["expected"]
 
     if fixture_name.startswith("generate_"):
-        output = ReportGenerateOutput.model_validate(golden["llmOutput"])
-        fake_llm.queue(output)
+        generate_output = ReportGenerateOutput.model_validate(golden["llmOutput"])
+        fake_llm.queue(generate_output)
         response = await client.post(
             "/internal/ai/reports/generate",
             headers=auth_headers,
@@ -78,8 +78,8 @@ async def test_report_golden_fixture(
             assert [item["name"] for item in request["criteria"]] == CRITERION_NAMES
             assert "학습 자신감" not in CRITERION_NAMES
     else:
-        output = ReportQueryOutput.model_validate(golden["llmOutput"])
-        fake_llm.queue(output)
+        query_output = ReportQueryOutput.model_validate(golden["llmOutput"])
+        fake_llm.queue(query_output)
         response = await client.post(
             "/internal/ai/reports/query",
             headers=auth_headers,
@@ -108,5 +108,10 @@ def test_query_prompt_contains_uncertainty_and_refusal_anchors() -> None:
     assert "OUT_OF_SNAPSHOT" in query_system
     assert "NO_EVIDENCE" in query_system
     assert "POLICY_REFUSED" in query_system
+    for system_prompt in (generate_system, query_system):
+        assert "원문 그대로 쓰지 마라" in system_prompt
+        assert "MCQ→객관식" in system_prompt
+        assert "SESSION→학습 세션" in system_prompt
+        assert "evidence의 label 문자열은 제공된 원문 그대로 인용하라" in system_prompt
     assert query_system.endswith(INJECTION_DEFENSE)
     assert generate_system.endswith(INJECTION_DEFENSE)

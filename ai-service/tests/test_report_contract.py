@@ -8,7 +8,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from edupilot_ai.core.errors import ErrorCategory, InternalErrorResponse
+from edupilot_ai.core.errors import ErrorCategory, InternalApiError, InternalErrorResponse
 from edupilot_ai.llm.bridge import LlmBridgeError
 from edupilot_ai.models.report import (
     CriterionEligibility,
@@ -19,11 +19,12 @@ from edupilot_ai.models.report import (
     ReportQueryRequest,
     ReportSummary,
 )
+from edupilot_ai.reporting.service import ReportGenerationService
 from edupilot_ai.reporting.validator import (
     ReportValidationError,
     validate_generate_output,
 )
-from edupilot_ai.settings import ReasoningEffort
+from edupilot_ai.settings import ReasoningEffort, Settings
 from tests.fakes import FakeLlm
 
 
@@ -147,9 +148,9 @@ def report_output(
                     "status": status,
                     "score": score,
                     "narrative": (
-                        "퀴즈 1의 정답률 80%와 질문 1의 편차 정의 확인이 관찰됩니다. "
-                        "rubric 기준으로 핵심 정의 이해가 확인됩니다. 다음 수업에서 편차 "
-                        "계산 예시를 직접 설명하게 해 주세요."
+                        "최근 평가와 질문에서 편차의 핵심 정의를 이해하는 경향이 "
+                        "확인됩니다. 다음 수업에서 편차 계산 예시를 직접 설명하게 해 "
+                        "주세요."
                     ),
                     "evidenceIds": evidence_ids if evidence_ids is not None else ["ev-1"],
                 }
@@ -202,6 +203,8 @@ async def test_report_generate_endpoint_returns_contract_response(
     assert "지도 포인트" in fake_llm.calls[0][0][0]["content"]
     assert "나쁜 예" in fake_llm.calls[0][0][0]["content"]
     assert "일반론은 금지" in fake_llm.calls[0][0][0]["content"]
+    assert "내부 필드명·ID·키 이름은 절대 본문에" in fake_llm.calls[0][0][0]["content"]
+    assert "label과 fact를 구체적으로 언급" not in fake_llm.calls[0][0][0]["content"]
 
 
 @pytest.mark.parametrize(
@@ -353,6 +356,49 @@ async def test_report_generate_regenerates_after_unknown_evidence(
     retry_system = fake_llm.calls[1][0][0]["content"]
     assert "UNKNOWN_EVIDENCE_ID" in retry_system
     assert "정답률 80%" not in retry_system
+
+
+async def test_report_generate_schema_retry_uses_remaining_total_budget(
+    fake_llm: FakeLlm,
+    settings: Settings,
+) -> None:
+    readings = iter([100.0, 250.0])
+    service = ReportGenerationService(
+        llm=fake_llm,
+        profile=settings.report_llm_profile,
+        timeout_seconds=settings.report_timeout_seconds,
+        clock=lambda: next(readings),
+    )
+    fake_llm.queue(
+        LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False),
+        report_output(),
+    )
+
+    response = await service.execute(report_request())
+
+    assert response.report_id == "report-1"
+    assert fake_llm.timeouts == [180, 30]
+
+
+async def test_report_generate_skips_retry_when_total_budget_is_exhausted(
+    fake_llm: FakeLlm,
+    settings: Settings,
+) -> None:
+    readings = iter([100.0, 275.0])
+    service = ReportGenerationService(
+        llm=fake_llm,
+        profile=settings.report_llm_profile,
+        timeout_seconds=settings.report_timeout_seconds,
+        clock=lambda: next(readings),
+    )
+    fake_llm.queue(LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False))
+
+    with pytest.raises(InternalApiError) as captured:
+        await service.execute(report_request())
+
+    assert captured.value.code == "AI_SERVICE_TIMEOUT"
+    assert captured.value.category is ErrorCategory.TIMEOUT
+    assert fake_llm.timeouts == [180]
 
 
 async def test_report_generate_regenerates_after_short_narrative(
@@ -549,7 +595,8 @@ async def test_report_query_unknown_evidence_twice_returns_schema_error(
     assert error.error.code == "AI_RESPONSE_INVALID"
     assert len(fake_llm.calls) == 2
     assert fake_llm.calls[0][1].reasoning_effort is ReasoningEffort.MEDIUM
-    assert fake_llm.timeouts == [60, 60]
+    assert fake_llm.timeouts[0] == 60
+    assert 0 < fake_llm.timeouts[1] <= 60
 
 
 async def test_report_endpoint_requires_internal_token(
