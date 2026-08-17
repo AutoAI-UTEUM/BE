@@ -371,8 +371,6 @@ async def test_repair_turn_replaces_stub_and_clears_pending_diagnosis(
         ),
         RepairOutput(
             markdown="## 오개념 교정\n\n편차는 평균이 아니라 평균과의 **차이**입니다.",
-            focus_concepts=["편차의 정의"],
-            thought_summary="평균과 편차의 관계를 교정",
         ),
     )
 
@@ -566,7 +564,6 @@ async def test_memory_candidate_is_returned_after_primary_action(
         ),
         AgentOutput(
             markdown="편차는 관측값과 평균의 차이입니다.",
-            thought_summary="현재 질문에 답변",
         ),
     )
 
@@ -608,7 +605,6 @@ async def test_memory_promotion_returns_candidate_ids_contract(
         ),
         AgentOutput(
             markdown="편차는 관측값과 평균의 차이입니다.",
-            thought_summary="현재 질문에 답변",
         ),
     )
 
