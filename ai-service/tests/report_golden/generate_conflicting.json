@@ -38,19 +38,19 @@
         "criterionKey": "concept-understanding",
         "status": "ASSESSED",
         "score": 55,
-        "narrative": "HTTP 상태 코드 퀴즈에서는 404의 의미를 정확히 선택했지만 HTTP 오류 질문에서는 서버 내부 오류와 연결해 물어 상충하는 관찰이 있으므로 추가 확인이 필요합니다.",
+        "narrative": "HTTP 상태 코드의 의미를 이해한 결과와 질문에서 드러난 해석이 서로 달라 추가 확인이 필요합니다. 다음 수업에서 요청 실패와 서버 오류 상황을 직접 구분하게 해 주세요.",
         "evidenceIds": ["conf-quiz-1", "conf-qa-1"]
       }
     ],
     "summary": {
-      "overview": "이번 관찰에서는 404 의미에 대해 서로 다른 반응이 기록되어 추가 확인이 필요합니다.",
+      "overview": "이번 관찰에서는 HTTP 상태 코드의 의미에 서로 다른 반응이 기록되어 추가 확인이 필요합니다. 오류 상황을 구분하는 과정은 강점이지만 원인 해석은 더 살펴봐야 합니다. 다음 수업에서 실제 응답 상황을 비교해 이해를 확인해 주세요.",
       "strengths": [],
       "improvements": [
-        {"content": "404와 500의 차이를 실제 응답 예시로 다시 비교할 필요가 있습니다.", "evidenceIds": ["conf-quiz-1", "conf-qa-1"]}
+        {"content": "요청 실패와 서버 오류의 차이를 실제 응답 예시로 다시 비교할 필요가 있습니다.", "evidenceIds": ["conf-quiz-1", "conf-qa-1"]}
       ],
       "misconceptionCandidates": [],
       "recommendedActions": [
-        {"content": "404와 500 응답 상황을 한 개씩 작성하고 원인을 구분합니다.", "evidenceIds": ["conf-quiz-1", "conf-qa-1"]}
+        {"content": "요청 실패와 서버 오류 상황을 직접 작성하고 원인을 구분하게 해 주세요.", "evidenceIds": ["conf-quiz-1", "conf-qa-1"]}
       ]
     },
     "warnings": [
