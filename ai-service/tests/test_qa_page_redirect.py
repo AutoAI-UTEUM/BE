@@ -6,7 +6,6 @@ from copy import deepcopy
 import httpx
 import pytest
 
-from edupilot_ai.models.plan import PedagogyPolicy, PlanAction, ToolName, TurnPlan
 from edupilot_ai.models.turn import QaThreadMode, TurnRequest
 from edupilot_ai.orchestration.agents import detect_page_redirect
 from edupilot_ai.orchestration.context import ContextBuilder
@@ -23,27 +22,6 @@ _NEXT_PAGE_ACTION = {
     "yesEvent": "MOVE_NEXT_PAGE",
     "noEvent": "WAIT",
 }
-
-
-def make_qa_plan() -> TurnPlan:
-    return TurnPlan(
-        turn_goal="ANSWER_USER_QUESTION",
-        pedagogy_policy=PedagogyPolicy(
-            mode="GROUND_FIRST",
-            reason="page redirect test",
-            allow_direct_answer=True,
-            hint_depth="MEDIUM",
-            intervention_budget=1,
-        ),
-        actions=[
-            PlanAction(
-                action_id="action-1",
-                tool=ToolName.ANSWER_QUESTION,
-                args={"qaThreadMode": "START_NEW", "threadRef": None},
-            )
-        ],
-        reason="page redirect test plan",
-    )
 
 
 def with_question(
@@ -81,8 +59,6 @@ async def test_next_page_question_returns_guidance_and_ui_action_without_agent_c
     auth_headers: dict[str, str],
     turn_payload: dict[str, object],
 ) -> None:
-    fake_llm.queue(make_qa_plan())
-
     response = await client.post(
         "/internal/ai/turn",
         json=with_question(turn_payload, "다음 페이지 설명해줘"),
@@ -94,7 +70,7 @@ async def test_next_page_question_returns_guidance_and_ui_action_without_agent_c
     assert body["messages"][0]["content"] == _NEXT_GUIDANCE
     assert body["uiActions"] == [_NEXT_PAGE_ACTION]
     assert body["statePatch"] == {"qaThread": {"mode": "START_NEW"}}
-    assert len(fake_llm.calls) == 1  # Planner only; QaAgent did not call the LLM.
+    assert fake_llm.calls == []
     assert fake_llm.stream_calls == []
 
 
@@ -104,8 +80,6 @@ async def test_next_page_question_streams_guidance_with_ui_action(
     auth_headers: dict[str, str],
     turn_payload: dict[str, object],
 ) -> None:
-    fake_llm.queue(make_qa_plan())
-
     response = await client.post(
         "/internal/ai/turn",
         json=with_question(turn_payload, "다음 페이지 설명해줘"),
@@ -120,7 +94,7 @@ async def test_next_page_question_streams_guidance_with_ui_action(
     assert deltas == _NEXT_GUIDANCE
     assert deltas == completed["result"]["messages"][0]["content"]
     assert completed["result"]["uiActions"] == [_NEXT_PAGE_ACTION]
-    assert len(fake_llm.calls) == 1  # Planner only; fixed text stream used afterward.
+    assert fake_llm.calls == []
     assert fake_llm.stream_calls == []
 
 
@@ -130,8 +104,6 @@ async def test_previous_page_question_returns_guidance_without_ui_action(
     auth_headers: dict[str, str],
     turn_payload: dict[str, object],
 ) -> None:
-    fake_llm.queue(make_qa_plan())
-
     response = await client.post(
         "/internal/ai/turn",
         json=with_question(turn_payload, "이전 페이지 설명해줘"),
@@ -142,7 +114,7 @@ async def test_previous_page_question_returns_guidance_without_ui_action(
     body = response.json()
     assert body["messages"][0]["content"] == _PREVIOUS_GUIDANCE
     assert body["uiActions"] == []
-    assert len(fake_llm.calls) == 1
+    assert fake_llm.calls == []
     assert fake_llm.stream_calls == []
 
 
