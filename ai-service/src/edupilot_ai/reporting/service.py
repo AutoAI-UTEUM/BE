@@ -31,11 +31,7 @@ _INJECTION_DEFENSE_INSTRUCTION = (
 
 
 def _usage(values: list[LlmUsage], default_model: str) -> Usage:
-    reasoning = [
-        value.reasoning_tokens
-        for value in values
-        if value.reasoning_tokens is not None
-    ]
+    reasoning = [value.reasoning_tokens for value in values if value.reasoning_tokens is not None]
     return Usage(
         model=values[-1].model if values else default_model,
         input_tokens=sum(value.input_tokens for value in values),
@@ -78,6 +74,12 @@ def _base_system_prompt() -> str:
         "모든 판단에 요청 evidence의 evidenceId를 연결하고 없는 ID를 만들지 마라. "
         "단일 근거로 반복 패턴, 오개념 또는 성향을 확정하지 마라. 감정, 성격, "
         "지능 또는 임상 진단을 추론하지 말고 학생 간 순위를 만들지 마라. "
+        "본문에 시스템 필드값(영문 enum)을 원문 그대로 쓰지 마라. 다음 한국어 "
+        "용어로만 표기하라: MCQ→객관식, OX→OX 퀴즈, SHORT→단답형, ESSAY→서술형, "
+        "QUIZ→퀴즈, QA→질문, EXAM→시험, DIAGNOSIS→진단, REPAIR→오답 교정, "
+        "MEMORY→학습 메모리, SESSION→학습 세션. ASSESSED, INSUFFICIENT_DATA 같은 "
+        "상태값도 본문에 노출하지 마라. 단, evidence의 label 문자열은 제공된 원문 "
+        "그대로 인용하라. "
         f"{_KOREAN_OUTPUT_INSTRUCTION}"
     )
 
