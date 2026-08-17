@@ -21,6 +21,7 @@
   - 자유 턴(설명·질문·퀴즈 유형 선택·진단 답변·교정 후 질문): Spring은 에이전트를 판단하지 않고 `/internal/ai/turn` 단일 진입점으로 전달. 에이전트 선택은 FastAPI Orchestrator 책임. 교정(RepairAgent)·메모리 후보/승격은 turn 내부 도구.
   - 결정적 파이프라인(퀴즈 제출 후): Spring이 규칙(이벤트 타입 + 점수 기준)으로 `grade → quiz-assessment → [미달 시] diagnosis`를 순차 호출. LLM 판단 없음.
   - v0.2의 "RuleRouter" 개념은 이 구조로 흡수됨 — **결정 가능한 분기는 전부 Spring 측 규칙**(StateReducer·파이프라인 트리거·페이지 이동), FastAPI 내부에는 별도 규칙 라우터를 두지 않는다. Policy/Verifier는 LLM Plan의 스키마·허용 도구·교수 정책 검증만 담당한다(동일 판단 로직 이중화 금지).
+  - 단, 이벤트로 결과가 유일하게 결정되는 턴의 Plan 합성과 결정적 안내 fast-path(페이지 이동 안내·빈 페이지)는 AI 내부 규칙으로 처리한다(설계 승인, 2026-08-17).
 - **상태 소유: Spring** — FastAPI는 무상태. 요청마다 스냅샷을 받고 statePatch를 제안하며, Spring이 허용목록으로 검증 후 반영. FastAPI는 자체 영속 저장소(Redis 포함)를 두지 않는다.
 - **PDF 접근** — 자료 업로드 시 `/internal/ai/extract`로 1회 추출 → Spring이 `material_pages`에 저장 → 턴마다 현재±1 페이지 텍스트를 스냅샷에 동봉. fileRef/Files API 미사용.
 
