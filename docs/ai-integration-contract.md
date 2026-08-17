@@ -91,7 +91,7 @@
 | eventType | payload | Orchestrator 기대 동작 |
 | --- | --- | --- |
 | `EXPLAIN_CURRENT_PAGE` | `{ "detailLevel": "NORMAL\|DETAILED" }` | ExplainerAgent — 현재 페이지 중심 설명 |
-| `USER_QUESTION` | `{ "message": "...", "includeCurrentPage": true\|false }` (`includeCurrentPage` 선택, 생략 시 `true`) | QaAgent — START_NEW/FOLLOW_UP 판단, latestRepair 있으면 교정 문맥 승계 |
+| `USER_QUESTION` | `{ "message": "...", "includeCurrentPage": true\|false }` (`includeCurrentPage` 선택, 생략 시 `true`) | Orchestrator가 Plan에서 START_NEW/FOLLOW_UP을 결정하고, QaAgent는 전달받아 수행. latestRepair 있으면 교정 문맥 승계 |
 | `QUIZ_TYPE_SELECTED` | `{ "quizType": "MCQ\|OX\|SHORT\|ESSAY" }` | QuizAgent (GENERATE_QUIZ_* 도구) |
 | `DIAGNOSIS_ANSWER_SUBMITTED` | `{ "diagnosisId": 30, "answer": "..." }` | RepairAgent — 진단 답변 기반 짧은 교정 |
 
