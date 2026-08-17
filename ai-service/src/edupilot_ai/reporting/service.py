@@ -1,8 +1,9 @@
 """Report generation and query services with one schema regeneration."""
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from http import HTTPStatus
+from time import monotonic
 
 from edupilot_ai.core.errors import ErrorCategory, InternalApiError
 from edupilot_ai.llm.bridge import LlmBridge, LlmBridgeError, LlmUsage
@@ -23,6 +24,7 @@ from edupilot_ai.reporting.validator import (
 from edupilot_ai.settings import AgentLlmProfile
 
 logger = logging.getLogger(__name__)
+_MIN_RETRY_TIMEOUT_SECONDS = 10.0
 
 _KOREAN_OUTPUT_INSTRUCTION = "모든 학습자·교사 대상 텍스트는 한국어로 작성한다."
 _INJECTION_DEFENSE_INSTRUCTION = (
@@ -180,16 +182,27 @@ class ReportGenerationService:
         llm: LlmBridge,
         profile: AgentLlmProfile,
         timeout_seconds: float,
+        clock: Callable[[], float] = monotonic,
     ) -> None:
         self._llm = llm
         self._profile = profile
         self._timeout_seconds = timeout_seconds
+        self._clock = clock
 
     async def execute(self, request: ReportGenerateRequest) -> ReportGenerateResponse:
         usages: list[LlmUsage] = []
         validation_reason: str | None = None
+        deadline = self._clock() + self._timeout_seconds
         for attempt in range(2):
             try:
+                remaining_seconds = (
+                    self._timeout_seconds if attempt == 0 else deadline - self._clock()
+                )
+                if attempt > 0 and remaining_seconds < _MIN_RETRY_TIMEOUT_SECONDS:
+                    raise LlmBridgeError(
+                        category=ErrorCategory.TIMEOUT,
+                        retryable=True,
+                    )
                 completion = await self._llm.complete_json(
                     messages=generate_messages(
                         request,
@@ -198,7 +211,7 @@ class ReportGenerationService:
                     ),
                     response_model=ReportGenerateOutput,
                     profile=self._profile,
-                    timeout_seconds=self._timeout_seconds,
+                    timeout_seconds=remaining_seconds,
                 )
                 usages.append(completion.usage)
                 try:
@@ -246,16 +259,27 @@ class ReportQueryService:
         llm: LlmBridge,
         profile: AgentLlmProfile,
         timeout_seconds: float,
+        clock: Callable[[], float] = monotonic,
     ) -> None:
         self._llm = llm
         self._profile = profile
         self._timeout_seconds = timeout_seconds
+        self._clock = clock
 
     async def execute(self, request: ReportQueryRequest) -> ReportQueryResponse:
         usages: list[LlmUsage] = []
         validation_reason: str | None = None
+        deadline = self._clock() + self._timeout_seconds
         for attempt in range(2):
             try:
+                remaining_seconds = (
+                    self._timeout_seconds if attempt == 0 else deadline - self._clock()
+                )
+                if attempt > 0 and remaining_seconds < _MIN_RETRY_TIMEOUT_SECONDS:
+                    raise LlmBridgeError(
+                        category=ErrorCategory.TIMEOUT,
+                        retryable=True,
+                    )
                 completion = await self._llm.complete_json(
                     messages=query_messages(
                         request,
@@ -264,7 +288,7 @@ class ReportQueryService:
                     ),
                     response_model=ReportQueryOutput,
                     profile=self._profile,
-                    timeout_seconds=self._timeout_seconds,
+                    timeout_seconds=remaining_seconds,
                 )
                 usages.append(completion.usage)
                 try:

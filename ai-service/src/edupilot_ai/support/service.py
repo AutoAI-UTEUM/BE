@@ -1,7 +1,8 @@
 """Structured assessment and diagnosis services."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from http import HTTPStatus
+from time import monotonic
 
 from edupilot_ai.core.errors import ErrorCategory, InternalApiError
 from edupilot_ai.llm.bridge import LlmBridge, LlmBridgeError, LlmUsage
@@ -16,13 +17,11 @@ from edupilot_ai.models.learning_support import (
 from edupilot_ai.models.turn import Usage
 from edupilot_ai.settings import AgentLlmProfile
 
+_MIN_RETRY_TIMEOUT_SECONDS = 10.0
+
 
 def _usage(values: list[LlmUsage], default_model: str) -> Usage:
-    reasoning = [
-        value.reasoning_tokens
-        for value in values
-        if value.reasoning_tokens is not None
-    ]
+    reasoning = [value.reasoning_tokens for value in values if value.reasoning_tokens is not None]
     return Usage(
         model=values[-1].model if values else default_model,
         input_tokens=sum(value.input_tokens for value in values),
@@ -101,20 +100,31 @@ class QuizAssessmentService:
         llm: LlmBridge,
         profile: AgentLlmProfile,
         timeout_seconds: float,
+        clock: Callable[[], float] = monotonic,
     ) -> None:
         self._llm = llm
         self._profile = profile
         self._timeout_seconds = timeout_seconds
+        self._clock = clock
 
     async def execute(self, request: AssessmentRequest) -> AssessmentResponse:
         usages: list[LlmUsage] = []
+        deadline = self._clock() + self._timeout_seconds
         for attempt in range(2):
             try:
+                remaining_seconds = (
+                    self._timeout_seconds if attempt == 0 else deadline - self._clock()
+                )
+                if attempt > 0 and remaining_seconds < _MIN_RETRY_TIMEOUT_SECONDS:
+                    raise LlmBridgeError(
+                        category=ErrorCategory.TIMEOUT,
+                        retryable=True,
+                    )
                 completion = await self._llm.complete_json(
                     messages=assessment_messages(request, retry=attempt == 1),
                     response_model=AssessmentOutput,
                     profile=self._profile,
-                    timeout_seconds=self._timeout_seconds,
+                    timeout_seconds=remaining_seconds,
                 )
                 usages.append(completion.usage)
                 return AssessmentResponse(
@@ -140,20 +150,31 @@ class QuizDiagnosisService:
         llm: LlmBridge,
         profile: AgentLlmProfile,
         timeout_seconds: float,
+        clock: Callable[[], float] = monotonic,
     ) -> None:
         self._llm = llm
         self._profile = profile
         self._timeout_seconds = timeout_seconds
+        self._clock = clock
 
     async def execute(self, request: DiagnosisRequest) -> DiagnosisResponse:
         usages: list[LlmUsage] = []
+        deadline = self._clock() + self._timeout_seconds
         for attempt in range(2):
             try:
+                remaining_seconds = (
+                    self._timeout_seconds if attempt == 0 else deadline - self._clock()
+                )
+                if attempt > 0 and remaining_seconds < _MIN_RETRY_TIMEOUT_SECONDS:
+                    raise LlmBridgeError(
+                        category=ErrorCategory.TIMEOUT,
+                        retryable=True,
+                    )
                 completion = await self._llm.complete_json(
                     messages=diagnosis_messages(request, retry=attempt == 1),
                     response_model=DiagnosisOutput,
                     profile=self._profile,
-                    timeout_seconds=self._timeout_seconds,
+                    timeout_seconds=remaining_seconds,
                 )
                 usages.append(completion.usage)
                 return DiagnosisResponse(

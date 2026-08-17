@@ -10,7 +10,9 @@ from edupilot_ai.core.errors import ErrorCategory, InternalErrorResponse
 from edupilot_ai.llm.bridge import LlmBridgeError, LlmUsage
 from edupilot_ai.models.learning_support import (
     AssessmentOutput,
+    AssessmentRequest,
     DiagnosisOutput,
+    DiagnosisRequest,
     MemoryCandidate,
     RepairOutput,
 )
@@ -18,7 +20,8 @@ from edupilot_ai.models.plan import AgentOutput, PlanAction, ToolName, TurnPlan
 from edupilot_ai.models.turn import TurnRequest, TurnResponse
 from edupilot_ai.orchestration.context import ContextBuilder
 from edupilot_ai.orchestration.policy import PolicyVerifier, PolicyViolation
-from edupilot_ai.settings import ReasoningEffort
+from edupilot_ai.settings import ReasoningEffort, Settings
+from edupilot_ai.support.service import QuizAssessmentService, QuizDiagnosisService
 from tests.fakes import FakeLlm
 from tests.test_turn_contract import make_plan, post_turn
 
@@ -257,6 +260,28 @@ async def test_quiz_assessment_schema_failure_regenerates_once(
     }
 
 
+async def test_quiz_assessment_schema_retry_uses_remaining_total_budget(
+    fake_llm: FakeLlm,
+    settings: Settings,
+) -> None:
+    readings = iter([100.0, 130.0])
+    service = QuizAssessmentService(
+        llm=fake_llm,
+        profile=settings.assessment_llm_profile,
+        timeout_seconds=settings.quiz_assessment_timeout_seconds,
+        clock=lambda: next(readings),
+    )
+    fake_llm.queue(
+        LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False),
+        assessment_output(),
+    )
+
+    response = await service.execute(AssessmentRequest.model_validate(assessment_payload()))
+
+    assert response.understanding_summary.startswith("편차")
+    assert fake_llm.timeouts == [45, 15]
+
+
 async def test_quiz_assessment_schema_failure_twice_returns_502(
     client: httpx.AsyncClient,
     fake_llm: FakeLlm,
@@ -314,6 +339,28 @@ async def test_diagnosis_schema_failure_regenerates_once(
         "outputTokens": 8,
         "reasoningTokens": 5,
     }
+
+
+async def test_diagnosis_schema_retry_uses_remaining_total_budget(
+    fake_llm: FakeLlm,
+    settings: Settings,
+) -> None:
+    readings = iter([100.0, 130.0])
+    service = QuizDiagnosisService(
+        llm=fake_llm,
+        profile=settings.diagnosis_llm_profile,
+        timeout_seconds=settings.diagnosis_timeout_seconds,
+        clock=lambda: next(readings),
+    )
+    fake_llm.queue(
+        LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False),
+        diagnosis_output(),
+    )
+
+    response = await service.execute(DiagnosisRequest.model_validate(diagnosis_payload()))
+
+    assert response.diagnostic_prompt.endswith("?")
+    assert fake_llm.timeouts == [45, 15]
 
 
 async def test_diagnosis_schema_failure_twice_returns_502(
