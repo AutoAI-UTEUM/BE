@@ -138,13 +138,6 @@ async def test_explain_ndjson_golden_sequence_and_content_invariant(
         "eventType": "EXPLAIN_CURRENT_PAGE",
         "payload": {"detailLevel": "DETAILED"},
     }
-    fake_llm.queue(
-        make_plan(
-            ToolName.EXPLAIN_PAGE,
-            {"page": 3, "detailLevel": "DETAILED"},
-            "EXPLAIN_CURRENT_PAGE",
-        )
-    )
     fake_llm.queue_text_stream(
         "편차는 ",
         "**평균과 관측값의 차이**입니다.",
@@ -184,9 +177,9 @@ async def test_explain_ndjson_golden_sequence_and_content_invariant(
     assert completed.messages[0].message_type == "EXPLANATION"
     assert completed.usage.input_tokens == 12
     assert completed.usage.output_tokens == 8
-    assert len(fake_llm.calls) == 1
+    assert fake_llm.calls == []
     assert len(fake_llm.stream_calls) == 1
-    assert fake_llm.stream_calls[0][2] <= fake_llm.timeouts[0]
+    assert 0 < fake_llm.stream_calls[0][2] <= 180
     stream_system_prompt = fake_llm.stream_calls[0][0][0]["content"]
     assert "Return only the learner-facing Markdown explanation." in stream_system_prompt
     assert "모든 학습자 대상 텍스트" in stream_system_prompt
@@ -206,14 +199,6 @@ async def test_explain_empty_page_streams_fixed_guidance_without_agent_llm(
     context = payload["context"]
     assert isinstance(context, dict)
     context["currentPageText"] = ""
-    fake_llm.queue(
-        make_plan(
-            ToolName.EXPLAIN_PAGE,
-            {"page": 3, "detailLevel": "NORMAL"},
-            "EXPLAIN_CURRENT_PAGE",
-        )
-    )
-
     response = await client.post(
         "/internal/ai/turn",
         json=payload,
@@ -230,7 +215,7 @@ async def test_explain_empty_page_streams_fixed_guidance_without_agent_llm(
     )
     assert deltas == completed.messages[0].content
     assert completed.state_patch == {"pageStatus": "EXPLAINED"}
-    assert len(fake_llm.calls) == 1  # Planner only; fixed text stream used afterward.
+    assert fake_llm.calls == []
     assert fake_llm.stream_calls == []
 
 
@@ -415,14 +400,7 @@ async def test_quiz_tool_uses_terminal_event_without_provider_stream(
         "eventType": "QUIZ_TYPE_SELECTED",
         "payload": {"quizType": "MCQ"},
     }
-    fake_llm.queue(
-        make_plan(
-            ToolName.GENERATE_QUIZ_MCQ,
-            {"quizType": "MCQ"},
-            "GENERATE_QUIZ",
-        ),
-        make_quiz(QuizType.MCQ),
-    )
+    fake_llm.queue(make_quiz(QuizType.MCQ))
 
     response = await client.post(
         "/internal/ai/turn",
@@ -441,7 +419,7 @@ async def test_quiz_tool_uses_terminal_event_without_provider_stream(
     completed = CompletedStreamEvent.model_validate(events[-1])
     assert completed.result.quiz is not None
     assert completed.result.quiz.quiz_type is QuizType.MCQ
-    assert len(fake_llm.calls) == 2
+    assert len(fake_llm.calls) == 1
     assert fake_llm.stream_calls == []
 
 
@@ -463,14 +441,7 @@ async def test_quiz_ndjson_emits_status_and_heartbeat_before_completed(
         "eventType": "QUIZ_TYPE_SELECTED",
         "payload": {"quizType": "MCQ"},
     }
-    slow_llm.queue(
-        make_plan(
-            ToolName.GENERATE_QUIZ_MCQ,
-            {"quizType": "MCQ"},
-            "GENERATE_QUIZ",
-        ),
-        make_quiz(QuizType.MCQ),
-    )
+    slow_llm.queue(make_quiz(QuizType.MCQ))
 
     app.dependency_overrides[get_turn_service] = lambda: service
     try:

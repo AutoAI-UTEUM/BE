@@ -8,6 +8,7 @@ from http import HTTPStatus
 
 from edupilot_ai.core.errors import ErrorCategory, InternalApiError
 from edupilot_ai.llm.bridge import LlmBridgeError, LlmUsage
+from edupilot_ai.models.plan import TurnPlan
 from edupilot_ai.models.stream import (
     CompletedStreamEvent,
     ContentDeltaStreamEvent,
@@ -18,7 +19,7 @@ from edupilot_ai.models.stream import (
     TurnStreamEvent,
 )
 from edupilot_ai.models.turn import EventType, TurnRequest, TurnResponse, Usage
-from edupilot_ai.orchestration.context import ContextBuilder
+from edupilot_ai.orchestration.context import AgentContext, ContextBuilder
 from edupilot_ai.orchestration.dispatcher import (
     DispatchResult,
     DispatchStreamCompleted,
@@ -26,6 +27,7 @@ from edupilot_ai.orchestration.dispatcher import (
     ToolDispatcher,
 )
 from edupilot_ai.orchestration.orchestrator import Orchestrator
+from edupilot_ai.orchestration.plan_synthesis import synthesize_plan
 from edupilot_ai.orchestration.policy import PolicyVerifier, PolicyViolation
 from edupilot_ai.orchestration.timing import MonotonicClock, TurnDeadline
 
@@ -161,9 +163,10 @@ class TurnService:
         """Execute the backward-compatible structured JSON path."""
         deadline = self._deadline()
         context = self._context_builder.build(turn)
+        plan_candidate: TurnPlan | None = None
         try:
-            planned = await self._orchestrator.create_plan(context, deadline)
-            plan, adjustments = self._policy.verify(planned.plan, context)
+            plan_candidate, plan_usages = await self._resolve_plan(context, deadline)
+            plan, adjustments = self._policy.verify(plan_candidate, context)
             dispatched = await self._dispatcher.dispatch(
                 plan,
                 context,
@@ -181,7 +184,7 @@ class TurnService:
                         "tool": action.tool.value,
                         "argKeys": sorted(action.args),
                     }
-                    for action in planned.plan.actions
+                    for action in (plan_candidate.actions if plan_candidate is not None else [])
                 ],
             )
             raise _policy_error("The generated Plan violated the turn policy.") from error
@@ -190,7 +193,7 @@ class TurnService:
             turn=turn,
             turn_goal=plan.turn_goal,
             dispatched=dispatched,
-            usages=[planned.usage, *dispatched.usages],
+            usages=[*plan_usages, *dispatched.usages],
         )
 
     async def stream_ndjson(self, turn: TurnRequest) -> AsyncIterator[str]:
@@ -229,12 +232,13 @@ class TurnService:
 
         deadline = self._deadline()
         emitted_content: list[str] = []
+        plan_candidate: TurnPlan | None = None
         try:
             context = self._context_builder.build(turn)
             yield StatusStreamEvent(stage="PLANNING")
             yield ThoughtSummaryStreamEvent(text="학습 계획을 세우는 중입니다")
-            planned = await self._orchestrator.create_plan(context, deadline)
-            plan, adjustments = self._policy.verify(planned.plan, context)
+            plan_candidate, plan_usages = await self._resolve_plan(context, deadline)
+            plan, adjustments = self._policy.verify(plan_candidate, context)
 
             if turn.event.event_type is EventType.EXPLAIN_CURRENT_PAGE:
                 yield StatusStreamEvent(stage="EXPLAINING")
@@ -268,7 +272,7 @@ class TurnService:
                 turn=turn,
                 turn_goal=plan.turn_goal,
                 dispatched=dispatched,
-                usages=[planned.usage, *dispatched.usages],
+                usages=[*plan_usages, *dispatched.usages],
             )
             if "".join(emitted_content) != "".join(message.content for message in result.messages):
                 raise RuntimeError("stream content invariant violated")
@@ -284,7 +288,7 @@ class TurnService:
                         "tool": action.tool.value,
                         "argKeys": sorted(action.args),
                     }
-                    for action in planned.plan.actions
+                    for action in (plan_candidate.actions if plan_candidate is not None else [])
                 ],
             )
             yield _stream_error(_policy_error("The generated Plan violated the turn policy."))
@@ -297,6 +301,17 @@ class TurnService:
                 message="The AI service could not complete the turn.",
                 retryable=False,
             )
+
+    async def _resolve_plan(
+        self,
+        context: AgentContext,
+        deadline: TurnDeadline,
+    ) -> tuple[TurnPlan, list[LlmUsage]]:
+        synthesized = synthesize_plan(context)
+        if synthesized is not None:
+            return synthesized, []
+        planned = await self._orchestrator.create_plan(context, deadline)
+        return planned.plan, [planned.usage]
 
     def _deadline(self) -> TurnDeadline:
         return TurnDeadline.start(
