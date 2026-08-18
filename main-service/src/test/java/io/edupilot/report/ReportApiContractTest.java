@@ -205,6 +205,53 @@ class ReportApiContractTest {
 	}
 
 	@Test
+	void completedEvidenceSerializesMetricsAndOmitsEmptyMetrics() throws Exception {
+		ReportCompletedResponse completed = new ReportCompletedResponse(
+			"901",
+			ReportGenerationStatus.COMPLETED,
+			1,
+			null,
+			new BigDecimal("80"),
+			"GOOD",
+			java.util.Map.of(),
+			List.of(),
+			List.of(
+				new ReportCompletedResponse.Evidence(
+					"ev-score",
+					"QUIZ_SUBMISSION",
+					"quiz result",
+					Instant.EPOCH,
+					List.of(new ReportCompletedResponse.Metric("점수", "8점 / 10점"))
+				),
+				new ReportCompletedResponse.Evidence(
+					"ev-memory",
+					"MEMORY",
+					"learner memory",
+					Instant.EPOCH,
+					List.of()
+				)
+			),
+			Instant.EPOCH
+		);
+		when(reportApiService.detail(1L, UserRole.INSTRUCTOR, "901"))
+			.thenReturn(completed);
+
+		mockMvc.perform(get("/api/reports/901")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.evidence[0].evidenceId").value("ev-score"))
+			.andExpect(jsonPath("$.data.evidence[0].sourceType")
+				.value("QUIZ_SUBMISSION"))
+			.andExpect(jsonPath("$.data.evidence[0].publicLabel").value("quiz result"))
+			.andExpect(jsonPath("$.data.evidence[0].occurredAt").exists())
+			.andExpect(jsonPath("$.data.evidence[0].metrics[0].label").value("점수"))
+			.andExpect(jsonPath("$.data.evidence[0].metrics[0].value")
+				.value("8점 / 10점"))
+			.andExpect(jsonPath("$.data.evidence[1].evidenceId").value("ev-memory"))
+			.andExpect(jsonPath("$.data.evidence[1].metrics").doesNotExist());
+	}
+
+	@Test
 	void detailHidesReportsFromOtherInstructorsAndRejectsLearners() throws Exception {
 		doThrow(new BusinessException(ErrorCode.REPORT_NOT_FOUND))
 			.when(reportApiService)
