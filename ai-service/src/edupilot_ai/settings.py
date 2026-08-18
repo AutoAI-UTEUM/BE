@@ -103,6 +103,10 @@ class Settings(BaseSettings):
         default=60,
         validation_alias="REPORT_QUERY_TIMEOUT_SECONDS",
     )
+    edupilot_outline_timeout_seconds: PositiveInt = Field(
+        default=90,
+        validation_alias="EDUPILOT_OUTLINE_TIMEOUT_SECONDS",
+    )
     edupilot_upload_max_mb: int = Field(
         default=45,
         ge=1,
@@ -126,6 +130,11 @@ class Settings(BaseSettings):
         gt=0,
         le=1,
         validation_alias="EDUPILOT_EXTRACT_MIN_MEANINGFUL_PAGE_RATIO",
+    )
+    edupilot_outline_max_chars_per_page: int = Field(
+        default=1500,
+        ge=1,
+        validation_alias="EDUPILOT_OUTLINE_MAX_CHARS_PER_PAGE",
     )
 
     agent_reasoning_effort: ReasoningEffort = Field(
@@ -183,6 +192,10 @@ class Settings(BaseSettings):
     report_query_reasoning_effort: ReasoningEffort = Field(
         default=ReasoningEffort.MEDIUM,
         validation_alias="REPORT_QUERY_REASONING_EFFORT",
+    )
+    outline_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.LOW,
+        validation_alias="OUTLINE_REASONING_EFFORT",
     )
 
     @property
@@ -257,6 +270,11 @@ class Settings(BaseSettings):
     def report_query_llm_profile(self) -> AgentLlmProfile:
         """Build the medium-reasoning report query profile."""
         return self._profile(self.report_query_reasoning_effort)
+
+    @property
+    def outline_llm_profile(self) -> AgentLlmProfile:
+        """Build the low-reasoning material outline profile."""
+        return self._profile(self.outline_reasoning_effort)
 
     @property
     def upload_max_bytes(self) -> int:
