@@ -4,6 +4,8 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import io.edupilot.report.ReportCriterionStatus;
 import io.edupilot.report.ReportGenerationStatus;
 import io.edupilot.report.ReportTrend;
@@ -35,7 +37,22 @@ public record ReportCompletedResponse(
 		String evidenceId,
 		String sourceType,
 		String publicLabel,
-		Instant occurredAt
+		Instant occurredAt,
+		@JsonInclude(JsonInclude.Include.NON_EMPTY) List<Metric> metrics
+	) {
+		public Evidence(
+			String evidenceId,
+			String sourceType,
+			String publicLabel,
+			Instant occurredAt
+		) {
+			this(evidenceId, sourceType, publicLabel, occurredAt, List.of());
+		}
+	}
+
+	public record Metric(
+		String label,
+		String value
 	) {
 	}
 }

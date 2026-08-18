@@ -178,6 +178,32 @@ class ReportSnapshotCalculatorTest {
 	}
 
 	@Test
+	void selectedEvidencePreservesAvailableScoreFieldsInMinimalFact() {
+		ReportSnapshot snapshot = calculator.compute(input(
+			List.of(new ReportSnapshotInput.SourceRecord(
+				ReportSourceType.QUIZ_SUBMISSION,
+				"scored",
+				NOW,
+				"scored evidence",
+				Map.of("passed", true, "attemptNo", 2),
+				new BigDecimal("8.00"),
+				new BigDecimal("10.0"),
+				new BigDecimal("80.00")
+			)),
+			List.of()
+		));
+
+		assertThat(snapshot.evidence()).singleElement().satisfies(evidence ->
+			assertThat(evidence.minimalFact())
+				.containsEntry("passed", true)
+				.containsEntry("attemptNo", 2)
+				.containsEntry("score", new BigDecimal("8.00"))
+				.containsEntry("maxScore", new BigDecimal("10.0"))
+				.containsEntry("normalizedScore", new BigDecimal("80.00"))
+		);
+	}
+
+	@Test
 	void calculatesOverallScoreFromAssessedCriteriaOnlyAtStageBoundaries() {
 		assertThat(scoreCalculator.stage(new BigDecimal("85"))).isEqualTo("우수");
 		assertThat(scoreCalculator.stage(new BigDecimal("70"))).isEqualTo("양호");
