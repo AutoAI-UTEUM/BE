@@ -18,6 +18,7 @@ from edupilot_ai.orchestration.dispatcher import ToolDispatcher
 from edupilot_ai.orchestration.orchestrator import Orchestrator
 from edupilot_ai.orchestration.policy import PolicyVerifier
 from edupilot_ai.orchestration.service import TurnService
+from edupilot_ai.outline.service import OutlineService
 from edupilot_ai.reporting.service import ReportGenerationService, ReportQueryService
 from edupilot_ai.settings import Settings
 from edupilot_ai.support.service import QuizAssessmentService, QuizDiagnosisService
@@ -132,4 +133,18 @@ def get_exam_draft_service(
         llm=llm,
         profile=settings.exam_draft_llm_profile,
         timeout_seconds=settings.exam_draft_timeout_seconds,
+    )
+
+
+def get_outline_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    llm: Annotated[LlmBridge, Depends(get_llm_bridge)],
+) -> OutlineService:
+    return OutlineService(
+        llm=llm,
+        profile=settings.outline_llm_profile,
+        timeout_seconds=settings.edupilot_outline_timeout_seconds,
+        max_chars_per_page=settings.edupilot_outline_max_chars_per_page,
+        min_chars_per_page=settings.edupilot_extract_min_chars_per_page,
+        min_meaningful_page_ratio=settings.edupilot_extract_min_meaningful_page_ratio,
     )

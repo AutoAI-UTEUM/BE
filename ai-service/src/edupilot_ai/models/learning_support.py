@@ -98,5 +98,3 @@ class DiagnosisResponse(DiagnosisOutput):
 
 class RepairOutput(ContractModel):
     markdown: str = Field(min_length=1)
-    focus_concepts: Annotated[list[str], Field(min_length=1)]
-    thought_summary: str = Field(min_length=1)

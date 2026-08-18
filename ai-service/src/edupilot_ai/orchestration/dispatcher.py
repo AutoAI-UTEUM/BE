@@ -41,7 +41,7 @@ _PAGE_STATUS_VALUES = {
     "DIAGNOSIS_PENDING",
     "REPAIR_COMPLETED",
 }
-_ALLOWED_PATCH_KEYS = {"pageStatus", "activeQuizId", "pendingDiagnosis", "qaThread"}
+_ALLOWED_PATCH_KEYS = {"pageStatus", "pendingDiagnosis", "qaThread"}
 logger = logging.getLogger(__name__)
 
 
@@ -410,12 +410,4 @@ class ToolDispatcher:
             mode,
             thread_ref,
             timeout_seconds=deadline.remaining_seconds(),
-        )
-
-    def _stub(self, agent: str, content: str) -> AgentResult:
-        return AgentResult(
-            agent=agent,
-            message=Message(message_type="SYSTEM", content=content),
-            state_patch={},
-            usage=LlmUsage(self._model, 0, 0, None),
         )

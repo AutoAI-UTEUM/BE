@@ -81,14 +81,28 @@ public class ReportEvidenceSelector {
 
 	private ReportSnapshot.Evidence toEvidence(PreparedSource source) {
 		ReportSnapshotInput.SourceRecord record = source.record();
+		Map<String, Object> minimalFact = new LinkedHashMap<>(record.minimalFact());
+		putIfPresent(minimalFact, "score", record.score());
+		putIfPresent(minimalFact, "maxScore", record.maxScore());
+		putIfPresent(minimalFact, "normalizedScore", record.normalizedScore());
 		return new ReportSnapshot.Evidence(
 			source.evidenceId(),
 			record.sourceType(),
 			record.sourceRef(),
 			record.occurredAt(),
 			record.publicLabel(),
-			record.minimalFact()
+			minimalFact
 		);
+	}
+
+	private void putIfPresent(
+		Map<String, Object> minimalFact,
+		String key,
+		Object value
+	) {
+		if (value != null) {
+			minimalFact.put(key, value);
+		}
 	}
 
 	public record PreparedSource(

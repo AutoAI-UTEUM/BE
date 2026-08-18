@@ -1,5 +1,9 @@
 package io.edupilot.report;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +26,8 @@ import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class ReportApiService {
+	private static final Map<String, MetricDefinition> EVIDENCE_METRIC_DEFINITIONS =
+		evidenceMetricDefinitions();
 
 	private static final List<ReportGenerationStatus> ACTIVE_STATUSES = List.of(
 		ReportGenerationStatus.PENDING,
@@ -173,7 +179,8 @@ public class ReportApiService {
 				snapshot.getEvidenceId(),
 				snapshot.getSourceType(),
 				snapshot.getPublicLabel(),
-				snapshot.getOccurredAt()
+				snapshot.getOccurredAt(),
+				evidenceMetrics(snapshot.getMinimalFact())
 			))
 			.toList();
 		return new ReportCompletedResponse(
@@ -188,6 +195,96 @@ public class ReportApiService {
 			evidence,
 			report.getCreatedAt()
 		);
+	}
+
+	private List<ReportCompletedResponse.Metric> evidenceMetrics(
+		Map<String, Object> minimalFact
+	) {
+		List<ReportCompletedResponse.Metric> metrics = new ArrayList<>();
+		for (Map.Entry<String, MetricDefinition> entry :
+			EVIDENCE_METRIC_DEFINITIONS.entrySet()) {
+			MetricDefinition definition = entry.getValue();
+			String value = definition.formatter().format(
+				minimalFact.get(entry.getKey()),
+				minimalFact
+			);
+			if (value != null) {
+				metrics.add(new ReportCompletedResponse.Metric(
+					definition.label(), value
+				));
+			}
+		}
+		return List.copyOf(metrics);
+	}
+
+	private static Map<String, MetricDefinition> evidenceMetricDefinitions() {
+		Map<String, MetricDefinition> definitions = new LinkedHashMap<>();
+		definitions.put("score", new MetricDefinition("점수", (value, facts) -> {
+			BigDecimal score = decimal(value);
+			BigDecimal maxScore = decimal(facts.get("maxScore"));
+			if (score == null || maxScore == null) {
+				return null;
+			}
+			return formatDecimal(score) + "점 / " + formatDecimal(maxScore) + "점";
+		}));
+		definitions.put("normalizedScore", new MetricDefinition(
+			"환산 점수", decimalWithSuffix("점")
+		));
+		definitions.put("passed", new MetricDefinition(
+			"통과 여부",
+			(value, facts) -> value instanceof Boolean passed
+				? passed ? "통과" : "미통과"
+				: null
+		));
+		definitions.put("attemptNo", new MetricDefinition(
+			"시도 회차", decimalWithSuffix("회차")
+		));
+		definitions.put("strengthCount", new MetricDefinition(
+			"강점 문항", decimalWithSuffix("개")
+		));
+		definitions.put("weaknessCount", new MetricDefinition(
+			"보완 문항", decimalWithSuffix("개")
+		));
+		definitions.put("misconceptionCount", new MetricDefinition(
+			"오개념 문항", decimalWithSuffix("개")
+		));
+		definitions.put("focusConceptCount", new MetricDefinition(
+			"집중 개념", decimalWithSuffix("개")
+		));
+		return Collections.unmodifiableMap(definitions);
+	}
+
+	private static MetricFormatter decimalWithSuffix(String suffix) {
+		return (value, facts) -> {
+			BigDecimal decimal = decimal(value);
+			return decimal == null ? null : formatDecimal(decimal) + suffix;
+		};
+	}
+
+	private static BigDecimal decimal(Object value) {
+		if (!(value instanceof Number)) {
+			return null;
+		}
+		try {
+			return new BigDecimal(value.toString());
+		} catch (NumberFormatException exception) {
+			return null;
+		}
+	}
+
+	private static String formatDecimal(BigDecimal value) {
+		return value.stripTrailingZeros().toPlainString();
+	}
+
+	private record MetricDefinition(
+		String label,
+		MetricFormatter formatter
+	) {
+	}
+
+	@FunctionalInterface
+	private interface MetricFormatter {
+		String format(Object value, Map<String, Object> facts);
 	}
 
 	private Long parseId(String reportId) {

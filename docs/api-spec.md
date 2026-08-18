@@ -1887,8 +1887,12 @@ FULL은 FULL끼리, WEEK는 같은 `weekNumber`끼리 독립된 체인을 사용
 생성된 리포트의 `previousVersion`과 `trend`는 구 혼합 체인 기준일 수 있으며 역사적
 값을 보정하지 않습니다.
 evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLabel`, `occurredAt`으로
-노출하며 `sourceRef`, `minimalFact`, hash와 generation lease 정보는 외부 응답에 포함하지
-않습니다. 없는 리포트는 `REPORT_NOT_FOUND`(404)입니다.
+노출합니다. 알려진 수치 근거가 있으면 선택 `metrics:[{label,value}]`를 함께 노출하며,
+점수·환산 점수·통과 여부·시도 회차·강점/보완/오개념 문항 수·집중 개념 수만 사람이 읽을 수
+있는 문자열로 변환합니다. 매핑 가능한 값이 없으면 `metrics` 필드 자체를 생략합니다. 기존 동결
+스냅샷은 소급 변경하지 않으므로 보유한 문항 수 계열만 노출될 수 있습니다. `sourceRef`,
+`minimalFact`, hash와 generation lease 정보는 외부 응답에 포함하지 않습니다. 없는 리포트는
+`REPORT_NOT_FOUND`(404)입니다.
 
 ## 8. Spring → FastAPI 내부 API
 

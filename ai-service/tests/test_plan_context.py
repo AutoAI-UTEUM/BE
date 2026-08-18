@@ -206,7 +206,7 @@ async def test_only_planner_receives_slim_context(
             {"qaThreadMode": "START_NEW", "threadRef": None},
             "ANSWER_USER_QUESTION",
         ),
-        AgentOutput(markdown="답변", thought_summary="근거 연결"),
+        AgentOutput(markdown="답변"),
     )
 
     response = await post_turn(client, auth_headers, payload)
@@ -254,8 +254,6 @@ async def test_repair_agent_keeps_full_context_outside_planner(
         ),
         RepairOutput(
             markdown="## 오개념 교정\n\n편차는 평균과의 차이입니다.",
-            focus_concepts=["편차의 정의"],
-            thought_summary="평균과 편차를 구분",
         ),
     )
 

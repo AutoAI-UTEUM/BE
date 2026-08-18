@@ -182,7 +182,6 @@ async def test_explain_ndjson_golden_sequence_and_content_invariant(
     assert 0 < fake_llm.stream_calls[0][2] <= 180
     stream_system_prompt = fake_llm.stream_calls[0][0][0]["content"]
     assert "Return only the learner-facing Markdown explanation." in stream_system_prompt
-    assert "Return AgentOutput JSON with a short thoughtSummary." not in stream_system_prompt
     assert "모든 학습자 대상 텍스트" in stream_system_prompt
 
 
@@ -375,7 +374,7 @@ async def test_accept_omitted_keeps_json_path(
             {"qaThreadMode": "START_NEW", "threadRef": None},
             "ANSWER_USER_QUESTION",
         ),
-        AgentOutput(markdown="기존 JSON 답변", thought_summary="JSON 경로"),
+        AgentOutput(markdown="기존 JSON 답변"),
     )
 
     response = await client.post(

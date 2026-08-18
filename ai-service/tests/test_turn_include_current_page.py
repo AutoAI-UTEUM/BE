@@ -47,7 +47,6 @@ async def test_include_current_page_false_returns_qa_answer(
         _qa_plan(),
         AgentOutput(
             markdown="표준편차는 자료가 평균에서 얼마나 퍼져 있는지 보여줍니다.",
-            thought_summary="일반 학습 지식으로 답변",
         ),
     )
 
@@ -104,7 +103,7 @@ async def test_include_current_page_omitted_defaults_to_true(
     payload = deepcopy(turn_payload)
     fake_llm.queue(
         _qa_plan(),
-        AgentOutput(markdown="편차는 관측값과 평균의 차이입니다.", thought_summary="답변"),
+        AgentOutput(markdown="편차는 관측값과 평균의 차이입니다."),
     )
 
     response = await post_turn(client, auth_headers, payload)

@@ -1,0 +1,1 @@
+"""Material outline generation package."""
