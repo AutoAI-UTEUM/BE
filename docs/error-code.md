@@ -157,7 +157,8 @@
 | code | HTTP | 의미 |
 | --- | ---: | --- |
 | `REPORT_NOT_FOUND` | 404 | 리포트가 없거나 현재 사용자가 해당 리포트의 강의실을 관리하지 않음 |
-| `REPORT_CRITERION_LIMIT_EXCEEDED` | 409 | 기본 9종을 포함한 강의실 활성 리포트 기준이 20개를 초과함 |
+| `REPORT_CRITERION_LIMIT_EXCEEDED` | 400 | 기본 9종을 포함한 강의실 활성 리포트 기준이 20개를 초과하거나 자동 생성 여유 슬롯이 3개 미만임 |
+| `REPORT_CRITERIA_GENERATION_NOT_READY` | 400 | 개요가 생성된 강의실 자료가 없어 평가 지표를 자동 생성할 수 없음 |
 | `REPORT_CRITERION_DUPLICATE` | 409 | 정규화한 key 또는 이름이 기존 리포트 기준과 중복됨 |
 
 ### AI 연동

@@ -45,12 +45,13 @@
 
 - 원시 예외 문자열·프롬프트·내부 추론을 message에 넣지 않는다.
 
-## 2. 내부 엔드포인트 (7종 — api-spec §8 확정 체계)
+## 2. 내부 엔드포인트 (8종 — api-spec §8 확정 체계)
 
 | Method | URL | 목적 | 호출 시점 |
 | --- | --- | --- | --- |
 | POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (결정적 전처리) | 자료 업로드 후 비동기 |
 | POST | `/internal/ai/outline` | 자료 요약·목차 구조 생성 | 추출 완료 후 비동기 |
+| POST | `/internal/ai/criteria/suggest` | 강의실 자료 개요 기반 평가 기준 제안 | 강사 자동 생성 요청 후 비동기 |
 | POST | `/internal/ai/turn` | 자유 턴 (설명·QA·퀴즈 생성·교정·메모리 도구 포함) | turns 이벤트 수신 시 |
 | POST | `/internal/ai/grade` | SHORT/ESSAY 채점 | 제출 파이프라인 1단계 |
 | POST | `/internal/ai/quiz-assessment` | 내부 평가 생성 | 파이프라인 2단계 (채점 후 항상) |
@@ -460,6 +461,16 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 - 응답: `{ "schemaVersion": "1.0", "materialSummary": "...", "sections": [{ "title": "...", "startPage": 1, "endPage": 2, "keywords": ["..."] }], "totalPages": 2 }`.
 - Spring은 응답을 결정적 마크다운으로 렌더링해 `material_overviews.content`에 저장하고, 원본 구조는 `outline_json`에 저장한다. 실패는 자료 자체 상태를 변경하지 않고 개요만 `FAILED`로 전이한다.
 - Main Service read timeout은 `EDUPILOT_AI_OUTLINE_TIMEOUT`(기본 `110s`)을 사용한다.
+
+### 6.7 POST /internal/ai/criteria/suggest
+
+- 요청은 `schemaVersion:"1.0"`, 기본 9종과 비활성을 포함한 `existingCriterionKeys`,
+  `READY` 개요의 `materials[{title,materialSummary,sections}]`로 구성합니다.
+- 응답은 `criteria[{key,name,description,rubric,allowedSources,weight,minimumEvidence}]`와
+  `warnings[{type,message}]`를 반환합니다. Spring은 기존 평가 기준 검증을 재사용해 응답
+  전체를 한 트랜잭션으로 등록하며 일부 성공은 허용하지 않습니다.
+- Main Service read timeout은 기존 `EDUPILOT_AI_CRITERIA_READ_TIMEOUT`(기본 `90s`)을
+  사용합니다.
 
 ## 7. Grok 연동 규칙 (DEC-002 v2 요약 — 구현 구속)
 

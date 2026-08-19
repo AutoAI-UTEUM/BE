@@ -1,5 +1,7 @@
 package io.edupilot.report;
 
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import io.edupilot.auth.AuthenticatedUser;
 import io.edupilot.global.response.ApiResponse;
 import io.edupilot.report.dto.CreateReportCriterionRequest;
+import io.edupilot.report.dto.ReportCriterionGenerationResponse;
 import io.edupilot.report.dto.ReportCriterionListResponse;
 import io.edupilot.report.dto.ReportCriterionResponse;
 import io.edupilot.report.dto.UpdateReportCriterionRequest;
@@ -29,9 +32,38 @@ import jakarta.validation.Valid;
 public class ReportCriterionController {
 
 	private final ReportCriterionService criterionService;
+	private final ReportCriterionGenerationService generationService;
 
-	public ReportCriterionController(ReportCriterionService criterionService) {
+	public ReportCriterionController(
+		ReportCriterionService criterionService,
+		ReportCriterionGenerationService generationService
+	) {
 		this.criterionService = criterionService;
+		this.generationService = generationService;
+	}
+
+	@PostMapping("/generate")
+	@Operation(summary = "AI 평가 지표 자동 생성")
+	public ResponseEntity<ApiResponse<ReportCriterionGenerationResponse>> generate(
+		@AuthenticationPrincipal AuthenticatedUser user,
+		@PathVariable Long classroomId
+	) {
+		ReportCriterionGenerationResponse response = generationService.start(
+			user.userId(), user.role(), classroomId
+		);
+		return ResponseEntity.status(HttpStatus.ACCEPTED)
+			.body(ApiResponse.success(response));
+	}
+
+	@GetMapping("/generation")
+	@Operation(summary = "AI 평가 지표 생성 상태 조회")
+	public ApiResponse<ReportCriterionGenerationResponse> generationStatus(
+		@AuthenticationPrincipal AuthenticatedUser user,
+		@PathVariable Long classroomId
+	) {
+		return ApiResponse.success(generationService.status(
+			user.userId(), user.role(), classroomId
+		));
 	}
 
 	@GetMapping
