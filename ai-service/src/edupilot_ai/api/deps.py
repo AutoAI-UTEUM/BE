@@ -4,6 +4,7 @@ from typing import Annotated, cast
 
 from fastapi import Depends, Request
 
+from edupilot_ai.criteria.service import CriteriaSuggestService
 from edupilot_ai.examdraft.service import ExamDraftService
 from edupilot_ai.grading.service import GraderAgent, GradeService
 from edupilot_ai.llm.bridge import LlmBridge
@@ -147,4 +148,15 @@ def get_outline_service(
         max_chars_per_page=settings.edupilot_outline_max_chars_per_page,
         min_chars_per_page=settings.edupilot_extract_min_chars_per_page,
         min_meaningful_page_ratio=settings.edupilot_extract_min_meaningful_page_ratio,
+    )
+
+
+def get_criteria_suggest_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    llm: Annotated[LlmBridge, Depends(get_llm_bridge)],
+) -> CriteriaSuggestService:
+    return CriteriaSuggestService(
+        llm=llm,
+        profile=settings.criteria_llm_profile,
+        timeout_seconds=settings.edupilot_criteria_timeout_seconds,
     )

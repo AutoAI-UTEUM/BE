@@ -107,6 +107,10 @@ class Settings(BaseSettings):
         default=90,
         validation_alias="EDUPILOT_OUTLINE_TIMEOUT_SECONDS",
     )
+    edupilot_criteria_timeout_seconds: PositiveInt = Field(
+        default=75,
+        validation_alias="EDUPILOT_CRITERIA_TIMEOUT_SECONDS",
+    )
     edupilot_upload_max_mb: int = Field(
         default=45,
         ge=1,
@@ -197,6 +201,10 @@ class Settings(BaseSettings):
         default=ReasoningEffort.LOW,
         validation_alias="OUTLINE_REASONING_EFFORT",
     )
+    criteria_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.LOW,
+        validation_alias="CRITERIA_REASONING_EFFORT",
+    )
 
     @property
     def agent_llm_profile(self) -> AgentLlmProfile:
@@ -275,6 +283,11 @@ class Settings(BaseSettings):
     def outline_llm_profile(self) -> AgentLlmProfile:
         """Build the low-reasoning material outline profile."""
         return self._profile(self.outline_reasoning_effort)
+
+    @property
+    def criteria_llm_profile(self) -> AgentLlmProfile:
+        """Build the low-reasoning classroom criteria profile."""
+        return self._profile(self.criteria_reasoning_effort)
 
     @property
     def upload_max_bytes(self) -> int:
