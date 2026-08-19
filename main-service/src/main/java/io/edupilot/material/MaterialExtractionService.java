@@ -24,17 +24,20 @@ public class MaterialExtractionService {
 	private final FileStorage fileStorage;
 	private final AiClient aiClient;
 	private final MaterialProperties properties;
+	private final MaterialOutlineTaskDispatcher outlineTaskDispatcher;
 
 	public MaterialExtractionService(
 		MaterialExtractionPersistenceService persistenceService,
 		FileStorage fileStorage,
 		AiClient aiClient,
-		MaterialProperties properties
+		MaterialProperties properties,
+		MaterialOutlineTaskDispatcher outlineTaskDispatcher
 	) {
 		this.persistenceService = persistenceService;
 		this.fileStorage = fileStorage;
 		this.aiClient = aiClient;
 		this.properties = properties;
+		this.outlineTaskDispatcher = outlineTaskDispatcher;
 	}
 
 	public void extract(Long materialId, String traceId) {
@@ -67,7 +70,9 @@ public class MaterialExtractionService {
 			}
 
 			boolean applied = persistenceService.complete(materialId, response.pages());
-			if (!applied) {
+			if (applied) {
+				outlineTaskDispatcher.submit(materialId);
+			} else {
 				log.atInfo()
 					.addKeyValue("materialId", materialId)
 					.addKeyValue("reason", "STATE_CHANGED")

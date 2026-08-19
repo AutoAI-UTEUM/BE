@@ -296,6 +296,11 @@ class HttpAiClientStreamTest {
 			Duration.ofSeconds(1),
 			Duration.ofSeconds(1),
 			Duration.ofSeconds(1),
+			Duration.ofSeconds(1),
+			Duration.ofSeconds(1),
+			Duration.ofSeconds(1),
+			Duration.ofSeconds(1),
+			Duration.ofSeconds(1),
 			"/health"
 		));
 	}

@@ -11,6 +11,8 @@ import io.edupilot.ai.dto.ExamDraftRequest;
 import io.edupilot.ai.dto.ExamDraftResponse;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
+import io.edupilot.ai.dto.OutlineRequest;
+import io.edupilot.ai.dto.OutlineResponse;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
 import io.edupilot.ai.dto.QuizAssessmentResponse;
 import io.edupilot.ai.dto.ReportGenerateRequest;
@@ -33,6 +35,8 @@ public interface AiClient {
 	);
 
 	ExtractResponse extract(Resource pdfResource);
+
+	OutlineResponse outline(OutlineRequest request);
 
 	GradeResponse grade(GradeRequest request);
 

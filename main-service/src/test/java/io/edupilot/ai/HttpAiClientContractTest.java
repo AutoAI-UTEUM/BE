@@ -26,6 +26,8 @@ import io.edupilot.ai.dto.ExamDraftRequest;
 import io.edupilot.ai.dto.ExamDraftResponse;
 import io.edupilot.exam.ExamQuestionType;
 import io.edupilot.ai.dto.GradeRequest;
+import io.edupilot.ai.dto.OutlineRequest;
+import io.edupilot.ai.dto.OutlineResponse;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
 import io.edupilot.ai.dto.QuizAssessmentResponse;
 import io.edupilot.ai.dto.ReportGenerateRequest;
@@ -434,6 +436,53 @@ class HttpAiClientContractTest {
 	}
 
 	@Test
+	void outlineSendsEveryPageTextAndParsesStructuredResponse() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "materialSummary": "자료 요약입니다.",
+			  "sections": [
+			    {
+			      "title": "핵심 단원",
+			      "startPage": 1,
+			      "endPage": 2,
+			      "keywords": ["개념", "예제"]
+			    }
+			  ],
+			  "totalPages": 2
+			}
+			"""));
+		OutlineRequest outlineRequest = new OutlineRequest(
+			"1.0",
+			2,
+			List.of(
+				new OutlineRequest.Page(1, "첫 페이지 전체 텍스트"),
+				new OutlineRequest.Page(2, "둘째 페이지 전체 텍스트")
+			)
+		);
+
+		OutlineResponse response = client(Duration.ofSeconds(1))
+			.outline(outlineRequest);
+
+		assertThat(response.materialSummary()).isEqualTo("자료 요약입니다.");
+		assertThat(response.sections()).singleElement().satisfies(section -> {
+			assertThat(section.title()).isEqualTo("핵심 단원");
+			assertThat(section.keywords()).containsExactly("개념", "예제");
+		});
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getMethod()).isEqualTo("POST");
+		assertThat(request.getPath()).isEqualTo("/internal/ai/outline");
+		assertThat(request.getHeader("X-Internal-Token")).isEqualTo(INTERNAL_TOKEN);
+		assertThat(request.getBody().readUtf8())
+			.contains("\"schemaVersion\":\"1.0\"")
+			.contains("\"totalPages\":2")
+			.contains("\"pageNumber\":1")
+			.contains("첫 페이지 전체 텍스트")
+			.contains("둘째 페이지 전체 텍스트");
+	}
+
+	@Test
 	void delayedExtractResponseUsesExtractTimeoutWithoutRetry() {
 		server.enqueue(jsonResponse(200, """
 			{
@@ -754,6 +803,11 @@ class HttpAiClientContractTest {
 			baseUrl,
 			INTERNAL_TOKEN,
 			Duration.ofMillis(300),
+			readTimeout,
+			readTimeout,
+			readTimeout,
+			readTimeout,
+			readTimeout,
 			readTimeout,
 			readTimeout,
 			readTimeout,
