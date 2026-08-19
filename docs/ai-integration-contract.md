@@ -23,7 +23,7 @@
   - v0.2의 "RuleRouter" 개념은 이 구조로 흡수됨 — **결정 가능한 분기는 전부 Spring 측 규칙**(StateReducer·파이프라인 트리거·페이지 이동), FastAPI 내부에는 별도 규칙 라우터를 두지 않는다. Policy/Verifier는 LLM Plan의 스키마·허용 도구·교수 정책 검증만 담당한다(동일 판단 로직 이중화 금지).
   - 단, 이벤트로 결과가 유일하게 결정되는 턴의 Plan 합성과 결정적 안내 fast-path(페이지 이동 안내·빈 페이지)는 AI 내부 규칙으로 처리한다(설계 승인, 2026-08-17).
 - **상태 소유: Spring** — FastAPI는 무상태. 요청마다 스냅샷을 받고 statePatch를 제안하며, Spring이 허용목록으로 검증 후 반영. FastAPI는 자체 영속 저장소(Redis 포함)를 두지 않는다.
-- **PDF 접근** — 자료 업로드 시 `/internal/ai/extract`로 1회 추출 → Spring이 `material_pages`에 저장 → 턴마다 현재±1 페이지 텍스트를 스냅샷에 동봉. fileRef/Files API 미사용.
+- **PDF 접근** — 자료 업로드 시 `/internal/ai/extract`로 1회 추출 → Spring이 `material_pages`에 저장 → `/internal/ai/outline`에는 저장된 전 페이지 텍스트를 전달하고, 턴마다 현재±1 페이지 텍스트를 스냅샷에 동봉. fileRef/Files API 미사용.
 
 ## 1. 공통 규칙
 
@@ -45,11 +45,12 @@
 
 - 원시 예외 문자열·프롬프트·내부 추론을 message에 넣지 않는다.
 
-## 2. 내부 엔드포인트 (6종 — api-spec §8 확정 체계)
+## 2. 내부 엔드포인트 (7종 — api-spec §8 확정 체계)
 
 | Method | URL | 목적 | 호출 시점 |
 | --- | --- | --- | --- |
 | POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (결정적 전처리) | 자료 업로드 후 비동기 |
+| POST | `/internal/ai/outline` | 자료 요약·목차 구조 생성 | 추출 완료 후 비동기 |
 | POST | `/internal/ai/turn` | 자유 턴 (설명·QA·퀴즈 생성·교정·메모리 도구 포함) | turns 이벤트 수신 시 |
 | POST | `/internal/ai/grade` | SHORT/ESSAY 채점 | 제출 파이프라인 1단계 |
 | POST | `/internal/ai/quiz-assessment` | 내부 평가 생성 | 파이프라인 2단계 (채점 후 항상) |
@@ -451,6 +452,14 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 - 문항 유형·개수는 계획과 일치해야 하며 `sourcePageNumber`는 null 또는 요청의 페이지 번호여야 합니다. MCQ 정답은 choices 중 하나이고 ESSAY rubric weight 합은 정확히 1.0입니다.
 - AI Service는 구조화 출력 계약 실패 시 한 번 재생성합니다. 최종 실패와 Main의 2차 검증 실패는 `AI_RESPONSE_INVALID`; timeout·인증·내부 오류는 §1의 표준 오류 봉투와 `traceId` 규칙을 그대로 사용합니다.
 - Main의 전용 read timeout은 120초입니다. 정답·해설을 포함하므로 외부 API는 소유 강사에게만 노출합니다.
+
+### 6.6 POST /internal/ai/outline
+
+- 요청: `{ "schemaVersion": "1.0", "totalPages": 2, "pages": [{ "pageNumber": 1, "text": "..." }] }`.
+- Spring은 `material_pages`에 저장된 전 페이지 텍스트를 페이지 순서대로 전달하며 텍스트를 절단하지 않는다. 입력 길이 조절은 AI Service 책임이다.
+- 응답: `{ "schemaVersion": "1.0", "materialSummary": "...", "sections": [{ "title": "...", "startPage": 1, "endPage": 2, "keywords": ["..."] }], "totalPages": 2 }`.
+- Spring은 응답을 결정적 마크다운으로 렌더링해 `material_overviews.content`에 저장하고, 원본 구조는 `outline_json`에 저장한다. 실패는 자료 자체 상태를 변경하지 않고 개요만 `FAILED`로 전이한다.
+- Main Service read timeout은 `EDUPILOT_AI_OUTLINE_TIMEOUT`(기본 `110s`)을 사용한다.
 
 ## 7. Grok 연동 규칙 (DEC-002 v2 요약 — 구현 구속)
 

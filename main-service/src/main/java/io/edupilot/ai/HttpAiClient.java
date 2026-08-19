@@ -55,6 +55,8 @@ import io.edupilot.ai.dto.ExamDraftResponse;
 import io.edupilot.ai.dto.ExtractedPage;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
+import io.edupilot.ai.dto.OutlineRequest;
+import io.edupilot.ai.dto.OutlineResponse;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
 import io.edupilot.ai.dto.QuizAssessmentResponse;
 import io.edupilot.ai.dto.ReportGenerateRequest;
@@ -73,6 +75,7 @@ public class HttpAiClient implements AiClient {
 	private static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
 	private static final String TURN_PATH = "/internal/ai/turn";
 	private static final String EXTRACT_PATH = "/internal/ai/extract";
+	private static final String OUTLINE_PATH = "/internal/ai/outline";
 	private static final String GRADE_PATH = "/internal/ai/grade";
 	private static final String QUIZ_ASSESSMENT_PATH =
 		"/internal/ai/quiz-assessment";
@@ -94,8 +97,10 @@ public class HttpAiClient implements AiClient {
 	private final RestClient streamRestClient;
 	private final RestClient healthRestClient;
 	private final RestClient extractRestClient;
+	private final RestClient outlineRestClient;
 	private final RestClient gradeRestClient;
-	private final RestClient pipelineRestClient;
+	private final RestClient assessmentRestClient;
+	private final RestClient diagnosisRestClient;
 	private final RestClient reportRestClient;
 	private final RestClient examDraftRestClient;
 	private final String healthPath;
@@ -121,13 +126,21 @@ public class HttpAiClient implements AiClient {
 			properties,
 			properties.extractReadTimeout()
 		);
+		this.outlineRestClient = buildRestClient(
+			properties,
+			properties.outlineTimeout()
+		);
 		this.gradeRestClient = buildRestClient(
 			properties,
 			properties.gradeReadTimeout()
 		);
-		this.pipelineRestClient = buildRestClient(
+		this.assessmentRestClient = buildRestClient(
 			properties,
-			properties.pipelineReadTimeout()
+			properties.assessmentReadTimeout()
+		);
+		this.diagnosisRestClient = buildRestClient(
+			properties,
+			properties.diagnosisReadTimeout()
 		);
 		this.reportRestClient = buildRestClient(
 			properties,
@@ -666,6 +679,19 @@ public class HttpAiClient implements AiClient {
 	}
 
 	@Override
+	public OutlineResponse outline(OutlineRequest request) {
+		return executeAttempt(
+			new AiCallContext(OUTLINE_PATH, 1, false, null, null, null),
+			() -> outlineRestClient.post()
+				.uri(OUTLINE_PATH)
+				.contentType(MediaType.APPLICATION_JSON)
+				.body(request)
+				.retrieve()
+				.body(OutlineResponse.class)
+		);
+	}
+
+	@Override
 	public GradeResponse grade(GradeRequest request) {
 		for (int attempt = 1; attempt <= 2; attempt++) {
 			int currentAttempt = attempt;
@@ -725,7 +751,7 @@ public class HttpAiClient implements AiClient {
 					),
 					() -> {
 						QuizAssessmentResponse response =
-							pipelineRestClient.post()
+							assessmentRestClient.post()
 								.uri(QUIZ_ASSESSMENT_PATH)
 								.contentType(MediaType.APPLICATION_JSON)
 								.body(request)
@@ -760,7 +786,7 @@ public class HttpAiClient implements AiClient {
 						request.quizResult().quizId()
 					),
 					() -> {
-						DiagnosisResponse response = pipelineRestClient.post()
+						DiagnosisResponse response = diagnosisRestClient.post()
 							.uri(DIAGNOSIS_PATH)
 							.contentType(MediaType.APPLICATION_JSON)
 							.body(request)

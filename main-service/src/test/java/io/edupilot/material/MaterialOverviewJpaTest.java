@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -13,7 +14,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.PageRequest;
 
+import io.edupilot.ai.dto.OutlineResponse;
 import io.edupilot.classroom.Classroom;
 import io.edupilot.classroom.ClassroomColor;
 import io.edupilot.classroom.ClassroomMember;
@@ -55,12 +58,14 @@ class MaterialOverviewJpaTest {
 	@Autowired private LearningMaterialRepository materialRepository;
 	@Autowired private MaterialOverviewRepository overviewRepository;
 	@Autowired private MaterialOverviewService overviewService;
+	@Autowired private MaterialOutlinePersistenceService outlinePersistenceService;
 	@Autowired private ClassroomRepository classroomRepository;
 	@Autowired private ClassroomMemberRepository memberRepository;
 	@Autowired private ClassroomWeekRepository weekRepository;
 	@Autowired private ClassroomWeekMaterialRepository weekMaterialRepository;
 	@Autowired private EntityManager entityManager;
 	@MockitoBean private MaterialExtractionRecoveryScheduler recoveryScheduler;
+	@MockitoBean private OutlineBackfillScheduler outlineBackfillScheduler;
 
 	@Test
 	void missingRowReturnsPendingForOwnerAndClassroomMemberAndHidesOutsider() {
@@ -91,7 +96,7 @@ class MaterialOverviewJpaTest {
 	void readyRowReturnsStoredContentAndUpdatedAt() {
 		Fixture fixture = fixture();
 		MaterialOverview overview = MaterialOverview.createPending(fixture.material());
-		overview.markReady("자료의 핵심 개요");
+		overview.markReady("자료의 핵심 개요", outline());
 		overviewRepository.saveAndFlush(overview);
 		entityManager.clear();
 
@@ -104,13 +109,19 @@ class MaterialOverviewJpaTest {
 		assertThat(response.content()).isEqualTo("자료의 핵심 개요");
 		assertThat(response.status()).isEqualTo("READY");
 		assertThat(response.updatedAt()).isNotNull();
+		MaterialOverview stored = overviewRepository.findByMaterial_Id(
+			fixture.material().getId()
+		).orElseThrow();
+		assertThat(stored.getOutline().materialSummary())
+			.isEqualTo("자료의 핵심 요약입니다.");
+		assertThat(stored.getOutline().sections()).hasSize(1);
 	}
 
 	@Test
 	void failedRowReturnsNullContent() {
 		Fixture fixture = fixture();
 		MaterialOverview overview = MaterialOverview.createPending(fixture.material());
-		overview.markReady("반환되면 안 되는 개요");
+		overview.markReady("반환되면 안 되는 개요", outline());
 		overview.markFailed();
 		overviewRepository.saveAndFlush(overview);
 		entityManager.clear();
@@ -123,6 +134,79 @@ class MaterialOverviewJpaTest {
 		assertThat(response.status()).isEqualTo("FAILED");
 		assertThat(response.content()).isNull();
 		assertThat(response.updatedAt()).isNotNull();
+	}
+
+	@Test
+	void outlineFailureLeavesLearningMaterialReady() {
+		Fixture fixture = fixture();
+
+		assertThat(outlinePersistenceService.markFailed(fixture.material().getId()))
+			.isTrue();
+		entityManager.flush();
+		entityManager.clear();
+
+		LearningMaterial material = materialRepository.findById(
+			fixture.material().getId()
+		).orElseThrow();
+		assertThat(material.getProcessingStatus())
+			.isEqualTo(MaterialProcessingStatus.READY);
+		assertThat(material.getStatus()).isEqualTo(MaterialStatus.ACTIVE);
+		assertThat(overviewRepository.findByMaterial_Id(material.getId()))
+			.get()
+			.extracting(MaterialOverview::getStatus)
+			.isEqualTo(MaterialOverviewStatus.FAILED);
+	}
+
+	@Test
+	void backfillCandidatesIncludeOnlyActiveReadyMaterialsWithoutOverview() {
+		Fixture missing = fixture();
+		Fixture failed = fixture();
+		MaterialOverview failedOverview = MaterialOverview.createPending(
+			failed.material()
+		);
+		failedOverview.markFailed();
+		overviewRepository.saveAndFlush(failedOverview);
+
+		LearningMaterial processing = materialRepository.saveAndFlush(
+			LearningMaterial.create(
+				missing.owner(),
+				"Processing material",
+				"materials/processing-" + System.nanoTime() + ".pdf"
+			)
+		);
+		LearningMaterial deleted = LearningMaterial.create(
+			missing.owner(),
+			"Deleted material",
+			"materials/deleted-" + System.nanoTime() + ".pdf"
+		);
+		deleted.markReady(1);
+		deleted.delete();
+		deleted = materialRepository.saveAndFlush(deleted);
+
+		List<Long> candidateIds = materialRepository.findMissingOverviewIds(
+			PageRequest.of(0, 10)
+		);
+
+		assertThat(candidateIds).contains(missing.material().getId());
+		assertThat(candidateIds).doesNotContain(
+			failed.material().getId(),
+			processing.getId(),
+			deleted.getId()
+		);
+	}
+
+	private OutlineResponse outline() {
+		return new OutlineResponse(
+			"1.0",
+			"자료의 핵심 요약입니다.",
+			List.of(new OutlineResponse.Section(
+				"첫 번째 단원",
+				1,
+				3,
+				List.of("개념")
+			)),
+			3
+		);
 	}
 
 	private Fixture fixture() {

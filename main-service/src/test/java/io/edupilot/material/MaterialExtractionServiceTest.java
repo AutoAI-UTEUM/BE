@@ -39,6 +39,9 @@ class MaterialExtractionServiceTest {
 	@Mock
 	private AiClient aiClient;
 
+	@Mock
+	private MaterialOutlineTaskDispatcher outlineTaskDispatcher;
+
 	private MaterialExtractionService extractionService;
 	private ByteArrayResource resource;
 
@@ -48,7 +51,8 @@ class MaterialExtractionServiceTest {
 			persistenceService,
 			fileStorage,
 			aiClient,
-			new MaterialProperties(45, 300, Duration.ofMinutes(30))
+			new MaterialProperties(45, 300, Duration.ofMinutes(30)),
+			outlineTaskDispatcher
 		);
 		resource = new ByteArrayResource("%PDF-test".getBytes());
 		when(persistenceService.snapshot(10L)).thenReturn(Optional.of(
@@ -70,6 +74,7 @@ class MaterialExtractionServiceTest {
 		extractionService.extract(10L, "trace-1");
 
 		verify(persistenceService).complete(10L, pages);
+		verify(outlineTaskDispatcher).submit(10L);
 		verify(persistenceService, never()).fail(
 			org.mockito.ArgumentMatchers.anyLong(),
 			org.mockito.ArgumentMatchers.any(),
@@ -177,6 +182,7 @@ class MaterialExtractionServiceTest {
 		extractionService.extract(10L, "trace-1");
 
 		verify(persistenceService).complete(10L, pages);
+		verify(outlineTaskDispatcher, never()).submit(10L);
 		assertThat(org.slf4j.MDC.get("traceId")).isNull();
 	}
 }
