@@ -1814,7 +1814,7 @@ key는 trim·소문자화하고 공백과 `-`를 `_`로 정규화한 뒤 기본 
 기준과 정확 중복을 검사합니다. 기본 key와 충돌하는 과거 커스텀 데이터는 리포트 생성 시
 기본 기준을 우선하고 커스텀 기준을 무시합니다. 기본 9종과 활성
 커스텀의 합은 20개 이하입니다. 중복은 `REPORT_CRITERION_DUPLICATE`(409), 상한 초과는
-`REPORT_CRITERION_LIMIT_EXCEEDED`(409)입니다.
+`REPORT_CRITERION_LIMIT_EXCEEDED`(400)입니다.
 
 ### PATCH `/api/classrooms/{classroomId}/report-criteria/{criterionId}`
 
@@ -1823,6 +1823,48 @@ key는 trim·소문자화하고 공백과 `-`를 `_`로 정규화한 뒤 기본 
 `active:false`만 전송한 비활성화는 현재 행을 직접 갱신합니다. 재활성화에도 이름 중복과
 활성 20개 상한을 동일하게 검증합니다. 이미 생성된 generation의 기준 snapshot은 바뀌지
 않고 다음 생성부터 반영됩니다.
+
+### POST `/api/classrooms/{classroomId}/report-criteria/generate`
+
+소유 강사가 강의실 자료 개요를 바탕으로 커스텀 평가 기준 자동 생성을 요청합니다.
+요청 본문은 없으며 정상 접수 시 HTTP 202를 반환합니다.
+
+```json
+{"status":"RUNNING"}
+```
+
+AI 호출 전 강의실에 `READY` 개요가 하나 이상 있어야 하고, 기본 9종과 활성 커스텀
+기준을 제외한 여유 슬롯이 3개 이상이어야 합니다. 개요가 없으면
+`REPORT_CRITERIA_GENERATION_NOT_READY`(400), 슬롯이 부족하면
+`REPORT_CRITERION_LIMIT_EXCEEDED`(400)입니다. 같은 강의실에서 이미 실행 중이면
+`REPORT_CRITERION_DUPLICATE`(409)를 반환합니다.
+
+입력에는 기본 9종과 비활성을 포함한 모든 커스텀 key, `READY` 개요의 자료 제목·요약·
+목차를 전달합니다. AI가 반환한 기준은 수동 생성과 같은 key·이름 중복 및 20개 상한
+검증을 거쳐 한 트랜잭션으로 등록합니다. 하나라도 중복이거나 응답 수가 여유 슬롯보다
+많으면 전부 등록하지 않습니다. `rubric` 문자열은 `{"summary":"..."}`로 저장하고
+description은 최대 500자로 제한합니다.
+
+### GET `/api/classrooms/{classroomId}/report-criteria/generation`
+
+소유 강사가 현재 프로세스의 인메모리 생성 상태를 조회합니다. 서버 재시작 시 상태는
+`IDLE`로 초기화되며, 이전 `RUNNING` 작업은 다시 생성 요청할 수 있습니다.
+
+```json
+{"status":"IDLE"}
+```
+
+```json
+{"status":"COMPLETED","registeredCount":3,"message":"QUALITY_WARNING: 일부 개요가 짧습니다."}
+```
+
+```json
+{"status":"FAILED","message":"기존 지표 정리 후 재시도"}
+```
+
+`registeredCount`는 `COMPLETED`에서만, `message`는 AI warning이 있거나 실패한 경우에만
+포함됩니다. AI timeout·`INSUFFICIENT_TEXT`를 포함한 호출 실패는 DB를 변경하지 않고
+`FAILED`로 수렴하며, 강사는 생성 버튼으로 재시도합니다.
 
 ### POST `/api/classrooms/{classroomId}/students/{studentId}/reports`
 
@@ -1906,6 +1948,7 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 | --- | --- | --- | --- |
 | POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (LLM 판단 없는 결정적 전처리 — DEC-006) | 자료 업로드 후 비동기 처리 |
 | POST | `/internal/ai/outline` | 저장된 전 페이지 텍스트 기반 자료 요약·목차 생성 | 추출 저장 완료 후 비동기 처리 |
+| POST | `/internal/ai/criteria/suggest` | READY 자료 개요 기반 강의실 평가 기준 제안 | 소유 강사의 자동 생성 요청 후 비동기 처리 |
 | POST | `/internal/ai/turn` | 자유 학습 턴 계획·실행 (설명, QA, 퀴즈 생성, 교정, 메모리 후보·승격 포함) | turns 이벤트 수신 시 |
 | POST | `/internal/ai/grade` | SHORT/ESSAY 채점 — 결정성 설정(temperature 최저 등)으로 동일 답안 재채점 편차를 최소화 | 통합 퀴즈 또는 별도 시험에서 응답이 있는 SHORT/ESSAY 유형별 1회 |
 | POST | `/internal/ai/quiz-assessment` | 퀴즈 내부 평가 생성 | 퀴즈 제출 파이프라인 2단계 (채점 완료 후 항상) |
