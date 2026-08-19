@@ -88,6 +88,10 @@ public class MaterialOverview {
 		return material.getId();
 	}
 
+	public String getMaterialTitle() {
+		return material.getTitle();
+	}
+
 	public String getContent() {
 		return content;
 	}

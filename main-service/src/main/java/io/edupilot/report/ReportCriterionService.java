@@ -2,6 +2,7 @@ package io.edupilot.report;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -68,6 +69,61 @@ public class ReportCriterionService {
 		Classroom classroom = classroomService.requireStrictOwnerForUpdate(
 			instructorId, role, classroomId
 		);
+		return createCriterion(classroom, classroomId, request);
+	}
+
+	@Transactional(readOnly = true)
+	public GenerationContext generationContext(Long classroomId) {
+		LinkedHashSet<String> keys = new LinkedHashSet<>();
+		criterionCatalog.defaultCriteria().stream()
+			.map(ReportCriterionDefinition::key)
+			.map(ReportCriterionCatalog::normalizeKeyForComparison)
+			.forEach(keys::add);
+		criterionRepository.findDistinctCriterionKeysByClassroomId(classroomId)
+			.stream()
+			.map(ReportCriterionCatalog::normalizeKeyForComparison)
+			.forEach(keys::add);
+		int availableSlots = MAX_ACTIVE_CRITERIA
+			- criterionCatalog.defaultCriteria().size()
+			- Math.toIntExact(
+				criterionRepository.countByClassroom_IdAndActiveTrue(classroomId)
+			);
+		return new GenerationContext(List.copyOf(keys), availableSlots);
+	}
+
+	@Transactional
+	public int registerGenerated(
+		Long instructorId,
+		UserRole role,
+		Long classroomId,
+		List<CreateReportCriterionRequest> requests
+	) {
+		Classroom classroom = classroomService.requireStrictOwnerForUpdate(
+			instructorId, role, classroomId
+		);
+		int availableSlots = MAX_ACTIVE_CRITERIA
+			- criterionCatalog.defaultCriteria().size()
+			- Math.toIntExact(
+				criterionRepository.countByClassroom_IdAndActiveTrue(classroomId)
+			);
+		if (requests == null || requests.isEmpty()
+			|| requests.size() > availableSlots) {
+			throw new BusinessException(
+				ErrorCode.REPORT_CRITERION_LIMIT_EXCEEDED
+			);
+		}
+		for (CreateReportCriterionRequest request : requests) {
+			createCriterion(classroom, classroomId, request);
+		}
+		return requests.size();
+	}
+
+	private ReportCriterionResponse createCriterion(
+		Classroom classroom,
+		Long classroomId,
+		CreateReportCriterionRequest request
+	) {
+		validateRequest(request);
 		String key = normalizedKey(request.criterionKey());
 		if (criterionCatalog.isDefaultKey(key)
 			|| criterionRepository.existsByClassroom_IdAndCriterionKey(classroomId, key)) {
@@ -87,6 +143,25 @@ public class ReportCriterionService {
 			true
 		));
 		return customResponse(criterion);
+	}
+
+	private void validateRequest(CreateReportCriterionRequest request) {
+		if (request == null
+			|| request.criterionKey() == null
+			|| request.criterionKey().length() > 50
+			|| request.name() == null
+			|| request.name().length() > 100
+			|| request.description() != null
+				&& request.description().length() > 500
+			|| request.rubric() == null
+			|| request.allowedSources() == null
+			|| request.allowedSources().isEmpty()
+			|| request.allowedSources().stream().anyMatch(java.util.Objects::isNull)
+			|| request.minEvidence() < 1
+			|| request.weight() == null
+			|| request.weight().signum() <= 0) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+		}
 	}
 
 	@Transactional
@@ -251,5 +326,11 @@ public class ReportCriterionService {
 
 	private BusinessException duplicate() {
 		return new BusinessException(ErrorCode.REPORT_CRITERION_DUPLICATE);
+	}
+
+	public record GenerationContext(
+		List<String> existingCriterionKeys,
+		int availableSlots
+	) {
 	}
 }

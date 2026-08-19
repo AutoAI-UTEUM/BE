@@ -45,6 +45,8 @@ import org.springframework.web.client.RestClientResponseException;
 
 import io.edupilot.ai.dto.AiErrorResponse;
 import io.edupilot.ai.dto.AiHealthResponse;
+import io.edupilot.ai.dto.CriteriaSuggestRequest;
+import io.edupilot.ai.dto.CriteriaSuggestResponse;
 import io.edupilot.ai.dto.ActionExecuted;
 import io.edupilot.ai.dto.Adjustment;
 import io.edupilot.ai.dto.DiagnosisRequest;
@@ -76,6 +78,8 @@ public class HttpAiClient implements AiClient {
 	private static final String TURN_PATH = "/internal/ai/turn";
 	private static final String EXTRACT_PATH = "/internal/ai/extract";
 	private static final String OUTLINE_PATH = "/internal/ai/outline";
+	private static final String CRITERIA_SUGGEST_PATH =
+		"/internal/ai/criteria/suggest";
 	private static final String GRADE_PATH = "/internal/ai/grade";
 	private static final String QUIZ_ASSESSMENT_PATH =
 		"/internal/ai/quiz-assessment";
@@ -98,6 +102,7 @@ public class HttpAiClient implements AiClient {
 	private final RestClient healthRestClient;
 	private final RestClient extractRestClient;
 	private final RestClient outlineRestClient;
+	private final RestClient criteriaRestClient;
 	private final RestClient gradeRestClient;
 	private final RestClient assessmentRestClient;
 	private final RestClient diagnosisRestClient;
@@ -129,6 +134,10 @@ public class HttpAiClient implements AiClient {
 		this.outlineRestClient = buildRestClient(
 			properties,
 			properties.outlineTimeout()
+		);
+		this.criteriaRestClient = buildRestClient(
+			properties,
+			properties.criteriaReadTimeout()
 		);
 		this.gradeRestClient = buildRestClient(
 			properties,
@@ -692,6 +701,25 @@ public class HttpAiClient implements AiClient {
 	}
 
 	@Override
+	public CriteriaSuggestResponse suggestCriteria(CriteriaSuggestRequest request) {
+		return executeAttempt(
+			new AiCallContext(
+				CRITERIA_SUGGEST_PATH, 1, false, null, null, null
+			),
+			() -> {
+				CriteriaSuggestResponse response = criteriaRestClient.post()
+					.uri(CRITERIA_SUGGEST_PATH)
+					.contentType(MediaType.APPLICATION_JSON)
+					.body(request)
+					.retrieve()
+					.body(CriteriaSuggestResponse.class);
+				validateCriteriaSuggestResponse(response);
+				return response;
+			}
+		);
+	}
+
+	@Override
 	public GradeResponse grade(GradeRequest request) {
 		for (int attempt = 1; attempt <= 2; attempt++) {
 			int currentAttempt = attempt;
@@ -1167,6 +1195,41 @@ public class HttpAiClient implements AiClient {
 			|| !validTextList(response.evidence())
 			|| !StringUtils.hasText(response.repairHint())) {
 			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+		}
+	}
+
+	private void validateCriteriaSuggestResponse(
+		CriteriaSuggestResponse response
+	) {
+		if (response == null
+			|| !SCHEMA_VERSION.equals(response.schemaVersion())
+			|| response.criteria() == null
+			|| response.criteria().size() < 3
+			|| response.criteria().size() > 5
+			|| response.warnings() == null) {
+			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+		}
+		for (CriteriaSuggestResponse.Criterion criterion : response.criteria()) {
+			if (criterion == null
+				|| !StringUtils.hasText(criterion.key())
+				|| !StringUtils.hasText(criterion.name())
+				|| criterion.description() == null
+				|| !StringUtils.hasText(criterion.rubric())
+				|| criterion.allowedSources() == null
+				|| criterion.allowedSources().isEmpty()
+				|| criterion.allowedSources().stream().anyMatch(java.util.Objects::isNull)
+				|| criterion.weight() == null
+				|| criterion.weight().signum() <= 0
+				|| criterion.minimumEvidence() < 1) {
+				throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+			}
+		}
+		for (CriteriaSuggestResponse.Warning warning : response.warnings()) {
+			if (warning == null
+				|| !StringUtils.hasText(warning.type())
+				|| !StringUtils.hasText(warning.message())) {
+				throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+			}
 		}
 	}
 

@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ByteArrayResource;
 
 import io.edupilot.ai.dto.TurnRequest;
+import io.edupilot.ai.dto.CriteriaSuggestRequest;
 import io.edupilot.ai.dto.DiagnosisRequest;
 import io.edupilot.ai.dto.ExamDraftRequest;
 import io.edupilot.ai.dto.ExamDraftResponse;
@@ -28,6 +29,7 @@ import io.edupilot.exam.ExamQuestionType;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.OutlineRequest;
 import io.edupilot.ai.dto.OutlineResponse;
+import io.edupilot.report.ReportSourceType;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
 import io.edupilot.ai.dto.QuizAssessmentResponse;
 import io.edupilot.ai.dto.ReportGenerateRequest;
@@ -520,6 +522,47 @@ class HttpAiClientContractTest {
 		assertThat(request.getPath()).isEqualTo("/health");
 		assertThat(request.getHeader("X-Internal-Token")).isEqualTo(INTERNAL_TOKEN);
 		assertThat(request.getHeader("X-Trace-Id")).isEqualTo(TRACE_ID);
+	}
+
+	@Test
+	void criteriaSuggestionUsesDedicatedContractAndPath() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion":"1.0",
+			  "criteria":[
+			    {"key":"engagement","name":"참여도","description":"설명","rubric":"루브릭","allowedSources":["SESSION"],"weight":1.0,"minimumEvidence":2},
+			    {"key":"accuracy","name":"정확도","description":"설명","rubric":"루브릭","allowedSources":["QUIZ_SUBMISSION"],"weight":1.0,"minimumEvidence":2},
+			    {"key":"reflection","name":"성찰","description":"설명","rubric":"루브릭","allowedSources":["MEMORY"],"weight":1.0,"minimumEvidence":2}
+			  ],
+			  "warnings":[]
+			}
+			"""));
+
+		var response = client(Duration.ofSeconds(1)).suggestCriteria(
+			new CriteriaSuggestRequest(
+				"1.0",
+				List.of("concept_understanding"),
+				List.of(new CriteriaSuggestRequest.Material(
+					"자료",
+					"요약",
+					List.of(new OutlineResponse.Section(
+						"도입", 1, 2, List.of("개념")
+					))
+				))
+			)
+		);
+
+		assertThat(response.criteria()).hasSize(3);
+		assertThat(response.criteria().getFirst().allowedSources())
+			.containsExactly(ReportSourceType.SESSION);
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request.getPath())
+			.isEqualTo("/internal/ai/criteria/suggest");
+		assertThat(request.getBody().readUtf8())
+			.contains(
+				"\"existingCriterionKeys\":[\"concept_understanding\"]",
+				"\"materialSummary\":\"요약\""
+			);
 	}
 
 	@Test

@@ -69,6 +69,7 @@ class ReportApiContractTest {
 	@Autowired private JwtTokenProvider jwtTokenProvider;
 	@Autowired private ReportApiService reportApiService;
 	@Autowired private ReportCriterionService reportCriterionService;
+	@Autowired private ReportCriterionGenerationService reportCriterionGenerationService;
 	@Autowired private ClassroomStudentService classroomStudentService;
 
 	@MockitoBean private UserRepository userRepository;
@@ -271,7 +272,7 @@ class ReportApiContractTest {
 	}
 
 	@Test
-	void criterionLimitAndDuplicateFailuresUseConflictCodes() throws Exception {
+	void criterionLimitUsesValidationFailureStatus() throws Exception {
 		doThrow(new BusinessException(ErrorCode.REPORT_CRITERION_LIMIT_EXCEEDED))
 			.when(reportCriterionService)
 			.create(eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), any());
@@ -290,9 +291,42 @@ class ReportApiContractTest {
 					  "weight":1
 					}
 					"""))
-			.andExpect(status().isConflict())
+			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.error.code")
 				.value("REPORT_CRITERION_LIMIT_EXCEEDED"));
+	}
+
+	@Test
+	void criterionGenerationUses202AndPollingStatusBody() throws Exception {
+		when(reportCriterionGenerationService.start(
+			1L, UserRole.INSTRUCTOR, 30L
+		)).thenReturn(new io.edupilot.report.dto.ReportCriterionGenerationResponse(
+			"RUNNING", null, null
+		));
+		when(reportCriterionGenerationService.status(
+			1L, UserRole.INSTRUCTOR, 30L
+		)).thenReturn(new io.edupilot.report.dto.ReportCriterionGenerationResponse(
+			"COMPLETED", 3, "QUALITY_WARNING: 일부 개요가 짧습니다."
+		));
+
+		mockMvc.perform(post(
+				"/api/classrooms/30/report-criteria/generate"
+			)
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isAccepted())
+			.andExpect(jsonPath("$.data.status").value("RUNNING"))
+			.andExpect(jsonPath("$.data.registeredCount").doesNotExist())
+			.andExpect(jsonPath("$.data.message").doesNotExist());
+
+		mockMvc.perform(get(
+				"/api/classrooms/30/report-criteria/generation"
+			)
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("COMPLETED"))
+			.andExpect(jsonPath("$.data.registeredCount").value(3))
+			.andExpect(jsonPath("$.data.message")
+				.value("QUALITY_WARNING: 일부 개요가 짧습니다."));
 	}
 
 	@Test
