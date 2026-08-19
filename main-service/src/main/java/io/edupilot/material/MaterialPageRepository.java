@@ -29,6 +29,8 @@ public interface MaterialPageRepository extends JpaRepository<MaterialPage, Long
 		int endPage
 	);
 
+	List<MaterialPage> findByMaterial_IdOrderByPageNumberAsc(Long materialId);
+
 	@Query("""
 		select page.material.id as materialId,
 		       page.pageNumber as pageNumber,

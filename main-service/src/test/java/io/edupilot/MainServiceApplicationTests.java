@@ -30,6 +30,7 @@ import io.edupilot.global.config.ReadinessService;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.material.MaterialOverviewRepository;
 import io.edupilot.note.NoteRepository;
 import io.edupilot.quiz.QuizRepository;
 import io.edupilot.quiz.QuizProperties;
@@ -67,6 +68,9 @@ class MainServiceApplicationTests {
 
 	@MockitoBean
 	private MaterialPageRepository materialPageRepository;
+
+	@MockitoBean
+	private MaterialOverviewRepository materialOverviewRepository;
 
 	@MockitoBean
 	private LearningSessionRepository learningSessionRepository;
@@ -148,9 +152,21 @@ class MainServiceApplicationTests {
 		assertThat(quizProperties.proposalMinPageTextLength())
 			.isEqualTo(200);
 		assertThat(aiClientProperties.gradeReadTimeout())
-			.isEqualTo(Duration.ofSeconds(90));
+			.isEqualTo(Duration.ofSeconds(110));
 		assertThat(aiClientProperties.pipelineReadTimeout())
 			.isEqualTo(Duration.ofSeconds(45));
+		assertThat(aiClientProperties.assessmentReadTimeout())
+			.isEqualTo(Duration.ofSeconds(55));
+		assertThat(aiClientProperties.diagnosisReadTimeout())
+			.isEqualTo(Duration.ofSeconds(55));
+		assertThat(aiClientProperties.reportReadTimeout())
+			.isEqualTo(Duration.ofSeconds(220));
+		assertThat(aiClientProperties.reportQueryReadTimeout())
+			.isEqualTo(Duration.ofSeconds(75));
+		assertThat(aiClientProperties.criteriaReadTimeout())
+			.isEqualTo(Duration.ofSeconds(90));
+		assertThat(aiClientProperties.outlineTimeout())
+			.isEqualTo(Duration.ofSeconds(110));
 		assertThat(aiClientProperties.turnReadTimeout())
 			.isEqualTo(Duration.ofSeconds(200));
 		assertThat(aiClientProperties.streamIdleTimeout())

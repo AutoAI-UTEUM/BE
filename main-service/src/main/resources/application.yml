@@ -43,10 +43,15 @@ edupilot:
     read-timeout: 30s
     turn-read-timeout: ${EDUPILOT_AI_TURN_READ_TIMEOUT:200s}
     stream-idle-timeout: ${EDUPILOT_AI_STREAM_IDLE_TIMEOUT:30s}
-    grade-read-timeout: ${EDUPILOT_AI_GRADE_READ_TIMEOUT:90s}
+    grade-read-timeout: ${EDUPILOT_AI_GRADE_READ_TIMEOUT:110s}
     pipeline-read-timeout: ${EDUPILOT_AI_PIPELINE_READ_TIMEOUT:45s}
+    assessment-read-timeout: ${EDUPILOT_AI_ASSESSMENT_READ_TIMEOUT:55s}
+    diagnosis-read-timeout: ${EDUPILOT_AI_DIAGNOSIS_READ_TIMEOUT:55s}
     extract-read-timeout: ${EDUPILOT_AI_EXTRACT_READ_TIMEOUT:120s}
-    report-read-timeout: ${EDUPILOT_AI_REPORT_READ_TIMEOUT:180s}
+    report-read-timeout: ${EDUPILOT_AI_REPORT_READ_TIMEOUT:220s}
+    report-query-read-timeout: ${EDUPILOT_AI_REPORT_QUERY_READ_TIMEOUT:75s}
+    criteria-read-timeout: ${EDUPILOT_AI_CRITERIA_READ_TIMEOUT:90s}
+    outline-timeout: ${EDUPILOT_AI_OUTLINE_TIMEOUT:110s}
     exam-draft-read-timeout: ${EDUPILOT_AI_EXAM_DRAFT_READ_TIMEOUT:120s}
     health-path: /health
   quiz:
@@ -56,6 +61,8 @@ edupilot:
     upload-max-mb: ${EDUPILOT_UPLOAD_MAX_MB:45}
     max-pages: 300
     extraction-stuck-threshold: ${EDUPILOT_MATERIAL_EXTRACTION_STUCK_THRESHOLD:PT30M}
+    outline:
+      backfill-batch: ${EDUPILOT_OUTLINE_BACKFILL_BATCH:3}
     page-text-api-enabled: false
   exam:
     grading:

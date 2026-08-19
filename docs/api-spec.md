@@ -353,7 +353,7 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 ### GET `/api/materials/{materialId}/overview`
 
-자료 소유자 또는 자료가 연결된 강의실의 승인 멤버가 저장된 자료 개요를 조회합니다. 비접근·삭제·미존재 자료는 `MATERIAL_NOT_FOUND`(404)로 은닉합니다. `material_overviews` 행이 아직 없으면 404 대신 `PENDING` 합성 응답을 반환하며 `content`와 `updatedAt`은 `null`입니다. 행이 있으면 저장된 `status`와 `updatedAt`을 반환하되 `content`는 `READY`일 때만 반환하고 `PENDING | FAILED`에서는 `null`입니다. 이번 API는 조회만 제공하며 개요 생성·AI 호출은 수행하지 않습니다.
+자료 소유자 또는 자료가 연결된 강의실의 승인 멤버가 저장된 자료 개요를 조회합니다. 비접근·삭제·미존재 자료는 `MATERIAL_NOT_FOUND`(404)로 은닉합니다. `material_overviews` 행이 아직 없으면 404 대신 `PENDING` 합성 응답을 반환하며 `content`와 `updatedAt`은 `null`입니다. 행이 있으면 저장된 `status`와 `updatedAt`을 반환하되 `content`는 `READY`일 때만 반환하고 `PENDING | FAILED`에서는 `null`입니다. 조회 요청 자체는 AI를 호출하지 않습니다. 개요는 자료 추출 완료 후 비동기로 생성하며, 기존 READY 자료 중 개요 행이 없는 자료는 오래된 순으로 분당 최대 3건씩 백필합니다. 생성 실패는 자료 처리 상태와 무관하게 개요만 `FAILED`로 전환합니다.
 
 ```json
 {
@@ -1905,6 +1905,7 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 | Method | URL | 목적 | 호출 시점 |
 | --- | --- | --- | --- |
 | POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (LLM 판단 없는 결정적 전처리 — DEC-006) | 자료 업로드 후 비동기 처리 |
+| POST | `/internal/ai/outline` | 저장된 전 페이지 텍스트 기반 자료 요약·목차 생성 | 추출 저장 완료 후 비동기 처리 |
 | POST | `/internal/ai/turn` | 자유 학습 턴 계획·실행 (설명, QA, 퀴즈 생성, 교정, 메모리 후보·승격 포함) | turns 이벤트 수신 시 |
 | POST | `/internal/ai/grade` | SHORT/ESSAY 채점 — 결정성 설정(temperature 최저 등)으로 동일 답안 재채점 편차를 최소화 | 통합 퀴즈 또는 별도 시험에서 응답이 있는 SHORT/ESSAY 유형별 1회 |
 | POST | `/internal/ai/quiz-assessment` | 퀴즈 내부 평가 생성 | 퀴즈 제출 파이프라인 2단계 (채점 완료 후 항상) |
