@@ -28,6 +28,7 @@ public record AiClientProperties(
 	@NotNull Duration reportQueryReadTimeout,
 	@NotNull Duration criteriaReadTimeout,
 	@NotNull Duration outlineTimeout,
+	@NotNull Duration captionsReadTimeout,
 	@NotNull Duration examDraftReadTimeout,
 	@NotBlank String healthPath
 ) {

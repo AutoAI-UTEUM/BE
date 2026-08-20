@@ -4,6 +4,8 @@ import java.time.Duration;
 import java.util.function.Consumer;
 
 import io.edupilot.ai.dto.AiHealthResponse;
+import io.edupilot.ai.dto.CaptionsRequest;
+import io.edupilot.ai.dto.CaptionsResponse;
 import io.edupilot.ai.dto.CriteriaSuggestRequest;
 import io.edupilot.ai.dto.CriteriaSuggestResponse;
 import io.edupilot.ai.dto.DiagnosisRequest;
@@ -39,6 +41,8 @@ public interface AiClient {
 	ExtractResponse extract(Resource pdfResource);
 
 	OutlineResponse outline(OutlineRequest request);
+
+	CaptionsResponse captions(CaptionsRequest request);
 
 	CriteriaSuggestResponse suggestCriteria(CriteriaSuggestRequest request);
 

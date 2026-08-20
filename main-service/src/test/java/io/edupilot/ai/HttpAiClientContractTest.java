@@ -21,6 +21,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ByteArrayResource;
 
 import io.edupilot.ai.dto.TurnRequest;
+import io.edupilot.ai.dto.CaptionsRequest;
+import io.edupilot.ai.dto.CaptionsResponse;
 import io.edupilot.ai.dto.CriteriaSuggestRequest;
 import io.edupilot.ai.dto.DiagnosisRequest;
 import io.edupilot.ai.dto.ExamDraftRequest;
@@ -485,6 +487,41 @@ class HttpAiClientContractTest {
 	}
 
 	@Test
+	void captionsSendsImageAndTextAndParsesNullableResults() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "captions": [
+			    {"pageNumber": 1, "caption": "diagram"},
+			    {"pageNumber": 2, "caption": null}
+			  ],
+			  "warnings": [
+			    {"type": "PAGE_CAPTION_FAILED", "message": "pageNumber 2"}
+			  ]
+			}
+			"""));
+		CaptionsRequest captionsRequest = new CaptionsRequest(
+			"1.0",
+			List.of(
+				new CaptionsRequest.Page(1, "aW1hZ2UtMQ==", "text 1"),
+				new CaptionsRequest.Page(2, "aW1hZ2UtMg==", "text 2")
+			)
+		);
+
+		CaptionsResponse response = client(Duration.ofSeconds(1))
+			.captions(captionsRequest);
+
+		assertThat(response.captions()).extracting(CaptionsResponse.PageCaption::caption)
+			.containsExactly("diagram", null);
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getPath()).isEqualTo("/internal/ai/captions");
+		assertThat(request.getBody().readUtf8())
+			.contains("\"imageBase64\":\"aW1hZ2UtMQ==\"")
+			.contains("\"extractedText\":\"text 2\"");
+	}
+
+	@Test
 	void delayedExtractResponseUsesExtractTimeoutWithoutRetry() {
 		server.enqueue(jsonResponse(200, """
 			{
@@ -846,6 +883,7 @@ class HttpAiClientContractTest {
 			baseUrl,
 			INTERNAL_TOKEN,
 			Duration.ofMillis(300),
+			readTimeout,
 			readTimeout,
 			readTimeout,
 			readTimeout,

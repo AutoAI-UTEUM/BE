@@ -45,6 +45,8 @@ import org.springframework.web.client.RestClientResponseException;
 
 import io.edupilot.ai.dto.AiErrorResponse;
 import io.edupilot.ai.dto.AiHealthResponse;
+import io.edupilot.ai.dto.CaptionsRequest;
+import io.edupilot.ai.dto.CaptionsResponse;
 import io.edupilot.ai.dto.CriteriaSuggestRequest;
 import io.edupilot.ai.dto.CriteriaSuggestResponse;
 import io.edupilot.ai.dto.ActionExecuted;
@@ -78,6 +80,7 @@ public class HttpAiClient implements AiClient {
 	private static final String TURN_PATH = "/internal/ai/turn";
 	private static final String EXTRACT_PATH = "/internal/ai/extract";
 	private static final String OUTLINE_PATH = "/internal/ai/outline";
+	private static final String CAPTIONS_PATH = "/internal/ai/captions";
 	private static final String CRITERIA_SUGGEST_PATH =
 		"/internal/ai/criteria/suggest";
 	private static final String GRADE_PATH = "/internal/ai/grade";
@@ -102,6 +105,7 @@ public class HttpAiClient implements AiClient {
 	private final RestClient healthRestClient;
 	private final RestClient extractRestClient;
 	private final RestClient outlineRestClient;
+	private final RestClient captionsRestClient;
 	private final RestClient criteriaRestClient;
 	private final RestClient gradeRestClient;
 	private final RestClient assessmentRestClient;
@@ -134,6 +138,10 @@ public class HttpAiClient implements AiClient {
 		this.outlineRestClient = buildRestClient(
 			properties,
 			properties.outlineTimeout()
+		);
+		this.captionsRestClient = buildRestClient(
+			properties,
+			properties.captionsReadTimeout()
 		);
 		this.criteriaRestClient = buildRestClient(
 			properties,
@@ -701,6 +709,23 @@ public class HttpAiClient implements AiClient {
 	}
 
 	@Override
+	public CaptionsResponse captions(CaptionsRequest request) {
+		return executeAttempt(
+			new AiCallContext(CAPTIONS_PATH, 1, false, null, null, null),
+			() -> {
+				CaptionsResponse response = captionsRestClient.post()
+					.uri(CAPTIONS_PATH)
+					.contentType(MediaType.APPLICATION_JSON)
+					.body(request)
+					.retrieve()
+					.body(CaptionsResponse.class);
+				validateCaptionsResponse(response, request);
+				return response;
+			}
+		);
+	}
+
+	@Override
 	public CriteriaSuggestResponse suggestCriteria(CriteriaSuggestRequest request) {
 		return executeAttempt(
 			new AiCallContext(
@@ -1230,6 +1255,30 @@ public class HttpAiClient implements AiClient {
 				|| !StringUtils.hasText(warning.message())) {
 				throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
 			}
+		}
+	}
+
+	private void validateCaptionsResponse(
+		CaptionsResponse response,
+		CaptionsRequest request
+	) {
+		if (response == null
+			|| !SCHEMA_VERSION.equals(response.schemaVersion())
+			|| response.captions() == null
+			|| response.warnings() == null
+			|| response.captions().size() != request.pages().size()) {
+			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+		}
+		Set<Integer> requested = request.pages().stream()
+			.map(CaptionsRequest.Page::pageNumber)
+			.collect(java.util.stream.Collectors.toSet());
+		Set<Integer> returned = response.captions().stream()
+			.filter(java.util.Objects::nonNull)
+			.map(CaptionsResponse.PageCaption::pageNumber)
+			.collect(java.util.stream.Collectors.toSet());
+		if (returned.size() != response.captions().size()
+			|| !returned.equals(requested)) {
+			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
 		}
 	}
 

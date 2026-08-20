@@ -52,6 +52,7 @@ edupilot:
     report-query-read-timeout: ${EDUPILOT_AI_REPORT_QUERY_READ_TIMEOUT:75s}
     criteria-read-timeout: ${EDUPILOT_AI_CRITERIA_READ_TIMEOUT:90s}
     outline-timeout: ${EDUPILOT_AI_OUTLINE_TIMEOUT:110s}
+    captions-read-timeout: ${EDUPILOT_AI_CAPTIONS_READ_TIMEOUT:75s}
     exam-draft-read-timeout: ${EDUPILOT_AI_EXAM_DRAFT_READ_TIMEOUT:120s}
     health-path: /health
   quiz:
@@ -63,6 +64,8 @@ edupilot:
     extraction-stuck-threshold: ${EDUPILOT_MATERIAL_EXTRACTION_STUCK_THRESHOLD:PT30M}
     outline:
       backfill-batch: ${EDUPILOT_OUTLINE_BACKFILL_BATCH:3}
+    captions:
+      backfill-batch: ${EDUPILOT_CAPTION_BACKFILL_BATCH:1}
     page-text-api-enabled: false
   exam:
     grading:

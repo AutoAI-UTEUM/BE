@@ -20,6 +20,7 @@ import io.edupilot.diagnosis.RepairResultRepository;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.material.MaterialPageTextMerger;
 import io.edupilot.memory.LearnerMemory;
 import io.edupilot.memory.LearnerMemoryCandidate;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
@@ -37,6 +38,7 @@ public class TurnSnapshotService {
 
 	private final LearningSessionRepository sessionRepository;
 	private final MaterialPageRepository pageRepository;
+	private final MaterialPageTextMerger pageTextMerger;
 	private final ChatMessageRepository messageRepository;
 	private final QaThreadRepository qaThreadRepository;
 	private final QaMessageRepository qaMessageRepository;
@@ -49,6 +51,7 @@ public class TurnSnapshotService {
 	public TurnSnapshotService(
 		LearningSessionRepository sessionRepository,
 		MaterialPageRepository pageRepository,
+		MaterialPageTextMerger pageTextMerger,
 		ChatMessageRepository messageRepository,
 		QaThreadRepository qaThreadRepository,
 		QaMessageRepository qaMessageRepository,
@@ -60,6 +63,7 @@ public class TurnSnapshotService {
 	) {
 		this.sessionRepository = sessionRepository;
 		this.pageRepository = pageRepository;
+		this.pageTextMerger = pageTextMerger;
 		this.messageRepository = messageRepository;
 		this.qaThreadRepository = qaThreadRepository;
 		this.qaMessageRepository = qaMessageRepository;
@@ -167,7 +171,13 @@ public class TurnSnapshotService {
 	private String pageText(Long materialId, int pageNumber) {
 		return pageRepository
 			.findByMaterial_IdAndPageNumber(materialId, pageNumber)
-			.map(page -> truncate(page.getTextContent(), PAGE_TEXT_LIMIT))
+			.map(page -> truncate(
+				pageTextMerger.mergeCaption(
+					page.getTextContent(),
+					page.getCaption()
+				),
+				PAGE_TEXT_LIMIT
+			))
 			.orElse(null);
 	}
 

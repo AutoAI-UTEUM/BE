@@ -57,6 +57,7 @@ class MaterialOverviewJpaTest {
 	@Autowired private UserRepository userRepository;
 	@Autowired private LearningMaterialRepository materialRepository;
 	@Autowired private MaterialOverviewRepository overviewRepository;
+	@Autowired private MaterialPageRepository pageRepository;
 	@Autowired private MaterialOverviewService overviewService;
 	@Autowired private MaterialOutlinePersistenceService outlinePersistenceService;
 	@Autowired private ClassroomRepository classroomRepository;
@@ -66,6 +67,7 @@ class MaterialOverviewJpaTest {
 	@Autowired private EntityManager entityManager;
 	@MockitoBean private MaterialExtractionRecoveryScheduler recoveryScheduler;
 	@MockitoBean private OutlineBackfillScheduler outlineBackfillScheduler;
+	@MockitoBean private CaptionBackfillScheduler captionBackfillScheduler;
 
 	@Test
 	void missingRowReturnsPendingForOwnerAndClassroomMemberAndHidesOutsider() {
@@ -193,6 +195,37 @@ class MaterialOverviewJpaTest {
 			processing.getId(),
 			deleted.getId()
 		);
+	}
+
+	@Test
+	void captionRoundTripPreservesOriginalTextAndCompletionExcludesBackfill() {
+		Fixture fixture = fixture();
+		Fixture pendingCaption = fixture();
+		MaterialPage page = pageRepository.saveAndFlush(MaterialPage.create(
+			fixture.material(),
+			1,
+			"original text"
+		));
+		page.updateCaption("diagram caption");
+		fixture.material().completeCaptionGeneration(
+			Instant.parse("2026-08-20T00:00:00Z")
+		);
+		pageRepository.flush();
+		materialRepository.flush();
+		entityManager.clear();
+
+		MaterialPage stored = pageRepository
+			.findByMaterial_IdAndPageNumber(fixture.material().getId(), 1)
+			.orElseThrow();
+		assertThat(stored.getTextContent()).isEqualTo("original text");
+		assertThat(stored.getCaption()).isEqualTo("diagram caption");
+		assertThat(outlinePersistenceService.snapshot(fixture.material().getId()))
+			.get()
+			.satisfies(snapshot -> assertThat(snapshot.pages().getFirst().text())
+				.isEqualTo("original text\n\n[그림 설명] diagram caption"));
+		assertThat(materialRepository.findMissingCaptionIds(PageRequest.of(0, 10)))
+			.contains(pendingCaption.material().getId())
+			.doesNotContain(fixture.material().getId());
 	}
 
 	private OutlineResponse outline() {

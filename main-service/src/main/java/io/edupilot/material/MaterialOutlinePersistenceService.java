@@ -16,15 +16,18 @@ public class MaterialOutlinePersistenceService {
 	private final LearningMaterialRepository materialRepository;
 	private final MaterialPageRepository pageRepository;
 	private final MaterialOverviewRepository overviewRepository;
+	private final MaterialPageTextMerger pageTextMerger;
 
 	public MaterialOutlinePersistenceService(
 		LearningMaterialRepository materialRepository,
 		MaterialPageRepository pageRepository,
-		MaterialOverviewRepository overviewRepository
+		MaterialOverviewRepository overviewRepository,
+		MaterialPageTextMerger pageTextMerger
 	) {
 		this.materialRepository = materialRepository;
 		this.pageRepository = pageRepository;
 		this.overviewRepository = overviewRepository;
+		this.pageTextMerger = pageTextMerger;
 	}
 
 	@Transactional(readOnly = true)
@@ -46,7 +49,10 @@ public class MaterialOutlinePersistenceService {
 			.stream()
 			.map(page -> new OutlineRequest.Page(
 				page.getPageNumber(),
-				page.getTextContent()
+				pageTextMerger.mergeCaption(
+					page.getTextContent(),
+					page.getCaption()
+				)
 			))
 			.toList();
 		return Optional.of(new OutlineSnapshot(material.getPageCount(), pages));
