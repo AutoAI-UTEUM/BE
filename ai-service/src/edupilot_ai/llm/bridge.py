@@ -2,7 +2,7 @@
 
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel
 
@@ -10,6 +10,7 @@ from edupilot_ai.core.errors import ErrorCategory
 from edupilot_ai.settings import AgentLlmProfile
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
+type LlmMessage = Mapping[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +70,7 @@ class LlmBridge(Protocol):
     async def complete_json(
         self,
         *,
-        messages: Sequence[Mapping[str, str]],
+        messages: Sequence[LlmMessage],
         response_model: type[ModelT],
         profile: AgentLlmProfile,
         timeout_seconds: float,
@@ -80,7 +81,7 @@ class LlmBridge(Protocol):
     def complete_text_stream(
         self,
         *,
-        messages: Sequence[Mapping[str, str]],
+        messages: Sequence[LlmMessage],
         profile: AgentLlmProfile,
         timeout_seconds: float,
     ) -> AsyncIterator[LlmTextStreamItem]:

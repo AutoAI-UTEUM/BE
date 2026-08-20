@@ -40,6 +40,12 @@ def validate_outline_output(request: OutlineRequest, output: OutlineOutput) -> N
     for section in output.sections:
         if not section.title.strip():
             raise OutlineValidationError("EMPTY_SECTION_TITLE")
+        if (
+            section.description is None
+            or not section.description.strip()
+            or section.description.strip() == section.title.strip()
+        ):
+            raise OutlineValidationError("EMPTY_SECTION_DESCRIPTION")
         if not 1 <= section.start_page <= request.total_pages:
             raise OutlineValidationError("SECTION_RANGE_OUT_OF_BOUNDS")
         if not 1 <= section.end_page <= request.total_pages:
@@ -65,11 +71,16 @@ def outline_messages(
 ) -> Sequence[Mapping[str, str]]:
     system = (
         "너는 EduPilot의 자료 개요 에이전트다. 제공된 페이지 텍스트만 근거로 "
-        "materialSummary는 한국어 3~4문장으로, sections는 자료의 실제 단원과 "
-        "주제 구분으로 생성하라. section title은 자료에 나온 단원·주제명을 쓰고 "
-        "startPage와 endPage는 제공된 페이지 범위 안에 두며 keywords는 최대 5개로 "
-        "작성하라. 자료에 없는 내용을 추측하지 마라. 마크다운을 생성하지 말고 "
-        "모든 사용자 대상 텍스트는 한국어로 작성하라."
+        "materialSummary는 한국어 4~6문장으로 작성하라. 자료가 다루는 주제와 전체 "
+        "흐름, 핵심 개념들, 이 자료로 무엇을 할 수 있게 되는지를 담아 학생이 학습 "
+        "전에 전체 그림을 잡을 수 있게 하라. sections는 자료의 실제 단원과 주제 "
+        "구분으로 생성하고, 각 section에는 description을 1~2문장으로 반드시 "
+        "작성하라. description은 그 단원에서 무엇을 배우는지, 앞 단원과 어떻게 "
+        "이어지는지를 학생에게 말하듯 쓰고 제목을 반복하거나 키워드를 나열하는 "
+        "문장은 금지한다. section title은 자료에 나온 단원·주제명을 쓰고 startPage와 "
+        "endPage는 제공된 페이지 범위 안에 두며 keywords는 최대 5개로 작성하라. "
+        "자료에 없는 내용을 추측하지 마라. 마크다운을 생성하지 말고 모든 사용자 "
+        "대상 텍스트는 한국어로 작성하라."
     )
     if retry:
         system += " 이전 출력이 계약을 위반했다. 이전 본문을 재사용하지 말고 재생성하라."

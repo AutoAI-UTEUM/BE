@@ -19,8 +19,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.dto.ReportGenerateRequest;
@@ -29,6 +31,9 @@ import io.edupilot.classroom.ClassroomColor;
 import io.edupilot.classroom.ClassroomRepository;
 import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.ReportGenerateResponse;
+import io.edupilot.global.error.BusinessException;
+import io.edupilot.global.error.ErrorCode;
+import io.edupilot.report.dto.CreateReportCriterionRequest;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
@@ -60,6 +65,8 @@ class ReportJpaTest {
 	@Autowired private ReportGenerationRepository generationRepository;
 	@Autowired private StudentReportRepository reportRepository;
 	@Autowired private ReportCriterionResultRepository resultRepository;
+	@Autowired private ReportCriterionRepository criterionRepository;
+	@Autowired private ReportCriterionService criterionService;
 	@Autowired private ReportEvidenceSnapshotRepository evidenceRepository;
 	@Autowired private ReportGenerationPersistenceService persistenceService;
 	@Autowired private ReportAiGenerationService aiGenerationService;
@@ -93,6 +100,57 @@ class ReportJpaTest {
 			null,
 			"REPORTTEST"
 		));
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	@DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
+	void generatedCriteriaRollbackTogetherWhenOneKeyIsDuplicate() {
+		CreateReportCriterionRequest first = generatedCriterion(
+			"ai_focus", "AI focus"
+		);
+		CreateReportCriterionRequest duplicate = generatedCriterion(
+			"AI-FOCUS", "Another name"
+		);
+
+		assertThatThrownBy(() -> criterionService.registerGenerated(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.getId(),
+			List.of(first, duplicate)
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode())
+				.isEqualTo(ErrorCode.REPORT_CRITERION_DUPLICATE)
+		);
+
+		assertThat(criterionRepository.countByClassroom_IdAndActiveTrue(
+			classroom.getId()
+		)).isZero();
+	}
+
+	@Test
+	void generatedCriteriaRegisterThreeActiveRowsWithWrappedRubric() {
+		List<CreateReportCriterionRequest> requests = List.of(
+			generatedCriterion("ai_focus", "AI focus"),
+			generatedCriterion("ai_growth", "AI growth"),
+			generatedCriterion("ai_reflection", "AI reflection")
+		);
+
+		assertThat(criterionService.registerGenerated(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.getId(),
+			requests
+		)).isEqualTo(3);
+
+		assertThat(criterionRepository
+			.findByClassroom_IdAndActiveTrueOrderByCriterionKeyAscVersionDesc(
+				classroom.getId()
+			)).hasSize(3).allSatisfy(criterion -> {
+				assertThat(criterion.isActive()).isTrue();
+				assertThat(criterion.getRubric())
+					.containsEntry("summary", "Generated rubric");
+			});
 	}
 
 	@Test
@@ -656,6 +714,21 @@ class ReportJpaTest {
 			Map.of("available", true),
 			"test-model",
 			"1.0"
+		);
+	}
+
+	private CreateReportCriterionRequest generatedCriterion(
+		String key,
+		String name
+	) {
+		return new CreateReportCriterionRequest(
+			key,
+			name,
+			"Generated description",
+			Map.of("summary", "Generated rubric"),
+			List.of(ReportSourceType.SESSION),
+			2,
+			BigDecimal.ONE
 		);
 	}
 

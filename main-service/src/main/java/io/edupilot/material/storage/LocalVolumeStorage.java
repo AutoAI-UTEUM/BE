@@ -1,5 +1,7 @@
 package io.edupilot.material.storage;
 
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -19,7 +21,9 @@ public class LocalVolumeStorage implements FileStorage {
 		"(?:materials/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
 			+ "[0-9a-f]{4}-[0-9a-f]{12}\\.pdf|"
 			+ "avatars/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
-			+ "[0-9a-f]{4}-[0-9a-f]{12}\\.(?:jpg|png|webp))"
+			+ "[0-9a-f]{4}-[0-9a-f]{12}\\.(?:jpg|png|webp)|"
+			+ "materials/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+			+ "[0-9a-f]{4}-[0-9a-f]{12}-pages/[1-9][0-9]*\\.jpg)"
 	);
 	private static final Set<String> AVATAR_EXTENSIONS = Set.of("jpg", "png", "webp");
 
@@ -44,11 +48,28 @@ public class LocalVolumeStorage implements FileStorage {
 		return store(inputStream, "avatars/" + UUID.randomUUID() + "." + extension);
 	}
 
+	@Override
+	public void storePageImage(InputStream inputStream, String storageKey) {
+		store(inputStream, storageKey, true);
+	}
+
 	private String store(InputStream inputStream, String storageKey) {
+		return store(inputStream, storageKey, false);
+	}
+
+	private String store(
+		InputStream inputStream,
+		String storageKey,
+		boolean replaceExisting
+	) {
 		Path target = resolve(storageKey);
 		try {
 			Files.createDirectories(target.getParent());
-			Files.copy(inputStream, target);
+			if (replaceExisting) {
+				Files.copy(inputStream, target, REPLACE_EXISTING);
+			} else {
+				Files.copy(inputStream, target);
+			}
 			return storageKey;
 		} catch (IOException exception) {
 			try {

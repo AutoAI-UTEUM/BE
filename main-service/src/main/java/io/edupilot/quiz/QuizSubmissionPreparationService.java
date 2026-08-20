@@ -18,6 +18,7 @@ import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.MaterialPage;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.material.MaterialPageTextMerger;
 import io.edupilot.quiz.dto.QuizSubmitRequest;
 import io.edupilot.session.SessionStatus;
 import tools.jackson.databind.JsonNode;
@@ -27,13 +28,16 @@ public class QuizSubmissionPreparationService {
 
 	private final QuizRepository quizRepository;
 	private final MaterialPageRepository materialPageRepository;
+	private final MaterialPageTextMerger pageTextMerger;
 
 	public QuizSubmissionPreparationService(
 		QuizRepository quizRepository,
-		MaterialPageRepository materialPageRepository
+		MaterialPageRepository materialPageRepository,
+		MaterialPageTextMerger pageTextMerger
 	) {
 		this.quizRepository = quizRepository;
 		this.materialPageRepository = materialPageRepository;
+		this.pageTextMerger = pageTextMerger;
 	}
 
 	@Transactional(readOnly = true)
@@ -155,7 +159,10 @@ public class QuizSubmissionPreparationService {
 		String text = pages.stream()
 			.map(page -> "[Page %d]%n%s".formatted(
 				page.getPageNumber(),
-				page.getTextContent()
+				pageTextMerger.mergeCaption(
+					page.getTextContent(),
+					page.getCaption()
+				)
 			))
 			.collect(Collectors.joining("\n\n"));
 		return new GradeRequest.PageContext(

@@ -21,11 +21,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ByteArrayResource;
 
 import io.edupilot.ai.dto.TurnRequest;
+import io.edupilot.ai.dto.CaptionsRequest;
+import io.edupilot.ai.dto.CaptionsResponse;
+import io.edupilot.ai.dto.CriteriaSuggestRequest;
 import io.edupilot.ai.dto.DiagnosisRequest;
 import io.edupilot.ai.dto.ExamDraftRequest;
 import io.edupilot.ai.dto.ExamDraftResponse;
 import io.edupilot.exam.ExamQuestionType;
 import io.edupilot.ai.dto.GradeRequest;
+import io.edupilot.ai.dto.OutlineRequest;
+import io.edupilot.ai.dto.OutlineResponse;
+import io.edupilot.report.ReportSourceType;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
 import io.edupilot.ai.dto.QuizAssessmentResponse;
 import io.edupilot.ai.dto.ReportGenerateRequest;
@@ -434,6 +440,88 @@ class HttpAiClientContractTest {
 	}
 
 	@Test
+	void outlineSendsEveryPageTextAndParsesStructuredResponse() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "materialSummary": "자료 요약입니다.",
+			  "sections": [
+			    {
+			      "title": "핵심 단원",
+			      "startPage": 1,
+			      "endPage": 2,
+			      "keywords": ["개념", "예제"]
+			    }
+			  ],
+			  "totalPages": 2
+			}
+			"""));
+		OutlineRequest outlineRequest = new OutlineRequest(
+			"1.0",
+			2,
+			List.of(
+				new OutlineRequest.Page(1, "첫 페이지 전체 텍스트"),
+				new OutlineRequest.Page(2, "둘째 페이지 전체 텍스트")
+			)
+		);
+
+		OutlineResponse response = client(Duration.ofSeconds(1))
+			.outline(outlineRequest);
+
+		assertThat(response.materialSummary()).isEqualTo("자료 요약입니다.");
+		assertThat(response.sections()).singleElement().satisfies(section -> {
+			assertThat(section.title()).isEqualTo("핵심 단원");
+			assertThat(section.keywords()).containsExactly("개념", "예제");
+		});
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getMethod()).isEqualTo("POST");
+		assertThat(request.getPath()).isEqualTo("/internal/ai/outline");
+		assertThat(request.getHeader("X-Internal-Token")).isEqualTo(INTERNAL_TOKEN);
+		assertThat(request.getBody().readUtf8())
+			.contains("\"schemaVersion\":\"1.0\"")
+			.contains("\"totalPages\":2")
+			.contains("\"pageNumber\":1")
+			.contains("첫 페이지 전체 텍스트")
+			.contains("둘째 페이지 전체 텍스트");
+	}
+
+	@Test
+	void captionsSendsImageAndTextAndParsesNullableResults() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "captions": [
+			    {"pageNumber": 1, "caption": "diagram"},
+			    {"pageNumber": 2, "caption": null}
+			  ],
+			  "warnings": [
+			    {"type": "PAGE_CAPTION_FAILED", "message": "pageNumber 2"}
+			  ]
+			}
+			"""));
+		CaptionsRequest captionsRequest = new CaptionsRequest(
+			"1.0",
+			List.of(
+				new CaptionsRequest.Page(1, "aW1hZ2UtMQ==", "text 1"),
+				new CaptionsRequest.Page(2, "aW1hZ2UtMg==", "text 2")
+			)
+		);
+
+		CaptionsResponse response = client(Duration.ofSeconds(1))
+			.captions(captionsRequest);
+
+		assertThat(response.captions()).extracting(CaptionsResponse.PageCaption::caption)
+			.containsExactly("diagram", null);
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getPath()).isEqualTo("/internal/ai/captions");
+		assertThat(request.getBody().readUtf8())
+			.contains("\"imageBase64\":\"aW1hZ2UtMQ==\"")
+			.contains("\"extractedText\":\"text 2\"");
+	}
+
+	@Test
 	void delayedExtractResponseUsesExtractTimeoutWithoutRetry() {
 		server.enqueue(jsonResponse(200, """
 			{
@@ -471,6 +559,47 @@ class HttpAiClientContractTest {
 		assertThat(request.getPath()).isEqualTo("/health");
 		assertThat(request.getHeader("X-Internal-Token")).isEqualTo(INTERNAL_TOKEN);
 		assertThat(request.getHeader("X-Trace-Id")).isEqualTo(TRACE_ID);
+	}
+
+	@Test
+	void criteriaSuggestionUsesDedicatedContractAndPath() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion":"1.0",
+			  "criteria":[
+			    {"key":"engagement","name":"참여도","description":"설명","rubric":"루브릭","allowedSources":["SESSION"],"weight":1.0,"minimumEvidence":2},
+			    {"key":"accuracy","name":"정확도","description":"설명","rubric":"루브릭","allowedSources":["QUIZ_SUBMISSION"],"weight":1.0,"minimumEvidence":2},
+			    {"key":"reflection","name":"성찰","description":"설명","rubric":"루브릭","allowedSources":["MEMORY"],"weight":1.0,"minimumEvidence":2}
+			  ],
+			  "warnings":[]
+			}
+			"""));
+
+		var response = client(Duration.ofSeconds(1)).suggestCriteria(
+			new CriteriaSuggestRequest(
+				"1.0",
+				List.of("concept_understanding"),
+				List.of(new CriteriaSuggestRequest.Material(
+					"자료",
+					"요약",
+					List.of(new OutlineResponse.Section(
+						"도입", 1, 2, List.of("개념")
+					))
+				))
+			)
+		);
+
+		assertThat(response.criteria()).hasSize(3);
+		assertThat(response.criteria().getFirst().allowedSources())
+			.containsExactly(ReportSourceType.SESSION);
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request.getPath())
+			.isEqualTo("/internal/ai/criteria/suggest");
+		assertThat(request.getBody().readUtf8())
+			.contains(
+				"\"existingCriterionKeys\":[\"concept_understanding\"]",
+				"\"materialSummary\":\"요약\""
+			);
 	}
 
 	@Test
@@ -754,6 +883,12 @@ class HttpAiClientContractTest {
 			baseUrl,
 			INTERNAL_TOKEN,
 			Duration.ofMillis(300),
+			readTimeout,
+			readTimeout,
+			readTimeout,
+			readTimeout,
+			readTimeout,
+			readTimeout,
 			readTimeout,
 			readTimeout,
 			readTimeout,

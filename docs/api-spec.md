@@ -353,7 +353,7 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 ### GET `/api/materials/{materialId}/overview`
 
-자료 소유자 또는 자료가 연결된 강의실의 승인 멤버가 저장된 자료 개요를 조회합니다. 비접근·삭제·미존재 자료는 `MATERIAL_NOT_FOUND`(404)로 은닉합니다. `material_overviews` 행이 아직 없으면 404 대신 `PENDING` 합성 응답을 반환하며 `content`와 `updatedAt`은 `null`입니다. 행이 있으면 저장된 `status`와 `updatedAt`을 반환하되 `content`는 `READY`일 때만 반환하고 `PENDING | FAILED`에서는 `null`입니다. 이번 API는 조회만 제공하며 개요 생성·AI 호출은 수행하지 않습니다.
+자료 소유자 또는 자료가 연결된 강의실의 승인 멤버가 저장된 자료 개요를 조회합니다. 비접근·삭제·미존재 자료는 `MATERIAL_NOT_FOUND`(404)로 은닉합니다. `material_overviews` 행이 아직 없으면 404 대신 `PENDING` 합성 응답을 반환하며 `content`와 `updatedAt`은 `null`입니다. 행이 있으면 저장된 `status`와 `updatedAt`을 반환하되 `content`는 `READY`일 때만 반환하고 `PENDING | FAILED`에서는 `null`입니다. 조회 요청 자체는 AI를 호출하지 않습니다. 개요는 자료 추출 완료 후 비동기로 생성하며, 기존 READY 자료 중 개요 행이 없는 자료는 오래된 순으로 분당 최대 3건씩 백필합니다. 생성 실패는 자료 처리 상태와 무관하게 개요만 `FAILED`로 전환합니다.
 
 ```json
 {
@@ -1814,7 +1814,7 @@ key는 trim·소문자화하고 공백과 `-`를 `_`로 정규화한 뒤 기본 
 기준과 정확 중복을 검사합니다. 기본 key와 충돌하는 과거 커스텀 데이터는 리포트 생성 시
 기본 기준을 우선하고 커스텀 기준을 무시합니다. 기본 9종과 활성
 커스텀의 합은 20개 이하입니다. 중복은 `REPORT_CRITERION_DUPLICATE`(409), 상한 초과는
-`REPORT_CRITERION_LIMIT_EXCEEDED`(409)입니다.
+`REPORT_CRITERION_LIMIT_EXCEEDED`(400)입니다.
 
 ### PATCH `/api/classrooms/{classroomId}/report-criteria/{criterionId}`
 
@@ -1823,6 +1823,48 @@ key는 trim·소문자화하고 공백과 `-`를 `_`로 정규화한 뒤 기본 
 `active:false`만 전송한 비활성화는 현재 행을 직접 갱신합니다. 재활성화에도 이름 중복과
 활성 20개 상한을 동일하게 검증합니다. 이미 생성된 generation의 기준 snapshot은 바뀌지
 않고 다음 생성부터 반영됩니다.
+
+### POST `/api/classrooms/{classroomId}/report-criteria/generate`
+
+소유 강사가 강의실 자료 개요를 바탕으로 커스텀 평가 기준 자동 생성을 요청합니다.
+요청 본문은 없으며 정상 접수 시 HTTP 202를 반환합니다.
+
+```json
+{"status":"RUNNING"}
+```
+
+AI 호출 전 강의실에 `READY` 개요가 하나 이상 있어야 하고, 기본 9종과 활성 커스텀
+기준을 제외한 여유 슬롯이 3개 이상이어야 합니다. 개요가 없으면
+`REPORT_CRITERIA_GENERATION_NOT_READY`(400), 슬롯이 부족하면
+`REPORT_CRITERION_LIMIT_EXCEEDED`(400)입니다. 같은 강의실에서 이미 실행 중이면
+`REPORT_CRITERION_DUPLICATE`(409)를 반환합니다.
+
+입력에는 기본 9종과 비활성을 포함한 모든 커스텀 key, `READY` 개요의 자료 제목·요약·
+목차를 전달합니다. AI가 반환한 기준은 수동 생성과 같은 key·이름 중복 및 20개 상한
+검증을 거쳐 한 트랜잭션으로 등록합니다. 하나라도 중복이거나 응답 수가 여유 슬롯보다
+많으면 전부 등록하지 않습니다. `rubric` 문자열은 `{"summary":"..."}`로 저장하고
+description은 최대 500자로 제한합니다.
+
+### GET `/api/classrooms/{classroomId}/report-criteria/generation`
+
+소유 강사가 현재 프로세스의 인메모리 생성 상태를 조회합니다. 서버 재시작 시 상태는
+`IDLE`로 초기화되며, 이전 `RUNNING` 작업은 다시 생성 요청할 수 있습니다.
+
+```json
+{"status":"IDLE"}
+```
+
+```json
+{"status":"COMPLETED","registeredCount":3,"message":"QUALITY_WARNING: 일부 개요가 짧습니다."}
+```
+
+```json
+{"status":"FAILED","message":"기존 지표 정리 후 재시도"}
+```
+
+`registeredCount`는 `COMPLETED`에서만, `message`는 AI warning이 있거나 실패한 경우에만
+포함됩니다. AI timeout·`INSUFFICIENT_TEXT`를 포함한 호출 실패는 DB를 변경하지 않고
+`FAILED`로 수렴하며, 강사는 생성 버튼으로 재시도합니다.
 
 ### POST `/api/classrooms/{classroomId}/students/{studentId}/reports`
 
@@ -1905,13 +1947,16 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 | Method | URL | 목적 | 호출 시점 |
 | --- | --- | --- | --- |
 | POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (LLM 판단 없는 결정적 전처리 — DEC-006) | 자료 업로드 후 비동기 처리 |
+| POST | `/internal/ai/outline` | 저장된 전 페이지 텍스트 기반 자료 요약·목차 생성 | 추출 저장 완료 후 비동기 처리 |
+| POST | `/internal/ai/captions` | PDF 페이지 이미지 기반 시각 정보 캡션 생성 | 추출 저장 완료 후 10페이지 단위 비동기 처리 |
+| POST | `/internal/ai/criteria/suggest` | READY 자료 개요 기반 강의실 평가 기준 제안 | 소유 강사의 자동 생성 요청 후 비동기 처리 |
 | POST | `/internal/ai/turn` | 자유 학습 턴 계획·실행 (설명, QA, 퀴즈 생성, 교정, 메모리 후보·승격 포함) | turns 이벤트 수신 시 |
 | POST | `/internal/ai/grade` | SHORT/ESSAY 채점 — 결정성 설정(temperature 최저 등)으로 동일 답안 재채점 편차를 최소화 | 통합 퀴즈 또는 별도 시험에서 응답이 있는 SHORT/ESSAY 유형별 1회 |
 | POST | `/internal/ai/quiz-assessment` | 퀴즈 내부 평가 생성 | 퀴즈 제출 파이프라인 2단계 (채점 완료 후 항상) |
 | POST | `/internal/ai/diagnosis` | 진단 질문 생성 | 퀴즈 제출 파이프라인 3단계 (기준 점수 미달 시) |
 | POST | `/internal/ai/exams/draft` | 시험 문항 AI 초안 생성 | 소유 강사의 DRAFT 시험 초안 요청 시 동기 호출 |
 
-`extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)을 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
+`extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)을 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `captions`는 `{schemaVersion:"1.0", pages:[{pageNumber,imageBase64,extractedText}]}`를 최대 10페이지씩 받고 페이지별 nullable 캡션을 반환합니다. Spring은 캡션이 있으면 모든 페이지 텍스트 기반 AI 입력에 `\n\n[그림 설명] {caption}`을 읽기 시점에 병합하며 `material_pages.text_content` 원문은 유지합니다. 일부 청크 실패는 자료·개요 상태에 영향을 주지 않고 다음 청크 처리를 계속합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
 
 별도 시험 grade는 숫자 `examId`를 `quizId`로 사용합니다. `pageContext`와 `learnerMemoryDigest`는 생략·null을 허용하고 나머지 grade 요청 필드는 필수·non-null입니다. 응답이 있는 SHORT와 ESSAY는 각각 묶어 호출하며 한 유형이 실패해도 나머지 유형은 계속 호출합니다. 실제 호출의 `items`와 `studentAnswers`는 비어 있지 않아야 합니다. 상세 필드 강제력과 표준 오류 봉투는 `ai-integration-contract.md` v0.6 §6.2를 따릅니다.
 

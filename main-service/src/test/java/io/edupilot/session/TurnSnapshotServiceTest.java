@@ -68,6 +68,7 @@ class TurnSnapshotServiceTest {
 		MaterialPage second = mock(MaterialPage.class);
 		when(first.getTextContent()).thenReturn("x".repeat(8_100));
 		when(second.getTextContent()).thenReturn("next");
+		when(second.getCaption()).thenReturn("next diagram");
 		when(pageRepository.findByMaterial_IdAndPageNumber(10L, 1))
 			.thenReturn(Optional.of(first));
 		when(pageRepository.findByMaterial_IdAndPageNumber(10L, 2))
@@ -134,7 +135,7 @@ class TurnSnapshotServiceTest {
 		assertThat((String) snapshot.context().get("currentPageText"))
 			.hasSize(8_000);
 		assertThat(snapshot.context().get("nextPageText"))
-			.isEqualTo("next");
+			.isEqualTo("next\n\n[그림 설명] next diagram");
 		assertThat((List<?>) snapshot.context().get("recentMessages"))
 			.singleElement()
 			.asString()
@@ -444,6 +445,7 @@ class TurnSnapshotServiceTest {
 		return new TurnSnapshotService(
 			sessionRepository,
 			pageRepository,
+			new io.edupilot.material.MaterialPageTextMerger(),
 			messageRepository,
 			qaThreadRepository,
 			qaMessageRepository,

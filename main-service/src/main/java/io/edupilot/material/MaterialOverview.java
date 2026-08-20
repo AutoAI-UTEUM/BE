@@ -3,8 +3,11 @@ package io.edupilot.material;
 import java.time.Instant;
 
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.type.SqlTypes;
 
+import io.edupilot.ai.dto.OutlineResponse;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -39,6 +42,10 @@ public class MaterialOverview {
 	@Column(columnDefinition = "MEDIUMTEXT")
 	private String content;
 
+	@JdbcTypeCode(SqlTypes.JSON)
+	@Column(name = "outline_json", columnDefinition = "json")
+	private OutlineResponse outline;
+
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)
 	private MaterialOverviewStatus status;
@@ -57,6 +64,7 @@ public class MaterialOverview {
 	private MaterialOverview(LearningMaterial material) {
 		this.material = material;
 		this.content = null;
+		this.outline = null;
 		this.status = MaterialOverviewStatus.PENDING;
 	}
 
@@ -64,13 +72,15 @@ public class MaterialOverview {
 		return new MaterialOverview(material);
 	}
 
-	public void markReady(String content) {
+	public void markReady(String content, OutlineResponse outline) {
 		this.content = content;
+		this.outline = outline;
 		this.status = MaterialOverviewStatus.READY;
 	}
 
 	public void markFailed() {
 		this.content = null;
+		this.outline = null;
 		this.status = MaterialOverviewStatus.FAILED;
 	}
 
@@ -78,8 +88,16 @@ public class MaterialOverview {
 		return material.getId();
 	}
 
+	public String getMaterialTitle() {
+		return material.getTitle();
+	}
+
 	public String getContent() {
 		return content;
+	}
+
+	public OutlineResponse getOutline() {
+		return outline;
 	}
 
 	public MaterialOverviewStatus getStatus() {

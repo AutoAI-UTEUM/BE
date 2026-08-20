@@ -85,6 +85,28 @@ curl --fail \
 이 호출은 설정된 xAI endpoint를 사용합니다. 개발·CI 검증은 `FakeLlm` 또는
 `respx` mock만 사용하며 실제 provider 호출을 포함하지 않습니다.
 
+## CLI 데모 (설계자·비개발자용)
+
+[uv 설치 안내](https://docs.astral.sh/uv/getting-started/installation/)에 따라 `uv`를
+설치하고, 팀에서 `ai-service/.env`를 받아 `XAI_API_KEY`가 설정된 상태로 실행합니다.
+서버나 내부 토큰, 포트 설정 없이 PDF 파일 하나로 에이전트를 직접 체험할 수 있습니다.
+
+```bash
+cd ai-service
+uv run python demo.py outline ~/자료/강의.pdf
+uv run python demo.py criteria ~/자료/강의.pdf
+```
+
+```text
+추출 중... 19페이지
+개요 생성 중... 완료 9.0s
+지표 생성 중... 완료 7.4s
+{"schemaVersion": "1.0", ...}
+```
+
+각 에이전트 실행에는 실제 LLM 호출과 수십 원 수준의 비용이 발생할 수 있습니다.
+`.env`는 시크릿 파일이므로 절대 커밋하지 않습니다.
+
 ## 검증
 
 모든 PR 게이트는 실제 Grok과 외부 네트워크 호출 없이 실행됩니다.

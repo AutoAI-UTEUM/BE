@@ -11,6 +11,7 @@ from pydantic import BaseModel, SecretStr
 from edupilot_ai.core.errors import ErrorCategory
 from edupilot_ai.llm.bridge import (
     LlmBridgeError,
+    LlmMessage,
     LlmTextDelta,
     LlmTextStreamCompleted,
     LlmUsage,
@@ -89,6 +90,10 @@ async def test_xai_bridge_sends_strict_structured_output_wire_format(
     assert payload["model"] == "grok-4.5"
     assert payload["reasoning_effort"] == "low"
     assert payload["max_tokens"] == 4096
+    assert payload["messages"] == [
+        {"role": "system", "content": "PRIVATE-PDF-TEXT"},
+        {"role": "user", "content": "PRIVATE-STUDENT-ANSWER"},
+    ]
     assert "temperature" not in payload
     assert payload["response_format"]["type"] == "json_schema"
     assert payload["response_format"]["json_schema"]["strict"] is True
@@ -112,6 +117,50 @@ async def test_xai_bridge_sends_strict_structured_output_wire_format(
     assert call_log.__dict__["model"] == "grok-4.5"
     assert call_log.__dict__["status"] == "SUCCESS"
     assert call_log.__dict__["attempt"] == 1
+
+
+async def test_xai_bridge_sends_multimodal_image_content_parts(
+    respx_mock: respx.MockRouter,
+) -> None:
+    route = respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json=completion_response(content='{"answer":"시각 요소 설명"}'),
+        )
+    )
+    messages: list[LlmMessage] = [
+        {"role": "system", "content": "시각 요소만 설명하라."},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "추출 텍스트"},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/png;base64,aW1hZ2U=",
+                        "detail": "high",
+                    },
+                },
+            ],
+        },
+    ]
+
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(
+            client=client,
+            api_key=SecretStr("xai-test-not-real"),
+        )
+        result = await bridge.complete_json(
+            messages=messages,
+            response_model=ExampleStructuredOutput,
+            profile=profile(),
+            timeout_seconds=60,
+        )
+
+    payload = json.loads(route.calls[0].request.content)
+    assert payload["messages"] == messages
+    assert payload["response_format"]["type"] == "json_schema"
+    assert result.output.answer == "시각 요소 설명"
 
 
 async def test_xai_bridge_warns_when_provider_model_differs(

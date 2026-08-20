@@ -17,6 +17,7 @@ import io.edupilot.exam.dto.GenerateExamDraftRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.material.MaterialPageTextMerger;
 import io.edupilot.material.MaterialProcessingStatus;
 import io.edupilot.material.MaterialStatus;
 import io.edupilot.user.UserRole;
@@ -31,17 +32,20 @@ public class ExamDraftPreparationService {
 	private final ExamRepository examRepository;
 	private final ClassroomWeekMaterialRepository weekMaterialRepository;
 	private final MaterialPageRepository materialPageRepository;
+	private final MaterialPageTextMerger pageTextMerger;
 
 	public ExamDraftPreparationService(
 		ClassroomService classroomService,
 		ExamRepository examRepository,
 		ClassroomWeekMaterialRepository weekMaterialRepository,
-		MaterialPageRepository materialPageRepository
+		MaterialPageRepository materialPageRepository,
+		MaterialPageTextMerger pageTextMerger
 	) {
 		this.classroomService = classroomService;
 		this.examRepository = examRepository;
 		this.weekMaterialRepository = weekMaterialRepository;
 		this.materialPageRepository = materialPageRepository;
+		this.pageTextMerger = pageTextMerger;
 	}
 
 	@Transactional(readOnly = true)
@@ -101,7 +105,10 @@ public class ExamDraftPreparationService {
 			.range(0, Math.min(pages.size(), MAX_PAGE_CONTEXTS))
 			.mapToObj(index -> new ExamDraftRequest.PageContext(
 				index + 1,
-				pages.get(index).getText()
+				pageTextMerger.mergeCaption(
+					pages.get(index).getText(),
+					pages.get(index).getCaption()
+				)
 			))
 			.toList();
 

@@ -45,6 +45,10 @@ import org.springframework.web.client.RestClientResponseException;
 
 import io.edupilot.ai.dto.AiErrorResponse;
 import io.edupilot.ai.dto.AiHealthResponse;
+import io.edupilot.ai.dto.CaptionsRequest;
+import io.edupilot.ai.dto.CaptionsResponse;
+import io.edupilot.ai.dto.CriteriaSuggestRequest;
+import io.edupilot.ai.dto.CriteriaSuggestResponse;
 import io.edupilot.ai.dto.ActionExecuted;
 import io.edupilot.ai.dto.Adjustment;
 import io.edupilot.ai.dto.DiagnosisRequest;
@@ -55,6 +59,8 @@ import io.edupilot.ai.dto.ExamDraftResponse;
 import io.edupilot.ai.dto.ExtractedPage;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
+import io.edupilot.ai.dto.OutlineRequest;
+import io.edupilot.ai.dto.OutlineResponse;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
 import io.edupilot.ai.dto.QuizAssessmentResponse;
 import io.edupilot.ai.dto.ReportGenerateRequest;
@@ -73,6 +79,10 @@ public class HttpAiClient implements AiClient {
 	private static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
 	private static final String TURN_PATH = "/internal/ai/turn";
 	private static final String EXTRACT_PATH = "/internal/ai/extract";
+	private static final String OUTLINE_PATH = "/internal/ai/outline";
+	private static final String CAPTIONS_PATH = "/internal/ai/captions";
+	private static final String CRITERIA_SUGGEST_PATH =
+		"/internal/ai/criteria/suggest";
 	private static final String GRADE_PATH = "/internal/ai/grade";
 	private static final String QUIZ_ASSESSMENT_PATH =
 		"/internal/ai/quiz-assessment";
@@ -94,8 +104,12 @@ public class HttpAiClient implements AiClient {
 	private final RestClient streamRestClient;
 	private final RestClient healthRestClient;
 	private final RestClient extractRestClient;
+	private final RestClient outlineRestClient;
+	private final RestClient captionsRestClient;
+	private final RestClient criteriaRestClient;
 	private final RestClient gradeRestClient;
-	private final RestClient pipelineRestClient;
+	private final RestClient assessmentRestClient;
+	private final RestClient diagnosisRestClient;
 	private final RestClient reportRestClient;
 	private final RestClient examDraftRestClient;
 	private final String healthPath;
@@ -121,13 +135,29 @@ public class HttpAiClient implements AiClient {
 			properties,
 			properties.extractReadTimeout()
 		);
+		this.outlineRestClient = buildRestClient(
+			properties,
+			properties.outlineTimeout()
+		);
+		this.captionsRestClient = buildRestClient(
+			properties,
+			properties.captionsReadTimeout()
+		);
+		this.criteriaRestClient = buildRestClient(
+			properties,
+			properties.criteriaReadTimeout()
+		);
 		this.gradeRestClient = buildRestClient(
 			properties,
 			properties.gradeReadTimeout()
 		);
-		this.pipelineRestClient = buildRestClient(
+		this.assessmentRestClient = buildRestClient(
 			properties,
-			properties.pipelineReadTimeout()
+			properties.assessmentReadTimeout()
+		);
+		this.diagnosisRestClient = buildRestClient(
+			properties,
+			properties.diagnosisReadTimeout()
 		);
 		this.reportRestClient = buildRestClient(
 			properties,
@@ -666,6 +696,55 @@ public class HttpAiClient implements AiClient {
 	}
 
 	@Override
+	public OutlineResponse outline(OutlineRequest request) {
+		return executeAttempt(
+			new AiCallContext(OUTLINE_PATH, 1, false, null, null, null),
+			() -> outlineRestClient.post()
+				.uri(OUTLINE_PATH)
+				.contentType(MediaType.APPLICATION_JSON)
+				.body(request)
+				.retrieve()
+				.body(OutlineResponse.class)
+		);
+	}
+
+	@Override
+	public CaptionsResponse captions(CaptionsRequest request) {
+		return executeAttempt(
+			new AiCallContext(CAPTIONS_PATH, 1, false, null, null, null),
+			() -> {
+				CaptionsResponse response = captionsRestClient.post()
+					.uri(CAPTIONS_PATH)
+					.contentType(MediaType.APPLICATION_JSON)
+					.body(request)
+					.retrieve()
+					.body(CaptionsResponse.class);
+				validateCaptionsResponse(response, request);
+				return response;
+			}
+		);
+	}
+
+	@Override
+	public CriteriaSuggestResponse suggestCriteria(CriteriaSuggestRequest request) {
+		return executeAttempt(
+			new AiCallContext(
+				CRITERIA_SUGGEST_PATH, 1, false, null, null, null
+			),
+			() -> {
+				CriteriaSuggestResponse response = criteriaRestClient.post()
+					.uri(CRITERIA_SUGGEST_PATH)
+					.contentType(MediaType.APPLICATION_JSON)
+					.body(request)
+					.retrieve()
+					.body(CriteriaSuggestResponse.class);
+				validateCriteriaSuggestResponse(response);
+				return response;
+			}
+		);
+	}
+
+	@Override
 	public GradeResponse grade(GradeRequest request) {
 		for (int attempt = 1; attempt <= 2; attempt++) {
 			int currentAttempt = attempt;
@@ -725,7 +804,7 @@ public class HttpAiClient implements AiClient {
 					),
 					() -> {
 						QuizAssessmentResponse response =
-							pipelineRestClient.post()
+							assessmentRestClient.post()
 								.uri(QUIZ_ASSESSMENT_PATH)
 								.contentType(MediaType.APPLICATION_JSON)
 								.body(request)
@@ -760,7 +839,7 @@ public class HttpAiClient implements AiClient {
 						request.quizResult().quizId()
 					),
 					() -> {
-						DiagnosisResponse response = pipelineRestClient.post()
+						DiagnosisResponse response = diagnosisRestClient.post()
 							.uri(DIAGNOSIS_PATH)
 							.contentType(MediaType.APPLICATION_JSON)
 							.body(request)
@@ -1140,6 +1219,65 @@ public class HttpAiClient implements AiClient {
 			|| !StringUtils.hasText(response.diagnosticPrompt())
 			|| !validTextList(response.evidence())
 			|| !StringUtils.hasText(response.repairHint())) {
+			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+		}
+	}
+
+	private void validateCriteriaSuggestResponse(
+		CriteriaSuggestResponse response
+	) {
+		if (response == null
+			|| !SCHEMA_VERSION.equals(response.schemaVersion())
+			|| response.criteria() == null
+			|| response.criteria().size() < 3
+			|| response.criteria().size() > 5
+			|| response.warnings() == null) {
+			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+		}
+		for (CriteriaSuggestResponse.Criterion criterion : response.criteria()) {
+			if (criterion == null
+				|| !StringUtils.hasText(criterion.key())
+				|| !StringUtils.hasText(criterion.name())
+				|| criterion.description() == null
+				|| !StringUtils.hasText(criterion.rubric())
+				|| criterion.allowedSources() == null
+				|| criterion.allowedSources().isEmpty()
+				|| criterion.allowedSources().stream().anyMatch(java.util.Objects::isNull)
+				|| criterion.weight() == null
+				|| criterion.weight().signum() <= 0
+				|| criterion.minimumEvidence() < 1) {
+				throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+			}
+		}
+		for (CriteriaSuggestResponse.Warning warning : response.warnings()) {
+			if (warning == null
+				|| !StringUtils.hasText(warning.type())
+				|| !StringUtils.hasText(warning.message())) {
+				throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+			}
+		}
+	}
+
+	private void validateCaptionsResponse(
+		CaptionsResponse response,
+		CaptionsRequest request
+	) {
+		if (response == null
+			|| !SCHEMA_VERSION.equals(response.schemaVersion())
+			|| response.captions() == null
+			|| response.warnings() == null
+			|| response.captions().size() != request.pages().size()) {
+			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+		}
+		Set<Integer> requested = request.pages().stream()
+			.map(CaptionsRequest.Page::pageNumber)
+			.collect(java.util.stream.Collectors.toSet());
+		Set<Integer> returned = response.captions().stream()
+			.filter(java.util.Objects::nonNull)
+			.map(CaptionsResponse.PageCaption::pageNumber)
+			.collect(java.util.stream.Collectors.toSet());
+		if (returned.size() != response.captions().size()
+			|| !returned.equals(requested)) {
 			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
 		}
 	}

@@ -19,6 +19,7 @@ import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.material.MaterialPageTextMerger;
 import io.edupilot.quiz.dto.QuizSubmitRequest;
 import io.edupilot.session.LearningSession;
 import io.edupilot.user.User;
@@ -42,7 +43,8 @@ class QuizSubmissionPreparationServiceTest {
 	void setUp() {
 		service = new QuizSubmissionPreparationService(
 			quizRepository,
-			materialPageRepository
+			materialPageRepository,
+			new MaterialPageTextMerger()
 		);
 		User owner = User.create("owner@example.com", "hash", "소유자");
 		ReflectionTestUtils.setField(owner, "id", 1L);

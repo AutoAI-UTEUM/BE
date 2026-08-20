@@ -29,6 +29,7 @@ class OutlineRequest(ContractModel):
 
 class OutlineSection(ContractModel):
     title: str = Field(min_length=1)
+    description: str | None = Field(default=None)
     start_page: int = Field(ge=1)
     end_page: int = Field(ge=1)
     keywords: list[str] = Field(max_length=5)

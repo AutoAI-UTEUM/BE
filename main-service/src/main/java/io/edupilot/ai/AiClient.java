@@ -4,6 +4,10 @@ import java.time.Duration;
 import java.util.function.Consumer;
 
 import io.edupilot.ai.dto.AiHealthResponse;
+import io.edupilot.ai.dto.CaptionsRequest;
+import io.edupilot.ai.dto.CaptionsResponse;
+import io.edupilot.ai.dto.CriteriaSuggestRequest;
+import io.edupilot.ai.dto.CriteriaSuggestResponse;
 import io.edupilot.ai.dto.DiagnosisRequest;
 import io.edupilot.ai.dto.DiagnosisResponse;
 import io.edupilot.ai.dto.ExtractResponse;
@@ -11,6 +15,8 @@ import io.edupilot.ai.dto.ExamDraftRequest;
 import io.edupilot.ai.dto.ExamDraftResponse;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
+import io.edupilot.ai.dto.OutlineRequest;
+import io.edupilot.ai.dto.OutlineResponse;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
 import io.edupilot.ai.dto.QuizAssessmentResponse;
 import io.edupilot.ai.dto.ReportGenerateRequest;
@@ -33,6 +39,12 @@ public interface AiClient {
 	);
 
 	ExtractResponse extract(Resource pdfResource);
+
+	OutlineResponse outline(OutlineRequest request);
+
+	CaptionsResponse captions(CaptionsRequest request);
+
+	CriteriaSuggestResponse suggestCriteria(CriteriaSuggestRequest request);
 
 	GradeResponse grade(GradeRequest request);
 

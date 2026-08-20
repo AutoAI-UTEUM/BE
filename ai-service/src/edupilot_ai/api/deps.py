@@ -4,6 +4,7 @@ from typing import Annotated, cast
 
 from fastapi import Depends, Request
 
+from edupilot_ai.captions.service import CaptionService
 from edupilot_ai.criteria.service import CriteriaSuggestService
 from edupilot_ai.examdraft.service import ExamDraftService
 from edupilot_ai.grading.service import GraderAgent, GradeService
@@ -40,6 +41,17 @@ def get_llm_bridge(request: Request) -> LlmBridge:
     if bridge is None:
         raise RuntimeError("LlmBridge is not configured")
     return bridge
+
+
+def get_caption_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    llm: Annotated[LlmBridge, Depends(get_llm_bridge)],
+) -> CaptionService:
+    return CaptionService(
+        llm=llm,
+        profile=settings.captions_llm_profile,
+        timeout_seconds=settings.edupilot_captions_timeout_seconds,
+    )
 
 
 def get_turn_service(

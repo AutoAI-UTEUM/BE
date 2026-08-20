@@ -1,7 +1,7 @@
 """Test doubles for provider-neutral dependencies."""
 
 import asyncio
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 
 from pydantic import BaseModel
@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from edupilot_ai.llm.bridge import (
     LlmBridgeError,
     LlmCompletion,
+    LlmMessage,
     LlmTextDelta,
     LlmTextStreamCompleted,
     LlmTextStreamItem,
@@ -46,10 +47,10 @@ class FakeLlm:
 
     def __init__(self, responses: Sequence[ScriptItem] = ()) -> None:
         self._responses = list(responses)
-        self.calls: list[tuple[Sequence[Mapping[str, str]], AgentLlmProfile]] = []
+        self.calls: list[tuple[Sequence[LlmMessage], AgentLlmProfile]] = []
         self.timeouts: list[float] = []
         self.stream_calls: list[
-            tuple[Sequence[Mapping[str, str]], AgentLlmProfile, float]
+            tuple[Sequence[LlmMessage], AgentLlmProfile, float]
         ] = []
 
     def queue(self, *responses: ScriptItem) -> None:
@@ -68,7 +69,7 @@ class FakeLlm:
     async def complete_json(
         self,
         *,
-        messages: Sequence[Mapping[str, str]],
+        messages: Sequence[LlmMessage],
         response_model: type[ModelT],
         profile: AgentLlmProfile,
         timeout_seconds: float,
@@ -106,7 +107,7 @@ class FakeLlm:
     async def complete_text_stream(
         self,
         *,
-        messages: Sequence[Mapping[str, str]],
+        messages: Sequence[LlmMessage],
         profile: AgentLlmProfile,
         timeout_seconds: float,
     ) -> AsyncIterator[LlmTextStreamItem]:

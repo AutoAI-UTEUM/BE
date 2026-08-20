@@ -44,6 +44,23 @@ public interface LearningMaterialRepository
 		Pageable pageable
 	);
 
+	@Query("select material.id from LearningMaterial material "
+		+ "where material.status = io.edupilot.material.MaterialStatus.ACTIVE "
+		+ "and material.processingStatus = "
+		+ "io.edupilot.material.MaterialProcessingStatus.READY "
+		+ "and not exists (select overview.id from MaterialOverview overview "
+		+ "where overview.material = material) "
+		+ "order by material.createdAt, material.id")
+	List<Long> findMissingOverviewIds(Pageable pageable);
+
+	@Query("select material.id from LearningMaterial material "
+		+ "where material.status = io.edupilot.material.MaterialStatus.ACTIVE "
+		+ "and material.processingStatus = "
+		+ "io.edupilot.material.MaterialProcessingStatus.READY "
+		+ "and material.captionsCompletedAt is null "
+		+ "order by material.createdAt, material.id")
+	List<Long> findMissingCaptionIds(Pageable pageable);
+
 	@Modifying(clearAutomatically = true, flushAutomatically = true)
 	@Query("update LearningMaterial material "
 		+ "set material.pageCount = null, "

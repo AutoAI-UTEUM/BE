@@ -46,13 +46,14 @@
 | 학생 리포트 `/classrooms/:classroomId/students/:studentId/reports` | 버전 목록 조회·FULL/WEEK 생성 | `GET·POST /api/classrooms/{classroomId}/students/{studentId}/reports` | 202의 `reportId`를 유지하고 `pollAfterSeconds` 간격으로 상세 polling | 범위·주차 검증, 학생 소속, 강의실 관리 권한 |
 | 리포트 상세 `/reports/:reportId` | 생성 상태·실패 fallback·완료 결과 조회 | `GET /api/reports/{reportId}` | PROCESSING 표시, FAILED 사실 요약, COMPLETED 점수·단계·trend·근거 표시. 근거의 선택 `metrics`는 label/value로 표시하고 필드가 없으면 수치 영역을 숨김. trend는 같은 scope(FULL 또는 같은 주차 WEEK)의 직전 버전 대비이며 null score는 데이터 부족으로 표시 | `REPORT_NOT_FOUND`, AI failureCode |
 | 리포트 기준 `/classrooms/:classroomId/report-criteria` | 기본·커스텀 목록, 기준 생성·버전 변경·활성 토글 | `GET·POST /api/classrooms/{classroomId}/report-criteria`, `PATCH .../{criterionId}` | 기본 9종과 활성 커스텀을 표시하고 변경은 다음 생성부터 적용 | 기준 20개 상한, 정규화 이름 중복, 소유권 |
+| 리포트 기준 `/classrooms/:classroomId/report-criteria` | AI 평가 지표 생성·상태 polling | `POST /api/classrooms/{classroomId}/report-criteria/generate`, `GET .../generation` | 202 후 `RUNNING`을 polling하고 `COMPLETED`면 목록 갱신, `FAILED`면 message 표시 | READY 개요 1개 이상, 여유 슬롯 3개 이상, 동시 실행 409, 소유권 |
 | 전역 | access 만료(401) 시 | `POST /api/auth/refresh` (credentials 포함) | 새 access로 원요청 재시도 | TOKEN_INVALID → 로그인 이동 |
 | 헤더/메뉴 | 로그아웃 버튼 | `POST /api/auth/logout` | 메모리 access 삭제 후 로그인 화면 | 없음(멱등) |
 | 계정 설정 | 탈퇴 버튼 → 비밀번호 확인 모달 | `DELETE /api/users/me` | 토큰 정리 후 로그인 화면 이동 | 비밀번호 불일치 (DEC-028) |
 | 자료 목록 | 화면 진입/페이지 이동 | `GET /api/materials` | 자료 카드 목록. FAILED는 `failureReason`별 안내, null이면 일반 실패 문구, `traceId`가 있으면 문의 정보로 표시 | 권한, 네트워크 |
 | 자료 업로드 | 파일 제출 | `POST /api/materials` | 처리 상태 표시 후 목록 반영 | 파일 형식/크기/처리 실패 |
 | 자료 상세 | 화면 진입 | `GET /api/materials/{materialId}` | 제목, 페이지 수, 학습 시작 가능 여부. FAILED는 사유 코드와 업로드 traceId 표시 | 자료 없음/권한 |
-| 자료 개요 탭 | 탭 진입·상태 갱신 | `GET /api/materials/{materialId}/overview` | 행이 없거나 PENDING이면 준비 중, READY면 개요, FAILED면 실패 상태 표시 | 자료 없음/권한, 개요 준비·실패 |
+| 자료 개요 탭 | 탭 진입·상태 갱신 | `GET /api/materials/{materialId}/overview` | 추출 완료 후 비동기 생성. 행이 없거나 PENDING이면 준비 중, READY면 개요, FAILED면 실패 상태 표시 | 자료 없음/권한, 개요 준비·실패 |
 | 자료 목록/상세 | 제목 수정 | `PATCH /api/materials/{materialId}` | trim된 새 제목과 갱신된 자료 상세 반영 | 소유자 전용, 빈 제목·255자 초과, 비소유·삭제 자료 404 |
 | PDF 뷰어 | 자료 원본 표시 | `GET /api/materials/{materialId}/file` | 인증된 PDF 스트림 표시 | 자료 없음/권한 |
 | 자료 목록/상세 | 삭제 버튼 → 확인 모달 | `DELETE /api/materials/{materialId}` | 목록에서 제외 | 활성 세션 존재(409 — 세션 정리 안내) |
