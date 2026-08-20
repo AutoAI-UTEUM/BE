@@ -459,17 +459,9 @@ public class SessionTurnService {
 			throw new BusinessException(ErrorCode.AI_RESPONSE_INVALID);
 		}
 		int currentPage = number.intValue();
-		Set<Integer> pages = new java.util.LinkedHashSet<>();
-		if (snapshot.context().get("previousPageText") instanceof String) {
-			pages.add(currentPage - 1);
-		}
-		if (snapshot.context().get("currentPageText") instanceof String) {
-			pages.add(currentPage);
-		}
-		if (snapshot.context().get("nextPageText") instanceof String) {
-			pages.add(currentPage + 1);
-		}
-		return Set.copyOf(pages);
+		return snapshot.context().get("currentPageText") instanceof String
+			? Set.of(currentPage)
+			: Set.of();
 	}
 
 	private void promoteMemory(Long userId, PersistedTurn persisted) {

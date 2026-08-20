@@ -36,6 +36,7 @@ import io.edupilot.global.error.ErrorCode;
 import io.edupilot.memory.LearnerMemoryPromotionService;
 import io.edupilot.memory.MemoryWrite;
 import io.edupilot.material.MaterialAccessService;
+import io.edupilot.quiz.QuizGenerationValidator;
 import io.edupilot.session.dto.TurnRequest;
 import io.edupilot.session.dto.TurnResponse;
 import io.edupilot.session.dto.TurnStateResponse;
@@ -626,7 +627,8 @@ class SessionTurnServiceTest {
 	}
 
 	@Test
-	void quizStreamCompletesWithOnlyPersistedActiveQuizId() throws Exception {
+	void quizStreamAllowsOnlyCurrentPageWhenAdjacentTextsExist()
+		throws Exception {
 		when(preparationService.prepare(
 			1L,
 			100L,
@@ -696,9 +698,147 @@ class SessionTurnServiceTest {
 			eq((String) null),
 			eq(TurnEventType.QUIZ_TYPE_SELECTED),
 			eq("MCQ"),
-			eq(java.util.Set.of(2, 3, 4))
+			eq(java.util.Set.of(3))
 		);
 		verify(streamService).complete(streamConnection, publicResponse);
+	}
+
+	@Test
+	void quizWithoutCurrentPageTextAllowsNoPages() throws Exception {
+		stubQuizTurn(
+			new TurnSnapshot(
+				Map.of("sessionId", 100L, "currentPage", 3),
+				Map.of(
+					"previousPageText", "previous",
+					"nextPageText", "next"
+				),
+				10L
+			),
+			new QuizGeneration.Coverage(3, 3)
+		);
+		TurnResponse publicResponse = new TurnResponse(
+			"successful-quiz-turn",
+			100L,
+			List.of(),
+			List.of(),
+			new TurnStateResponse(3, PageStatus.QUIZ_READY, 50L)
+		);
+		when(persistenceService.persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		)).thenReturn(persisted(publicResponse));
+
+		assertThat(service().execute(1L, 100L, quizRequest()))
+			.isEqualTo(publicResponse);
+
+		verify(responseValidator).validate(
+			any(),
+			anyString(),
+			eq((String) null),
+			eq(TurnEventType.QUIZ_TYPE_SELECTED),
+			eq("MCQ"),
+			eq(java.util.Set.of())
+		);
+	}
+
+	@Test
+	void quizWithNonNumericCurrentPageKeepsInvalidResponseError()
+		throws Exception {
+		stubQuizTurn(
+			new TurnSnapshot(
+				Map.of("sessionId", 100L, "currentPage", "3"),
+				Map.of("currentPageText", "current"),
+				10L
+			),
+			new QuizGeneration.Coverage(3, 3)
+		);
+
+		assertThatThrownBy(() -> service().execute(
+			1L,
+			100L,
+			quizRequest()
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode())
+				.isEqualTo(ErrorCode.AI_RESPONSE_INVALID)
+		);
+
+		verify(responseValidator, never()).validate(
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		);
+	}
+
+	@Test
+	void quizValidatorRejectsPreviousPageCoverage() throws Exception {
+		stubQuizTurn(
+			new TurnSnapshot(
+				Map.of("sessionId", 100L, "currentPage", 3),
+				Map.of(
+					"previousPageText", "previous",
+					"currentPageText", "current",
+					"nextPageText", "next"
+				),
+				10L
+			),
+			new QuizGeneration.Coverage(2, 2)
+		);
+		TurnResponseValidator actualValidator = new TurnResponseValidator(
+			new QuizGenerationValidator()
+		);
+		org.mockito.Mockito.doAnswer(invocation -> {
+			actualValidator.validate(
+				invocation.getArgument(0),
+				invocation.getArgument(1),
+				invocation.getArgument(2),
+				invocation.getArgument(3),
+				invocation.getArgument(4),
+				invocation.getArgument(5)
+			);
+			return null;
+		}).when(responseValidator).validate(
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		);
+
+		assertThatThrownBy(() -> service().execute(
+			1L,
+			100L,
+			quizRequest()
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode())
+				.isEqualTo(ErrorCode.AI_RESPONSE_INVALID)
+		);
+
+		verify(responseValidator).validate(
+			any(),
+			anyString(),
+			eq((String) null),
+			eq(TurnEventType.QUIZ_TYPE_SELECTED),
+			eq("MCQ"),
+			eq(java.util.Set.of(3))
+		);
+		verify(persistenceService, never()).persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		);
 	}
 
 	@Test
@@ -955,6 +1095,16 @@ class SessionTurnServiceTest {
 	}
 
 	private io.edupilot.ai.dto.TurnResponse quizAiResponse(String turnId) {
+		return quizAiResponse(
+			turnId,
+			new QuizGeneration.Coverage(2, 4)
+		);
+	}
+
+	private io.edupilot.ai.dto.TurnResponse quizAiResponse(
+		String turnId,
+		QuizGeneration.Coverage coverage
+	) {
 		return new io.edupilot.ai.dto.TurnResponse(
 			"1.0",
 			turnId,
@@ -967,7 +1117,7 @@ class SessionTurnServiceTest {
 				"1.0",
 				"generation-1",
 				"MCQ",
-				new QuizGeneration.Coverage(2, 4),
+				coverage,
 				"퀴즈",
 				5,
 				java.util.stream.IntStream.rangeClosed(1, 5)
@@ -993,6 +1143,31 @@ class SessionTurnServiceTest {
 			null,
 			null
 		);
+	}
+
+	private void stubQuizTurn(
+		TurnSnapshot snapshot,
+		QuizGeneration.Coverage coverage
+	) throws Exception {
+		when(preparationService.prepare(
+			1L,
+			100L,
+			"request-quiz",
+			"퀴즈 유형 선택: MCQ",
+			null
+		)).thenReturn(new PreparedTurn(501L));
+		when(snapshotService.build(1L, 100L, 501L, true))
+			.thenReturn(snapshot);
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.empty());
+		when(aiClient.executeTurn(any())).thenAnswer(invocation -> {
+			io.edupilot.ai.dto.TurnRequest aiRequest =
+				invocation.getArgument(0);
+			return quizAiResponse(aiRequest.turnId(), coverage);
+		});
 	}
 
 	private void stubPreparedTurn() {
