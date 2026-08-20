@@ -2,7 +2,7 @@
 
 import json
 import logging
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Sequence
 from time import perf_counter
 from typing import Any
 
@@ -13,6 +13,7 @@ from edupilot_ai.core.errors import ErrorCategory
 from edupilot_ai.llm.bridge import (
     LlmBridgeError,
     LlmCompletion,
+    LlmMessage,
     LlmTextDelta,
     LlmTextStreamCompleted,
     LlmTextStreamItem,
@@ -125,7 +126,7 @@ class XaiLlmBridge:
     async def complete_json(
         self,
         *,
-        messages: Sequence[Mapping[str, str]],
+        messages: Sequence[LlmMessage],
         response_model: type[ModelT],
         profile: AgentLlmProfile,
         timeout_seconds: float,
@@ -259,7 +260,7 @@ class XaiLlmBridge:
     async def complete_text_stream(
         self,
         *,
-        messages: Sequence[Mapping[str, str]],
+        messages: Sequence[LlmMessage],
         profile: AgentLlmProfile,
         timeout_seconds: float,
     ) -> AsyncIterator[LlmTextStreamItem]:
@@ -407,7 +408,7 @@ class XaiLlmBridge:
     def _base_payload(
         self,
         *,
-        messages: Sequence[Mapping[str, str]],
+        messages: Sequence[LlmMessage],
         profile: AgentLlmProfile,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
