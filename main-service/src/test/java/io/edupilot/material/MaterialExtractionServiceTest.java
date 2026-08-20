@@ -42,6 +42,9 @@ class MaterialExtractionServiceTest {
 	@Mock
 	private MaterialOutlineTaskDispatcher outlineTaskDispatcher;
 
+	@Mock
+	private MaterialCaptionTaskDispatcher captionTaskDispatcher;
+
 	private MaterialExtractionService extractionService;
 	private ByteArrayResource resource;
 
@@ -52,7 +55,8 @@ class MaterialExtractionServiceTest {
 			fileStorage,
 			aiClient,
 			new MaterialProperties(45, 300, Duration.ofMinutes(30)),
-			outlineTaskDispatcher
+			outlineTaskDispatcher,
+			captionTaskDispatcher
 		);
 		resource = new ByteArrayResource("%PDF-test".getBytes());
 		when(persistenceService.snapshot(10L)).thenReturn(Optional.of(
@@ -75,6 +79,7 @@ class MaterialExtractionServiceTest {
 
 		verify(persistenceService).complete(10L, pages);
 		verify(outlineTaskDispatcher).submit(10L);
+		verify(captionTaskDispatcher).submit(10L);
 		verify(persistenceService, never()).fail(
 			org.mockito.ArgumentMatchers.anyLong(),
 			org.mockito.ArgumentMatchers.any(),

@@ -10,6 +10,8 @@ public interface FileStorage {
 
 	String storeAvatar(InputStream inputStream, String extension);
 
+	void storePageImage(InputStream inputStream, String storageKey);
+
 	Resource load(String storageKey);
 
 	void delete(String storageKey);

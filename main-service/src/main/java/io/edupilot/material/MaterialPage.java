@@ -39,6 +39,9 @@ public class MaterialPage {
 	@Column(name = "text_content", nullable = false, columnDefinition = "MEDIUMTEXT")
 	private String textContent;
 
+	@Column(columnDefinition = "TEXT")
+	private String caption;
+
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
@@ -66,5 +69,13 @@ public class MaterialPage {
 
 	public String getTextContent() {
 		return textContent;
+	}
+
+	public String getCaption() {
+		return caption;
+	}
+
+	public void updateCaption(String caption) {
+		this.caption = caption;
 	}
 }

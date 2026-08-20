@@ -50,6 +50,9 @@ public class LearningMaterial {
 	@Column(name = "failure_trace_id", length = 64)
 	private String failureTraceId;
 
+	@Column(name = "captions_completed_at")
+	private Instant captionsCompletedAt;
+
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)
 	private MaterialStatus status;
@@ -166,5 +169,13 @@ public class LearningMaterial {
 
 	public Instant getCreatedAt() {
 		return createdAt;
+	}
+
+	public Instant getCaptionsCompletedAt() {
+		return captionsCompletedAt;
+	}
+
+	public void completeCaptionGeneration(Instant completedAt) {
+		this.captionsCompletedAt = completedAt;
 	}
 }

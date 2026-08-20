@@ -34,7 +34,8 @@ public interface MaterialPageRepository extends JpaRepository<MaterialPage, Long
 	@Query("""
 		select page.material.id as materialId,
 		       page.pageNumber as pageNumber,
-		       page.textContent as text
+		       page.textContent as text,
+		       page.caption as caption
 		from MaterialPage page
 		where page.material.id in :materialIds
 		order by page.material.id, page.pageNumber, page.id
@@ -47,5 +48,6 @@ public interface MaterialPageRepository extends JpaRepository<MaterialPage, Long
 		Long getMaterialId();
 		Integer getPageNumber();
 		String getText();
+		String getCaption();
 	}
 }
