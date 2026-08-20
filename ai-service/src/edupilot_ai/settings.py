@@ -111,6 +111,10 @@ class Settings(BaseSettings):
         default=75,
         validation_alias="EDUPILOT_CRITERIA_TIMEOUT_SECONDS",
     )
+    edupilot_captions_timeout_seconds: PositiveInt = Field(
+        default=60,
+        validation_alias="EDUPILOT_CAPTIONS_TIMEOUT_SECONDS",
+    )
     edupilot_upload_max_mb: int = Field(
         default=45,
         ge=1,
@@ -205,6 +209,15 @@ class Settings(BaseSettings):
         default=ReasoningEffort.LOW,
         validation_alias="CRITERIA_REASONING_EFFORT",
     )
+    captions_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.LOW,
+        validation_alias="CAPTIONS_REASONING_EFFORT",
+    )
+    captions_model: str | None = Field(
+        default=None,
+        min_length=1,
+        validation_alias="CAPTIONS_MODEL",
+    )
 
     @property
     def agent_llm_profile(self) -> AgentLlmProfile:
@@ -288,6 +301,14 @@ class Settings(BaseSettings):
     def criteria_llm_profile(self) -> AgentLlmProfile:
         """Build the low-reasoning classroom criteria profile."""
         return self._profile(self.criteria_reasoning_effort)
+
+    @property
+    def captions_llm_profile(self) -> AgentLlmProfile:
+        """Build the low-reasoning visual caption profile with an optional model override."""
+        profile = self._profile(self.captions_reasoning_effort)
+        if self.captions_model is None:
+            return profile
+        return profile.model_copy(update={"model": self.captions_model})
 
     @property
     def upload_max_bytes(self) -> int:

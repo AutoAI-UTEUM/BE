@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import httpx
 from fastapi import FastAPI
 
+from edupilot_ai.api.captions import router as captions_router
 from edupilot_ai.api.criteria import router as criteria_router
 from edupilot_ai.api.exams import router as exams_router
 from edupilot_ai.api.extract import router as extract_router
@@ -72,6 +73,7 @@ def create_app(
     )
     register_exception_handlers(app)
     app.include_router(health_router)
+    app.include_router(captions_router)
     app.include_router(criteria_router)
     app.include_router(exams_router)
     app.include_router(extract_router)
