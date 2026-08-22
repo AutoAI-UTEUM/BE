@@ -41,6 +41,8 @@ import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.feedback.FeedbackRepository;
+import io.edupilot.global.error.BusinessException;
+import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.logging.AccessLogFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
@@ -184,6 +186,21 @@ class AuthApiContractTest {
 			.andExpect(jsonPath("$.error.message").value(
 				"추가 정보 입력이 필요합니다."
 			));
+	}
+
+	@Test
+	void invalidGoogleIdTokenReturnsTokenInvalidUnauthorized() throws Exception {
+		when(googleIdTokenVerifier.verify("invalid-id-token"))
+			.thenThrow(new BusinessException(ErrorCode.TOKEN_INVALID));
+
+		mockMvc.perform(post("/api/auth/google")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"idToken":"invalid-id-token"}
+					"""))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code").value("TOKEN_INVALID"))
+			.andExpect(content().string(not(containsString("invalid-id-token"))));
 	}
 
 	@Test

@@ -55,6 +55,15 @@ class GoogleIdTokenVerifierTest {
 	}
 
 	@Test
+	void forgedAndExpiredTokensRejectedByTokenInfoAreInvalid() {
+		server.enqueue(new MockResponse().setResponseCode(400));
+		assertTokenInvalid(() -> verifier("client-id").verify("forged-token"));
+
+		server.enqueue(new MockResponse().setResponseCode(400));
+		assertTokenInvalid(() -> verifier("client-id").verify("expired-token"));
+	}
+
+	@Test
 	void missingClientConfigurationUsesValidationErrorWithoutHttpCall() {
 		GoogleIdTokenVerifier verifier = verifier("");
 
