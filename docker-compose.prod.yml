@@ -4,7 +4,7 @@ services:
 
   main-service:
     build: !reset null
-    image: ghcr.io/autoai-edupilot/main-service:${TAG}
+    image: ghcr.io/autoai-uteum/main-service:${TAG}
     environment:
       SPRING_PROFILES_ACTIVE: prod
       EDUPILOT_STORAGE_DIR: /var/lib/edupilot/storage
@@ -14,7 +14,7 @@ services:
   ai-service:
     profiles: !reset []
     build: !reset null
-    image: ghcr.io/autoai-edupilot/ai-service:${TAG}
+    image: ghcr.io/autoai-uteum/ai-service:${TAG}
     restart: unless-stopped
 
   nginx:

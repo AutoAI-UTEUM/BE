@@ -63,8 +63,8 @@ jobs:
           file: ./main-service/Dockerfile
           push: true
           tags: |
-            ghcr.io/autoai-edupilot/main-service:${{ github.sha }}
-            ghcr.io/autoai-edupilot/main-service:latest
+            ghcr.io/autoai-uteum/main-service:${{ github.sha }}
+            ghcr.io/autoai-uteum/main-service:latest
 
       - name: Build and push ai-service image
         uses: docker/build-push-action@v6
@@ -73,8 +73,8 @@ jobs:
           file: ./ai-service/Dockerfile
           push: true
           tags: |
-            ghcr.io/autoai-edupilot/ai-service:${{ github.sha }}
-            ghcr.io/autoai-edupilot/ai-service:latest
+            ghcr.io/autoai-uteum/ai-service:${{ github.sha }}
+            ghcr.io/autoai-uteum/ai-service:latest
 
       - name: Copy deployment configuration
         uses: appleboy/scp-action@v1

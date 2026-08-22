@@ -152,7 +152,7 @@ docker compose --env-file .env --profile ai config
 
 출력의 `ai-service`에는 build와 healthcheck가 있고 `ports`는 없어야 합니다. 운영
 오버레이를 병합하면 profile 게이트와 build가 제거되고
-`ghcr.io/autoai-edupilot/ai-service:${TAG}` 이미지를 사용해야 합니다.
+`ghcr.io/autoai-uteum/ai-service:${TAG}` 이미지를 사용해야 합니다.
 
 ## 5. 최초 1회 dev 서버 준비
 
