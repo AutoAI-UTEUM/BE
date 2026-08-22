@@ -91,7 +91,7 @@ services:
     build:
       context: ./ai-service
       dockerfile: Dockerfile
-    image: ${AI_SERVICE_IMAGE:-ghcr.io/autoai-edupilot/ai-service:pending}
+    image: ${AI_SERVICE_IMAGE:-ghcr.io/autoai-uteum/ai-service:pending}
     environment:
       EDUPILOT_INTERNAL_TOKEN: ${EDUPILOT_INTERNAL_TOKEN}
       XAI_API_KEY: ${XAI_API_KEY}
