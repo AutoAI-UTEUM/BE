@@ -22,6 +22,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.edupilot.auth.RefreshTokenService.RotationResult;
 import io.edupilot.auth.dto.LoginRequest;
+import io.edupilot.auth.dto.GoogleLoginRequest;
 import io.edupilot.auth.dto.SignupRequest;
 import io.edupilot.auth.dto.SignupRole;
 import io.edupilot.global.error.BusinessException;
@@ -43,6 +44,12 @@ class AuthServiceTest {
 	@Mock
 	private RefreshTokenService refreshTokenService;
 
+	@Mock
+	private GoogleIdTokenVerifier googleIdTokenVerifier;
+
+	@Mock
+	private GoogleAccountService googleAccountService;
+
 	private BCryptPasswordEncoder passwordEncoder;
 	private AuthService authService;
 
@@ -54,6 +61,8 @@ class AuthServiceTest {
 			passwordEncoder,
 			jwtTokenProvider,
 			refreshTokenService,
+			googleIdTokenVerifier,
+			googleAccountService,
 			Clock.fixed(NOW, ZoneOffset.UTC)
 		);
 	}
@@ -230,6 +239,64 @@ class AuthServiceTest {
 		assertThat(result.response().accessToken()).isEqualTo("access-token");
 		assertThat(result.response().user().id()).isEqualTo(1L);
 		assertThat(result.refreshToken()).isEqualTo("refresh-token");
+	}
+
+	@Test
+	void googleLoginVerifiesTokenAndIssuesSameLoginContract() {
+		GoogleLoginRequest request = new GoogleLoginRequest(
+			"id-token",
+			null,
+			null,
+			null,
+			null,
+			null
+		);
+		GoogleProfile profile = new GoogleProfile(
+			"google-subject",
+			"user@example.com",
+			"구글 사용자"
+		);
+		User user = user(5L, "user@example.com", "unused-password");
+		when(googleIdTokenVerifier.verify("id-token")).thenReturn(profile);
+		when(googleAccountService.resolve(request, profile)).thenReturn(user);
+		when(jwtTokenProvider.createAccessToken(user)).thenReturn("access-token");
+		when(jwtTokenProvider.accessTokenExpiresInSeconds()).thenReturn(3600L);
+		when(refreshTokenService.issue(user)).thenReturn("refresh-token");
+
+		var result = authService.googleLogin(request);
+
+		assertThat(result.response().accessToken()).isEqualTo("access-token");
+		assertThat(result.response().user().id()).isEqualTo(5L);
+		assertThat(result.refreshToken()).isEqualTo("refresh-token");
+		verify(googleIdTokenVerifier).verify("id-token");
+		verify(googleAccountService).resolve(request, profile);
+	}
+
+	@Test
+	void googleOnlyPasswordSentinelCannotAuthenticateWithPassword() {
+		User user = User.createGoogle(
+			"google@example.com",
+			"!oauth:google",
+			"구글 사용자",
+			UserRole.LEARNER,
+			null,
+			false,
+			"2026-07-01",
+			"2026-07-01",
+			NOW,
+			"google-subject"
+		);
+		ReflectionTestUtils.setField(user, "id", 6L);
+		when(userRepository.findByEmail("google@example.com"))
+			.thenReturn(Optional.of(user));
+
+		assertBusinessError(
+			() -> authService.login(new LoginRequest(
+				"google@example.com",
+				"password123"
+			)),
+			ErrorCode.INVALID_CREDENTIALS
+		);
 	}
 
 	@Test

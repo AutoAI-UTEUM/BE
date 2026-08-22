@@ -14,6 +14,7 @@ import io.edupilot.auth.RefreshTokenService.RotationResult;
 import io.edupilot.auth.RefreshTokenService.RotationStatus;
 import io.edupilot.auth.dto.AccessTokenResponse;
 import io.edupilot.auth.dto.EmailAvailabilityResponse;
+import io.edupilot.auth.dto.GoogleLoginRequest;
 import io.edupilot.auth.dto.LoginRequest;
 import io.edupilot.auth.dto.LoginResponse;
 import io.edupilot.auth.dto.SignupRequest;
@@ -35,6 +36,8 @@ public class AuthService {
 	private final PasswordEncoder passwordEncoder;
 	private final JwtTokenProvider jwtTokenProvider;
 	private final RefreshTokenService refreshTokenService;
+	private final GoogleIdTokenVerifier googleIdTokenVerifier;
+	private final GoogleAccountService googleAccountService;
 	private final Clock clock;
 
 	public AuthService(
@@ -42,12 +45,16 @@ public class AuthService {
 		PasswordEncoder passwordEncoder,
 		JwtTokenProvider jwtTokenProvider,
 		RefreshTokenService refreshTokenService,
+		GoogleIdTokenVerifier googleIdTokenVerifier,
+		GoogleAccountService googleAccountService,
 		Clock clock
 	) {
 		this.userRepository = userRepository;
 		this.passwordEncoder = passwordEncoder;
 		this.jwtTokenProvider = jwtTokenProvider;
 		this.refreshTokenService = refreshTokenService;
+		this.googleIdTokenVerifier = googleIdTokenVerifier;
+		this.googleAccountService = googleAccountService;
 		this.clock = clock;
 	}
 
@@ -58,7 +65,11 @@ public class AuthService {
 			throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);
 		}
 
-		Consent consent = validateConsent(request.termsVersion(), request.privacyVersion());
+		Consent consent = validateConsent(
+			request.termsVersion(),
+			request.privacyVersion(),
+			clock
+		);
 		User user = User.create(
 			email,
 			passwordEncoder.encode(request.password()),
@@ -89,15 +100,12 @@ public class AuthService {
 			throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
 		}
 
-		String accessToken = jwtTokenProvider.createAccessToken(user);
-		String refreshToken = refreshTokenService.issue(user);
-		LoginResponse response = new LoginResponse(
-			accessToken,
-			TOKEN_TYPE,
-			jwtTokenProvider.accessTokenExpiresInSeconds(),
-			UserResponse.from(user)
-		);
-		return new LoginResult(response, refreshToken);
+		return issueLogin(user);
+	}
+
+	public LoginResult googleLogin(GoogleLoginRequest request) {
+		GoogleProfile profile = googleIdTokenVerifier.verify(request.idToken());
+		return issueLogin(googleAccountService.resolve(request, profile));
 	}
 
 	public RefreshResult refresh(String rawToken) {
@@ -132,11 +140,27 @@ public class AuthService {
 		return !userRepository.existsByEmail(normalizedEmail);
 	}
 
+	private LoginResult issueLogin(User user) {
+		String accessToken = jwtTokenProvider.createAccessToken(user);
+		String refreshToken = refreshTokenService.issue(user);
+		LoginResponse response = new LoginResponse(
+			accessToken,
+			TOKEN_TYPE,
+			jwtTokenProvider.accessTokenExpiresInSeconds(),
+			UserResponse.from(user)
+		);
+		return new LoginResult(response, refreshToken);
+	}
+
 	static String normalizeEmail(String email) {
 		return email.trim().toLowerCase(Locale.ROOT);
 	}
 
-	private Consent validateConsent(String termsVersion, String privacyVersion) {
+	static Consent validateConsent(
+		String termsVersion,
+		String privacyVersion,
+		Clock clock
+	) {
 		String normalizedTerms = normalizeOptional(termsVersion);
 		String normalizedPrivacy = normalizeOptional(privacyVersion);
 		if ((normalizedTerms == null) != (normalizedPrivacy == null)) {
@@ -152,7 +176,7 @@ public class AuthService {
 		return new Consent(normalizedTerms, normalizedPrivacy, clock.instant());
 	}
 
-	private String normalizeOptional(String value) {
+	static String normalizeOptional(String value) {
 		if (value == null) {
 			return null;
 		}
@@ -160,7 +184,7 @@ public class AuthService {
 		return normalized.isEmpty() ? null : normalized;
 	}
 
-	private record Consent(
+	record Consent(
 		String termsVersion,
 		String privacyVersion,
 		Instant consentedAt

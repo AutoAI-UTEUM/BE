@@ -15,6 +15,7 @@ import io.edupilot.auth.AuthService.LoginResult;
 import io.edupilot.auth.AuthService.RefreshResult;
 import io.edupilot.auth.dto.AccessTokenResponse;
 import io.edupilot.auth.dto.EmailAvailabilityResponse;
+import io.edupilot.auth.dto.GoogleLoginRequest;
 import io.edupilot.auth.dto.LoginRequest;
 import io.edupilot.auth.dto.LoginResponse;
 import io.edupilot.auth.dto.SignupRequest;
@@ -59,6 +60,20 @@ public class AuthController {
 		@Valid @RequestBody LoginRequest request
 	) {
 		LoginResult result = authService.login(request);
+		return ResponseEntity.ok()
+			.header(
+				HttpHeaders.SET_COOKIE,
+				refreshTokenCookie.create(result.refreshToken()).toString()
+			)
+			.body(ApiResponse.success(result.response()));
+	}
+
+	@PostMapping("/google")
+	@Operation(summary = "Google 로그인 또는 가입")
+	public ResponseEntity<ApiResponse<LoginResponse>> googleLogin(
+		@Valid @RequestBody GoogleLoginRequest request
+	) {
+		LoginResult result = authService.googleLogin(request);
 		return ResponseEntity.ok()
 			.header(
 				HttpHeaders.SET_COOKIE,
