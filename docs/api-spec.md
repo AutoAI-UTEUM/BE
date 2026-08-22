@@ -54,6 +54,7 @@
 | POST | `/api/auth/signup` | 회원가입 | N | 전체 |
 | GET | `/api/auth/email-availability?email={email}` | 회원가입 이메일 중복 확인 | N | 전체 |
 | POST | `/api/auth/login` | 로그인 | N | 전체 |
+| POST | `/api/auth/google` | Google ID 토큰 로그인·가입 | N | 전체 |
 | POST | `/api/auth/refresh` | access 재발급 (refresh 쿠키 회전) | 쿠키 | refresh 쿠키 보유자 |
 | POST | `/api/auth/logout` | 로그아웃 (refresh 폐기·쿠키 만료) | 쿠키 | refresh 쿠키 보유자 (멱등) |
 | GET | `/api/health/ready` | DB·AI Service readiness ([응답 계약](issues/11-observability.md)) | N | 전체 |
@@ -220,6 +221,51 @@
 응답과 JWT `role` claim은 `LEARNER | INSTRUCTOR | ADMIN` 중 저장된 계정 역할을 반환합니다. `LEARNER`와 `INSTRUCTOR`는 현재 동일한 인증·소유권 규칙을 적용합니다.
 
 refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DEC-004 Accepted). 쿠키 계약(확정): 이름 `edupilot_refresh`, `HttpOnly`, `Secure`, `SameSite=Lax`, **`Path=/api/auth`**(refresh·logout 요청에만 전송되도록 최소화), Max-Age 14일. 서버는 refresh 해시를 DB에 저장하고 회전·재사용 감지·강제 폐기를 지원합니다. access token 만료는 1시간이며 FE는 메모리에 보관합니다(localStorage 금지). 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
+
+### POST `/api/auth/google`
+
+Google ID 토큰을 검증해 기존 계정으로 로그인하거나 신규 계정을 생성합니다. 인증과 refresh 쿠키는 `POST /api/auth/login`과 동일한 `LoginResponse`·쿠키 계약을 사용합니다.
+
+기존 Google 계정 또는 검증된 이메일과 같은 로컬 계정은 추가 정보 없이 로그인할 수 있습니다.
+
+```json
+{
+  "idToken": "google-id-token"
+}
+```
+
+같은 이메일의 로컬 계정이 있으면 Google의 검증된 이메일 소유권을 근거로 `googleSub`를 자동 연동합니다. 이때 로컬 비밀번호 로그인은 계속 사용할 수 있으며 계정의 최초 생성 제공자는 `LOCAL`로 유지합니다. 이미 같은 `googleSub`가 연결돼 있으면 동일 사용자를 로그인 처리하며 중복 가입하지 않습니다.
+
+검증된 이메일로 가입된 계정이 없고 다음 필수 추가 정보가 빠졌으면 `SIGNUP_REQUIRED`(409)를 반환합니다. FE는 추가 정보 폼을 표시하고 같은 `idToken`과 함께 다시 요청합니다.
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "SIGNUP_REQUIRED",
+    "message": "추가 정보 입력이 필요합니다.",
+    "details": []
+  },
+  "traceId": "trace-id"
+}
+```
+
+```json
+{
+  "idToken": "google-id-token",
+  "role": "LEARNER",
+  "termsVersion": "2026-07-01",
+  "privacyVersion": "2026-07-01",
+  "learningEmailOptIn": true,
+  "affiliation": "EduPilot University"
+}
+```
+
+- 신규 가입의 `role`은 `LEARNER | INSTRUCTOR`이며 `termsVersion`과 `privacyVersion`은 모두 필수입니다. 약관 검증·소속 정규화·이메일 수신 동의는 일반 회원가입과 같은 규칙을 사용합니다.
+- Google ID 토큰은 서버가 Google tokeninfo 응답의 audience, issuer, 이메일 검증 여부를 확인합니다. 검증 실패·Google 통신 실패는 `TOKEN_INVALID`(401)로 통일합니다.
+- 서버에 Google Client ID가 설정되지 않은 경우 기동은 허용하지만 요청은 `VALIDATION_FAILED`(400)로 거부하고 설정 오류만 서버 로그에 기록합니다.
+- Google 최초 가입 계정의 비밀번호 sentinel은 일반 비밀번호 검증을 통과하지 않으므로 비밀번호 로그인은 `INVALID_CREDENTIALS`입니다.
+- 주요 오류: `SIGNUP_REQUIRED`, `TOKEN_INVALID`, `USER_INACTIVE`, `VALIDATION_FAILED`.
 
 ### POST `/api/auth/refresh`
 

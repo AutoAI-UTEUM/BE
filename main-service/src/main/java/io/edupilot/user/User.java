@@ -28,6 +28,13 @@ public class User {
 	@Column(name = "password_hash", nullable = false, length = 255)
 	private String passwordHash;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "auth_provider", nullable = false, length = 20)
+	private AuthProvider authProvider;
+
+	@Column(name = "google_sub", unique = true, length = 64)
+	private String googleSub;
+
 	@Column(nullable = false, length = 100)
 	private String name;
 
@@ -87,7 +94,9 @@ public class User {
 		boolean learningEmailOptIn,
 		String termsVersion,
 		String privacyVersion,
-		Instant consentedAt
+		Instant consentedAt,
+		AuthProvider authProvider,
+		String googleSub
 	) {
 		this.email = email;
 		this.passwordHash = passwordHash;
@@ -98,6 +107,8 @@ public class User {
 		this.termsVersion = termsVersion;
 		this.privacyVersion = privacyVersion;
 		this.consentedAt = consentedAt;
+		this.authProvider = authProvider;
+		this.googleSub = googleSub;
 		this.status = UserStatus.ACTIVE;
 	}
 
@@ -134,8 +145,41 @@ public class User {
 			learningEmailOptIn,
 			termsVersion,
 			privacyVersion,
-			consentedAt
+			consentedAt,
+			AuthProvider.LOCAL,
+			null
 		);
+	}
+
+	public static User createGoogle(
+		String email,
+		String passwordHash,
+		String name,
+		UserRole role,
+		String affiliation,
+		boolean learningEmailOptIn,
+		String termsVersion,
+		String privacyVersion,
+		Instant consentedAt,
+		String googleSub
+	) {
+		return new User(
+			email,
+			passwordHash,
+			name,
+			role,
+			affiliation,
+			learningEmailOptIn,
+			termsVersion,
+			privacyVersion,
+			consentedAt,
+			AuthProvider.GOOGLE,
+			googleSub
+		);
+	}
+
+	public void linkGoogle(String googleSub) {
+		this.googleSub = googleSub;
 	}
 
 	public void withdraw() {
@@ -148,6 +192,7 @@ public class User {
 		this.privacyVersion = null;
 		this.consentedAt = null;
 		this.passwordHash = "!withdrawn:" + id;
+		this.googleSub = null;
 		this.status = UserStatus.DELETED;
 	}
 
@@ -188,6 +233,14 @@ public class User {
 
 	public String getPasswordHash() {
 		return passwordHash;
+	}
+
+	public AuthProvider getAuthProvider() {
+		return authProvider;
+	}
+
+	public String getGoogleSub() {
+		return googleSub;
 	}
 
 	public String getName() {

@@ -72,6 +72,7 @@
 | code | HTTP | 의미 |
 | --- | ---: | --- |
 | `EMAIL_ALREADY_EXISTS` | 409 | 이메일 중복 |
+| `SIGNUP_REQUIRED` | 409 | Google 신규 가입을 위한 역할·약관 추가 정보 필요 |
 | `INVALID_CREDENTIALS` | 401 | 이메일/비밀번호 불일치 |
 | `USER_INACTIVE` | 403 | 비활성/삭제 계정 |
 | `USER_NOT_FOUND` | 404 | 사용자 없음 |

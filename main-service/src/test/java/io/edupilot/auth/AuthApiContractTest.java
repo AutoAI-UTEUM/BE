@@ -41,6 +41,8 @@ import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.feedback.FeedbackRepository;
+import io.edupilot.global.error.BusinessException;
+import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.logging.AccessLogFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
@@ -115,12 +117,15 @@ class AuthApiContractTest {
 	@MockitoBean
 	private FileStorage fileStorage;
 
+	@MockitoBean
+	private GoogleIdTokenVerifier googleIdTokenVerifier;
+
 	private MockMvc mockMvc;
 	private User user;
 
 	@BeforeEach
 	void setUp() {
-		reset(userRepository, refreshTokenRepository);
+		reset(userRepository, refreshTokenRepository, googleIdTokenVerifier);
 		mockMvc = MockMvcBuilders.webAppContextSetup(context)
 			.apply(springSecurity())
 			.addFilters(traceIdFilter, accessLogFilter)
@@ -131,6 +136,71 @@ class AuthApiContractTest {
 			"홍길동"
 		);
 		ReflectionTestUtils.setField(user, "id", 1L);
+	}
+
+	@Test
+	void googleLoginIsPublicAndReturnsLoginEnvelopeWithRefreshCookie() throws Exception {
+		when(googleIdTokenVerifier.verify("google-id-token")).thenReturn(
+			new GoogleProfile("google-subject", "user@example.com", "홍길동")
+		);
+		when(userRepository.findByGoogleSub("google-subject"))
+			.thenReturn(Optional.of(user));
+
+		mockMvc.perform(post("/api/auth/google")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"idToken":"google-id-token"}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.accessToken").isString())
+			.andExpect(jsonPath("$.data.tokenType").value("Bearer"))
+			.andExpect(jsonPath("$.data.expiresIn").value(3600))
+			.andExpect(jsonPath("$.data.user.id").value(1))
+			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
+				"edupilot_refresh="
+			)))
+			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
+				"Path=/api/auth"
+			)))
+			.andExpect(content().string(not(containsString("google-id-token"))))
+			.andExpect(content().string(not(containsString("refreshToken"))));
+	}
+
+	@Test
+	void newGoogleProfileWithoutSignupDetailsReturnsSignupRequired() throws Exception {
+		when(googleIdTokenVerifier.verify("google-id-token")).thenReturn(
+			new GoogleProfile("new-subject", "new@example.com", "신규 사용자")
+		);
+		when(userRepository.findByGoogleSub("new-subject"))
+			.thenReturn(Optional.empty());
+		when(userRepository.findByEmail("new@example.com"))
+			.thenReturn(Optional.empty());
+
+		mockMvc.perform(post("/api/auth/google")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"idToken":"google-id-token"}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.error.code").value("SIGNUP_REQUIRED"))
+			.andExpect(jsonPath("$.error.message").value(
+				"추가 정보 입력이 필요합니다."
+			));
+	}
+
+	@Test
+	void invalidGoogleIdTokenReturnsTokenInvalidUnauthorized() throws Exception {
+		when(googleIdTokenVerifier.verify("invalid-id-token"))
+			.thenThrow(new BusinessException(ErrorCode.TOKEN_INVALID));
+
+		mockMvc.perform(post("/api/auth/google")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"idToken":"invalid-id-token"}
+					"""))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code").value("TOKEN_INVALID"))
+			.andExpect(content().string(not(containsString("invalid-id-token"))));
 	}
 
 	@Test

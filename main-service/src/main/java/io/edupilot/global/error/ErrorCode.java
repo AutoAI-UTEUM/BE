@@ -79,6 +79,11 @@ public enum ErrorCode {
 		HttpStatus.CONFLICT,
 		"이미 사용 중인 이메일입니다."
 	),
+	SIGNUP_REQUIRED(
+		"SIGNUP_REQUIRED",
+		HttpStatus.CONFLICT,
+		"추가 정보 입력이 필요합니다."
+	),
 	INVALID_CREDENTIALS(
 		"INVALID_CREDENTIALS",
 		HttpStatus.UNAUTHORIZED,
