@@ -31,6 +31,7 @@ import io.edupilot.ai.AiClientProperties;
 import io.edupilot.ai.AiStreamCancellation;
 import io.edupilot.ai.TurnStreamEvent;
 import io.edupilot.ai.dto.QuizGeneration;
+import io.edupilot.ai.dto.NoteDraft;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.memory.LearnerMemoryPromotionService;
@@ -207,6 +208,112 @@ class SessionTurnServiceTest {
 			org.mockito.ArgumentMatchers.anyLong(),
 			anyString()
 		);
+	}
+
+	@Test
+	void noteRequestedUsesEmptyPayloadAndReturnsDraft() throws Exception {
+		when(preparationService.prepare(
+			1L,
+			100L,
+			"request-note",
+			"노트 작성 요청",
+			null
+		)).thenReturn(new PreparedTurn(501L));
+		when(snapshotService.build(1L, 100L, 501L, true))
+			.thenReturn(new TurnSnapshot(
+				Map.of("sessionId", 100L),
+				Map.of("currentPageText", "페이지 내용"),
+				10L
+			));
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.empty());
+		NoteDraft aiDraft = new NoteDraft("복습 노트", "## 핵심\n내용");
+		when(aiClient.executeTurn(any())).thenAnswer(invocation -> {
+			io.edupilot.ai.dto.TurnRequest aiRequest =
+				invocation.getArgument(0);
+			return new io.edupilot.ai.dto.TurnResponse(
+				"1.0",
+				aiRequest.turnId(),
+				"WRITE_NOTE",
+				List.of(),
+				List.of(),
+				Map.of(),
+				List.of(),
+				null,
+				List.of(),
+				null,
+				aiDraft,
+				null
+			);
+		});
+		io.edupilot.session.dto.NoteDraft publicDraft =
+			new io.edupilot.session.dto.NoteDraft("복습 노트", "## 핵심\n내용");
+		when(persistenceService.persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		)).thenReturn(new PersistedTurn(
+			"turn-note",
+			100L,
+			List.of(),
+			List.of(),
+			new TurnStateResponse(1, PageStatus.EXPLAINED, null),
+			publicDraft,
+			null,
+			10L
+		));
+
+		TurnResponse result = service().execute(
+			1L,
+			100L,
+			new TurnRequest(
+				"request-note",
+				"NOTE_REQUESTED",
+				objectMapper.createObjectNode()
+			)
+		);
+
+		assertThat(result.noteDraft()).isEqualTo(publicDraft);
+		ArgumentCaptor<io.edupilot.ai.dto.TurnRequest> requestCaptor =
+			ArgumentCaptor.forClass(io.edupilot.ai.dto.TurnRequest.class);
+		verify(aiClient).executeTurn(requestCaptor.capture());
+		assertThat(requestCaptor.getValue().event())
+			.containsEntry("eventType", "NOTE_REQUESTED")
+			.containsEntry("payload", Map.of());
+		verify(responseValidator).validate(
+			any(),
+			anyString(),
+			eq((String) null),
+			eq(TurnEventType.NOTE_REQUESTED),
+			eq((String) null),
+			eq(java.util.Set.of())
+		);
+	}
+
+	@Test
+	void noteRequestedRejectsPayloadFieldsBeforeClaim() throws Exception {
+		assertError(
+			() -> service().execute(
+				1L,
+				100L,
+				new TurnRequest(
+					"request-note",
+					"NOTE_REQUESTED",
+					objectMapper.readTree("{\"message\":\"노트\"}")
+				)
+			),
+			ErrorCode.VALIDATION_FAILED
+		);
+
+		verify(claimService, never()).claim(any(), any(), anyString());
+		verify(aiClient, never()).executeTurn(any());
 	}
 
 	@Test

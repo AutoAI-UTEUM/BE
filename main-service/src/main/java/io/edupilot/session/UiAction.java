@@ -51,6 +51,16 @@ public record UiAction(
 		);
 	}
 
+	public static UiAction noteProposal(String content) {
+		return new UiAction(
+			"BINARY_DECISION",
+			content,
+			"NOTE_REQUESTED",
+			"WAIT",
+			null
+		);
+	}
+
 	public static UiAction completeSession() {
 		return new UiAction(
 			"BINARY_DECISION",

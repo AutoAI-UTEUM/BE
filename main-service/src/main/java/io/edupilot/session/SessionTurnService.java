@@ -52,7 +52,9 @@ public class SessionTurnService {
 		TurnEventType.QUIZ_TYPE_SELECTED,
 		Set.of("quizType"),
 		TurnEventType.DIAGNOSIS_ANSWER_SUBMITTED,
-		Set.of("diagnosisId", "answer")
+		Set.of("diagnosisId", "answer"),
+		TurnEventType.NOTE_REQUESTED,
+		Set.of()
 	);
 
 	private final TurnClaimService claimService;
@@ -573,6 +575,12 @@ public class SessionTurnService {
 					)
 				);
 			}
+			case NOTE_REQUESTED -> new ValidatedPayload(
+				"노트 작성 요청",
+				null,
+				true,
+				Map.of()
+			);
 		};
 	}
 

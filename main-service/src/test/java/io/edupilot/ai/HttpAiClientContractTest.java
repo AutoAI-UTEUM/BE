@@ -96,6 +96,32 @@ class HttpAiClientContractTest {
 	}
 
 	@Test
+	void turnResponseDeserializesOptionalNoteDraft() {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "turnId": "turn-note",
+			  "turnGoal": "WRITE_NOTE",
+			  "actionsExecuted": [],
+			  "messages": [],
+			  "statePatch": {},
+			  "uiActions": [],
+			  "memoryCandidates": [],
+			  "noteDraft": {
+			    "title": "복습 노트",
+			    "content": "## 핵심\\n내용"
+			  }
+			}
+			"""));
+
+		var response = client(Duration.ofSeconds(1))
+			.executeTurn(turnRequest("turn-note"));
+
+		assertThat(response.noteDraft().title()).isEqualTo("복습 노트");
+		assertThat(response.noteDraft().content()).isEqualTo("## 핵심\n내용");
+	}
+
+	@Test
 	void turnAcceptsAndLogsOptionalAdjustmentsWithoutReasonEnumValidation() {
 		server.enqueue(jsonResponse(200, """
 			{

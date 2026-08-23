@@ -188,6 +188,73 @@ class TurnPersistenceServiceTest {
 	}
 
 	@Test
+	void acceptsNoteProposalForUserQuestionUsingAiContent() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINED,
+			PageStatus.EXPLAINED,
+			1,
+			3
+		);
+		stubUserQuestionMessage();
+		String content = "지금까지 내용을 노트로 정리할까요?";
+
+		PersistedTurn persisted = service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.USER_QUESTION,
+			null,
+			501L,
+			responseWithUiActions(
+				Map.of("qaThread", Map.of("mode", "START_NEW")),
+				List.of(),
+				List.of(noteProposal(content))
+			)
+		);
+
+		assertThat(persisted.uiActions())
+			.containsExactly(UiAction.noteProposal(content));
+		verify(session).applyAiTurn(
+			null,
+			List.of(UiAction.noteProposal(content)),
+			false
+		);
+	}
+
+	@Test
+	void ignoresUnregisteredNoteWidgetShape() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINED,
+			PageStatus.EXPLAINED,
+			1,
+			3
+		);
+		stubUserQuestionMessage();
+
+		PersistedTurn persisted = service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.USER_QUESTION,
+			null,
+			501L,
+			responseWithUiActions(
+				Map.of("qaThread", Map.of("mode", "START_NEW")),
+				List.of(),
+				List.of(Map.of(
+					"type", "BINARY_DECISION",
+					"content", "노트로 정리할까요?",
+					"yesEvent", "NOTE_REQUESTED",
+					"noEvent", "MOVE_NEXT_PAGE"
+				))
+			)
+		);
+
+		assertThat(persisted.uiActions()).isEmpty();
+		verify(session).applyAiTurn(null, List.of(), false);
+	}
+
+	@Test
 	void dropsMoveNextPageProposalAtLastPageAndWarnsReason() {
 		activeSession(
 			PageStatus.EXPLAINED,
@@ -805,6 +872,15 @@ class TurnPersistenceServiceTest {
 			"type", "BINARY_DECISION",
 			"content", content,
 			"yesEvent", "MOVE_NEXT_PAGE",
+			"noEvent", "WAIT"
+		);
+	}
+
+	private Map<String, Object> noteProposal(String content) {
+		return Map.of(
+			"type", "BINARY_DECISION",
+			"content", content,
+			"yesEvent", "NOTE_REQUESTED",
 			"noEvent", "WAIT"
 		);
 	}

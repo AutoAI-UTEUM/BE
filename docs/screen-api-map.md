@@ -76,6 +76,7 @@
 | 채팅 | 스트림 선연결 | `GET /api/sessions/{sessionId}/stream` | fetch+Bearer로 SSE 연결 후 turns 호출 | 중복 연결/AI 스트림 중단 |
 | 채팅 | 설명 시작 선택 | `POST /api/sessions/{sessionId}/turns` | 설명 스트림/메시지 표시 | AI timeout/스키마 오류 |
 | 채팅 | 질문 전송 | 같은 turns API | QA 답변과 후속 질문 문맥 반영 | 빈 질문/AI 오류 |
+| 채팅 | 노트 제안 수락 | 같은 turns API (`NOTE_REQUESTED`, `payload: {}`) | `noteDraft`를 편집 UI에 표시하고 확정 시 기존 노트 API로 저장 | 잘못된 초안/AI 오류 |
 | 채팅 | 진단 답변 제출 | 같은 turns API | 오개념 교정 답변 표시 | 진단 상태 충돌 |
 | 퀴즈 유형 선택 | MCQ/OX/SHORT/ESSAY 선택 | 같은 turns API | 응답의 `state.activeQuizId`로 퀴즈 문항 조회 후 UI 열기 | 지원하지 않는 타입 |
 | 퀴즈 풀이 | 문항 표시/새로고침 복원 | `GET /api/quizzes/{quizId}` | 공개 문항 렌더링 | 퀴즈 없음/세션 권한 |
