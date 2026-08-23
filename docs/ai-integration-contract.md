@@ -52,6 +52,7 @@
 | POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (결정적 전처리) | 자료 업로드 후 비동기 |
 | POST | `/internal/ai/outline` | 자료 요약·목차 구조 생성 | 추출 완료 후 비동기 |
 | POST | `/internal/ai/captions` | PDF 페이지 이미지의 시각 정보 캡션 생성 | 추출 완료 후 비동기, 최대 10페이지/요청 |
+| POST | `/internal/ai/doc-chat` | 자료·퀴즈 복습 문맥 기반 단일 질문 응답 | 외부 doc-chat 요청당 동기 1회 |
 | POST | `/internal/ai/criteria/suggest` | 강의실 자료 개요 기반 평가 기준 제안 | 강사 자동 생성 요청 후 비동기 |
 | POST | `/internal/ai/turn` | 자유 턴 (설명·QA·퀴즈 생성·교정·메모리 도구 포함) | turns 이벤트 수신 시 |
 | POST | `/internal/ai/grade` | SHORT/ESSAY 채점 | 제출 파이프라인 1단계 |
@@ -480,6 +481,13 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 - Spring은 PDF를 150DPI JPEG로 순차 렌더링하고 최대 폭 1600px, 품질 0.8로 저장합니다. 청크 전체 실패는 해당 청크를 건너뛰고 다음 청크를 계속 처리하며, 모든 시도가 끝나면 완료 시각을 기록합니다.
 - 캡션이 있는 페이지 텍스트는 AI 요청 조립 시점에 `text + "\n\n[그림 설명] " + caption`으로 병합합니다. DB의 `text_content` 원문은 변경하지 않으며 이미지·base64는 대화 이력이나 QA digest에 포함하지 않습니다.
 - Main Service read timeout은 `EDUPILOT_AI_CAPTIONS_READ_TIMEOUT`(기본 `75s`)을 사용합니다.
+
+### 6.9 POST /internal/ai/doc-chat
+
+- 요청: `{ "schemaVersion": "1.0", "contextDocs": [{"title":"자료 p.1-3","text":"..."}], "history": [{"role":"USER|ASSISTANT","content":"..."}], "question": "..." }`.
+- `contextDocs`는 1~10개이며 Spring이 페이지 순서를 보존해 조립합니다. 외부 요청 history는 최대 50개를 받지만 내부 요청에는 최근 10개만 포함합니다.
+- 응답: `{ "schemaVersion": "1.0", "answer": "...", "warnings": [{"type":"CONTEXT_TRUNCATED","message":"..."}] }`.
+- 한 요청당 LLM을 동기 1회 호출하며 스트리밍하지 않습니다. Main Service read timeout은 `EDUPILOT_AI_DOCCHAT_READ_TIMEOUT`(기본 `75s`)을 사용합니다.
 
 ## 7. Grok 연동 규칙 (DEC-002 v2 요약 — 구현 구속)
 

@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -43,6 +44,7 @@ import io.edupilot.material.dto.MaterialDetailResponse;
 import io.edupilot.material.dto.MaterialListResponse;
 import io.edupilot.material.dto.MaterialOverviewResponse;
 import io.edupilot.material.dto.MaterialSummaryResponse;
+import io.edupilot.material.dto.DocChatResponse;
 import io.edupilot.session.ChatMessageRepository;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.note.NoteRepository;
@@ -68,6 +70,9 @@ class MaterialApiContractTest {
 
 	@MockitoBean
 	private MaterialService materialService;
+
+	@MockitoBean
+	private DocChatService docChatService;
 
 	@Autowired
 	private MaterialOverviewService overviewService;
@@ -263,6 +268,112 @@ class MaterialApiContractTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer()))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.error.code").value("MATERIAL_NOT_FOUND"));
+	}
+
+	@Test
+	void docChatEndpointsUseValidatedRequestAndDocumentedEnvelope() throws Exception {
+		DocChatResponse response = new DocChatResponse(
+			"자료에 따르면 답은 42입니다.",
+			List.of(new DocChatResponse.Warning(
+				"CONTEXT_TRUNCATED",
+				"일부 문맥이 잘렸습니다."
+			))
+		);
+		when(docChatService.askMaterial(
+			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(10L),
+			org.mockito.ArgumentMatchers.any()
+		)).thenReturn(response);
+		when(docChatService.askQuiz(
+			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(10L),
+			org.mockito.ArgumentMatchers.any()
+		)).thenReturn(response);
+
+		String request = """
+			{"question":"핵심을 설명해줘","history":[
+			  {"role":"USER","content":"앞 질문"},
+			  {"role":"ASSISTANT","content":"앞 답변"}
+			]}
+			""";
+		mockMvc.perform(post("/api/materials/10/doc-chat")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(request))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.answer")
+				.value("자료에 따르면 답은 42입니다."))
+			.andExpect(jsonPath("$.data.warnings[0].type")
+				.value("CONTEXT_TRUNCATED"));
+
+		mockMvc.perform(post("/api/materials/10/quiz-chat")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(request))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.answer")
+				.value("자료에 따르면 답은 42입니다."));
+	}
+
+	@Test
+	void docChatRejectsInvalidQuestionAndHistoryRole() throws Exception {
+		mockMvc.perform(post("/api/materials/10/doc-chat")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"question\":\"   \",\"history\":[]}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+
+		mockMvc.perform(post("/api/materials/10/doc-chat")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"question":"질문","history":[
+					  {"role":"SYSTEM","content":"금지 역할"}
+					]}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("MALFORMED_REQUEST"));
+
+		String oversizedHistory = java.util.stream.IntStream.range(0, 51)
+			.mapToObj(index -> "{\"role\":\"USER\",\"content\":\"m"
+				+ index + "\"}")
+			.collect(java.util.stream.Collectors.joining(","));
+		mockMvc.perform(post("/api/materials/10/doc-chat")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"question\":\"질문\",\"history\":["
+					+ oversizedHistory + "]}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+	}
+
+	@Test
+	void docChatPreservesMaterialAccessAndProcessingErrors() throws Exception {
+		when(docChatService.askMaterial(
+			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(99L),
+			org.mockito.ArgumentMatchers.any()
+		)).thenThrow(new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
+		when(docChatService.askMaterial(
+			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(10L),
+			org.mockito.ArgumentMatchers.any()
+		)).thenThrow(new BusinessException(ErrorCode.MATERIAL_PROCESSING));
+
+		mockMvc.perform(post("/api/materials/99/doc-chat")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"question\":\"질문\",\"history\":[]}"))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("MATERIAL_NOT_FOUND"));
+
+		mockMvc.perform(post("/api/materials/10/doc-chat")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"question\":\"질문\",\"history\":[]}"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.error.code").value("MATERIAL_PROCESSING"));
 	}
 
 	@Test

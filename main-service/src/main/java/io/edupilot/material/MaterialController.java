@@ -21,6 +21,8 @@ import org.springframework.web.multipart.MultipartFile;
 import io.edupilot.auth.AuthenticatedUser;
 import io.edupilot.global.response.ApiResponse;
 import io.edupilot.material.dto.MaterialDetailResponse;
+import io.edupilot.material.dto.DocChatRequest;
+import io.edupilot.material.dto.DocChatResponse;
 import io.edupilot.material.dto.MaterialListResponse;
 import io.edupilot.material.dto.MaterialOverviewResponse;
 import io.edupilot.material.dto.MaterialSummaryResponse;
@@ -34,6 +36,7 @@ import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/api/materials")
@@ -44,13 +47,46 @@ public class MaterialController {
 
 	private final MaterialService materialService;
 	private final MaterialOverviewService overviewService;
+	private final DocChatService docChatService;
 
 	public MaterialController(
 		MaterialService materialService,
-		MaterialOverviewService overviewService
+		MaterialOverviewService overviewService,
+		DocChatService docChatService
 	) {
 		this.materialService = materialService;
 		this.overviewService = overviewService;
+		this.docChatService = docChatService;
+	}
+
+	@PostMapping("/{materialId}/doc-chat")
+	@Operation(summary = "자료 뷰어 질문")
+	public ApiResponse<DocChatResponse> docChat(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long materialId,
+		@Valid @org.springframework.web.bind.annotation.RequestBody
+		DocChatRequest request
+	) {
+		return ApiResponse.success(docChatService.askMaterial(
+			authenticatedUser.userId(),
+			materialId,
+			request
+		));
+	}
+
+	@PostMapping("/{materialId}/quiz-chat")
+	@Operation(summary = "제출 퀴즈 복습 질문")
+	public ApiResponse<DocChatResponse> quizChat(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long materialId,
+		@Valid @org.springframework.web.bind.annotation.RequestBody
+		DocChatRequest request
+	) {
+		return ApiResponse.success(docChatService.askQuiz(
+			authenticatedUser.userId(),
+			materialId,
+			request
+		));
 	}
 
 	@GetMapping("/{materialId}/overview")

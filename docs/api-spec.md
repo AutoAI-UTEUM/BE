@@ -73,6 +73,8 @@
 | GET | `/api/materials` | 자료 목록 | Y | 본인 소유 자료 (DEC-026) |
 | GET | `/api/materials/{materialId}` | 자료 상세 | Y | 소유자 또는 승인 멤버의 강의실 연결 자료 |
 | GET | `/api/materials/{materialId}/overview` | 자료 개요 조회 | Y | 소유자 또는 승인 멤버의 강의실 연결 자료 |
+| POST | `/api/materials/{materialId}/doc-chat` | 자료 뷰어 문서 질문 | Y | 소유자 또는 승인 멤버의 READY 자료 |
+| POST | `/api/materials/{materialId}/quiz-chat` | 제출 퀴즈 복습 질문 | Y | 소유자 또는 승인 멤버의 READY 자료이며 본인 제출 퀴즈가 존재해야 함 |
 | GET | `/api/materials/{materialId}/file` | PDF 원본 스트리밍 | Y | 소유자 또는 승인 멤버의 강의실 연결 자료 |
 | DELETE | `/api/materials/{materialId}` | 자료 논리 삭제 (DEC-028) | Y | 본인 소유 자료 |
 | GET | `/api/materials/{materialId}/pages/{pageNumber}` | 페이지 텍스트 | Y | 접근 가능한 자료 — 운영 비노출, dev/디버깅 한정(DEC-025) |
@@ -411,6 +413,35 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 ```
 
 `status`는 `PENDING | READY | FAILED` 중 하나입니다.
+
+### POST `/api/materials/{materialId}/doc-chat`
+
+접근 가능한 READY 자료의 전체 페이지 텍스트와 캡션 병합본을 최대 10개 연속 페이지 문서로 조립해 문서 질문을 한 번 동기 처리합니다. 처리 중 자료는 `MATERIAL_PROCESSING`(409), 처리 실패 자료는 `MATERIAL_PROCESSING_FAILED`(409), 비접근·삭제·미존재 자료는 `MATERIAL_NOT_FOUND`(404)로 응답합니다. 요청 `history`는 최대 50개를 받되 AI에는 최근 10개만 전달하며 역할은 `USER | ASSISTANT`만 허용합니다. 질문은 공백이 아닌 최대 2,000자입니다.
+
+### POST `/api/materials/{materialId}/quiz-chat`
+
+접근 가능한 READY 자료 아래에서 요청 사용자가 제출한 퀴즈만 복습 문맥에 포함합니다. 문항·선지·정답·본인 답·해설과 해당 퀴즈 범위의 페이지 텍스트·캡션을 조립하며, 본인 제출이 없으면 `QUIZ_NOT_FOUND`(404)입니다. 요청과 응답 스키마는 자료 뷰어 문서 질문과 같습니다.
+
+```json
+{
+  "question": "이 부분을 다시 설명해 주세요.",
+  "history": [
+    {"role": "USER", "content": "앞 질문"},
+    {"role": "ASSISTANT", "content": "앞 답변"}
+  ]
+}
+```
+
+```json
+{
+  "answer": "자료 문맥을 바탕으로 한 답변입니다.",
+  "warnings": [
+    {"type": "CONTEXT_TRUNCATED", "message": "일부 문맥이 잘렸습니다."}
+  ]
+}
+```
+
+`CONTEXT_TRUNCATED` 경고는 그대로 전달하며 서버는 원문 없이 구조화된 INFO 로그만 남깁니다. 이 API는 스트리밍하지 않고 응답 완료까지 연결을 유지합니다.
 
 ### PATCH `/api/materials/{materialId}`
 
@@ -1995,6 +2026,7 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 | POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (LLM 판단 없는 결정적 전처리 — DEC-006) | 자료 업로드 후 비동기 처리 |
 | POST | `/internal/ai/outline` | 저장된 전 페이지 텍스트 기반 자료 요약·목차 생성 | 추출 저장 완료 후 비동기 처리 |
 | POST | `/internal/ai/captions` | PDF 페이지 이미지 기반 시각 정보 캡션 생성 | 추출 저장 완료 후 10페이지 단위 비동기 처리 |
+| POST | `/internal/ai/doc-chat` | 자료·퀴즈 복습 문맥 기반 단일 질문 응답 | 자료 뷰어 또는 퀴즈 복습 질문 시 동기 처리 |
 | POST | `/internal/ai/criteria/suggest` | READY 자료 개요 기반 강의실 평가 기준 제안 | 소유 강사의 자동 생성 요청 후 비동기 처리 |
 | POST | `/internal/ai/turn` | 자유 학습 턴 계획·실행 (설명, QA, 퀴즈 생성, 교정, 메모리 후보·승격 포함) | turns 이벤트 수신 시 |
 | POST | `/internal/ai/grade` | SHORT/ESSAY 채점 — 결정성 설정(temperature 최저 등)으로 동일 답안 재채점 편차를 최소화 | 통합 퀴즈 또는 별도 시험에서 응답이 있는 SHORT/ESSAY 유형별 1회 |

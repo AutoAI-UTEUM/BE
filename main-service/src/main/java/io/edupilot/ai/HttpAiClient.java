@@ -53,6 +53,8 @@ import io.edupilot.ai.dto.ActionExecuted;
 import io.edupilot.ai.dto.Adjustment;
 import io.edupilot.ai.dto.DiagnosisRequest;
 import io.edupilot.ai.dto.DiagnosisResponse;
+import io.edupilot.ai.dto.DocChatRequest;
+import io.edupilot.ai.dto.DocChatResponse;
 import io.edupilot.ai.dto.ExtractResponse;
 import io.edupilot.ai.dto.ExamDraftRequest;
 import io.edupilot.ai.dto.ExamDraftResponse;
@@ -81,6 +83,7 @@ public class HttpAiClient implements AiClient {
 	private static final String EXTRACT_PATH = "/internal/ai/extract";
 	private static final String OUTLINE_PATH = "/internal/ai/outline";
 	private static final String CAPTIONS_PATH = "/internal/ai/captions";
+	private static final String DOC_CHAT_PATH = "/internal/ai/doc-chat";
 	private static final String CRITERIA_SUGGEST_PATH =
 		"/internal/ai/criteria/suggest";
 	private static final String GRADE_PATH = "/internal/ai/grade";
@@ -106,6 +109,7 @@ public class HttpAiClient implements AiClient {
 	private final RestClient extractRestClient;
 	private final RestClient outlineRestClient;
 	private final RestClient captionsRestClient;
+	private final RestClient docChatRestClient;
 	private final RestClient criteriaRestClient;
 	private final RestClient gradeRestClient;
 	private final RestClient assessmentRestClient;
@@ -142,6 +146,10 @@ public class HttpAiClient implements AiClient {
 		this.captionsRestClient = buildRestClient(
 			properties,
 			properties.captionsReadTimeout()
+		);
+		this.docChatRestClient = buildRestClient(
+			properties,
+			properties.docChatReadTimeout()
 		);
 		this.criteriaRestClient = buildRestClient(
 			properties,
@@ -726,6 +734,23 @@ public class HttpAiClient implements AiClient {
 	}
 
 	@Override
+	public DocChatResponse docChat(DocChatRequest request) {
+		return executeAttempt(
+			new AiCallContext(DOC_CHAT_PATH, 1, false, null, null, null),
+			() -> {
+				DocChatResponse response = docChatRestClient.post()
+					.uri(DOC_CHAT_PATH)
+					.contentType(MediaType.APPLICATION_JSON)
+					.body(request)
+					.retrieve()
+					.body(DocChatResponse.class);
+				validateDocChatResponse(response);
+				return response;
+			}
+		);
+	}
+
+	@Override
 	public CriteriaSuggestResponse suggestCriteria(CriteriaSuggestRequest request) {
 		return executeAttempt(
 			new AiCallContext(
@@ -1278,6 +1303,18 @@ public class HttpAiClient implements AiClient {
 			.collect(java.util.stream.Collectors.toSet());
 		if (returned.size() != response.captions().size()
 			|| !returned.equals(requested)) {
+			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+		}
+	}
+
+	private void validateDocChatResponse(DocChatResponse response) {
+		if (response == null
+			|| !SCHEMA_VERSION.equals(response.schemaVersion())
+			|| !StringUtils.hasText(response.answer())
+			|| response.warnings() == null
+			|| response.warnings().stream().anyMatch(warning -> warning == null
+				|| !StringUtils.hasText(warning.type())
+				|| !StringUtils.hasText(warning.message()))) {
 			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
 		}
 	}

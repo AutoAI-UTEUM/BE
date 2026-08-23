@@ -25,6 +25,7 @@ import io.edupilot.ai.dto.CaptionsRequest;
 import io.edupilot.ai.dto.CaptionsResponse;
 import io.edupilot.ai.dto.CriteriaSuggestRequest;
 import io.edupilot.ai.dto.DiagnosisRequest;
+import io.edupilot.ai.dto.DocChatRequest;
 import io.edupilot.ai.dto.ExamDraftRequest;
 import io.edupilot.ai.dto.ExamDraftResponse;
 import io.edupilot.exam.ExamQuestionType;
@@ -263,6 +264,56 @@ class HttpAiClientContractTest {
 				assertThat(exception.retryable()).isFalse();
 			});
 		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
+	@Test
+	void docChatUsesInternalContractAndMapsSchemaEnvelope() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion":"1.0",
+			  "answer":"document answer",
+			  "warnings":[{"type":"CONTEXT_TRUNCATED","message":"trimmed"}]
+			}
+			"""));
+		DocChatRequest request = new DocChatRequest(
+			"1.0",
+			List.of(new DocChatRequest.ContextDocument("material p.1-2", "text")),
+			List.of(new DocChatRequest.HistoryMessage("USER", "previous")),
+			"question"
+		);
+
+		var response = client(Duration.ofSeconds(1)).docChat(request);
+
+		assertThat(response.answer()).isEqualTo("document answer");
+		assertThat(response.warnings()).singleElement()
+			.extracting(io.edupilot.ai.dto.DocChatResponse.Warning::type)
+			.isEqualTo("CONTEXT_TRUNCATED");
+		RecordedRequest recorded = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(recorded.getPath()).isEqualTo("/internal/ai/doc-chat");
+		assertThat(recorded.getHeader("X-Internal-Token"))
+			.isEqualTo(INTERNAL_TOKEN);
+		assertThat(recorded.getBody().readUtf8())
+			.contains("\"schemaVersion\":\"1.0\"", "\"contextDocs\"", "\"history\"");
+
+		server.enqueue(jsonResponse(422, """
+			{
+			  "schemaVersion":"1.0",
+			  "error":{
+			    "code":"AI_REQUEST_INVALID",
+			    "category":"SCHEMA",
+			    "message":"invalid request",
+			    "retryable":false
+			  },
+			  "traceId":"ai-trace"
+			}
+			"""));
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).docChat(request))
+			.isInstanceOfSatisfying(AiClientException.class, exception -> {
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.AI_RESPONSE_INVALID);
+				assertThat(exception.upstreamCode())
+					.isEqualTo("AI_REQUEST_INVALID");
+			});
 	}
 
 	@Test
@@ -883,6 +934,7 @@ class HttpAiClientContractTest {
 			baseUrl,
 			INTERNAL_TOKEN,
 			Duration.ofMillis(300),
+			readTimeout,
 			readTimeout,
 			readTimeout,
 			readTimeout,
