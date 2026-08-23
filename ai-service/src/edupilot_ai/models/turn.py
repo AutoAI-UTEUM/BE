@@ -14,6 +14,7 @@ class EventType(StrEnum):
     USER_QUESTION = "USER_QUESTION"
     QUIZ_TYPE_SELECTED = "QUIZ_TYPE_SELECTED"
     DIAGNOSIS_ANSWER_SUBMITTED = "DIAGNOSIS_ANSWER_SUBMITTED"
+    NOTE_REQUESTED = "NOTE_REQUESTED"
 
 
 class DetailLevel(StrEnum):
@@ -54,6 +55,7 @@ _PAYLOAD_RULES: dict[EventType, tuple[frozenset[str], frozenset[str]]] = {
         frozenset({"diagnosis_id", "answer"}),
         frozenset(),
     ),
+    EventType.NOTE_REQUESTED: (frozenset(), frozenset()),
 }
 
 
@@ -176,6 +178,11 @@ class Usage(ContractModel):
     reasoning_tokens: int | None = Field(default=None, ge=0)
 
 
+class NoteDraft(ContractModel):
+    title: str = Field(min_length=1, max_length=60)
+    content: str = Field(min_length=1)
+
+
 class TurnResponse(ContractModel):
     schema_version: Literal["1.0"] = "1.0"
     turn_id: str
@@ -187,4 +194,5 @@ class TurnResponse(ContractModel):
     memory_candidates: list[dict[str, Any]]
     memory_write: dict[str, Any] | None = None
     quiz: QuizGeneration | None = Field(default=None, exclude_if=lambda value: value is None)
+    note_draft: NoteDraft | None = Field(default=None, exclude_if=lambda value: value is None)
     usage: Usage

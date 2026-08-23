@@ -20,12 +20,14 @@ from edupilot_ai.models.turn import (
     Adjustment,
     DetailLevel,
     Message,
+    NoteDraft,
     QaThreadMode,
 )
 from edupilot_ai.orchestration.agents import (
     AgentResult,
     AgentTextStream,
     ExplainerAgent,
+    NoteAgent,
     QaAgent,
     QuizAgent,
     RepairAgent,
@@ -82,6 +84,7 @@ class DispatchResult:
     quiz: QuizGeneration | None = None
     memory_candidates: list[dict[str, Any]] = field(default_factory=list)
     memory_write: dict[str, Any] | None = None
+    note_draft: NoteDraft | None = None
     failure: LlmBridgeError | PolicyViolation | None = None
 
 
@@ -107,12 +110,14 @@ class ToolDispatcher:
         model: str,
         quiz: QuizAgent | None = None,
         repair: RepairAgent | None = None,
+        note: NoteAgent | None = None,
     ) -> None:
         self._explainer = explainer
         self._qa = qa
         self._model = model
         self._quiz = quiz
         self._repair = repair
+        self._note = note
 
     async def dispatch(
         self,
@@ -147,6 +152,7 @@ class ToolDispatcher:
                     if result.quiz is not None:
                         raise PolicyViolation("multiple quiz results are not allowed")
                     result.quiz = outcome.quiz
+                self._record_note_result(result, outcome)
                 self._record_memory_result(result, action, outcome)
                 result.usages.append(outcome.usage)
                 logger.info(
@@ -263,6 +269,7 @@ class ToolDispatcher:
                     if result.quiz is not None:
                         raise PolicyViolation("multiple quiz results are not allowed")
                     result.quiz = outcome.quiz
+                self._record_note_result(result, outcome)
                 self._record_memory_result(result, action, outcome)
                 result.usages.append(outcome.usage)
                 logger.info(
@@ -348,6 +355,14 @@ class ToolDispatcher:
                 context,
                 timeout_seconds=deadline.remaining_seconds(),
             )
+        if action.tool is ToolName.WRITE_NOTE:
+            if self._note is None:
+                raise PolicyViolation("NoteAgent is not configured")
+            return await self._note.run(
+                context,
+                str(action.args["noteInstruction"]),
+                timeout_seconds=deadline.remaining_seconds(),
+            )
         if action.tool is ToolName.BUILD_MEMORY_CANDIDATE:
             candidate = {
                 "type": action.args["type"],
@@ -372,6 +387,14 @@ class ToolDispatcher:
                 usage=LlmUsage(self._model, 0, 0, None),
             )
         raise PolicyViolation("tool is not implemented in issue #23")
+
+    @staticmethod
+    def _record_note_result(result: DispatchResult, outcome: AgentResult) -> None:
+        if outcome.note_draft is None:
+            return
+        if result.note_draft is not None:
+            raise PolicyViolation("multiple note drafts are not allowed")
+        result.note_draft = outcome.note_draft
 
     @staticmethod
     def _record_memory_result(

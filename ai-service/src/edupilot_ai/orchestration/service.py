@@ -189,6 +189,7 @@ class TurnService:
             )
             raise _policy_error("The generated Plan violated the turn policy.") from error
         self._raise_dispatch_failure(dispatched)
+        self._append_note_proposal(turn, plan, dispatched)
         return self._response(
             turn=turn,
             turn_goal=plan.turn_goal,
@@ -266,6 +267,7 @@ class TurnService:
             if dispatched is None:
                 raise RuntimeError("dispatcher stream did not terminate")
             self._raise_dispatch_failure(dispatched)
+            self._append_note_proposal(turn, plan, dispatched)
 
             yield StatusStreamEvent(stage="FINALIZING")
             result = self._response(
@@ -274,7 +276,9 @@ class TurnService:
                 dispatched=dispatched,
                 usages=[*plan_usages, *dispatched.usages],
             )
-            if "".join(emitted_content) != "".join(message.content for message in result.messages):
+            if emitted_content and "".join(emitted_content) != "".join(
+                message.content for message in result.messages
+            ):
                 raise RuntimeError("stream content invariant violated")
             yield CompletedStreamEvent(result=result)
         except LlmBridgeError as error:
@@ -326,6 +330,26 @@ class TurnService:
             raise _llm_error(dispatched.failure) from dispatched.failure
         raise _policy_error("An agent result violated the turn policy.") from dispatched.failure
 
+    @staticmethod
+    def _append_note_proposal(
+        turn: TurnRequest,
+        plan: TurnPlan,
+        dispatched: DispatchResult,
+    ) -> None:
+        if (
+            turn.event.event_type is EventType.USER_QUESTION
+            and plan.propose_note
+            and dispatched.note_draft is None
+        ):
+            dispatched.ui_actions.append(
+                {
+                    "type": "BINARY_DECISION",
+                    "content": "지금까지 학습한 내용을 노트로 정리할까요?",
+                    "yesEvent": "NOTE_REQUESTED",
+                    "noEvent": "WAIT",
+                }
+            )
+
     def _response(
         self,
         *,
@@ -344,5 +368,6 @@ class TurnService:
             memory_candidates=dispatched.memory_candidates,
             memory_write=dispatched.memory_write,
             quiz=dispatched.quiz,
+            note_draft=dispatched.note_draft,
             usage=_usage(usages, self._model),
         )
