@@ -124,10 +124,13 @@ public class TurnResponseValidator {
 			expectedQuizType,
 			availableQuizPages
 		);
+		validateNoteDraft(response);
 		warnIgnoredUiActions(
 			response.turnId(),
 			response.uiActions().stream()
-				.filter(action -> !isMoveNextPageProposal(action))
+				.filter(action ->
+					!isMoveNextPageProposal(action)
+						&& !isNoteProposal(action))
 				.toList()
 		);
 		warnIgnoredActiveQuizId(response);
@@ -221,6 +224,15 @@ public class TurnResponseValidator {
 			&& "WAIT".equals(action.get("noEvent"));
 	}
 
+	static boolean isNoteProposal(Map<String, Object> action) {
+		return action != null
+			&& "BINARY_DECISION".equals(action.get("type"))
+			&& "NOTE_REQUESTED".equals(action.get("yesEvent"))
+			&& "WAIT".equals(action.get("noEvent"))
+			&& action.get("content") instanceof String content
+			&& StringUtils.hasText(content);
+	}
+
 	static void warnIgnoredUiActions(
 		String turnId,
 		List<Map<String, Object>> uiActions
@@ -279,6 +291,19 @@ public class TurnResponseValidator {
 			expectedQuizType,
 			availableQuizPages
 		);
+	}
+
+	private void validateNoteDraft(TurnResponse response) {
+		if (response.noteDraft() == null) {
+			return;
+		}
+		if (!StringUtils.hasText(response.noteDraft().title())
+			|| response.noteDraft().title().length() > 60) {
+			throw invalid("noteDraft.title is invalid");
+		}
+		if (!StringUtils.hasText(response.noteDraft().content())) {
+			throw invalid("noteDraft.content must not be blank");
+		}
 	}
 
 	private void warnIgnoredActiveQuizId(TurnResponse response) {

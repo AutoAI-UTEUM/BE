@@ -24,6 +24,7 @@ import io.edupilot.memory.MemoryWrite;
 import io.edupilot.quiz.QuizProperties;
 import io.edupilot.quiz.QuizService;
 import io.edupilot.session.dto.MessageResponse;
+import io.edupilot.session.dto.NoteDraft;
 import io.edupilot.session.dto.TurnStateResponse;
 import io.edupilot.user.UserRepository;
 
@@ -222,6 +223,7 @@ public class TurnPersistenceService {
 				session.getPageStatus(),
 				session.getActiveQuizId()
 			),
+			NoteDraft.from(aiResponse.noteDraft()),
 			parseMemoryWrite(aiResponse.memoryWrite()),
 			session.getMaterialId()
 		);
@@ -237,29 +239,45 @@ public class TurnPersistenceService {
 			aiResponse.uiActions().stream()
 				.filter(TurnResponseValidator::isMoveNextPageProposal)
 				.toList();
-		if (moveNextPageProposals.isEmpty()) {
+		List<Map<String, Object>> noteProposals =
+			aiResponse.uiActions().stream()
+				.filter(TurnResponseValidator::isNoteProposal)
+				.toList();
+		if (moveNextPageProposals.isEmpty() && noteProposals.isEmpty()) {
 			return resolvedUiActions;
 		}
 		if (eventType != TurnEventType.USER_QUESTION
 			|| !resolvedUiActions.isEmpty()) {
+			List<Map<String, Object>> ignored = new ArrayList<>();
+			ignored.addAll(moveNextPageProposals);
+			ignored.addAll(noteProposals);
 			TurnResponseValidator.warnIgnoredUiActions(
 				aiResponse.turnId(),
-				moveNextPageProposals
+				ignored
 			);
 			return resolvedUiActions;
 		}
 
+		List<UiAction> accepted = new ArrayList<>();
 		Integer pageCount = session.getMaterialPageCount();
-		if (pageCount != null && session.getCurrentPage() == pageCount) {
+		if (!moveNextPageProposals.isEmpty()
+			&& pageCount != null
+			&& session.getCurrentPage() == pageCount) {
 			TurnResponseValidator.warnMoveNextPageDroppedAtLastPage(
 				aiResponse.turnId(),
 				session.getCurrentPage(),
 				pageCount,
 				moveNextPageProposals.size()
 			);
-			return resolvedUiActions;
+		} else if (!moveNextPageProposals.isEmpty()) {
+			accepted.add(UiAction.moveNextPage());
 		}
-		return List.of(UiAction.moveNextPage());
+		if (!noteProposals.isEmpty()) {
+			accepted.add(UiAction.noteProposal(
+				(String) noteProposals.getFirst().get("content")
+			));
+		}
+		return List.copyOf(accepted);
 	}
 
 	private boolean isQuizEligible(

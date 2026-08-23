@@ -562,6 +562,10 @@ AI Service의 `uiActions`는 기본적으로 빈 배열입니다. 예외적으�
 `USER_QUESTION`의 `BINARY_DECISION/MOVE_NEXT_PAGE/WAIT` 제안은 Spring resolver
 산출이 비어 있고 현재 페이지가 마지막이 아닐 때만 수용하며, AI 객체 대신
 Spring `moveNextPage` 정본으로 치환해 저장·응답합니다. 그 외 제안은 무시합니다.
+같은 턴의 `BINARY_DECISION/NOTE_REQUESTED/WAIT` 제안도 resolver 산출이 비어 있을
+때만 수용합니다. 이때 Spring `UiAction` 정본으로 치환하되 표시용 `content`는 AI가
+보낸 문구를 유지합니다. FE가 yes를 선택하면 빈 payload의 `NOTE_REQUESTED` 턴을
+호출하고, 반환된 `noteDraft`를 편집한 뒤 기존 노트 생성 API로 저장합니다.
 위젯은 Spring이 마지막 상태 전이에 따라 생성해 외부 응답에 포함합니다.
 
 서버가 발급하는 위젯 스키마는 다음 2종입니다.
@@ -688,8 +692,11 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 | `USER_QUESTION` | `{ "message": "...", "includeCurrentPage": true\|false }` — `includeCurrentPage` 선택, 생략 시 `true` |
 | `QUIZ_TYPE_SELECTED` | `{ "quizType": "MCQ" }` |
 | `DIAGNOSIS_ANSWER_SUBMITTED` | `{ "diagnosisId": 30, "answer": "..." }` |
+| `NOTE_REQUESTED` | `{}` — 필드가 없는 빈 객체만 허용 |
 
 요청 payload는 위 표에 정의된 이벤트별 필드의 부분집합만 허용하며, 알 수 없는 필드가 있으면 `VALIDATION_FAILED`입니다. 생략된 선택 필드는 Spring이 기본값과 사용자 설정을 적용해 해석한 뒤 내부 AI 계약 형식으로 정규화해 전달합니다.
+
+`NOTE_REQUESTED`는 노트 제안 위젯을 수락할 때 사용하는 무인자 이벤트입니다. 공개 요청의 `payload`는 빈 객체 `{}`로 보내며 Spring도 내부 AI 요청에 빈 payload 객체를 전달합니다. AI가 반환한 선택 `noteDraft`는 Spring에 저장하지 않고 응답으로만 전달하므로, FE가 사용자가 확정한 내용을 기존 노트 생성 API로 저장합니다.
 
 교정 후 추가 질문은 별도 이벤트 없이 `USER_QUESTION`을 재사용합니다. 직전 교정(repair)이 존재하면 Spring이 내부 턴 스냅샷의 `latestRepair`에 교정 답변 원문(또는 원문을 보존한 요약)을 포함해 전달하고, Orchestrator가 교정 후속 여부를 판단해 QaAgent를 선택합니다([에이전트 시스템 명세](agent-system-spec.md) §9.9 참고).
 
@@ -719,9 +726,15 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
     "currentPage": 3,
     "pageStatus": "EXPLAINED",
     "activeQuizId": null
+  },
+  "noteDraft": {
+    "title": "분산과 편차 복습",
+    "content": "## 핵심\n편차는 각 값과 평균의 차이입니다."
   }
 }
 ```
+
+`noteDraft`는 선택 필드입니다. 존재할 때 `title`은 공백이 아닌 60자 이하 문자열이고 `content`는 공백이 아닌 문자열입니다. `noteDraft`가 없는 기존 턴 응답에서는 필드가 생략됩니다. 초안 내용은 메시지·대화 요약·QA thread digest·서버 로그에 포함하지 않습니다.
 
 퀴즈 생성 턴(`QUIZ_TYPE_SELECTED`)의 응답에는 문항 본문을 싣지 않습니다. 대신 `state.activeQuizId`에 생성된 퀴즈의 `quizId`를 포함하고, FE는 `GET /api/quizzes/{quizId}`로 공개 문항을 조회해 풀이 UI를 엽니다. 저득점 진단에서 `uiActions`에 `diagnosisId`를 싣는 방식과 같은 참조 전달 원칙입니다.
 

@@ -99,6 +99,7 @@
 | `USER_QUESTION` | `{ "message": "...", "includeCurrentPage": true\|false }` (`includeCurrentPage` 선택, 생략 시 `true`) | Orchestrator가 Plan에서 START_NEW/FOLLOW_UP을 결정하고, QaAgent는 전달받아 수행. latestRepair 있으면 교정 문맥 승계 |
 | `QUIZ_TYPE_SELECTED` | `{ "quizType": "MCQ\|OX\|SHORT\|ESSAY" }` | QuizAgent (GENERATE_QUIZ_* 도구) |
 | `DIAGNOSIS_ANSWER_SUBMITTED` | `{ "diagnosisId": 30, "answer": "..." }` | RepairAgent — 진단 답변 기반 짧은 교정 |
+| `NOTE_REQUESTED` | `{}` | NoteAgent — 현재 학습 문맥을 노트 초안으로 작성 |
 
 - `REPAIR_FOLLOWUP_QUESTION_SUBMITTED`는 **삭제 확정** — 교정 후 질문은 `USER_QUESTION` 재사용 + `latestRepair` 문맥 승계로 커버 (Epic5 ⓐ 결정). api-spec §5 표에서 제거할 것.
 - `includeCurrentPage=false`이면 QaAgent는 페이지 근거 제약을 완화해 일반 학습 지식으로 답변할 수 있다. 단, 업로드 자료에 실제로 어떤 내용이 있는지 추측하거나 지어내지 않으며 학습과 무관한 요청에는 기존 한계 안내를 적용한다.
@@ -130,6 +131,7 @@
   "statePatch": {},
   "uiActions": [],
   "quiz": null,
+  "noteDraft": null,
   "memoryCandidates": [],
   "memoryWrite": null,
   "usage": { "model": "grok-4.5-<date>", "inputTokens": 0, "outputTokens": 0, "reasoningTokens": 0 }
@@ -160,11 +162,15 @@
   `BUILD_MEMORY_CANDIDATE`만 `{type, content, confidence, evidence[]}`를 사용합니다.
   Spring은 턴 핵심 저장 커밋 후 별도 트랜잭션에서 반복 근거·confidence 정책을
   재검증해 승격합니다.
+- `noteDraft`는 선택 nullable 필드이며 `{ "title": "...", "content": "..." }`
+  형식입니다. 존재할 때 `title`은 공백이 아니고 60자 이하여야 하며 `content`는
+  공백이 아니어야 합니다. Spring은 초안을 영속 메시지·대화 요약·QA thread digest·
+  로그에 넣지 않고 외부 completed 응답으로만 전달합니다.
 - `uiActions`: 기본값은 `[]`입니다. 다만 `USER_QUESTION` 턴은 아래 §3.3.1의
   `moveNextPage` 제안을 보낼 수 있습니다. 사용자 위젯의 정본은 항상 Spring이
   [API 명세](api-spec.md) §5 규칙표에 따라 생성합니다.
 
-### 3.3.1 uiActions allowlist (`moveNextPage`)
+### 3.3.1 uiActions allowlist (`moveNextPage`, `noteProposal`)
 
 AI Service가 `USER_QUESTION` 턴에서 다음 의미의 항목을 제안할 수 있습니다.
 
@@ -189,6 +195,22 @@ Spring은 다음 조건을 모두 충족할 때만 이 제안을 수용합니다
 페이지의 동일 제안은 드롭하고 `last page` 사유로 경고하며, 수용되지 않은
 나머지 AI `uiActions`는 기존과 같이 무시하고 경고합니다. 이 allowlist는 외부
 wire 스키마를 변경하지 않습니다.
+
+AI Service는 `USER_QUESTION` 턴에서 아래 노트 제안도 보낼 수 있습니다.
+
+```json
+{
+  "type": "BINARY_DECISION",
+  "content": "지금까지 학습한 내용을 노트로 정리할까요?",
+  "yesEvent": "NOTE_REQUESTED",
+  "noEvent": "WAIT"
+}
+```
+
+Spring resolver 결과가 비어 있고 세 필드 `type/yesEvent/noEvent`가 정확히 일치할 때만
+허용합니다. 저장·외부 응답에는 AI 객체 원문 대신 Spring `UiAction` 정본을 사용하되,
+사용자에게 표시하는 `content` 문구는 AI 값을 유지합니다. 그 밖의 AI uiAction은 기존처럼
+제거하고 경고합니다.
 
 ### 3.4 statePatch 허용목록 (api-spec §8 표와 동일 — Spring이 이외 전부 거부)
 
@@ -297,6 +319,8 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
   파이프라인이 고정 문구로 만듭니다.
 - 퀴즈·교정 스텁은 LLM 본문 스트림을 사용하지 않고 `completed` 또는
   `error`로 종료합니다.
+- `NOTE_REQUESTED` 턴의 `noteDraft`는 `content_delta`로 보내지 않고 최종
+  `completed.result.noteDraft`에만 포함합니다.
 - turn 시작 시각에 `TURN_TIMEOUT_SECONDS`(기본 180초) deadline을 한 번
   만들고, Plan 재생성과 Agent를 포함한 매 LLM 호출에 남은 시간만 timeout으로
   전달합니다. 남은 시간이 0 이하이면 provider를 호출하지 않고 즉시
@@ -316,7 +340,7 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
   이벤트입니다.
 - **외부 `completed.result` (확정)**: 내부 TurnResponse DTO 원문이 아니라
   Spring의 외부 턴 응답(`turnId`, `sessionId`, `messages`, `uiActions`,
-  `state`)입니다. 내부 전용 필드(`statePatch`, `actionsExecuted`, `usage`,
+  `state`, 선택 `noteDraft`)입니다. 내부 전용 필드(`statePatch`, `actionsExecuted`, `usage`,
   `memoryCandidates` 등)는 외부로 전달하지 않습니다.
 - **취소 (확정, MVP)**: 별도 취소 API 없음 — FE fetch abort → Spring 연결
   종료 감지 → FastAPI 상류 요청 취소.

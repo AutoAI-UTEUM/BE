@@ -18,6 +18,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.edupilot.ai.dto.NoteDraft;
 import io.edupilot.ai.dto.QuizGeneration;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -51,6 +52,29 @@ class TurnResponseValidatorTest {
 			),
 			"turn-1",
 			"qa-30"
+		);
+	}
+
+	@Test
+	void validatesOptionalNoteDraft() {
+		validator.validate(
+			responseWithNoteDraft(new NoteDraft("복습 노트", "## 핵심\n내용")),
+			"turn-1"
+		);
+
+		assertThatThrownBy(() -> validator.validate(
+			responseWithNoteDraft(new NoteDraft("가".repeat(61), "내용")),
+			"turn-1"
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode())
+				.isEqualTo(ErrorCode.AI_RESPONSE_INVALID)
+		);
+		assertThatThrownBy(() -> validator.validate(
+			responseWithNoteDraft(new NoteDraft("복습 노트", "  ")),
+			"turn-1"
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode())
+				.isEqualTo(ErrorCode.AI_RESPONSE_INVALID)
 		);
 	}
 
@@ -466,6 +490,25 @@ class TurnResponseValidatorTest {
 			null,
 			memoryCandidates,
 			null,
+			null
+		);
+	}
+
+	private io.edupilot.ai.dto.TurnResponse responseWithNoteDraft(
+		NoteDraft noteDraft
+	) {
+		return new io.edupilot.ai.dto.TurnResponse(
+			"1.0",
+			"turn-1",
+			"WRITE_NOTE",
+			List.of(),
+			List.of(),
+			Map.of(),
+			List.of(),
+			null,
+			List.of(),
+			null,
+			noteDraft,
 			null
 		);
 	}

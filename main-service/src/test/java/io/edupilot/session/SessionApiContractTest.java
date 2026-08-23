@@ -41,6 +41,7 @@ import io.edupilot.quiz.QuizSubmissionRepository;
 import io.edupilot.session.dto.ConversationStartResponse;
 import io.edupilot.session.dto.MessageListResponse;
 import io.edupilot.session.dto.MessageResponse;
+import io.edupilot.session.dto.NoteDraft;
 import io.edupilot.session.dto.PendingDiagnosisResponse;
 import io.edupilot.session.dto.SessionDetailResponse;
 import io.edupilot.session.dto.TurnResponse;
@@ -78,6 +79,38 @@ class SessionApiContractTest {
 
 	@MockitoBean
 	private UserRepository userRepository;
+
+	@Test
+	void noteRequestedExposesDraftInTurnResponse() throws Exception {
+		when(turnService.execute(
+			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(100L),
+			org.mockito.ArgumentMatchers.any()
+		)).thenReturn(new TurnResponse(
+			"turn-note",
+			100L,
+			List.of(),
+			List.of(),
+			new TurnStateResponse(3, PageStatus.EXPLAINED, null),
+			new NoteDraft("복습 노트", "## 핵심\n내용")
+		));
+
+		mockMvc.perform(post("/api/sessions/100/turns")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "requestId": "request-note",
+					  "eventType": "NOTE_REQUESTED",
+					  "payload": {}
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.noteDraft.title")
+				.value("복습 노트"))
+			.andExpect(jsonPath("$.data.noteDraft.content")
+				.value("## 핵심\n내용"));
+	}
 
 	@MockitoBean
 	private RefreshTokenRepository refreshTokenRepository;
@@ -285,7 +318,8 @@ class SessionApiContractTest {
 			.andExpect(jsonPath("$.data.messages[0].status")
 				.value("COMPLETED"))
 			.andExpect(jsonPath("$.data.state.activeQuizId")
-				.value(org.hamcrest.Matchers.nullValue()));
+				.value(org.hamcrest.Matchers.nullValue()))
+			.andExpect(jsonPath("$.data.noteDraft").doesNotExist());
 
 		MessageResponse failedMessage = new MessageResponse(
 			500L,

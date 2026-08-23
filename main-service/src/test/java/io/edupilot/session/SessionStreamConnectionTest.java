@@ -17,6 +17,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import io.edupilot.ai.AiStreamCancellation;
 import io.edupilot.ai.TurnStreamEvent;
 import io.edupilot.session.dto.MessageResponse;
+import io.edupilot.session.dto.NoteDraft;
 import io.edupilot.session.dto.TurnResponse;
 import io.edupilot.session.dto.TurnStateResponse;
 import tools.jackson.databind.JsonNode;
@@ -90,6 +91,35 @@ class SessionStreamConnectionTest {
 		assertThat(action.get("diagnosisId").longValue()).isEqualTo(30L);
 		assertThat(action.get("yesEvent")).isNull();
 		assertThat(action.get("noEvent")).isNull();
+	}
+
+	@Test
+	void noteDraftAppearsOnlyInCompletedEvent() {
+		CapturingSseEmitter emitter = new CapturingSseEmitter();
+		SessionStreamConnection connection = new SessionStreamConnection(
+			1L,
+			100L,
+			() -> {
+			},
+			emitter
+		);
+		connection.begin(new AiStreamCancellation());
+		TurnResponse response = new TurnResponse(
+			"turn-note",
+			100L,
+			List.of(),
+			List.of(),
+			new TurnStateResponse(3, PageStatus.EXPLAINED, null),
+			new NoteDraft("복습 노트", "## 핵심\n내용")
+		);
+
+		connection.sendCompleted(response);
+
+		assertThat(emitter.eventNames()).containsExactly("completed");
+		JsonNode payload = objectMapper.valueToTree(emitter.payload(0));
+		assertThat(payload.get("result").get("noteDraft").get("title")
+			.textValue()).isEqualTo("복습 노트");
+		assertThat(emitter.eventNames()).doesNotContain("content_delta");
 	}
 
 	@Test
