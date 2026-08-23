@@ -46,7 +46,7 @@ public record UiAction(
 			"BINARY_DECISION",
 			"퀴즈를 진행할까요?",
 			"SHOW_QUIZ_TYPE_SELECT",
-			"MOVE_NEXT_PAGE",
+			"WAIT",
 			null
 		);
 	}
