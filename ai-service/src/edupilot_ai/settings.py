@@ -115,6 +115,14 @@ class Settings(BaseSettings):
         default=60,
         validation_alias="EDUPILOT_CAPTIONS_TIMEOUT_SECONDS",
     )
+    edupilot_docchat_timeout_seconds: PositiveInt = Field(
+        default=60,
+        validation_alias="EDUPILOT_DOCCHAT_TIMEOUT_SECONDS",
+    )
+    edupilot_docchat_max_context_chars: PositiveInt = Field(
+        default=60_000,
+        validation_alias="EDUPILOT_DOCCHAT_MAX_CONTEXT_CHARS",
+    )
     edupilot_upload_max_mb: int = Field(
         default=45,
         ge=1,
@@ -213,6 +221,10 @@ class Settings(BaseSettings):
         default=ReasoningEffort.LOW,
         validation_alias="CAPTIONS_REASONING_EFFORT",
     )
+    docchat_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.LOW,
+        validation_alias="DOCCHAT_REASONING_EFFORT",
+    )
     captions_model: str | None = Field(
         default=None,
         min_length=1,
@@ -309,6 +321,11 @@ class Settings(BaseSettings):
         if self.captions_model is None:
             return profile
         return profile.model_copy(update={"model": self.captions_model})
+
+    @property
+    def docchat_llm_profile(self) -> AgentLlmProfile:
+        """Build the low-reasoning lightweight document chat profile."""
+        return self._profile(self.docchat_reasoning_effort)
 
     @property
     def upload_max_bytes(self) -> int:
