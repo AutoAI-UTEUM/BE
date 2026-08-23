@@ -115,6 +115,7 @@ async def test_outline_endpoint_returns_camel_case_contract(
     assert "마크다운을 생성하지 말고" in system_prompt
     assert "4~6문장" in system_prompt
     assert "무엇을 배우는지" in system_prompt
+    assert "더 큰 단위로 묶어라" in system_prompt
 
 
 async def test_outline_rejects_insufficient_text_without_llm_call(
@@ -157,7 +158,9 @@ async def test_outline_regenerates_after_overlapping_sections(
 
     assert response.status_code == 200
     assert len(fake_llm.calls) == 2
-    assert "SECTION_OVERLAP" in fake_llm.calls[1][0][0]["content"]
+    retry_prompt = fake_llm.calls[1][0][0]["content"]
+    assert "SECTION_OVERLAP" in retry_prompt
+    assert "겹친 구간: p1-p2와 p2-p3" in retry_prompt
 
 
 async def test_outline_validation_failure_twice_returns_schema_error(
