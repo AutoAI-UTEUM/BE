@@ -55,6 +55,8 @@
 | 자료 업로드 | 파일 제출 | `POST /api/materials` | 처리 상태 표시 후 목록 반영 | 파일 형식/크기/처리 실패 |
 | 자료 상세 | 화면 진입 | `GET /api/materials/{materialId}` | 제목, 페이지 수, 학습 시작 가능 여부. FAILED는 사유 코드와 업로드 traceId 표시 | 자료 없음/권한 |
 | 자료 개요 탭 | 탭 진입·상태 갱신 | `GET /api/materials/{materialId}/overview` | 추출 완료 후 비동기 생성. 행이 없거나 PENDING이면 준비 중, READY면 개요, FAILED면 실패 상태 표시 | 자료 없음/권한, 개요 준비·실패 |
+| PDF 뷰어 문서 질문 | 질문 전송·대화 이어가기 | `POST /api/materials/{materialId}/doc-chat` | 최근 대화 최대 50개를 보내고 응답 `answer`와 `warnings` 표시. 서버는 최근 10개만 AI에 전달 | 자료 없음/권한, 자료 처리 중·실패, AI 오류·429 |
+| 퀴즈 결과 복습 질문 | 질문 전송·대화 이어가기 | `POST /api/materials/{materialId}/quiz-chat` | 본인 제출 퀴즈와 관련 페이지를 근거로 답변 표시 | 자료 없음/권한, 본인 제출 없음, 자료 처리 중·실패, AI 오류·429 |
 | 자료 목록/상세 | 제목 수정 | `PATCH /api/materials/{materialId}` | trim된 새 제목과 갱신된 자료 상세 반영 | 소유자 전용, 빈 제목·255자 초과, 비소유·삭제 자료 404 |
 | PDF 뷰어 | 자료 원본 표시 | `GET /api/materials/{materialId}/file` | 인증된 PDF 스트림 표시 | 자료 없음/권한 |
 | 자료 목록/상세 | 삭제 버튼 → 확인 모달 | `DELETE /api/materials/{materialId}` | 목록에서 제외 | 활성 세션 존재(409 — 세션 정리 안내) |

@@ -10,6 +10,8 @@ import io.edupilot.ai.dto.CriteriaSuggestRequest;
 import io.edupilot.ai.dto.CriteriaSuggestResponse;
 import io.edupilot.ai.dto.DiagnosisRequest;
 import io.edupilot.ai.dto.DiagnosisResponse;
+import io.edupilot.ai.dto.DocChatRequest;
+import io.edupilot.ai.dto.DocChatResponse;
 import io.edupilot.ai.dto.ExtractResponse;
 import io.edupilot.ai.dto.ExamDraftRequest;
 import io.edupilot.ai.dto.ExamDraftResponse;
@@ -43,6 +45,8 @@ public interface AiClient {
 	OutlineResponse outline(OutlineRequest request);
 
 	CaptionsResponse captions(CaptionsRequest request);
+
+	DocChatResponse docChat(DocChatRequest request);
 
 	CriteriaSuggestResponse suggestCriteria(CriteriaSuggestRequest request);
 

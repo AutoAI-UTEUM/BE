@@ -73,6 +73,7 @@ class AiClientLiveTest {
 			Duration.ofSeconds(90),
 			Duration.ofSeconds(110),
 			Duration.ofSeconds(75),
+			Duration.ofSeconds(75),
 			Duration.ofSeconds(120),
 			"/health"
 		);

@@ -48,6 +48,21 @@ public interface QuizSubmissionRepository
 		Long userId
 	);
 
+	@Query("""
+		select submission
+		from QuizSubmission submission
+		join fetch submission.quiz quiz
+		join fetch quiz.session session
+		where submission.user.id = :userId
+		  and session.material.id = :materialId
+		  and session.status <> io.edupilot.session.SessionStatus.DELETED
+		order by submission.createdAt, submission.id
+		""")
+	List<QuizSubmission> findReviewSubmissions(
+		@Param("userId") Long userId,
+		@Param("materialId") Long materialId
+	);
+
 	Optional<QuizSubmission> findByIdAndUser_Id(Long id, Long userId);
 
 	@Query("""

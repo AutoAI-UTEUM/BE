@@ -55,6 +55,7 @@ edupilot:
     criteria-read-timeout: ${EDUPILOT_AI_CRITERIA_READ_TIMEOUT:90s}
     outline-timeout: ${EDUPILOT_AI_OUTLINE_TIMEOUT:110s}
     captions-read-timeout: ${EDUPILOT_AI_CAPTIONS_READ_TIMEOUT:75s}
+    doc-chat-read-timeout: ${EDUPILOT_AI_DOCCHAT_READ_TIMEOUT:75s}
     exam-draft-read-timeout: ${EDUPILOT_AI_EXAM_DRAFT_READ_TIMEOUT:120s}
     health-path: /health
   quiz:

@@ -114,6 +114,10 @@ public class QuizSubmission {
 		return quiz.getId();
 	}
 
+	Quiz getQuiz() {
+		return quiz;
+	}
+
 	public int getQuizPageNumber() {
 		return quiz.getPageNumber();
 	}
