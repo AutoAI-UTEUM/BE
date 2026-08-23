@@ -2,12 +2,18 @@ package io.edupilot.material;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.InstanceOfAssertFactories.INSTANT;
+import static org.mockito.Mockito.when;
 
+import java.sql.Timestamp;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -54,6 +60,8 @@ import jakarta.persistence.EntityManager;
 @Transactional
 class MaterialOverviewJpaTest {
 
+	private static final Instant NOW = Instant.parse("2026-08-23T12:00:00Z");
+
 	@Autowired private UserRepository userRepository;
 	@Autowired private LearningMaterialRepository materialRepository;
 	@Autowired private MaterialOverviewRepository overviewRepository;
@@ -68,6 +76,12 @@ class MaterialOverviewJpaTest {
 	@MockitoBean private MaterialExtractionRecoveryScheduler recoveryScheduler;
 	@MockitoBean private OutlineBackfillScheduler outlineBackfillScheduler;
 	@MockitoBean private CaptionBackfillScheduler captionBackfillScheduler;
+	@MockitoBean private Clock clock;
+
+	@BeforeEach
+	void setUp() {
+		when(clock.instant()).thenReturn(NOW);
+	}
 
 	@Test
 	void missingRowReturnsPendingForOwnerAndClassroomMemberAndHidesOutsider() {
@@ -124,7 +138,7 @@ class MaterialOverviewJpaTest {
 		Fixture fixture = fixture();
 		MaterialOverview overview = MaterialOverview.createPending(fixture.material());
 		overview.markReady("반환되면 안 되는 개요", outline());
-		overview.markFailed();
+		overview.markFailed(NOW);
 		overviewRepository.saveAndFlush(overview);
 		entityManager.clear();
 
@@ -166,7 +180,7 @@ class MaterialOverviewJpaTest {
 		MaterialOverview failedOverview = MaterialOverview.createPending(
 			failed.material()
 		);
-		failedOverview.markFailed();
+		failedOverview.markFailed(NOW);
 		overviewRepository.saveAndFlush(failedOverview);
 
 		LearningMaterial processing = materialRepository.saveAndFlush(
@@ -198,6 +212,106 @@ class MaterialOverviewJpaTest {
 	}
 
 	@Test
+	void backfillCandidatesPreferMissingThenIncludeOnlyFailedAfterBackoff() {
+		Fixture missing = fixture();
+		Fixture expired = fixture();
+		Fixture recent = fixture();
+		MaterialOverview expiredOverview = MaterialOverview.createPending(
+			expired.material()
+		);
+		expiredOverview.markFailed(NOW.minus(Duration.ofHours(24)));
+		overviewRepository.saveAndFlush(expiredOverview);
+		MaterialOverview recentOverview = MaterialOverview.createPending(
+			recent.material()
+		);
+		recentOverview.markFailed(
+			NOW.minus(Duration.ofHours(24)).plusSeconds(1)
+		);
+		overviewRepository.saveAndFlush(recentOverview);
+		setOverviewUpdatedAt(
+			expired.material().getId(),
+			NOW.minus(Duration.ofHours(24))
+		);
+		setOverviewUpdatedAt(
+			recent.material().getId(),
+			NOW.minus(Duration.ofHours(24)).plusSeconds(1)
+		);
+		entityManager.clear();
+
+		assertThat(outlinePersistenceService.findBackfillCandidates(2))
+			.containsExactly(
+				missing.material().getId(),
+				expired.material().getId()
+			);
+	}
+
+	@Test
+	void snapshotAllowsFailedOverviewAndRetryCanBecomeReady() {
+		Fixture fixture = fixture();
+		pageRepository.saveAndFlush(MaterialPage.create(
+			fixture.material(),
+			1,
+			"retry page text"
+		));
+		MaterialOverview overview = MaterialOverview.createPending(
+			fixture.material()
+		);
+		overview.markFailed(NOW.minus(Duration.ofHours(24)));
+		overviewRepository.saveAndFlush(overview);
+		entityManager.clear();
+
+		assertThat(outlinePersistenceService.snapshot(fixture.material().getId()))
+			.get()
+			.satisfies(snapshot -> assertThat(snapshot.pages())
+				.singleElement()
+				.satisfies(page -> {
+					assertThat(page.pageNumber()).isEqualTo(1);
+					assertThat(page.text()).isEqualTo("retry page text");
+				}));
+
+		assertThat(outlinePersistenceService.markReady(
+			fixture.material().getId(),
+			"retry overview",
+			outline()
+		)).isTrue();
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(overviewRepository.findByMaterial_Id(fixture.material().getId()))
+			.get()
+			.satisfies(stored -> {
+				assertThat(stored.getStatus())
+					.isEqualTo(MaterialOverviewStatus.READY);
+				assertThat(stored.getContent()).isEqualTo("retry overview");
+			});
+	}
+
+	@Test
+	void repeatedFailureRefreshesBackoffTimestamp() {
+		Fixture fixture = fixture();
+		Instant previousFailure = NOW.minus(Duration.ofDays(2));
+		MaterialOverview overview = MaterialOverview.createPending(
+			fixture.material()
+		);
+		overview.markFailed(previousFailure);
+		overviewRepository.saveAndFlush(overview);
+		setOverviewUpdatedAt(fixture.material().getId(), previousFailure);
+		entityManager.clear();
+
+		assertThat(outlinePersistenceService.markFailed(fixture.material().getId()))
+			.isTrue();
+		entityManager.flush();
+		entityManager.clear();
+		assertThat(overviewRepository.findByMaterial_Id(fixture.material().getId()))
+			.get()
+			.extracting(MaterialOverview::getUpdatedAt)
+			.asInstanceOf(INSTANT)
+			.isAfter(previousFailure);
+		assertThat(outlinePersistenceService.findBackfillCandidates(10))
+			.doesNotContain(fixture.material().getId());
+	}
+
+	@Test
 	void captionRoundTripPreservesOriginalTextAndCompletionExcludesBackfill() {
 		Fixture fixture = fixture();
 		Fixture pendingCaption = fixture();
@@ -226,6 +340,17 @@ class MaterialOverviewJpaTest {
 		assertThat(materialRepository.findMissingCaptionIds(PageRequest.of(0, 10)))
 			.contains(pendingCaption.material().getId())
 			.doesNotContain(fixture.material().getId());
+	}
+
+	private void setOverviewUpdatedAt(Long materialId, Instant updatedAt) {
+		entityManager.createNativeQuery("""
+			update material_overviews
+			set updated_at = :updatedAt
+			where material_id = :materialId
+			""")
+			.setParameter("updatedAt", Timestamp.from(updatedAt))
+			.setParameter("materialId", materialId)
+			.executeUpdate();
 	}
 
 	private OutlineResponse outline() {
