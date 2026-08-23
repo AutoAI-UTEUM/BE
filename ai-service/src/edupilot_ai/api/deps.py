@@ -12,6 +12,7 @@ from edupilot_ai.grading.service import GraderAgent, GradeService
 from edupilot_ai.llm.bridge import LlmBridge
 from edupilot_ai.orchestration.agents import (
     ExplainerAgent,
+    NoteAgent,
     QaAgent,
     QuizAgent,
     RepairAgent,
@@ -64,6 +65,7 @@ def get_turn_service(
     qa = QaAgent(llm=llm, profile=settings.qa_llm_profile)
     quiz = QuizAgent(llm=llm, profile=settings.quiz_llm_profile)
     repair = RepairAgent(llm=llm, profile=settings.repair_llm_profile)
+    note = NoteAgent(llm=llm, profile=settings.qa_llm_profile)
     return TurnService(
         context_builder=ContextBuilder(),
         orchestrator=Orchestrator(llm=llm, profile=settings.orchestrator_llm_profile),
@@ -73,6 +75,7 @@ def get_turn_service(
             qa=qa,
             quiz=quiz,
             repair=repair,
+            note=note,
             model=settings.model_name,
         ),
         model=settings.model_name,

@@ -1,5 +1,6 @@
 """Turn agents using injected structured-output LLM."""
 
+import logging
 import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -17,10 +18,11 @@ from edupilot_ai.llm.bridge import (
 from edupilot_ai.models.learning_support import RepairOutput
 from edupilot_ai.models.plan import AgentOutput
 from edupilot_ai.models.quiz import QuizGeneration, QuizType
-from edupilot_ai.models.turn import DetailLevel, Message, QaThreadMode
+from edupilot_ai.models.turn import DetailLevel, Message, NoteDraft, QaThreadMode
 from edupilot_ai.orchestration.context import AgentContext
 from edupilot_ai.orchestration.prompts import (
     explainer_messages,
+    note_messages,
     qa_messages,
     quiz_messages,
     repair_messages,
@@ -39,6 +41,21 @@ _EMPTY_PAGE_EXPLANATION = (
     "이 페이지에는 설명할 텍스트 내용이 없어요. 이미지나 도형 중심 페이지라면 "
     "다음 페이지로 이동해 학습을 이어가 주세요."
 )
+_NOTE_REQUEST = re.compile(
+    r"(?:노트(?!북).{0,20}?(?:정리|작성|만들|남겨)|"
+    r"필기.{0,20}?(?:정리|작성|만들|남겨|해\s*줘))",
+    re.IGNORECASE,
+)
+_FORBIDDEN_NOTE_FIELDS = {
+    "actionid",
+    "criterionkey",
+    "pagestatus",
+    "sessionid",
+    "statepatch",
+    "submissionid",
+    "turnid",
+}
+logger = logging.getLogger(__name__)
 
 
 def detect_page_redirect(message: str) -> Literal["NEXT", "PREVIOUS"] | None:
@@ -55,6 +72,12 @@ def detect_page_redirect(message: str) -> Literal["NEXT", "PREVIOUS"] | None:
     return None
 
 
+def detect_note_request(message: str) -> bool:
+    """Detect explicit learner requests to create or organize a note."""
+
+    return _NOTE_REQUEST.search(message) is not None
+
+
 @dataclass(frozen=True, slots=True)
 class AgentResult:
     agent: str
@@ -64,6 +87,7 @@ class AgentResult:
     quiz: QuizGeneration | None = None
     memory_candidates: list[dict[str, Any]] = field(default_factory=list)
     ui_actions: list[dict[str, Any]] = field(default_factory=list)
+    note_draft: NoteDraft | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,3 +373,105 @@ class RepairAgent:
             },
             usage=completion.usage,
         )
+
+
+class NoteAgent:
+    def __init__(self, *, llm: LlmBridge, profile: AgentLlmProfile) -> None:
+        self._llm = llm
+        self._profile = profile
+
+    async def run(
+        self,
+        context: AgentContext,
+        note_instruction: str,
+        *,
+        timeout_seconds: float,
+    ) -> AgentResult:
+        usages: list[LlmUsage] = []
+        retry_reason: str | None = None
+        for attempt in range(2):
+            try:
+                completion = await self._llm.complete_json(
+                    messages=note_messages(
+                        context,
+                        note_instruction,
+                        retry_reason=retry_reason,
+                    ),
+                    response_model=NoteDraft,
+                    profile=self._profile,
+                    timeout_seconds=timeout_seconds,
+                )
+            except LlmBridgeError as error:
+                if error.usage is not None:
+                    usages.append(error.usage)
+                if error.category is ErrorCategory.SCHEMA and attempt == 0:
+                    retry_reason = "SCHEMA_INVALID"
+                    logger.warning(
+                        "note output validation failed",
+                        extra={"errorCode": retry_reason},
+                    )
+                    continue
+                raise
+
+            usages.append(completion.usage)
+            violation = _note_output_violation(completion.output)
+            if violation is None:
+                draft = completion.output.model_copy(
+                    update={
+                        "title": completion.output.title.strip(),
+                        "content": completion.output.content.strip(),
+                    }
+                )
+                return AgentResult(
+                    agent="NoteAgent",
+                    message=Message(
+                        message_type="SYSTEM",
+                        content="노트 초안을 만들었어요. 내용을 확인하고 저장해 주세요.",
+                    ),
+                    state_patch={},
+                    usage=_combined_usage(usages, self._profile.model),
+                    note_draft=draft,
+                )
+
+            retry_reason = violation
+            logger.warning(
+                "note output validation failed",
+                extra={
+                    "errorCode": violation,
+                    "titleChars": len(completion.output.title),
+                    "contentChars": len(completion.output.content),
+                },
+            )
+
+        raise LlmBridgeError(
+            category=ErrorCategory.SCHEMA,
+            retryable=False,
+            usage=_combined_usage(usages, self._profile.model),
+        )
+
+
+def _note_output_violation(draft: NoteDraft) -> str | None:
+    title = draft.title.strip()
+    content = draft.content.strip()
+    if not title:
+        return "EMPTY_TITLE"
+    if len(title) > 60:
+        return "TITLE_TOO_LONG"
+    if not content:
+        return "EMPTY_CONTENT"
+    combined = f"{title}\n{content}".casefold()
+    if any(field_name in combined for field_name in _FORBIDDEN_NOTE_FIELDS):
+        return "INTERNAL_FIELD_EXPOSED"
+    return None
+
+
+def _combined_usage(usages: list[LlmUsage], default_model: str) -> LlmUsage:
+    reasoning_values = [
+        usage.reasoning_tokens for usage in usages if usage.reasoning_tokens is not None
+    ]
+    return LlmUsage(
+        model=usages[-1].model if usages else default_model,
+        input_tokens=sum(usage.input_tokens for usage in usages),
+        output_tokens=sum(usage.output_tokens for usage in usages),
+        reasoning_tokens=sum(reasoning_values) if reasoning_values else None,
+    )

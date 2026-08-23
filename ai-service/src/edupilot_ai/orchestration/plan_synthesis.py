@@ -2,7 +2,7 @@
 
 from edupilot_ai.models.plan import PedagogyPolicy, PlanAction, ToolName, TurnPlan
 from edupilot_ai.models.turn import EventType, QaThreadMode
-from edupilot_ai.orchestration.agents import detect_page_redirect
+from edupilot_ai.orchestration.agents import detect_note_request, detect_page_redirect
 from edupilot_ai.orchestration.context import AgentContext
 
 
@@ -49,10 +49,24 @@ def synthesize_plan(context: AgentContext) -> TurnPlan | None:
             args={"quizType": quiz_type.value},
         )
 
+    if context.event_type is EventType.NOTE_REQUESTED:
+        return _single_action_plan(
+            turn_goal="WRITE_NOTE",
+            tool=ToolName.WRITE_NOTE,
+            args={"noteInstruction": "지금까지 학습한 내용을 복습용 노트로 정리하라."},
+        )
+
     if context.event_type is not EventType.USER_QUESTION:
         return None
 
     message = context.event_payload.message or ""
+    if detect_note_request(message):
+        return _single_action_plan(
+            turn_goal="WRITE_NOTE",
+            tool=ToolName.WRITE_NOTE,
+            args={"noteInstruction": message},
+        )
+
     fixed_guidance = detect_page_redirect(message) is not None or (
         context.page_attached and not (context.current_page_text or "").strip()
     )
