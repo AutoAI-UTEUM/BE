@@ -2,6 +2,7 @@
 
 from edupilot_ai.models.plan import PlanAction, ToolName, TurnPlan
 from edupilot_ai.models.turn import Adjustment, EventType, QaThreadMode
+from edupilot_ai.orchestration.agents import detect_note_request
 from edupilot_ai.orchestration.context import AgentContext
 
 PIPELINE_TOOLS = {
@@ -61,9 +62,7 @@ class PolicyVerifier:
         plan: TurnPlan,
         context: AgentContext,
     ) -> tuple[TurnPlan, list[Adjustment]]:
-        if sum(
-            action.tool is ToolName.PROMOTE_MEMORY for action in plan.actions
-        ) > 1:
+        if sum(action.tool is ToolName.PROMOTE_MEMORY for action in plan.actions) > 1:
             raise PolicyViolation("multiple memory promotions in one turn")
         if len(plan.actions) > plan.pedagogy_policy.intervention_budget:
             raise PolicyViolation("intervention budget exceeded")
@@ -123,6 +122,11 @@ class PolicyVerifier:
                 args["detailLevel"] = detail_level
             return corrected.model_copy(update={"args": args}), adjustments
         if event is EventType.USER_QUESTION:
+            is_note_request = detect_note_request(context.event_payload.message or "")
+            if is_note_request:
+                if action.tool is not ToolName.WRITE_NOTE:
+                    raise PolicyViolation("tool does not match note request")
+                return self._verify_note_action(action), []
             if action.tool is not ToolName.ANSWER_QUESTION:
                 raise PolicyViolation("tool does not match event")
             corrected = _normalized_action(action, {"qaThreadMode", "threadRef"})
@@ -150,6 +154,10 @@ class PolicyVerifier:
                 if not isinstance(thread_ref, str) or not thread_ref:
                     raise PolicyViolation("FOLLOW_UP requires threadRef")
             return corrected, []
+        if event is EventType.NOTE_REQUESTED:
+            if action.tool is not ToolName.WRITE_NOTE:
+                raise PolicyViolation("tool does not match note event")
+            return self._verify_note_action(action), []
         if event is EventType.QUIZ_TYPE_SELECTED:
             expected = ToolName(f"GENERATE_QUIZ_{context.event_payload.quiz_type}")
             if action.tool is not expected:
@@ -170,6 +178,17 @@ class PolicyVerifier:
             if pending_id is not None and pending_id != context.event_payload.diagnosis_id:
                 raise PolicyViolation("pending diagnosis mismatch")
         return corrected, []
+
+    @staticmethod
+    def _verify_note_action(action: PlanAction) -> PlanAction:
+        corrected = _normalized_action(action, {"noteInstruction"})
+        note_instruction = corrected.args["noteInstruction"]
+        if not isinstance(note_instruction, str) or not note_instruction.strip():
+            raise PolicyViolation("noteInstruction is invalid")
+        return corrected.model_copy(
+            update={"args": {"noteInstruction": note_instruction.strip()}},
+            deep=True,
+        )
 
     def _verify_memory_action(
         self,
@@ -230,8 +249,7 @@ class PolicyVerifier:
             raise PolicyViolation("memory promotion candidateIds must be unique")
 
         available = {
-            candidate.candidate_id: candidate
-            for candidate in context.memory.temporary_candidates
+            candidate.candidate_id: candidate for candidate in context.memory.temporary_candidates
         }
         if any(candidate_id not in available for candidate_id in candidate_ids):
             raise PolicyViolation("memory promotion candidateId is not in snapshot")
@@ -240,9 +258,7 @@ class PolicyVerifier:
         if any(candidate.confidence < 0.7 for candidate in selected):
             raise PolicyViolation("memory promotion confidence threshold not met")
         evidence = {
-            reference.identity()
-            for candidate in selected
-            for reference in candidate.evidence_refs
+            reference.identity() for candidate in selected for reference in candidate.evidence_refs
         }
         if len(evidence) < 2:
             raise PolicyViolation("memory promotion evidence threshold not met")
