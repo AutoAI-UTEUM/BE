@@ -78,10 +78,11 @@ public class MaterialOverview {
 		this.status = MaterialOverviewStatus.READY;
 	}
 
-	public void markFailed() {
+	public void markFailed(Instant failedAt) {
 		this.content = null;
 		this.outline = null;
 		this.status = MaterialOverviewStatus.FAILED;
+		this.updatedAt = failedAt;
 	}
 
 	public Long getMaterialId() {

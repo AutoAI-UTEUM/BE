@@ -1,9 +1,10 @@
 package io.edupilot.material;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
-import java.util.List;
-
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -13,6 +14,20 @@ public interface MaterialOverviewRepository
 	extends JpaRepository<MaterialOverview, Long> {
 
 	Optional<MaterialOverview> findByMaterial_Id(Long materialId);
+
+	@Query("select overview.material.id from MaterialOverview overview "
+		+ "where overview.material.status = "
+		+ "io.edupilot.material.MaterialStatus.ACTIVE "
+		+ "and overview.material.processingStatus = "
+		+ "io.edupilot.material.MaterialProcessingStatus.READY "
+		+ "and overview.status = "
+		+ "io.edupilot.material.MaterialOverviewStatus.FAILED "
+		+ "and overview.updatedAt <= :cutoff "
+		+ "order by overview.updatedAt, overview.material.id")
+	List<Long> findRetryableFailedMaterialIds(
+		@Param("cutoff") Instant cutoff,
+		Pageable pageable
+	);
 
 	@EntityGraph(attributePaths = "material")
 	@Query("""
