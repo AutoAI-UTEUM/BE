@@ -6,6 +6,7 @@ from fastapi import Depends, Request
 
 from edupilot_ai.captions.service import CaptionService
 from edupilot_ai.criteria.service import CriteriaSuggestService
+from edupilot_ai.docchat.service import DocChatService
 from edupilot_ai.examdraft.service import ExamDraftService
 from edupilot_ai.grading.service import GraderAgent, GradeService
 from edupilot_ai.llm.bridge import LlmBridge
@@ -171,4 +172,16 @@ def get_criteria_suggest_service(
         llm=llm,
         profile=settings.criteria_llm_profile,
         timeout_seconds=settings.edupilot_criteria_timeout_seconds,
+    )
+
+
+def get_doc_chat_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    llm: Annotated[LlmBridge, Depends(get_llm_bridge)],
+) -> DocChatService:
+    return DocChatService(
+        llm=llm,
+        profile=settings.docchat_llm_profile,
+        timeout_seconds=settings.edupilot_docchat_timeout_seconds,
+        max_context_chars=settings.edupilot_docchat_max_context_chars,
     )
