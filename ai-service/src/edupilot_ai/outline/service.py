@@ -24,9 +24,10 @@ _INJECTION_DEFENSE_INSTRUCTION = (
 
 
 class OutlineValidationError(Exception):
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, detail: str | None = None) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.retry_feedback = reason if detail is None else f"{reason}. {detail}"
 
 
 def validate_outline_output(request: OutlineRequest, output: OutlineOutput) -> None:
@@ -47,15 +48,42 @@ def validate_outline_output(request: OutlineRequest, output: OutlineOutput) -> N
         ):
             raise OutlineValidationError("EMPTY_SECTION_DESCRIPTION")
         if not 1 <= section.start_page <= request.total_pages:
-            raise OutlineValidationError("SECTION_RANGE_OUT_OF_BOUNDS")
+            raise OutlineValidationError(
+                "SECTION_RANGE_OUT_OF_BOUNDS",
+                (
+                    f"허용 범위: p1-p{request.total_pages}, 잘못된 구간: "
+                    f"p{section.start_page}-p{section.end_page}"
+                ),
+            )
         if not 1 <= section.end_page <= request.total_pages:
-            raise OutlineValidationError("SECTION_RANGE_OUT_OF_BOUNDS")
+            raise OutlineValidationError(
+                "SECTION_RANGE_OUT_OF_BOUNDS",
+                (
+                    f"허용 범위: p1-p{request.total_pages}, 잘못된 구간: "
+                    f"p{section.start_page}-p{section.end_page}"
+                ),
+            )
         if section.start_page > section.end_page:
-            raise OutlineValidationError("SECTION_RANGE_INVALID")
+            raise OutlineValidationError(
+                "SECTION_RANGE_INVALID",
+                f"시작과 끝이 뒤바뀐 구간: p{section.start_page}-p{section.end_page}",
+            )
         if section.start_page < previous_start:
-            raise OutlineValidationError("SECTION_ORDER_INVALID")
+            raise OutlineValidationError(
+                "SECTION_ORDER_INVALID",
+                (
+                    f"순서가 뒤바뀐 구간: 직전 시작 p{previous_start}, "
+                    f"현재 구간 p{section.start_page}-p{section.end_page}"
+                ),
+            )
         if section.start_page <= previous_end:
-            raise OutlineValidationError("SECTION_OVERLAP")
+            raise OutlineValidationError(
+                "SECTION_OVERLAP",
+                (
+                    f"겹친 구간: p{previous_start}-p{previous_end}와 "
+                    f"p{section.start_page}-p{section.end_page}"
+                ),
+            )
         if len(section.keywords) > 5:
             raise OutlineValidationError("TOO_MANY_KEYWORDS")
         previous_start = section.start_page
@@ -79,6 +107,10 @@ def outline_messages(
         "이어지는지를 학생에게 말하듯 쓰고 제목을 반복하거나 키워드를 나열하는 "
         "문장은 금지한다. section title은 자료에 나온 단원·주제명을 쓰고 startPage와 "
         "endPage는 제공된 페이지 범위 안에 두며 keywords는 최대 5개로 작성하라. "
+        "구간이 겹치거나 순서가 뒤바뀌면 안 된다. 논문이나 보고서처럼 단원 경계가 "
+        "페이지와 정확히 일치하지 않는 자료에서는 확신이 없는 세부 구분을 만들지 "
+        "말고 더 큰 단위로 묶어라. 각 페이지는 정확히 하나의 구간에만 속해야 하며, "
+        "애매한 페이지는 앞 구간에 포함시켜라. "
         "자료에 없는 내용을 추측하지 마라. 마크다운을 생성하지 말고 모든 사용자 "
         "대상 텍스트는 한국어로 작성하라."
     )
@@ -201,7 +233,7 @@ class OutlineService:
                 try:
                     validate_outline_output(request, completion.output)
                 except OutlineValidationError as error:
-                    validation_reason = error.reason
+                    validation_reason = error.retry_feedback
                     logger.warning(
                         "outline output validation failed",
                         extra={
