@@ -38,6 +38,8 @@ public class SessionTurnService {
 	private static final Logger log =
 		LoggerFactory.getLogger(SessionTurnService.class);
 	private static final String SCHEMA_VERSION = "1.0";
+	private static final Duration NON_STREAMING_TURN_TOTAL_BUDGET =
+		Duration.ofSeconds(180);
 	private static final Set<String> QUIZ_TYPES = Set.of(
 		"MCQ",
 		"OX",
@@ -349,6 +351,8 @@ public class SessionTurnService {
 		Map<String, Object> payload,
 		TurnSnapshot snapshot
 	) {
+		long deadlineNanos = nanoTime.getAsLong()
+			+ NON_STREAMING_TURN_TOTAL_BUDGET.toNanos();
 		for (int attempt = 1; attempt <= 2; attempt++) {
 			String turnId = "turn-" + UUID.randomUUID();
 			io.edupilot.ai.dto.TurnRequest aiRequest = aiRequest(
@@ -358,8 +362,14 @@ public class SessionTurnService {
 				snapshot
 			);
 			try {
+				Duration remaining = remainingTurnBudget(deadlineNanos);
+				Duration readTimeout = remaining.compareTo(
+					aiClientProperties.turnReadTimeout()
+				) < 0
+					? remaining
+					: aiClientProperties.turnReadTimeout();
 				io.edupilot.ai.dto.TurnResponse response =
-					aiClient.executeTurn(aiRequest);
+					aiClient.executeTurn(aiRequest, readTimeout);
 				responseValidator.validate(
 					response,
 					turnId,
@@ -377,12 +387,25 @@ public class SessionTurnService {
 					exception
 				);
 				if (attempt == 1 && exception.retryable()) {
+					remainingTurnBudget(deadlineNanos);
 					continue;
 				}
 				throw exception;
 			}
 		}
 		throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+	}
+
+	private Duration remainingTurnBudget(long deadlineNanos) {
+		long remainingNanos = deadlineNanos - nanoTime.getAsLong();
+		if (remainingNanos <= 0) {
+			throw new AiClientException(
+				ErrorCode.AI_SERVICE_TIMEOUT,
+				true,
+				null
+			);
+		}
+		return Duration.ofNanos(remainingNanos);
 	}
 
 	private io.edupilot.ai.dto.TurnRequest aiRequest(
