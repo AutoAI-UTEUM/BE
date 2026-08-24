@@ -47,7 +47,7 @@ public class SessionStreamService {
 		this.sessionRepository = sessionRepository;
 	}
 
-	public synchronized SseEmitter connect(Long userId, Long sessionId) {
+	public SseEmitter connect(Long userId, Long sessionId) {
 		LearningSession session = sessionRepository.findByIdAndUser_Id(
 				sessionId,
 				userId
@@ -73,7 +73,13 @@ public class SessionStreamService {
 			() -> remove(sessionId, holder[0])
 		);
 		holder[0] = connection;
-		connections.put(sessionId, connection);
+		SessionStreamConnection previous = connections.put(
+			sessionId,
+			connection
+		);
+		if (previous != null && previous != existing) {
+			previous.replaceIdle();
+		}
 		connection.heartbeatTask(heartbeatScheduler.scheduleAtFixedRate(
 			() -> connection.sendHeartbeatIfIdle(
 				HEARTBEAT_INTERVAL.toNanos()
@@ -92,7 +98,7 @@ public class SessionStreamService {
 		return connection.emitter();
 	}
 
-	public synchronized Optional<SessionStreamConnection> beginTurn(
+	public Optional<SessionStreamConnection> beginTurn(
 		Long userId,
 		Long sessionId,
 		AiStreamCancellation cancellation
@@ -153,7 +159,7 @@ public class SessionStreamService {
 		heartbeatScheduler.shutdownNow();
 	}
 
-	private synchronized void remove(
+	private void remove(
 		Long sessionId,
 		SessionStreamConnection connection
 	) {
