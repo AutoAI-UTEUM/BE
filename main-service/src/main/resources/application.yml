@@ -3,6 +3,9 @@ spring:
     name: main-service
   profiles:
     default: local
+  security:
+    filter:
+      dispatcher-types: request, error
   datasource:
     hikari:
       data-source-properties:
