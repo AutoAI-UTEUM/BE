@@ -1,19 +1,17 @@
 # Required GitHub Secrets:
-# - DEV_SSH_HOST
-# - DEV_SSH_USER
-# - DEV_SSH_KEY
+# - PROD_SSH_HOST
+# - PROD_SSH_USER
+# - PROD_SSH_KEY
 # - GHCR_TOKEN (packages:write)
 #
 # Required GitHub Repository Variables:
-# - DEV_DOMAIN
-# - DEV_DEPLOY_PATH
+# - PROD_DOMAIN
+# - PROD_DEPLOY_PATH
 # - GHCR_USERNAME
 
-name: Deploy dev
+name: Deploy prod
 
 on:
-  push:
-    branches: [develop]
   workflow_dispatch:
 
 permissions:
@@ -21,15 +19,15 @@ permissions:
   packages: write
 
 concurrency:
-  group: deploy-dev
+  group: deploy-prod
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: deploy-dev
-    if: github.ref == 'refs/heads/develop'
+    name: deploy-prod
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: dev
+    environment: prod
     timeout-minutes: 20
 
     steps:
@@ -39,13 +37,13 @@ jobs:
       - name: Validate deployment variables
         shell: bash
         env:
-          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
-          DEV_DEPLOY_PATH: ${{ vars.DEV_DEPLOY_PATH }}
+          PROD_DOMAIN: ${{ vars.PROD_DOMAIN }}
+          PROD_DEPLOY_PATH: ${{ vars.PROD_DEPLOY_PATH }}
           GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
         run: |
           set -euo pipefail
-          test -n "$DEV_DOMAIN"
-          test -n "$DEV_DEPLOY_PATH"
+          test -n "$PROD_DOMAIN"
+          test -n "$PROD_DEPLOY_PATH"
           test -n "$GHCR_USERNAME"
 
       - name: Set up Docker Buildx
@@ -66,7 +64,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/autoai-uteum/main-service:${{ github.sha }}
-            ghcr.io/autoai-uteum/main-service:latest
+            ghcr.io/autoai-uteum/main-service:prod
 
       - name: Build and push ai-service image
         uses: docker/build-push-action@v6
@@ -76,33 +74,33 @@ jobs:
           push: true
           tags: |
             ghcr.io/autoai-uteum/ai-service:${{ github.sha }}
-            ghcr.io/autoai-uteum/ai-service:latest
+            ghcr.io/autoai-uteum/ai-service:prod
 
       - name: Copy deployment configuration
         uses: appleboy/scp-action@v1
         with:
-          host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USER }}
-          key: ${{ secrets.DEV_SSH_KEY }}
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
           source: docker-compose.yml,docker-compose.prod.yml,infra/nginx/edupilot.conf
-          target: ${{ vars.DEV_DEPLOY_PATH }}
+          target: ${{ vars.PROD_DEPLOY_PATH }}
           overwrite: true
 
-      - name: Pull and restart dev services
+      - name: Pull and restart prod services
         uses: appleboy/ssh-action@v1
         env:
           DEPLOY_TAG: ${{ github.sha }}
-          DEV_DEPLOY_PATH: ${{ vars.DEV_DEPLOY_PATH }}
+          PROD_DEPLOY_PATH: ${{ vars.PROD_DEPLOY_PATH }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
         with:
-          host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USER }}
-          key: ${{ secrets.DEV_SSH_KEY }}
-          envs: DEPLOY_TAG,DEV_DEPLOY_PATH,GHCR_TOKEN,GHCR_USERNAME
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          envs: DEPLOY_TAG,PROD_DEPLOY_PATH,GHCR_TOKEN,GHCR_USERNAME
           script: |
             set -eu
-            cd "$DEV_DEPLOY_PATH"
+            cd "$PROD_DEPLOY_PATH"
             printf '%s' "$GHCR_TOKEN" |
               docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
             TAG="$DEPLOY_TAG" docker compose --env-file .env \
@@ -117,8 +115,8 @@ jobs:
       - name: Smoke test
         shell: bash
         env:
-          HEALTH_URL: https://${{ vars.DEV_DOMAIN }}/api/health
-          READINESS_URL: https://${{ vars.DEV_DOMAIN }}/api/health/ready
+          HEALTH_URL: https://${{ vars.PROD_DOMAIN }}/api/health
+          READINESS_URL: https://${{ vars.PROD_DOMAIN }}/api/health/ready
         run: |
           set -euo pipefail
           for attempt in $(seq 1 12); do
