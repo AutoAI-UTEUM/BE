@@ -118,6 +118,59 @@ class TurnPersistenceServiceTest {
 	}
 
 	@Test
+	void persistsCancelledContentWithoutApplyingTurnArtifacts() {
+		LearningSession session = org.mockito.Mockito.mock(
+			LearningSession.class
+		);
+		when(session.getStatus()).thenReturn(SessionStatus.ACTIVE);
+		when(session.getActiveTurnRequestId()).thenReturn("request-1");
+		when(session.getPageStatus()).thenReturn(PageStatus.EXPLAINING);
+		when(session.getCurrentPage()).thenReturn(2);
+		when(session.getActiveQuizId()).thenReturn(null);
+		when(session.getMaterialId()).thenReturn(10L);
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(messageRepository.save(any())).thenAnswer(invocation ->
+			invocation.getArgument(0)
+		);
+
+		PersistedTurn persisted = service().persistCancelled(
+			1L,
+			100L,
+			"request-1",
+			"turn-partial",
+			"중단 전까지 받은 답변"
+		);
+
+		assertThat(persisted.turnId()).isEqualTo("turn-partial");
+		assertThat(persisted.messages())
+			.singleElement()
+			.satisfies(message -> {
+				assertThat(message.senderType()).isEqualTo(SenderType.AI);
+				assertThat(message.messageType()).isEqualTo(MessageType.TEXT);
+				assertThat(message.content())
+					.isEqualTo("중단 전까지 받은 답변");
+			});
+		assertThat(persisted.uiActions()).isEmpty();
+		assertThat(persisted.memoryWrite()).isNull();
+		assertThat(persisted.noteDraft()).isNull();
+		assertThat(persisted.state())
+			.isEqualTo(new io.edupilot.session.dto.TurnStateResponse(
+				2,
+				PageStatus.EXPLAINING,
+				null
+			));
+		verify(session, never()).applyAiTurn(
+			any(),
+			any(),
+			org.mockito.ArgumentMatchers.anyBoolean()
+		);
+		verify(quizService, never()).createFromGeneration(any(), any(), any());
+		verify(candidateRepository, never()).save(any());
+		verify(qaMessageRepository, never()).save(any());
+	}
+
+	@Test
 	void createsQuizProposalAtExactTextLengthThreshold() {
 		LearningSession session = activeSession(
 			PageStatus.NOT_EXPLAINED,

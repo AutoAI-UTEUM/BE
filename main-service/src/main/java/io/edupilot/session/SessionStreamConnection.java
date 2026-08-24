@@ -95,6 +95,14 @@ final class SessionStreamConnection {
 		return true;
 	}
 
+	synchronized boolean cancelTurn() {
+		if (!isRunning() || cancellation == null) {
+			return false;
+		}
+		cancellation.cancelByUser();
+		return true;
+	}
+
 	synchronized void send(TurnStreamEvent event) {
 		switch (event.type()) {
 			case STATUS -> sendEvent(

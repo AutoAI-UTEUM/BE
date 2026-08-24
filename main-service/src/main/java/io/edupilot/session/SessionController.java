@@ -28,6 +28,7 @@ import io.edupilot.session.dto.PageStateResponse;
 import io.edupilot.session.dto.SessionCreateResponse;
 import io.edupilot.session.dto.SessionDetailResponse;
 import io.edupilot.session.dto.SessionListResponse;
+import io.edupilot.session.dto.TurnCancellationResponse;
 import io.edupilot.session.dto.TurnRequest;
 import io.edupilot.session.dto.TurnResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -192,6 +193,20 @@ public class SessionController {
 		return ApiResponse.success(
 			turnService.execute(authenticatedUser.userId(), sessionId, request)
 		);
+	}
+
+	@PostMapping("/{sessionId}/turns/cancel")
+	@Operation(summary = "진행 중인 스트리밍 학습 turn 취소")
+	public ApiResponse<TurnCancellationResponse> cancelTurn(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long sessionId
+	) {
+		return ApiResponse.success(new TurnCancellationResponse(
+			streamService.cancelTurn(
+				authenticatedUser.userId(),
+				sessionId
+			)
+		));
 	}
 
 	@GetMapping("/{sessionId}/messages")

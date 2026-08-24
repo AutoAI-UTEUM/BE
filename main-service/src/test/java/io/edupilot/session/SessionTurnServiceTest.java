@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -40,6 +41,7 @@ import io.edupilot.memory.MemoryWrite;
 import io.edupilot.material.MaterialAccessService;
 import io.edupilot.quiz.QuizGenerationValidator;
 import io.edupilot.session.dto.TurnRequest;
+import io.edupilot.session.dto.MessageResponse;
 import io.edupilot.session.dto.TurnResponse;
 import io.edupilot.session.dto.TurnStateResponse;
 import io.edupilot.user.AiAnswerStyle;
@@ -785,6 +787,175 @@ class SessionTurnServiceTest {
 		assertThat(aiResponseCaptor.getValue().uiActions())
 			.containsExactly(moveNextPageProposal);
 		verify(aiClient, never()).executeTurn(any());
+	}
+
+	@Test
+	void userCancellationPersistsForwardedContentAndCompletesNormally()
+		throws Exception {
+		stubPreparedTurn();
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.of(streamConnection));
+		when(aiClient.executeTurnStream(any(), any(), any(), any()))
+			.thenAnswer(invocation -> {
+				@SuppressWarnings("unchecked")
+				Consumer<TurnStreamEvent> listener =
+					invocation.getArgument(1);
+				AiStreamCancellation cancellation =
+					invocation.getArgument(2);
+				listener.accept(TurnStreamEvent.contentDelta("부분 "));
+				listener.accept(TurnStreamEvent.contentDelta("답변"));
+				cancellation.cancelByUser();
+				throw new AiClientException(
+					ErrorCode.AI_STREAM_INTERRUPTED,
+					true,
+					null
+				);
+			});
+		when(persistenceService.persistCancelled(
+			eq(1L),
+			eq(100L),
+			eq("request-1"),
+			anyString(),
+			eq("부분 답변")
+		)).thenAnswer(invocation -> {
+			String turnId = invocation.getArgument(3);
+			TurnResponse response = new TurnResponse(
+				turnId,
+				100L,
+				List.of(new MessageResponse(
+					601L,
+					SenderType.AI,
+					MessageType.TEXT,
+					"부분 답변",
+					1,
+					ChatMessageStatus.COMPLETED,
+					Instant.parse("2026-08-25T00:00:00Z")
+				)),
+				List.of(),
+				new TurnStateResponse(
+					1,
+					PageStatus.EXPLAINING,
+					null
+				)
+			);
+			return persisted(response);
+		});
+
+		TurnResponse response = service().execute(
+			1L,
+			100L,
+			userQuestion()
+		);
+
+		assertThat(response.messages())
+			.singleElement()
+			.extracting(MessageResponse::content)
+			.isEqualTo("부분 답변");
+		verify(persistenceService).persistCancelled(
+			eq(1L),
+			eq(100L),
+			eq("request-1"),
+			anyString(),
+			eq("부분 답변")
+		);
+		verify(persistenceService, never()).persist(
+			any(), any(), anyString(), any(), any(), any(), any()
+		);
+		verify(responseValidator, never()).validate(
+			any(), anyString(), any(), any(), any(), any()
+		);
+		verify(preparationService, never()).markFailed(501L);
+		verify(streamService).complete(streamConnection, response);
+		verify(streamService, never()).fail(any(), any());
+		verify(claimService).release(100L, "request-1");
+	}
+
+	@Test
+	void userCancellationBeforeContentFailsWithoutPersistence()
+		throws Exception {
+		stubPreparedTurn();
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.of(streamConnection));
+		when(aiClient.executeTurnStream(any(), any(), any(), any()))
+			.thenAnswer(invocation -> {
+				AiStreamCancellation cancellation =
+					invocation.getArgument(2);
+				cancellation.cancelByUser();
+				throw new AiClientException(
+					ErrorCode.AI_STREAM_INTERRUPTED,
+					true,
+					null
+				);
+			});
+		TurnRequest request = userQuestion();
+
+		assertError(
+			() -> service().execute(1L, 100L, request),
+			ErrorCode.TURN_CANCELLED
+		);
+
+		verify(persistenceService, never()).persistCancelled(
+			any(), any(), anyString(), anyString(), anyString()
+		);
+		verify(persistenceService, never()).persist(
+			any(), any(), anyString(), any(), any(), any(), any()
+		);
+		verify(preparationService).markFailed(501L);
+		var failure = ArgumentCaptor.forClass(RuntimeException.class);
+		verify(streamService).fail(eq(streamConnection), failure.capture());
+		assertThat(failure.getValue())
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.TURN_CANCELLED)
+			);
+		verify(claimService).release(100L, "request-1");
+	}
+
+	@Test
+	void clientDisconnectStillDiscardsForwardedContent() throws Exception {
+		stubPreparedTurn();
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.of(streamConnection));
+		when(aiClient.executeTurnStream(any(), any(), any(), any()))
+			.thenAnswer(invocation -> {
+				@SuppressWarnings("unchecked")
+				Consumer<TurnStreamEvent> listener =
+					invocation.getArgument(1);
+				AiStreamCancellation cancellation =
+					invocation.getArgument(2);
+				listener.accept(TurnStreamEvent.contentDelta("폐기할 답변"));
+				cancellation.cancel();
+				throw new AiClientException(
+					ErrorCode.AI_STREAM_INTERRUPTED,
+					true,
+					null
+				);
+			});
+
+		assertThatThrownBy(() -> service().execute(
+			1L,
+			100L,
+			userQuestion()
+		)).isInstanceOf(AiClientException.class);
+
+		verify(persistenceService, never()).persistCancelled(
+			any(), any(), anyString(), anyString(), anyString()
+		);
+		verify(preparationService).markFailed(501L);
+		verify(streamService).fail(
+			eq(streamConnection),
+			any(AiClientException.class)
+		);
+		verify(claimService).release(100L, "request-1");
 	}
 
 	@Test

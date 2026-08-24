@@ -75,6 +75,7 @@
 | PDF 뷰어 | 다음/이전/번호 입력 | `PATCH /api/sessions/{sessionId}/page` | 응답 페이지로 뷰어 동기화, 설명 여부 UI | 페이지 범위/상태 충돌 |
 | 채팅 | 스트림 선연결 | `GET /api/sessions/{sessionId}/stream` | fetch+Bearer로 SSE 연결 후 turns 호출 | 중복 연결/AI 스트림 중단 |
 | 채팅 | 설명 시작 선택 | `POST /api/sessions/{sessionId}/turns` | 설명 스트림/메시지 표시 | AI timeout/스키마 오류 |
+| 채팅 | 답변 생성 중지 | `POST /api/sessions/{sessionId}/turns/cancel` | 수신한 텍스트가 있으면 부분 답변을 저장하고 completed 처리, 없으면 `TURN_CANCELLED` 표시 | 인증, 실행 중 턴 없음은 `cancelled:false` 멱등 응답 |
 | 채팅 | 질문 전송 | 같은 turns API | QA 답변과 후속 질문 문맥 반영 | 빈 질문/AI 오류 |
 | 채팅 | 노트 제안 수락 | 같은 turns API (`NOTE_REQUESTED`, `payload: {}`) | `noteDraft`를 편집 UI에 표시하고 확정 시 기존 노트 API로 저장 | 잘못된 초안/AI 오류 |
 | 채팅 | 진단 답변 제출 | 같은 turns API | 오개념 교정 답변 표시 | 진단 상태 충돌 |
@@ -87,11 +88,11 @@
 | 학습 세션 | 종료 버튼 | `POST /api/sessions/{sessionId}/complete` | 완료 화면/목록 이동 | 이미 완료/상태 충돌 |
 
 스트리밍 턴은 `GET /stream`을 먼저 연결한 뒤 `POST /turns`를 전송합니다.
-SSE 연결이 없으면 turns API는 기존 동기 JSON 응답으로 동작합니다. 스트림 중단
-후에는 세션 상세·메시지를 다시 조회해 동기화하고, 수동 재시도에는 새
-`requestId`를 사용합니다. 같은 `requestId`는
-`TURN_ALREADY_PROCESSED(409)`로 거부하며 `Last-Event-ID` replay는 지원하지
-않습니다.
+SSE 연결이 없으면 turns API는 기존 동기 JSON 응답으로 동작합니다. 사용자 중지로
+부분 답변이 저장되면 completed를 기존 완료 흐름으로 처리하고, content 수신 전
+취소로 `TURN_CANCELLED`를 받으면 같은 `requestId`로 재시도할 수 있습니다.
+클라이언트 연결 이탈 후에는 세션 상세·메시지를 다시 조회해 동기화합니다.
+`Last-Event-ID` replay는 지원하지 않습니다.
 
 ## 2. 학습 화면 상태 동기화
 
