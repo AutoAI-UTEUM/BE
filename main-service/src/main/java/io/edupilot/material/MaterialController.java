@@ -1,6 +1,5 @@
 package io.edupilot.material;
 
-import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -202,7 +201,10 @@ public class MaterialController {
 		);
 		return ResponseEntity.ok()
 			.contentType(MediaType.APPLICATION_PDF)
-			.cacheControl(CacheControl.noStore().cachePrivate())
+			.header(
+				HttpHeaders.CACHE_CONTROL,
+				"private, max-age=3600, immutable"
+			)
 			.header(
 				HttpHeaders.CONTENT_DISPOSITION,
 				ContentDisposition.inline()
