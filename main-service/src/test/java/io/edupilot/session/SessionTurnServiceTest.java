@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -76,6 +77,18 @@ class SessionTurnServiceTest {
 	@Mock
 	private MaterialAccessService materialAccessService;
 
+	@BeforeEach
+	void configureTurnReadTimeout() {
+		org.mockito.Mockito.lenient()
+			.when(aiClientProperties.turnReadTimeout())
+			.thenReturn(Duration.ofSeconds(200));
+		org.mockito.Mockito.lenient()
+			.when(aiClient.executeTurn(any(), any(Duration.class)))
+			.thenAnswer(invocation ->
+				aiClient.executeTurn(invocation.getArgument(0))
+			);
+	}
+
 	@Test
 	void revokedClassroomMaterialAccessBlocksTurnBeforeClaim() {
 		org.mockito.Mockito.doThrow(
@@ -91,6 +104,7 @@ class SessionTurnServiceTest {
 
 	@Test
 	void retryableFailureUsesNewTurnIdAndAlwaysReleases() throws Exception {
+		AtomicLong now = new AtomicLong();
 		when(preparationService.prepare(
 			1L,
 			100L,
@@ -109,11 +123,14 @@ class SessionTurnServiceTest {
 			));
 		io.edupilot.ai.dto.TurnResponse aiResponse = aiResponse("ignored");
 		when(aiClient.executeTurn(any()))
-			.thenThrow(new AiClientException(
-				ErrorCode.AI_SERVICE_UNAVAILABLE,
-				true,
-				null
-			))
+			.thenAnswer(invocation -> {
+				now.set(Duration.ofSeconds(170).toNanos());
+				throw new AiClientException(
+					ErrorCode.AI_SERVICE_UNAVAILABLE,
+					true,
+					null
+				);
+			})
 			.thenAnswer(invocation -> {
 				io.edupilot.ai.dto.TurnRequest aiRequest =
 					invocation.getArgument(0);
@@ -144,7 +161,7 @@ class SessionTurnServiceTest {
 			10L
 		));
 
-		TurnResponse actual = service().execute(
+		TurnResponse actual = service(now::get).execute(
 			1L,
 			100L,
 			new TurnRequest(
@@ -161,6 +178,14 @@ class SessionTurnServiceTest {
 			);
 		verify(aiClient, org.mockito.Mockito.times(2))
 			.executeTurn(requests.capture());
+		ArgumentCaptor<Duration> readTimeouts =
+			ArgumentCaptor.forClass(Duration.class);
+		verify(aiClient, org.mockito.Mockito.times(2))
+			.executeTurn(any(), readTimeouts.capture());
+		assertThat(readTimeouts.getAllValues()).containsExactly(
+			Duration.ofSeconds(180),
+			Duration.ofSeconds(10)
+		);
 		assertThat(requests.getAllValues())
 			.extracting(io.edupilot.ai.dto.TurnRequest::turnId)
 			.doesNotHaveDuplicates();
@@ -173,6 +198,35 @@ class SessionTurnServiceTest {
 			eq(java.util.Set.of())
 		);
 		verify(claimService).claim(1L, 100L, "request-1");
+		verify(claimService).release(100L, "request-1");
+	}
+
+	@Test
+	void totalBudgetExpirySkipsRetryAndReleasesClaim() throws Exception {
+		stubPreparedTurn();
+		AtomicLong now = new AtomicLong();
+		when(aiClient.executeTurn(any(), any(Duration.class)))
+			.thenAnswer(invocation -> {
+				assertThat(invocation.getArgument(1, Duration.class))
+					.isEqualTo(Duration.ofSeconds(180));
+				now.set(Duration.ofSeconds(181).toNanos());
+				throw new AiClientException(
+					ErrorCode.AI_SERVICE_TIMEOUT,
+					true,
+					null
+				);
+			});
+
+		assertThatThrownBy(() -> service(now::get).execute(
+			1L,
+			100L,
+			userQuestion()
+		)).isInstanceOfSatisfying(AiClientException.class, exception ->
+			assertThat(exception.errorCode())
+				.isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT)
+		);
+
+		verify(aiClient).executeTurn(any(), any(Duration.class));
 		verify(claimService).release(100L, "request-1");
 	}
 
