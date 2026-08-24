@@ -96,6 +96,33 @@ class HttpAiClientContractTest {
 	}
 
 	@Test
+	void turnUsesPerCallReadTimeout() {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "turnId": "turn-timeout",
+			  "turnGoal": "ANSWER_USER_QUESTION",
+			  "actionsExecuted": [],
+			  "messages": [],
+			  "statePatch": {},
+			  "uiActions": [],
+			  "memoryCandidates": []
+			}
+			""").setBodyDelay(500, TimeUnit.MILLISECONDS));
+
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1))
+			.executeTurn(
+				turnRequest("turn-timeout"),
+				Duration.ofMillis(100)
+			))
+			.isInstanceOfSatisfying(AiClientException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT)
+			);
+		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
+	@Test
 	void turnResponseDeserializesOptionalNoteDraft() {
 		server.enqueue(jsonResponse(200, """
 			{

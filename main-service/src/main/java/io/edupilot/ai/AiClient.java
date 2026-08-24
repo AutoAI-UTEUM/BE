@@ -33,6 +33,8 @@ public interface AiClient {
 
 	TurnResponse executeTurn(TurnRequest request);
 
+	TurnResponse executeTurn(TurnRequest request, Duration readTimeout);
+
 	TurnResponse executeTurnStream(
 		TurnRequest request,
 		Consumer<TurnStreamEvent> listener,

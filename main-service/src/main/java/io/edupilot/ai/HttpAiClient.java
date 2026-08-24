@@ -116,12 +116,14 @@ public class HttpAiClient implements AiClient {
 	private final RestClient diagnosisRestClient;
 	private final RestClient reportRestClient;
 	private final RestClient examDraftRestClient;
+	private final AiClientProperties properties;
 	private final String healthPath;
 	private final Duration streamIdleTimeout;
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	public HttpAiClient(AiClientProperties properties) {
 		// TODO ai-integration-contract v0.3에서 예산 확정 전까지 비멱등 turn 호출은 재시도하지 않는다.
+		this.properties = properties;
 		this.restClient = buildRestClient(
 			properties,
 			properties.turnReadTimeout()
@@ -236,6 +238,35 @@ public class HttpAiClient implements AiClient {
 
 	@Override
 	public TurnResponse executeTurn(TurnRequest request) {
+		return executeTurn(request, restClient);
+	}
+
+	@Override
+	public TurnResponse executeTurn(
+		TurnRequest request,
+		Duration readTimeout
+	) {
+		if (readTimeout == null
+			|| readTimeout.isZero()
+			|| readTimeout.isNegative()) {
+			throw new AiClientException(
+				ErrorCode.AI_SERVICE_TIMEOUT,
+				true,
+				null
+			);
+		}
+		RestClient turnRestClient = readTimeout.equals(
+			properties.turnReadTimeout()
+		)
+			? restClient
+			: buildRestClient(properties, readTimeout);
+		return executeTurn(request, turnRestClient);
+	}
+
+	private TurnResponse executeTurn(
+		TurnRequest request,
+		RestClient turnRestClient
+	) {
 		return executeAttempt(
 			new AiCallContext(
 				TURN_PATH,
@@ -246,7 +277,7 @@ public class HttpAiClient implements AiClient {
 				null
 			),
 			() -> {
-			TurnResponse response = restClient.post()
+			TurnResponse response = turnRestClient.post()
 				.uri(TURN_PATH)
 				.contentType(MediaType.APPLICATION_JSON)
 				.body(request)
