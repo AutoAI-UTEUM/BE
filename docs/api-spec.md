@@ -738,6 +738,35 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 
 퀴즈 생성 턴(`QUIZ_TYPE_SELECTED`)의 응답에는 문항 본문을 싣지 않습니다. 대신 `state.activeQuizId`에 생성된 퀴즈의 `quizId`를 포함하고, FE는 `GET /api/quizzes/{quizId}`로 공개 문항을 조회해 풀이 UI를 엽니다. 저득점 진단에서 `uiActions`에 `diagnosisId`를 싣는 방식과 같은 참조 전달 원칙입니다.
 
+### POST `/api/sessions/{sessionId}/turns/cancel`
+
+요청 body 없이 현재 SSE 연결에서 실행 중인 스트리밍 턴을 사용자 요청으로
+취소합니다. 세션 소유자와 일치하는 실행 중 턴이 없으면 오류 대신 멱등하게
+`cancelled:false`를 반환합니다. 비스트리밍 턴에는 영향을 주지 않습니다.
+
+`data`:
+
+```json
+{
+  "cancelled": true
+}
+```
+
+- `cancelled:true`는 취소 신호가 현재 스트리밍 턴에 전달됐다는 뜻이며, 턴의
+  저장·종료 결과는 SSE terminal 이벤트로 확인합니다.
+- 이미 전달된 `content_delta`가 있으면 누적 텍스트만 `TEXT` 유형의 AI 메시지로
+  저장합니다. state·`uiActions`·quiz·diagnosis·`noteDraft`·memory는 반영하지 않고,
+  저장된 메시지와 현재 세션 상태로 `completed` 이벤트를 전송합니다. 이 경우
+  사용자 메시지는 `COMPLETED` 상태를 유지하고 같은 `requestId` 재전송은
+  `TURN_ALREADY_PROCESSED`입니다.
+- 전달된 content가 없으면 AI 메시지를 저장하지 않고 사용자 메시지를 기존 실패
+  경로의 `FAILED`로 표시한 뒤 `TURN_CANCELLED`(`retryable=false`) error 이벤트로
+  종료합니다. 이 경우 같은 `requestId` 재시도는 실패 메시지를 재사용합니다.
+- 브라우저 연결 해제·fetch abort 등 클라이언트 이탈 취소는 기존처럼 부분 답변을
+  저장하지 않습니다.
+- 취소된 `QUIZ_TYPE_SELECTED` 등 부가 산출물이 필요한 턴도 텍스트만 보존하며,
+  퀴즈 생성이나 상태 전이는 수행하지 않습니다.
+
 ### POST `/api/sessions/{sessionId}/conversations`
 
 현재 ACTIVE 세션에서 LLM 호출 없이 새 대화 경계를 시작합니다. 요청 body는 없습니다. 세션 행을 잠그고 5분 이내의 진행 중 턴이 있으면 `SESSION_STATE_CONFLICT`, 완료 세션이면 `SESSION_NOT_ACTIVE`, 타인·삭제·존재하지 않는 세션이면 `SESSION_NOT_FOUND`로 처리합니다. 5분이 지난 stale turn은 정리한 뒤 새 대화를 시작합니다.
@@ -2176,9 +2205,9 @@ AI 응답 스트리밍은 SSE를 기본 전송 방식으로 사용합니다. 이
 - `Last-Event-ID` replay와 SSE `id` 필드는 지원하지 않습니다. 재연결 시
   세션 상세와 메시지를 다시 조회합니다.
 - fetch abort 또는 전송 단절을 감지하면 Spring이 FastAPI 상류 응답을 닫아
-  취소합니다.
-- 중단된 요청의 같은 `requestId`는 `TURN_ALREADY_PROCESSED(409)`입니다.
-  사용자가 다시 시도할 때는 새 requestId를 발급합니다.
+  취소하며 부분 답변은 저장하지 않습니다.
+- 사용자가 `POST /api/sessions/{sessionId}/turns/cancel`로 중지하면 수신한 content
+  유무에 따라 §5의 부분 저장 또는 `TURN_CANCELLED` 규칙을 적용합니다.
 
 ### 9.2 외부 SSE data 스키마
 
@@ -2240,7 +2269,9 @@ data: {"code":"AI_SERVICE_TIMEOUT","category":"TIMEOUT","message":"AI 서비스 
   `[ui_action] → completed → 종료` 순서로 외부 terminal을 전송합니다.
 - 내부 completed 응답 검증이 끝나면 SSE cancellation 상태와 무관하게 저장합니다. 저장 커밋 후 외부 `completed` 전송이 실패해도 저장된 턴을 실패 처리하지 않고 FE의 세션·메시지 복원 경로로 수렴합니다.
 - error, terminal 전 EOF, schema 오류, 저장 실패에는 completed를 보내지
-  않으며 중간 content는 확정 메시지로 저장하지 않습니다.
+  않으며 중간 content는 확정 메시지로 저장하지 않습니다. 단, 명시적인 사용자
+  취소는 누적 content가 있으면 validator와 일반 상태 반영을 건너뛰고 텍스트만
+  저장한 뒤 completed로 종료합니다.
 - 완성된 내부 이벤트를 30초 동안 받지 못하면
   `AI_SERVICE_TIMEOUT/TIMEOUT`으로 종료합니다. heartbeat도 이벤트 수신으로
   인정합니다.

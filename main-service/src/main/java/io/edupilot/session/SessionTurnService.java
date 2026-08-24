@@ -181,15 +181,25 @@ public class SessionTurnService {
 					cancellation
 				);
 			streamConnection = activeStream.orElse(null);
-			io.edupilot.ai.dto.TurnResponse aiResponse =
-				streamConnection == null
-					? executeAiTurn(
+			PersistedTurn persisted;
+			if (streamConnection == null) {
+				io.edupilot.ai.dto.TurnResponse aiResponse = executeAiTurn(
 						request,
 						eventType,
 						payload.aiPayload(),
 						snapshot
-					)
-					: executeAiTurnStream(
+					);
+				persisted = persistenceService.persist(
+					userId,
+					sessionId,
+					request.requestId(),
+					eventType,
+					payload.diagnosisId(),
+					userMessageId,
+					aiResponse
+				);
+			} else {
+				StreamExecution execution = executeAiTurnStream(
 						request,
 						eventType,
 						payload.aiPayload(),
@@ -197,15 +207,24 @@ public class SessionTurnService {
 						streamConnection,
 						cancellation
 					);
-			PersistedTurn persisted = persistenceService.persist(
-				userId,
-				sessionId,
-				request.requestId(),
-				eventType,
-				payload.diagnosisId(),
-				userMessageId,
-				aiResponse
-			);
+				persisted = execution.cancelled()
+					? persistenceService.persistCancelled(
+						userId,
+						sessionId,
+						request.requestId(),
+						execution.turnId(),
+						execution.partialContent()
+					)
+					: persistenceService.persist(
+						userId,
+						sessionId,
+						request.requestId(),
+						eventType,
+						payload.diagnosisId(),
+						userMessageId,
+						execution.response()
+					);
+			}
 			promoteMemory(userId, persisted);
 			TurnResponse response = persisted.response();
 			if (streamConnection != null) {
@@ -275,7 +294,7 @@ public class SessionTurnService {
 		}
 	}
 
-	private io.edupilot.ai.dto.TurnResponse executeAiTurnStream(
+	private StreamExecution executeAiTurnStream(
 		TurnRequest request,
 		TurnEventType eventType,
 		Map<String, Object> payload,
@@ -286,6 +305,7 @@ public class SessionTurnService {
 		long deadlineNanos = nanoTime.getAsLong()
 			+ aiClientProperties.turnReadTimeout().toNanos();
 		AtomicBoolean contentForwarded = new AtomicBoolean();
+		StringBuilder partialContent = new StringBuilder();
 		for (int attempt = 1; attempt <= 2; attempt++) {
 			String turnId = "turn-" + UUID.randomUUID();
 			io.edupilot.ai.dto.TurnRequest aiRequest = aiRequest(
@@ -310,6 +330,7 @@ public class SessionTurnService {
 							if (event.type()
 								== TurnStreamEvent.Type.CONTENT_DELTA) {
 								contentForwarded.set(true);
+								partialContent.append(event.text());
 							}
 							streamConnection.send(event);
 						},
@@ -324,8 +345,19 @@ public class SessionTurnService {
 					expectedQuizType(eventType, payload),
 					availableQuizPages(eventType, snapshot)
 				);
-				return response;
+				return StreamExecution.completed(response);
 			} catch (AiClientException exception) {
+				if (cancellation.isUserCancelled()) {
+					if (partialContent.isEmpty()) {
+						throw new BusinessException(
+							ErrorCode.TURN_CANCELLED
+						);
+					}
+					return StreamExecution.cancelled(
+						turnId,
+						partialContent.toString()
+					);
+				}
 				logAttemptFailure(
 					request.requestId(),
 					turnId,
@@ -343,6 +375,30 @@ public class SessionTurnService {
 			}
 		}
 		throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+	}
+
+	private record StreamExecution(
+		io.edupilot.ai.dto.TurnResponse response,
+		String turnId,
+		String partialContent
+	) {
+
+		private static StreamExecution completed(
+			io.edupilot.ai.dto.TurnResponse response
+		) {
+			return new StreamExecution(response, response.turnId(), null);
+		}
+
+		private static StreamExecution cancelled(
+			String turnId,
+			String partialContent
+		) {
+			return new StreamExecution(null, turnId, partialContent);
+		}
+
+		private boolean cancelled() {
+			return partialContent != null;
+		}
 	}
 
 	private io.edupilot.ai.dto.TurnResponse executeAiTurn(

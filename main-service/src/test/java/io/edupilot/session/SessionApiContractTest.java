@@ -218,6 +218,28 @@ class SessionApiContractTest {
 	}
 
 	@Test
+	void cancelTurnUsesAuthenticatedBodylessIdempotentContract()
+		throws Exception {
+		when(streamService.cancelTurn(1L, 100L))
+			.thenReturn(true, false);
+
+		mockMvc.perform(post("/api/sessions/100/turns/cancel")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.cancelled").value(true));
+
+		mockMvc.perform(post("/api/sessions/100/turns/cancel")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.cancelled").value(false));
+
+		mockMvc.perform(post("/api/sessions/100/turns/cancel"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code")
+				.value("AUTHENTICATION_REQUIRED"));
+	}
+
+	@Test
 	void detailRestoresPendingDiagnosisReferenceAndPrompt() throws Exception {
 		when(sessionService.detail(1L, 100L)).thenReturn(
 			new SessionDetailResponse(
@@ -435,6 +457,14 @@ class SessionApiContractTest {
 			).value("퀴즈 제안 거절"))
 			.andExpect(jsonPath(
 				"$.paths['/api/sessions/{sessionId}/quiz-decline']"
+					+ ".post.requestBody"
+			).doesNotExist())
+			.andExpect(jsonPath(
+				"$.paths['/api/sessions/{sessionId}/turns/cancel']"
+					+ ".post.summary"
+			).value("진행 중인 스트리밍 학습 turn 취소"))
+			.andExpect(jsonPath(
+				"$.paths['/api/sessions/{sessionId}/turns/cancel']"
 					+ ".post.requestBody"
 			).doesNotExist());
 	}

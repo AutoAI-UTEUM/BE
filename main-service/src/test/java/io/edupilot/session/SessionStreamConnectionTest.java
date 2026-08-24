@@ -152,6 +152,24 @@ class SessionStreamConnectionTest {
 					)
 			);
 		assertThat(cancellation.isCancelled()).isTrue();
+		assertThat(cancellation.isUserCancelled()).isFalse();
+	}
+
+	@Test
+	void userCancellationRequiresRunningTurnAndKeepsItsOrigin() {
+		SessionStreamConnection connection = new SessionStreamConnection(
+			1L,
+			100L,
+			() -> {
+			}
+		);
+		AiStreamCancellation cancellation = new AiStreamCancellation();
+
+		assertThat(connection.cancelTurn()).isFalse();
+		assertThat(connection.begin(cancellation)).isTrue();
+		assertThat(connection.cancelTurn()).isTrue();
+		assertThat(cancellation.isCancelled()).isTrue();
+		assertThat(cancellation.isUserCancelled()).isTrue();
 	}
 
 	@Test

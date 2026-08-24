@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
@@ -72,6 +73,37 @@ class SessionStreamServiceTest {
 			() -> service.connect(1L, 100L),
 			ErrorCode.TURN_IN_PROGRESS
 		);
+	}
+
+	@Test
+	void cancelsOnlyOwnedRunningTurnAndMapsErrorAsNonRetryable() {
+		LearningSession active = mock(LearningSession.class);
+		when(active.getStatus()).thenReturn(SessionStatus.ACTIVE);
+		when(repository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(active));
+		service.connect(1L, 100L);
+		AiStreamCancellation cancellation = new AiStreamCancellation();
+
+		assertThat(service.cancelTurn(1L, 100L)).isFalse();
+		assertThat(service.beginTurn(1L, 100L, cancellation)).isPresent();
+		assertThat(service.cancelTurn(2L, 100L)).isFalse();
+		assertThat(service.cancelTurn(1L, 999L)).isFalse();
+		assertThat(service.cancelTurn(1L, 100L)).isTrue();
+		assertThat(cancellation.isUserCancelled()).isTrue();
+
+		SessionStreamConnection connection = mock(
+			SessionStreamConnection.class
+		);
+		service.fail(
+			connection,
+			new BusinessException(ErrorCode.TURN_CANCELLED)
+		);
+		var error = org.mockito.ArgumentCaptor.forClass(
+			SessionStreamError.class
+		);
+		verify(connection).sendError(error.capture());
+		assertThat(error.getValue().code()).isEqualTo("TURN_CANCELLED");
+		assertThat(error.getValue().retryable()).isFalse();
 	}
 
 	@Test

@@ -229,6 +229,47 @@ public class TurnPersistenceService {
 		);
 	}
 
+	@Transactional
+	public PersistedTurn persistCancelled(
+		Long userId,
+		Long sessionId,
+		String requestId,
+		String turnId,
+		String content
+	) {
+		LearningSession session = sessionRepository.findOwnedForUpdate(
+				sessionId,
+				userId
+			)
+			.orElseThrow(() ->
+				new BusinessException(ErrorCode.SESSION_NOT_FOUND));
+		if (session.getStatus() != SessionStatus.ACTIVE) {
+			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
+		}
+		if (!requestId.equals(session.getActiveTurnRequestId())) {
+			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
+		}
+
+		ChatMessage message = messageRepository.save(
+			ChatMessage.ai(session, content)
+		);
+		messageRepository.flush();
+		return new PersistedTurn(
+			turnId,
+			sessionId,
+			List.of(MessageResponse.from(message)),
+			List.of(),
+			new TurnStateResponse(
+				session.getCurrentPage(),
+				session.getPageStatus(),
+				session.getActiveQuizId()
+			),
+			null,
+			null,
+			session.getMaterialId()
+		);
+	}
+
 	private List<UiAction> applyAllowedAiUiAction(
 		TurnEventType eventType,
 		LearningSession session,

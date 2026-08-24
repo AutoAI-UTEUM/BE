@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class AiStreamCancellation {
 
 	private final AtomicBoolean cancelled = new AtomicBoolean();
+	private final AtomicBoolean userCancelled = new AtomicBoolean();
 	private final AtomicReference<Closeable> activeBody =
 		new AtomicReference<>();
 
@@ -16,8 +17,17 @@ public final class AiStreamCancellation {
 		close(activeBody.getAndSet(null));
 	}
 
+	public void cancelByUser() {
+		userCancelled.set(true);
+		cancel();
+	}
+
 	public boolean isCancelled() {
 		return cancelled.get();
+	}
+
+	public boolean isUserCancelled() {
+		return userCancelled.get();
 	}
 
 	void bind(Closeable body) {

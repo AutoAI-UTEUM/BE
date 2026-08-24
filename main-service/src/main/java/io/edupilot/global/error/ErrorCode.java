@@ -166,6 +166,11 @@ public enum ErrorCode {
 		HttpStatus.CONFLICT,
 		"다른 학습 턴을 처리하고 있습니다."
 	),
+	TURN_CANCELLED(
+		"TURN_CANCELLED",
+		HttpStatus.CONFLICT,
+		"학습 턴이 취소되었습니다."
+	),
 	QUIZ_NOT_FOUND(
 		"QUIZ_NOT_FOUND",
 		HttpStatus.NOT_FOUND,

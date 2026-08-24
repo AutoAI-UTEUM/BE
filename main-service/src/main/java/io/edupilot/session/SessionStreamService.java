@@ -115,6 +115,16 @@ public class SessionStreamService {
 		return Optional.of(connection);
 	}
 
+	public boolean cancelTurn(Long userId, Long sessionId) {
+		SessionStreamConnection connection = connections.get(sessionId);
+		if (connection == null
+			|| connection.isClosed()
+			|| !connection.userId().equals(userId)) {
+			return false;
+		}
+		return connection.cancelTurn();
+	}
+
 	public void complete(
 		SessionStreamConnection connection,
 		TurnResponse response
