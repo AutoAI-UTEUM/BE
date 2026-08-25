@@ -82,6 +82,48 @@ class MaterialFailureJpaTest {
 		assertThat(saved.getFailureTraceId()).isEqualTo("upload-trace-jpa");
 	}
 
+	@Test
+	void extractionPersistsNonBlankXaiFileIdAndReturnsReplacedId() {
+		LearningMaterial material = material(owner(), "xai-file");
+		material.replaceXaiFileId("file-old");
+		materialRepository.flush();
+
+		var result = persistenceService.complete(
+			material.getId(),
+			List.of(new ExtractedPage(1, "page")),
+			"  file-new  "
+		);
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(result.applied()).isTrue();
+		assertThat(result.replacedXaiFileId()).isEqualTo("file-old");
+		LearningMaterial saved = materialRepository.findById(material.getId())
+			.orElseThrow();
+		assertThat(saved.getXaiFileId()).isEqualTo("file-new");
+		assertThat(saved.getProcessingStatus())
+			.isEqualTo(MaterialProcessingStatus.READY);
+	}
+
+	@Test
+	void blankXaiFileIdDoesNotOverwriteStoredValue() {
+		LearningMaterial material = material(owner(), "blank-xai-file");
+		material.replaceXaiFileId("file-existing");
+		materialRepository.flush();
+
+		var result = persistenceService.complete(
+			material.getId(),
+			List.of(new ExtractedPage(1, "page")),
+			"   "
+		);
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(result.replacedXaiFileId()).isNull();
+		assertThat(materialRepository.findById(material.getId()).orElseThrow()
+			.getXaiFileId()).isEqualTo("file-existing");
+	}
+
 	@ParameterizedTest
 	@EnumSource(
 		value = MaterialFailureReason.class,

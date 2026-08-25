@@ -24,6 +24,8 @@ services:
     image: ghcr.io/autoai-uteum/ai-service:${TAG}
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-prod}
+      EDUPILOT_XAI_FILES_ENABLED: ${XAI_FILES_ENABLED:-false}
+      EDUPILOT_XAI_FILE_UPLOAD_TIMEOUT_SECONDS: 60
     restart: unless-stopped
 
   nginx:

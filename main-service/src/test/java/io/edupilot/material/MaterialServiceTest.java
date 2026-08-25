@@ -65,6 +65,8 @@ class MaterialServiceTest {
 	private ClassroomWeekService weekService;
 	@Mock
 	private NotificationTriggerService notificationTriggerService;
+	@Mock
+	private MaterialXaiFileLifecycleService xaiFileLifecycleService;
 
 	private MaterialService materialService;
 	private User owner;
@@ -81,7 +83,8 @@ class MaterialServiceTest {
 			eventPublisher,
 			accessService,
 			weekService,
-			notificationTriggerService
+			notificationTriggerService,
+			xaiFileLifecycleService
 		);
 		owner = User.create("owner@example.com", "hash", "소유자");
 		ReflectionTestUtils.setField(owner, "id", 1L);
@@ -281,6 +284,7 @@ class MaterialServiceTest {
 			"자료",
 			"materials/00000000-0000-0000-0000-000000000001.pdf"
 		);
+		material.replaceXaiFileId("file-10");
 		when(materialRepository.findByIdForUpdate(10L))
 			.thenReturn(Optional.of(material));
 
@@ -290,6 +294,23 @@ class MaterialServiceTest {
 		InOrder order = inOrder(materialRepository, deletionGuard);
 		order.verify(materialRepository).findByIdForUpdate(10L);
 		order.verify(deletionGuard).assertDeletable(10L);
+		verify(xaiFileLifecycleService).deleteAfterCommit("file-10");
+	}
+
+	@Test
+	void deleteWithoutXaiFileKeepsExistingFlow() {
+		LearningMaterial material = LearningMaterial.create(
+			owner,
+			"자료",
+			"materials/no-xai-file.pdf"
+		);
+		when(materialRepository.findByIdForUpdate(10L))
+			.thenReturn(Optional.of(material));
+
+		materialService.delete(1L, 10L);
+
+		assertThat(material.getStatus()).isEqualTo(MaterialStatus.DELETED);
+		verifyNoInteractions(xaiFileLifecycleService);
 	}
 
 	@Test
