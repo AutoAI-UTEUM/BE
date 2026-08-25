@@ -62,4 +62,22 @@ class LocalVolumeStorageTest {
 		assertThatThrownBy(() -> storage.load(storageKey))
 			.isInstanceOf(StorageException.class);
 	}
+
+	@Test
+	void storesClassroomResourceWithUuidOnlyInDedicatedDirectory()
+		throws Exception {
+		LocalVolumeStorage storage = new LocalVolumeStorage(
+			new StorageProperties(tempDirectory)
+		);
+
+		String storageKey = storage.storeClassroomResource(
+			new ByteArrayInputStream("resource".getBytes(StandardCharsets.US_ASCII))
+		);
+
+		assertThat(storageKey)
+			.matches("classroom-resources/[0-9a-f-]{36}")
+			.doesNotContain(".pdf");
+		assertThat(storage.load(storageKey).getContentAsByteArray())
+			.isEqualTo("resource".getBytes(StandardCharsets.US_ASCII));
+	}
 }

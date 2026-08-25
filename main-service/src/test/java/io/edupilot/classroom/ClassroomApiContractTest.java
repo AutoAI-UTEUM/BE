@@ -10,6 +10,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -24,6 +26,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -39,6 +43,8 @@ import io.edupilot.classroom.dto.ClassroomAnalyticsResponse;
 import io.edupilot.classroom.dto.ClassroomDetailResponse;
 import io.edupilot.classroom.dto.ClassroomQuestionByPageResponse;
 import io.edupilot.classroom.dto.ClassroomNoticeResponse;
+import io.edupilot.classroom.dto.ClassroomResourceListResponse;
+import io.edupilot.classroom.dto.ClassroomResourceResponse;
 import io.edupilot.classroom.dto.ClassroomWeekListResponse;
 import io.edupilot.classroom.dto.ClassroomWeekResponse;
 import io.edupilot.classroom.dto.CreateClassroomNoticeRequest;
@@ -82,6 +88,9 @@ class ClassroomApiContractTest {
 
 	@Autowired
 	private ClassroomNoticeService classroomNoticeService;
+
+	@Autowired
+	private ClassroomResourceService classroomResourceService;
 
 	@Autowired
 	private ClassroomAnalyticsService analyticsService;
@@ -450,6 +459,204 @@ class ClassroomApiContractTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer(learnerToken)))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.error.code").value("CLASSROOM_NOT_FOUND"));
+	}
+
+	@Test
+	void classroomFileResourceUploadUsesMultipartContractAndMasksNonOwner()
+		throws Exception {
+		Instant createdAt = Instant.parse("2026-08-25T01:00:00Z");
+		when(classroomResourceService.createFile(
+			eq(1L),
+			eq(UserRole.INSTRUCTOR),
+			eq(30L),
+			any(),
+			eq("Week slides"),
+			eq(2)
+		)).thenReturn(new ClassroomResourceResponse(
+			70L,
+			ClassroomResourceType.FILE,
+			"Week slides",
+			2,
+			"slides.pptx",
+			"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+			6L,
+			null,
+			createdAt
+		));
+		MockMultipartFile file = new MockMultipartFile(
+			"file",
+			"slides.pptx",
+			"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+			"slides".getBytes()
+		);
+
+		mockMvc.perform(multipart("/api/classrooms/30/resources")
+				.file(file)
+				.param("title", "Week slides")
+				.param("weekNumber", "2")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.resourceId").value(70))
+			.andExpect(jsonPath("$.data.type").value("FILE"))
+			.andExpect(jsonPath("$.data.fileName").value("slides.pptx"))
+			.andExpect(jsonPath("$.data.url").isEmpty());
+
+		doThrow(new BusinessException(ErrorCode.VALIDATION_FAILED))
+			.when(classroomResourceService).createFile(
+				eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), any(), eq("Bad"), eq(null)
+			);
+		mockMvc.perform(multipart("/api/classrooms/30/resources")
+				.file(new MockMultipartFile(
+					"file", "script.exe", "application/octet-stream", new byte[] {1}
+				))
+				.param("title", "Bad")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+
+		doThrow(new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND))
+			.when(classroomResourceService).createFile(
+				eq(2L), eq(UserRole.LEARNER), eq(30L), any(), eq("Notes"), eq(null)
+			);
+		mockMvc.perform(multipart("/api/classrooms/30/resources")
+				.file(new MockMultipartFile(
+					"file", "notes.txt", "text/plain", "notes".getBytes()
+				))
+				.param("title", "Notes")
+				.header(HttpHeaders.AUTHORIZATION, bearer(learnerToken)))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("CLASSROOM_NOT_FOUND"));
+	}
+
+	@Test
+	void classroomLinkResourceContractAcceptsHttpAndRejectsOtherProtocol()
+		throws Exception {
+		Instant createdAt = Instant.parse("2026-08-25T01:00:00Z");
+		when(classroomResourceService.createLink(
+			eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), any()
+		)).thenReturn(new ClassroomResourceResponse(
+			71L,
+			ClassroomResourceType.LINK,
+			"Reference",
+			null,
+			null,
+			null,
+			null,
+			"https://example.com/lecture",
+			createdAt
+		));
+
+		mockMvc.perform(post("/api/classrooms/30/resources")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "url": "https://example.com/lecture",
+					  "title": "Reference"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.type").value("LINK"))
+			.andExpect(jsonPath("$.data.url").value("https://example.com/lecture"));
+
+		doThrow(new BusinessException(ErrorCode.VALIDATION_FAILED))
+			.when(classroomResourceService).createLink(
+				eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), any()
+			);
+		mockMvc.perform(post("/api/classrooms/30/resources")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"url":"ftp://example.com/file","title":"FTP"}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+	}
+
+	@Test
+	void learnerListsWeekResourcesButCannotModifyThem() throws Exception {
+		Instant createdAt = Instant.parse("2026-08-25T01:00:00Z");
+		ClassroomResourceResponse item = new ClassroomResourceResponse(
+			71L,
+			ClassroomResourceType.LINK,
+			"Reference",
+			2,
+			null,
+			null,
+			null,
+			"https://example.com",
+			createdAt
+		);
+		when(classroomResourceService.list(
+			2L, UserRole.LEARNER, 30L, 2, 0, 20
+		)).thenReturn(new ClassroomResourceListResponse(
+			List.of(item), 0, 20, 1, 1
+		));
+
+		mockMvc.perform(get("/api/classrooms/30/resources")
+				.param("weekNumber", "2")
+				.header(HttpHeaders.AUTHORIZATION, bearer(learnerToken)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items[0].weekNumber").value(2))
+			.andExpect(jsonPath("$.data.totalElements").value(1));
+
+		doThrow(new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND))
+			.when(classroomResourceService).update(
+				eq(2L), eq(UserRole.LEARNER), eq(71L), any()
+			);
+		mockMvc.perform(patch("/api/resources/71")
+				.header(HttpHeaders.AUTHORIZATION, bearer(learnerToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"title\":\"Updated\"}"))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("CLASSROOM_NOT_FOUND"));
+	}
+
+	@Test
+	void classroomResourceDownloadUsesPrivateCacheAndDispositionContract()
+		throws Exception {
+		when(classroomResourceService.file(2L, UserRole.LEARNER, 70L))
+			.thenReturn(new ClassroomResourceFile(
+				new ByteArrayResource("pdf".getBytes()),
+				"강의 자료.pdf",
+				MediaType.APPLICATION_PDF_VALUE,
+				true
+			));
+
+		mockMvc.perform(get("/api/resources/70/file")
+				.header(HttpHeaders.AUTHORIZATION, bearer(learnerToken)))
+			.andExpect(status().isOk())
+			.andExpect(header().string(
+				HttpHeaders.CACHE_CONTROL,
+				"private, max-age=3600, immutable"
+			))
+			.andExpect(header().string(
+				HttpHeaders.CONTENT_DISPOSITION,
+				org.hamcrest.Matchers.allOf(
+					org.hamcrest.Matchers.startsWith("inline"),
+					org.hamcrest.Matchers.containsString("filename*=UTF-8''")
+				)
+			));
+
+		doThrow(new BusinessException(ErrorCode.RESOURCE_NOT_FOUND))
+			.when(classroomResourceService).file(2L, UserRole.LEARNER, 71L);
+		mockMvc.perform(get("/api/resources/71/file")
+				.header(HttpHeaders.AUTHORIZATION, bearer(learnerToken)))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+	}
+
+	@Test
+	void openApiDocumentsFileAndLinkClassroomResourceMediaTypes()
+		throws Exception {
+		mockMvc.perform(get("/v3/api-docs"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/resources'].post.requestBody.content['multipart/form-data']"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/resources'].post.requestBody.content['application/json']"
+			).exists());
 	}
 
 	private ClassroomDetailResponse detailResponse() {

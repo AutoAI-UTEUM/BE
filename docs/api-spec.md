@@ -127,6 +127,12 @@
 | DELETE | `/api/classrooms/{id}/weeks/{weekNumber}` | 주차·자료 연결 삭제 | Y | 소유 INSTRUCTOR |
 | POST | `/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}` | 기존 자료 연결 | Y | 소유 INSTRUCTOR, 본인 소유 자료 |
 | DELETE | `/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}` | 자료 연결 해제 | Y | 소유 INSTRUCTOR |
+| GET | `/api/classrooms/{id}/resources` | 강의실 일반 자료 목록 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
+| POST | `/api/classrooms/{id}/resources` | 강의실 파일 자료 등록 (`multipart/form-data`) | Y | 소유 INSTRUCTOR |
+| POST | `/api/classrooms/{id}/resources` | 강의실 링크 자료 등록 (`application/json`) | Y | 소유 INSTRUCTOR |
+| PATCH | `/api/resources/{resourceId}` | 강의실 일반 자료 제목·주차 수정 | Y | 소유 INSTRUCTOR |
+| GET | `/api/resources/{resourceId}/file` | 강의실 파일 자료 열기·다운로드 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
+| DELETE | `/api/resources/{resourceId}` | 강의실 일반 자료 삭제 | Y | 소유 INSTRUCTOR |
 | GET | `/api/classrooms/{id}/notices` | 공지 목록 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
 | POST | `/api/classrooms/{id}/notices` | 공지 즉시·예약 게시 | Y | 소유 INSTRUCTOR |
 | PATCH | `/api/classrooms/{id}/notices/{noticeId}` | 공지 수정 | Y | 소유 INSTRUCTOR |
@@ -1545,7 +1551,7 @@ Query:
 
 - 별도 시험: `exam_answers`, `exam_submissions`, `exam_questions`, `exams`
 - 리포트: `report_criterion_results`, `student_reports`, `report_evidence_snapshots`, `report_generations`, `report_criteria`
-- 강의실 운영: `classroom_notices`, `classroom_week_materials`, `classroom_weeks`, `classroom_join_requests`, `classroom_members`, `classrooms`
+- 강의실 운영: `classroom_resource`, `classroom_notices`, `classroom_week_materials`, `classroom_weeks`, `classroom_join_requests`, `classroom_members`, `classrooms`
 
 `student_reports.previous_report_id`는 삭제 전에 참조를 해제합니다. 강사 개인 소유 `learning_materials`와 학생-자료 관계의 `learning_sessions`, `session_page_records`, 채팅·QA, 통합학습 퀴즈·제출·평가, 진단, 학습자 메모리 및 `user_schedules`는 삭제하지 않습니다. 성공 응답의 `data`는 `null`입니다.
 
@@ -1731,6 +1737,80 @@ PENDING 요청만 처리합니다. 승인은 같은 트랜잭션에서 `classroo
 ### DELETE `/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}`
 
 연결만 제거하고 자료와 기존 학습 기록은 유지합니다. 연결이 이미 없으면 멱등 성공합니다. 연결 해제 후 다른 소유권·강의실 연결 접근 경로가 없는 사용자는 신규 자료·파일 조회, 세션 생성과 기존 세션의 추가 턴이 차단됩니다.
+
+### GET `/api/classrooms/{id}/resources?weekNumber&page&size`
+
+AI 추출·통합학습 대상이 아닌 강의실 일반 파일·링크 자료를 `createdAt DESC, resourceId DESC`로 반환합니다. `weekNumber`를 생략하면 전체 자료, 지정하면 해당 주차 자료만 반환합니다. 기본 `page=0`, `size=20`, 최대 100이며 `weekNumber`는 null 또는 `1 <= weekNumber <= weekCount`여야 합니다. 소유 강사와 승인 멤버가 조회할 수 있고 비접근 강의실은 `CLASSROOM_NOT_FOUND`(404)로 은닉합니다.
+
+```json
+{
+  "items": [
+    {
+      "resourceId": 70,
+      "type": "FILE",
+      "title": "2주차 발표 자료",
+      "weekNumber": 2,
+      "fileName": "week2-slides.pptx",
+      "contentType": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "sizeBytes": 1048576,
+      "url": null,
+      "createdAt": "2026-08-25T01:00:00Z"
+    },
+    {
+      "resourceId": 71,
+      "type": "LINK",
+      "title": "참고 사이트",
+      "weekNumber": null,
+      "fileName": null,
+      "contentType": null,
+      "sizeBytes": null,
+      "url": "https://example.com/reference",
+      "createdAt": "2026-08-25T01:01:00Z"
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 2,
+  "totalPages": 1
+}
+```
+
+### POST `/api/classrooms/{id}/resources` — FILE
+
+`multipart/form-data`의 `file`, `title`, 선택 `weekNumber`를 받습니다. `title`은 trim 후 비공백·최대 200자, 파일은 비어 있지 않고 기존 자료 업로드 상한 이하여야 합니다. 확장자는 대소문자를 무시하고 `jpg | jpeg | png | gif | webp | pdf | doc | docx | ppt | pptx | xls | xlsx | hwp | hwpx | txt | csv | zip`만 허용하며 확장자가 없으면 `VALIDATION_FAILED`(400)입니다. 파일은 `EDUPILOT_STORAGE_DIR/classroom-resources/{UUID}`에 저장하고 원본 파일명은 응답·DB 메타데이터로만 보존합니다.
+
+Swagger/OpenAPI에는 이 FILE 요청을 `multipart/form-data` binary operation으로, 아래 LINK 요청을 `application/json` operation으로 같은 경로에 구분해 게시합니다.
+
+### POST `/api/classrooms/{id}/resources` — LINK
+
+```json
+{
+  "url": "https://example.com/reference",
+  "title": "참고 사이트",
+  "weekNumber": null
+}
+```
+
+URL은 trim 후 최대 2048자이며 `http` 또는 `https` 프로토콜과 호스트가 있어야 합니다. FILE·LINK 생성은 소유 강사의 ACTIVE 강의실에서만 가능하고 완료 강의실은 `CLASSROOM_COMPLETED`(409), 비소유·부재 강의실은 `CLASSROOM_NOT_FOUND`(404)입니다. 성공 응답은 위 목록 항목과 같습니다.
+
+### PATCH `/api/resources/{resourceId}`
+
+```json
+{
+  "title": "수정된 발표 자료",
+  "weekNumber": 3
+}
+```
+
+`title`, `weekNumber` 부분 수정이며 하나 이상 필요합니다. `weekNumber:null`은 전체 자료로 변경하고 FILE 내용·원본명과 LINK URL은 이 API에서 변경하지 않습니다. 생성과 같은 소유권·ACTIVE·제목·주차 규칙을 적용합니다.
+
+### GET `/api/resources/{resourceId}/file`
+
+FILE 원본을 인증 응답으로 제공합니다. 이미지·PDF는 `Content-Disposition:inline`, 나머지는 `attachment`이고 원본 파일명은 RFC 5987 UTF-8 형식으로 인코딩합니다. `Cache-Control: private, max-age=3600, immutable`을 사용하며 공유 캐시는 금지합니다. LINK에 파일 요청을 보내거나 자료가 없으면 `RESOURCE_NOT_FOUND`(404)입니다.
+
+### DELETE `/api/resources/{resourceId}`
+
+소유 강사의 ACTIVE 강의실 자료만 물리 삭제합니다. FILE은 DB 행 삭제 커밋 후 storage 파일을 best-effort로 삭제하며 실패는 경고 로그만 남깁니다. 성공 응답의 `data`는 `null`입니다.
 
 ### GET `/api/classrooms/{id}/notices?page&size`
 

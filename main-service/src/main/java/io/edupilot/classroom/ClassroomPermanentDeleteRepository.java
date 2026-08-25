@@ -94,6 +94,10 @@ public interface ClassroomPermanentDeleteRepository
 	int deleteReportCriteria(@Param("classroomId") Long classroomId);
 
 	@Modifying(flushAutomatically = true)
+	@Query(value = "delete from classroom_resource where classroom_id = :classroomId", nativeQuery = true)
+	int deleteClassroomResources(@Param("classroomId") Long classroomId);
+
+	@Modifying(flushAutomatically = true)
 	@Query(value = "delete from classroom_notices where classroom_id = :classroomId", nativeQuery = true)
 	int deleteClassroomNotices(@Param("classroomId") Long classroomId);
 

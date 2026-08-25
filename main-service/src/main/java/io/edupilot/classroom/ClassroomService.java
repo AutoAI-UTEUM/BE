@@ -264,6 +264,7 @@ public class ClassroomService {
 		permanentDeleteRepository.deleteReportEvidenceSnapshots(classroomId);
 		permanentDeleteRepository.deleteReportGenerations(classroomId);
 		permanentDeleteRepository.deleteReportCriteria(classroomId);
+		permanentDeleteRepository.deleteClassroomResources(classroomId);
 		permanentDeleteRepository.deleteClassroomNotices(classroomId);
 		permanentDeleteRepository.deleteClassroomWeekMaterials(classroomId);
 		permanentDeleteRepository.deleteClassroomWeeks(classroomId);

@@ -24,6 +24,7 @@
 | `classroom_weeks` | id, classroom_id, week_number, title, release_at(nullable), status, display_order, timestamps | `FK(classroom_id)`, `UK(classroom_id,week_number)`, `IDX(classroom_id,display_order)`, 주차 번호·상태·표시 순서 CHECK |
 | `classroom_week_materials` | id, week_id, material_id, added_at, timestamps | `FK(week_id)`, `FK(material_id)`, `UK(week_id,material_id)`, `IDX(material_id)` |
 | `classroom_notices` | id, classroom_id, week_number(nullable), title, content, published_at, publish_at(nullable), notification_sent_at(nullable), timestamps | `FK(classroom_id)`, `IDX(classroom_id,published_at,id)`, 주차 번호 CHECK |
+| `classroom_resource` | id, classroom_id, type, title, week_number(nullable), file metadata(nullable), storage_path(nullable), url(nullable), timestamps | `FK(classroom_id)`, `IDX(classroom_id,week_number,created_at,id)`, 유형·주차·파일 크기·메타데이터 조합 CHECK |
 | `notifications` | id, user_id, type, title, body, link_json, read_at(nullable), created_at | `FK(user_id)`, `IDX(user_id,created_at)`, type CHECK |
 | `user_schedules` | id, user_id, title, starts_at, ends_at, has_time, timestamps | `FK(user_id)`, `IDX(user_id,starts_at)`, `CHECK(ends_at >= starts_at)` |
 | `exams` | id, classroom_id, week_number(nullable), title, description(nullable), status, allow_retake, total_score, published_at(nullable), closed_at(nullable), timestamps | `FK(classroom_id)`, `IDX(classroom_id,status)`, 상태·총점 CHECK |
@@ -65,7 +66,7 @@
 - `learning_sessions`에는 `classroom_id`를 추가하지 않습니다. 강의실에서 시작한 통합학습도 기존 사용자×자료 ACTIVE 세션 재사용 규칙을 적용합니다.
 - `classroom_weeks.status`는 `PRIVATE | SCHEDULED | PUBLISHED | BREAK` 정본으로 저장합니다. `PRIVATE`는 미노출, `SCHEDULED`는 `release_at`이 있고 현재 UTC 시각이 공개일에 도달했을 때 노출, `PUBLISHED`와 `BREAK`는 항상 노출합니다. 상태 전이 스케줄러 없이 조회 시점에 판정하며 `week_number`는 재정렬로 변경하지 않습니다. `classrooms.week_count/current_week`는 저장하지 않고 강의실 날짜와 `Asia/Seoul`의 오늘로 파생합니다.
 - `classrooms.color`는 `BLUE | GREEN | PURPLE | ORANGE | RED | GRAY`, `status`는 `ACTIVE | COMPLETED`입니다. 완료는 날짜가 아니라 명시적 상태 전환으로만 발생합니다.
-- 강의실 컬럼 타입은 `name VARCHAR(100)`, `start_date/end_date DATE`, `color VARCHAR(20)`, `description VARCHAR(255) NULL`, `status VARCHAR(20)`, `invite_code VARCHAR(16)`입니다. 주차는 `week_number INT`, `title VARCHAR(100)`, `release_at DATETIME(6) NULL`, `status VARCHAR(20)`, `display_order INT`를 사용하고, 공지는 `week_number INT NULL`, `title VARCHAR(200)`, `content TEXT`, `published_at DATETIME(6)`, `publish_at DATETIME(6) NULL`을 사용합니다. 공지 `week_number`는 null 또는 1 이상이며 상한은 애플리케이션에서 강의실 `weekCount`로 검증합니다. 참여·요청·연결 시각도 `DATETIME(6)` UTC입니다.
+- 강의실 컬럼 타입은 `name VARCHAR(100)`, `start_date/end_date DATE`, `color VARCHAR(20)`, `description VARCHAR(255) NULL`, `status VARCHAR(20)`, `invite_code VARCHAR(16)`입니다. 주차는 `week_number INT`, `title VARCHAR(100)`, `release_at DATETIME(6) NULL`, `status VARCHAR(20)`, `display_order INT`를 사용하고, 공지는 `week_number INT NULL`, `title VARCHAR(200)`, `content TEXT`, `published_at DATETIME(6)`, `publish_at DATETIME(6) NULL`을 사용합니다. 일반 자료는 `type FILE | LINK`, `title VARCHAR(200)`, `week_number INT NULL`, 원본 파일 메타데이터 또는 `url VARCHAR(2048)`을 유형별로 저장합니다. 공지·일반 자료의 `week_number` 상한은 애플리케이션에서 강의실 `weekCount`로 검증합니다. 참여·요청·연결 시각도 `DATETIME(6)` UTC입니다.
 - 강의실 관련 테이블은 모두 `BIGINT AUTO_INCREMENT` PK와 `created_at`, `updated_at`을 사용합니다. FK에는 자동 cascade를 두지 않고 주차·연결·공지 삭제 순서를 서비스 트랜잭션에서 명시적으로 처리합니다.
 - 별도 시험은 강의실에 귀속하고 `week_number`는 nullable 표시·집계 라벨로만 사용합니다. 값이 있으면 `1 <= week_number <= classroom.week_count`를 애플리케이션에서 검증하되 `classroom_weeks` 행의 존재를 요구하지 않습니다. `exams.status`는 `DRAFT | PUBLISHED | CLOSED`, `allow_retake` 기본값은 false입니다.
 - DRAFT 시험은 문항 0개와 `total_score=0`을 허용하므로 DB 제약은 `total_score >= 0`입니다. 공개 시 애플리케이션이 문항 1개 이상과 `total_score > 0`을 검증하며, 문항 전체 교체 시 합계를 다시 계산합니다. 공개 이후 문항과 설정은 변경하지 않습니다.
@@ -172,6 +173,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - 내 참여 요청: `classroom_join_requests(user_id, status, requested_at, id)`
 - 주차 자료 역조회: `classroom_week_materials(material_id)`
 - 강의실 공지: `classroom_notices(classroom_id, published_at, id)`
+- 강의실 일반 자료: `classroom_resource(classroom_id, week_number, created_at, id)`
 - 내 인앱 알림: `notifications(user_id, created_at)`
 - 강의실 시험 목록: `exams(classroom_id, status, created_at, id)`
 - 학생별 시험 시도: `exam_submissions(exam_id, user_id, attempt_no)` UNIQUE
@@ -207,6 +209,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V24__exam_grading_retry.sql`은 시험 채점의 30분 창 재시도 횟수와 non-negative CHECK를 추가합니다. 기존 제출은 0으로 초기화합니다.
 - `V25__report_scope_chain.sql`은 generation의 scope를 `student_reports.scope_key`로 backfill하고 학생별 전역 version 유니크를 학생·scope 체인별 version 유니크로 교체합니다. backfill할 수 없는 행은 임의 기본값 없이 NOT NULL 전환에서 배포를 중단합니다.
 - `V26__in_app_notifications.sql`은 사용자 귀속 인앱 알림 테이블과 최신순 인덱스, 예약 공지 1회 생성 표식을 추가합니다. 기존 즉시 게시·이미 도래한 공지는 발송 완료로 backfill하고 미래 예약 공지만 스캔 대상으로 남깁니다.
+- `V32__classroom_resources.sql`은 AI 추출 대상이 아닌 강의실 일반 파일·링크 자료와 유형별 메타데이터 제약, 주차별 최신순 조회 인덱스를 추가합니다. 파일은 `classroom-resources/` storage 하위에 UUID 키로 저장합니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.

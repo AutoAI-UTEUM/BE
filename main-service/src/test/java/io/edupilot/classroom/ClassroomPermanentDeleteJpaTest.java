@@ -103,6 +103,7 @@ class ClassroomPermanentDeleteJpaTest {
 	@Autowired private ClassroomWeekRepository weekRepository;
 	@Autowired private ClassroomWeekMaterialRepository weekMaterialRepository;
 	@Autowired private ClassroomNoticeRepository noticeRepository;
+	@Autowired private ClassroomResourceRepository resourceRepository;
 	@Autowired private LearningMaterialRepository materialRepository;
 	@Autowired private LearningSessionRepository sessionRepository;
 	@Autowired private ChatMessageRepository chatMessageRepository;
@@ -168,6 +169,12 @@ class ClassroomPermanentDeleteJpaTest {
 		weekMaterialRepository.save(ClassroomWeekMaterial.create(week, material, NOW));
 		noticeRepository.save(ClassroomNotice.create(
 			classroom, "Notice", "Delete with classroom", NOW
+		));
+		resourceRepository.save(ClassroomResource.link(
+			classroom,
+			"Reference",
+			1,
+			"https://example.com/reference"
 		));
 
 		LearningSession session = sessionRepository.saveAndFlush(
@@ -407,6 +414,7 @@ class ClassroomPermanentDeleteJpaTest {
 			"report_evidence_snapshots",
 			"report_generations",
 			"report_criteria",
+			"classroom_resource",
 			"classroom_notices",
 			"classroom_week_materials",
 			"classroom_weeks",
