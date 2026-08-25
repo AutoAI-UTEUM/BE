@@ -83,7 +83,7 @@ def extract_pdf(
             )
             for index, page in enumerate(reader.pages, start=1)
         )
-    except (PdfExtractionError, PdfPageLimitError):
+    except PdfExtractionError, PdfPageLimitError:
         raise
     except FileNotDecryptedError as exception:
         raise PdfExtractionError(PdfFailureReason.ENCRYPTED) from exception

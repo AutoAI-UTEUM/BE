@@ -30,6 +30,20 @@ health 확인:
 curl --fail http://127.0.0.1:8000/health
 ```
 
+## 검증
+
+로컬과 GitHub Actions는 같은 uv locked 환경과 명령을 사용합니다.
+
+```bash
+uv sync --locked --dev
+uv run --locked ruff format --check src tests demo.py
+uv run --locked ruff check src tests demo.py
+uv run --locked mypy src tests demo.py
+uv run --locked pytest -q
+```
+
+pytest 기본 설정은 `live` 마커를 제외하므로 CI에서 실제 외부 AI를 호출하지 않습니다.
+
 turn 확인:
 
 ```bash
