@@ -3,7 +3,7 @@
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import Field, PrivateAttr, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 
 from edupilot_ai.models.base import ContractModel
 from edupilot_ai.models.quiz import QuizGeneration, QuizType
@@ -108,6 +108,7 @@ class MemoryContext(ContractModel):
 
 
 class ContextSnapshot(ContractModel):
+    xai_file_id: str | None = Field(default=None, min_length=1)
     current_page_text: str | None
     previous_page_text: str | None
     next_page_text: str | None
@@ -120,6 +121,16 @@ class ContextSnapshot(ContractModel):
     pending_diagnosis: dict[str, Any] | str | None
     latest_repair: dict[str, Any] | str | None
     memory: MemoryContext
+
+    @field_validator("xai_file_id")
+    @classmethod
+    def normalize_xai_file_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("xaiFileId must not be blank")
+        return normalized
 
 
 class TurnRequest(ContractModel):

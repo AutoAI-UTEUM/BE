@@ -10,6 +10,7 @@ from edupilot_ai.core.errors import ErrorCategory
 from edupilot_ai.llm.bridge import (
     LlmBridge,
     LlmBridgeError,
+    LlmFileAttachment,
     LlmTextDelta,
     LlmTextStreamCompleted,
     LlmTextStreamItem,
@@ -56,6 +57,11 @@ _FORBIDDEN_NOTE_FIELDS = {
     "turnid",
 }
 logger = logging.getLogger(__name__)
+
+
+def _material_attachments(context: AgentContext) -> tuple[LlmFileAttachment, ...]:
+    file_id = context.attached_file_id
+    return (LlmFileAttachment(file_id=file_id),) if file_id is not None else ()
 
 
 def detect_page_redirect(message: str) -> Literal["NEXT", "PREVIOUS"] | None:
@@ -142,6 +148,7 @@ class ExplainerAgent:
             response_model=AgentOutput,
             profile=self._profile,
             timeout_seconds=timeout_seconds,
+            attachments=_material_attachments(context),
         )
         return AgentResult(
             agent="ExplainerAgent",
@@ -171,6 +178,7 @@ class ExplainerAgent:
                 ),
                 profile=self._profile,
                 timeout_seconds=timeout_seconds,
+                attachments=_material_attachments(context),
             )
         )
         return AgentTextStream(
@@ -237,6 +245,7 @@ class QaAgent:
             response_model=AgentOutput,
             profile=self._profile,
             timeout_seconds=timeout_seconds,
+            attachments=_material_attachments(context),
         )
         return AgentResult(
             agent="QaAgent",
@@ -284,6 +293,7 @@ class QaAgent:
                 messages=qa_messages(context, mode, structured=False),
                 profile=self._profile,
                 timeout_seconds=timeout_seconds,
+                attachments=_material_attachments(context),
             )
         return AgentTextStream(
             agent="QaAgent",

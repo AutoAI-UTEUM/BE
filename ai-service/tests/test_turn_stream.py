@@ -14,6 +14,7 @@ from edupilot_ai.core.errors import ErrorCategory
 from edupilot_ai.llm.bridge import (
     LlmBridgeError,
     LlmCompletion,
+    LlmFileAttachment,
     LlmUsage,
     ModelT,
 )
@@ -61,6 +62,7 @@ class SlowFakeLlm(FakeLlm):
         response_model: type[ModelT],
         profile: AgentLlmProfile,
         timeout_seconds: float,
+        attachments: Sequence[LlmFileAttachment] = (),
     ) -> LlmCompletion[ModelT]:
         await asyncio.sleep(self._delay_seconds)
         return await super().complete_json(
@@ -68,6 +70,7 @@ class SlowFakeLlm(FakeLlm):
             response_model=response_model,
             profile=profile,
             timeout_seconds=timeout_seconds,
+            attachments=attachments,
         )
 
 
@@ -138,6 +141,9 @@ async def test_explain_ndjson_golden_sequence_and_content_invariant(
         "eventType": "EXPLAIN_CURRENT_PAGE",
         "payload": {"detailLevel": "DETAILED"},
     }
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["xaiFileId"] = "file-explain-stream"
     fake_llm.queue_text_stream(
         "편차는 ",
         "**평균과 관측값의 차이**입니다.",
@@ -183,6 +189,7 @@ async def test_explain_ndjson_golden_sequence_and_content_invariant(
     stream_system_prompt = fake_llm.stream_calls[0][0][0]["content"]
     assert "Return only the learner-facing Markdown explanation." in stream_system_prompt
     assert "모든 학습자 대상 텍스트" in stream_system_prompt
+    assert [item.file_id for item in fake_llm.stream_file_attachments[0]] == ["file-explain-stream"]
 
 
 async def test_explain_empty_page_streams_fixed_guidance_without_agent_llm(
@@ -229,6 +236,7 @@ async def test_qa_ndjson_golden_sequence_preserves_thread_ref(
     context = payload["context"]
     assert isinstance(context, dict)
     context["qaThreadDigest"] = {"threadRef": "qa-11", "summary": "편차 질문"}
+    context["xaiFileId"] = "file-qa-stream"
     fake_llm.queue(
         make_plan(
             ToolName.ANSWER_QUESTION,
@@ -257,6 +265,8 @@ async def test_qa_ndjson_golden_sequence_preserves_thread_ref(
         == result.messages[0].content
     )
     assert "모든 학습자 대상 텍스트" in fake_llm.stream_calls[0][0][0]["content"]
+    assert fake_llm.file_attachments == [()]
+    assert [item.file_id for item in fake_llm.stream_file_attachments[0]] == ["file-qa-stream"]
 
 
 async def test_stream_error_is_terminal_and_excludes_completed(
