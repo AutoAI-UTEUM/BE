@@ -53,6 +53,9 @@ public class LearningMaterial {
 	@Column(name = "captions_completed_at")
 	private Instant captionsCompletedAt;
 
+	@Column(name = "xai_file_id", length = 255)
+	private String xaiFileId;
+
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)
 	private MaterialStatus status;
@@ -114,6 +117,18 @@ public class LearningMaterial {
 		this.status = MaterialStatus.DELETED;
 	}
 
+	public String replaceXaiFileId(String newXaiFileId) {
+		if (newXaiFileId == null || newXaiFileId.isBlank()) {
+			return null;
+		}
+		String normalized = newXaiFileId.trim();
+		String previous = xaiFileId;
+		xaiFileId = normalized;
+		return previous != null && !previous.equals(normalized)
+			? previous
+			: null;
+	}
+
 	public void rename(String title) {
 		this.title = title;
 	}
@@ -161,6 +176,10 @@ public class LearningMaterial {
 
 	public String getFailureTraceId() {
 		return failureTraceId;
+	}
+
+	public String getXaiFileId() {
+		return xaiFileId;
 	}
 
 	public MaterialStatus getStatus() {

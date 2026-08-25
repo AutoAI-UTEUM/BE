@@ -25,7 +25,7 @@
   - v0.2의 "RuleRouter" 개념은 이 구조로 흡수됨 — **결정 가능한 분기는 전부 Spring 측 규칙**(StateReducer·파이프라인 트리거·페이지 이동), FastAPI 내부에는 별도 규칙 라우터를 두지 않는다. Policy/Verifier는 LLM Plan의 스키마·허용 도구·교수 정책 검증만 담당한다(동일 판단 로직 이중화 금지).
   - 단, 이벤트로 결과가 유일하게 결정되는 턴의 Plan 합성과 결정적 안내 fast-path(페이지 이동 안내·빈 페이지)는 AI 내부 규칙으로 처리한다(설계 승인, 2026-08-17).
 - **상태 소유: Spring** — FastAPI는 무상태. 요청마다 스냅샷을 받고 statePatch를 제안하며, Spring이 허용목록으로 검증 후 반영. FastAPI는 자체 영속 저장소(Redis 포함)를 두지 않는다.
-- **PDF 접근** — 자료 업로드 시 `/internal/ai/extract`로 1회 추출 → Spring이 `material_pages`에 저장 → `/internal/ai/outline`에는 저장된 전 페이지 텍스트를 전달하고, 턴마다 현재±1 페이지 텍스트를 스냅샷에 동봉한다. 추출 텍스트는 앵커·폴백으로 계속 유지한다. Phase 1에서는 kill switch가 켜진 경우 추출 성공 원본을 xAI Files에 선택적으로 업로드해 `xaiFileId`만 반환하며, 이를 턴에 첨부하는 경로는 Phase 3에서 도입한다(DEC-035).
+- **PDF 접근** — 자료 업로드 시 `/internal/ai/extract`로 1회 추출 → Spring이 `material_pages`와 nullable xAI file ID를 저장 → `/internal/ai/outline`에는 저장된 전 페이지 텍스트를 전달하고, 턴마다 현재±1 페이지 텍스트를 스냅샷에 동봉한다. 추출 텍스트는 앵커·폴백으로 계속 유지한다. Phase 1에서는 kill switch가 켜진 경우 추출 성공 원본을 xAI Files에 선택적으로 업로드해 `xaiFileId`를 반환하며, Spring이 저장한 file ID는 수명주기 정리에만 사용한다. 이를 턴에 첨부하는 경로는 Phase 3에서 도입한다(DEC-035).
 
 ## 1. 공통 규칙
 
@@ -269,7 +269,7 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 | turn (스트리밍) | 180s (첫 이벤트 30s) | 설명·퀴즈 생성 상한 |
 | grade | 90s | high effort + ESSAY 다문항, 비스트리밍 |
 | quiz-assessment / diagnosis | 45s | 구조화 출력 단건 |
-| extract | 120s | 45MB·300p 상한 (실측 후 조정 — #5 체크리스트) |
+| extract | 200s | 45MB·300p 추출 + xAI Files 업로드 최대 60초 여유 |
 
 - **재시도**: provider 어댑터는 자동 재시도하지 않습니다. SCHEMA는
   Orchestrator의 1회 재생성으로 재시도 예산을 소진합니다. Spring은
@@ -360,6 +360,7 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 - 요청: multipart PDF (≤45MB — DEC-016).
 - 응답: `{ "schemaVersion": "1.0", "pageCount": 42, "pages": [{ "pageNumber": 1, "text": "..." }], "xaiFileId": "file-...", "warnings": [] }`. `xaiFileId`는 nullable이며 `warnings[]` 항목은 `{type,message}` 형식입니다.
 - `EDUPILOT_XAI_FILES_ENABLED=true`일 때만 추출 성공 후 원본 PDF를 xAI Files에 업로드합니다. 기본값은 `false`입니다. 업로드 실패 또는 xAI 제한인 48MiB 초과 시 `xaiFileId=null`, `warnings=[{"type":"FILE_UPLOAD_FAILED","message":"..."}]`로 반환하되 페이지 추출 응답은 HTTP 200을 유지합니다.
+- 파일 정리: `DELETE /internal/ai/files/{fileId}`. Spring은 자료 수명 종료 또는 file ID 교체 시 커밋 후 호출하며, 204 외 실패는 로그만 남기고 자료 상태를 되돌리지 않습니다.
 - 오류: `EXTRACTION_FAILED`(손상/암호화/텍스트 없음 — 하위 사유 코드 분류), `PAGE_LIMIT_EXCEEDED`(300p). 저장·상태 전이는 Spring.
 
 #### DELETE /internal/ai/files/{fileId}

@@ -47,6 +47,7 @@ public class MaterialService {
 	private final MaterialAccessService accessService;
 	private final ClassroomWeekService weekService;
 	private final NotificationTriggerService notificationTriggerService;
+	private final MaterialXaiFileLifecycleService xaiFileLifecycleService;
 
 	public MaterialService(
 		LearningMaterialRepository materialRepository,
@@ -58,7 +59,8 @@ public class MaterialService {
 		ApplicationEventPublisher eventPublisher,
 		MaterialAccessService accessService,
 		ClassroomWeekService weekService,
-		NotificationTriggerService notificationTriggerService
+		NotificationTriggerService notificationTriggerService,
+		MaterialXaiFileLifecycleService xaiFileLifecycleService
 	) {
 		this.materialRepository = materialRepository;
 		this.pageRepository = pageRepository;
@@ -70,6 +72,7 @@ public class MaterialService {
 		this.accessService = accessService;
 		this.weekService = weekService;
 		this.notificationTriggerService = notificationTriggerService;
+		this.xaiFileLifecycleService = xaiFileLifecycleService;
 	}
 
 	@Transactional
@@ -215,6 +218,9 @@ public class MaterialService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
 		deletionGuard.assertDeletable(materialId);
 		material.delete();
+		if (material.getXaiFileId() != null) {
+			xaiFileLifecycleService.deleteAfterCommit(material.getXaiFileId());
+		}
 	}
 
 	private void validateFile(MultipartFile file) {

@@ -1,5 +1,6 @@
 package io.edupilot.material;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -12,6 +13,7 @@ import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.ExtractResponse;
 import io.edupilot.global.security.TraceIdFilter;
+import io.edupilot.material.MaterialExtractionPersistenceService.CompletionResult;
 import io.edupilot.material.MaterialExtractionPersistenceService.ExtractionSnapshot;
 import io.edupilot.material.storage.FileStorage;
 
@@ -26,6 +28,7 @@ public class MaterialExtractionService {
 	private final MaterialProperties properties;
 	private final MaterialOutlineTaskDispatcher outlineTaskDispatcher;
 	private final MaterialCaptionTaskDispatcher captionTaskDispatcher;
+	private final MaterialXaiFileLifecycleService xaiFileLifecycleService;
 
 	public MaterialExtractionService(
 		MaterialExtractionPersistenceService persistenceService,
@@ -33,7 +36,8 @@ public class MaterialExtractionService {
 		AiClient aiClient,
 		MaterialProperties properties,
 		MaterialOutlineTaskDispatcher outlineTaskDispatcher,
-		MaterialCaptionTaskDispatcher captionTaskDispatcher
+		MaterialCaptionTaskDispatcher captionTaskDispatcher,
+		MaterialXaiFileLifecycleService xaiFileLifecycleService
 	) {
 		this.persistenceService = persistenceService;
 		this.fileStorage = fileStorage;
@@ -41,6 +45,7 @@ public class MaterialExtractionService {
 		this.properties = properties;
 		this.outlineTaskDispatcher = outlineTaskDispatcher;
 		this.captionTaskDispatcher = captionTaskDispatcher;
+		this.xaiFileLifecycleService = xaiFileLifecycleService;
 	}
 
 	public void extract(Long materialId, String traceId) {
@@ -59,7 +64,9 @@ public class MaterialExtractionService {
 			ExtractResponse response = aiClient.extract(
 				fileStorage.load(snapshot.get().storageKey())
 			);
+			logWarnings(materialId, traceId, response.warnings());
 			if (response.pageCount() > properties.maxPages()) {
+				deleteUnretainedFile(response.xaiFileId());
 				persistenceService.fail(
 					materialId,
 					MaterialFailureReason.PAGE_LIMIT_EXCEEDED,
@@ -72,11 +79,21 @@ public class MaterialExtractionService {
 				return;
 			}
 
-			boolean applied = persistenceService.complete(materialId, response.pages());
-			if (applied) {
+			CompletionResult completion = persistenceService.complete(
+				materialId,
+				response.pages(),
+				response.xaiFileId()
+			);
+			if (completion.applied()) {
+				if (completion.replacedXaiFileId() != null) {
+					xaiFileLifecycleService.deleteAfterCommit(
+						completion.replacedXaiFileId()
+					);
+				}
 				outlineTaskDispatcher.submit(materialId);
 				captionTaskDispatcher.submit(materialId);
 			} else {
+				deleteUnretainedFile(response.xaiFileId());
 				log.atInfo()
 					.addKeyValue("materialId", materialId)
 					.addKeyValue("reason", "STATE_CHANGED")
@@ -98,6 +115,29 @@ public class MaterialExtractionService {
 			} else {
 				MDC.setContextMap(previousContext);
 			}
+		}
+	}
+
+	private void deleteUnretainedFile(String xaiFileId) {
+		if (xaiFileId != null && !xaiFileId.isBlank()) {
+			xaiFileLifecycleService.deleteAfterCommit(xaiFileId);
+		}
+	}
+
+	private void logWarnings(
+		Long materialId,
+		String traceId,
+		List<ExtractResponse.Warning> warnings
+	) {
+		for (ExtractResponse.Warning warning : warnings) {
+			log.atWarn()
+				.addKeyValue("traceId", traceId)
+				.addKeyValue("materialId", materialId)
+				.addKeyValue(
+					"warningType",
+					warning == null ? null : warning.type()
+				)
+				.log("Material extraction warning ignored");
 		}
 	}
 

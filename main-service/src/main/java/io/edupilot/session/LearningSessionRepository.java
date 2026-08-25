@@ -102,6 +102,22 @@ public interface LearningSessionRepository
 		@Param("statuses") Collection<SessionStatus> statuses
 	);
 
+	@Query("""
+		select session.material.id as materialId,
+		       session.currentPage as currentPage,
+		       session.updatedAt as updatedAt
+		from LearningSession session
+		where session.user.id = :studentId
+		  and session.material.id in :materialIds
+		  and session.status in :statuses
+		order by session.material.id, session.updatedAt desc, session.id desc
+		""")
+	List<StudentMaterialSession> findStudentMaterialSessions(
+		@Param("studentId") Long studentId,
+		@Param("materialIds") Collection<Long> materialIds,
+		@Param("statuses") Collection<SessionStatus> statuses
+	);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 		select session
@@ -176,5 +192,11 @@ public interface LearningSessionRepository
 	interface MaterialViewerCount {
 		Long getMaterialId();
 		Long getViewerCount();
+	}
+
+	interface StudentMaterialSession {
+		Long getMaterialId();
+		Integer getCurrentPage();
+		Instant getUpdatedAt();
 	}
 }

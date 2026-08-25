@@ -29,6 +29,7 @@ _OPTIONAL_FIELDS = (
     "model",
     "attempt",
     "failureKind",
+    "exceptionType",
     "reportId",
     "generationId",
     "criterionCount",

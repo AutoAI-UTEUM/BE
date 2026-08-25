@@ -81,6 +81,8 @@ public class HttpAiClient implements AiClient {
 	private static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
 	private static final String TURN_PATH = "/internal/ai/turn";
 	private static final String EXTRACT_PATH = "/internal/ai/extract";
+	private static final String FILE_DELETE_PATH = "/internal/ai/files/{fileId}";
+	private static final Duration FILE_DELETE_TIMEOUT = Duration.ofSeconds(10);
 	private static final String OUTLINE_PATH = "/internal/ai/outline";
 	private static final String CAPTIONS_PATH = "/internal/ai/captions";
 	private static final String DOC_CHAT_PATH = "/internal/ai/doc-chat";
@@ -107,6 +109,7 @@ public class HttpAiClient implements AiClient {
 	private final RestClient streamRestClient;
 	private final RestClient healthRestClient;
 	private final RestClient extractRestClient;
+	private final RestClient fileDeleteRestClient;
 	private final RestClient outlineRestClient;
 	private final RestClient captionsRestClient;
 	private final RestClient docChatRestClient;
@@ -140,6 +143,10 @@ public class HttpAiClient implements AiClient {
 		this.extractRestClient = buildRestClient(
 			properties,
 			properties.extractReadTimeout()
+		);
+		this.fileDeleteRestClient = buildRestClient(
+			properties,
+			FILE_DELETE_TIMEOUT
 		);
 		this.outlineRestClient = buildRestClient(
 			properties,
@@ -731,6 +738,17 @@ public class HttpAiClient implements AiClient {
 			validateExtractResponse(response);
 			return response;
 			}
+		);
+	}
+
+	@Override
+	public void deleteFile(String fileId) {
+		executeAttempt(
+			new AiCallContext(FILE_DELETE_PATH, 1, false, null, null, null),
+			() -> fileDeleteRestClient.delete()
+				.uri(FILE_DELETE_PATH, fileId)
+				.retrieve()
+				.toBodilessEntity()
 		);
 	}
 

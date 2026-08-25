@@ -27,6 +27,19 @@ from edupilot_ai.llm.files import XaiFileClient, XaiFileClientProtocol
 from edupilot_ai.llm.xai import XaiLlmBridge
 from edupilot_ai.settings import Settings
 
+_XAI_MAX_CONNECTIONS = 100
+_XAI_MAX_KEEPALIVE_CONNECTIONS = 20
+_XAI_KEEPALIVE_EXPIRY_SECONDS = 3.0
+
+
+def _xai_http_limits() -> httpx.Limits:
+    """Keep HTTPX's pool caps while expiring idle xAI connections sooner."""
+    return httpx.Limits(
+        max_connections=_XAI_MAX_CONNECTIONS,
+        max_keepalive_connections=_XAI_MAX_KEEPALIVE_CONNECTIONS,
+        keepalive_expiry=_XAI_KEEPALIVE_EXPIRY_SECONDS,
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class Dependencies:
@@ -51,7 +64,7 @@ def create_app(
         bridge = resolved_dependencies.llm_bridge
         file_client = resolved_dependencies.file_client
         if bridge is None or file_client is None:
-            owned_http_client = httpx.AsyncClient()
+            owned_http_client = httpx.AsyncClient(limits=_xai_http_limits())
         if bridge is None:
             if owned_http_client is None:
                 raise RuntimeError("owned HTTP client was not initialized")
