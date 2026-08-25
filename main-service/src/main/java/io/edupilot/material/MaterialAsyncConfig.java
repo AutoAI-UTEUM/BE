@@ -19,4 +19,15 @@ public class MaterialAsyncConfig {
 		executor.initialize();
 		return executor;
 	}
+
+	@Bean(name = "materialXaiFileBackfillExecutor")
+	Executor materialXaiFileBackfillExecutor() {
+		ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+		executor.setThreadNamePrefix("material-xai-backfill-");
+		executor.setCorePoolSize(1);
+		executor.setMaxPoolSize(1);
+		executor.setQueueCapacity(10);
+		executor.initialize();
+		return executor;
+	}
 }

@@ -24,6 +24,7 @@ public record AiClientProperties(
 	@NotNull Duration assessmentReadTimeout,
 	@NotNull Duration diagnosisReadTimeout,
 	@NotNull Duration extractReadTimeout,
+	@NotNull Duration xaiFileUploadTimeout,
 	@NotNull Duration reportReadTimeout,
 	@NotNull Duration reportQueryReadTimeout,
 	@NotNull Duration criteriaReadTimeout,

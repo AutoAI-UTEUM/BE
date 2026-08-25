@@ -547,6 +547,53 @@ class HttpAiClientContractTest {
 	}
 
 	@Test
+	void uploadFileSendsPdfMultipartAndReturnsValidatedFileId() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "xaiFileId": "file-backfill"
+			}
+			"""));
+		ByteArrayResource pdf = new ByteArrayResource("%PDF-backfill".getBytes()) {
+			@Override
+			public String getFilename() {
+				return "material.pdf";
+			}
+		};
+
+		String fileId = client(Duration.ofSeconds(1)).uploadFile(pdf);
+
+		assertThat(fileId).isEqualTo("file-backfill");
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getMethod()).isEqualTo("POST");
+		assertThat(request.getPath()).isEqualTo("/internal/ai/files");
+		assertThat(request.getHeader("X-Internal-Token"))
+			.isEqualTo(INTERNAL_TOKEN);
+		assertThat(request.getHeader("X-Trace-Id")).isEqualTo(TRACE_ID);
+		assertThat(request.getHeader("Content-Type"))
+			.startsWith("multipart/form-data");
+		assertThat(request.getBody().readUtf8())
+			.contains("name=\"file\"")
+			.contains("filename=\"material.pdf\"")
+			.contains("%PDF-backfill");
+	}
+
+	@Test
+	void uploadFileRejectsBlankProviderFileId() {
+		server.enqueue(jsonResponse(200, """
+			{"schemaVersion":"1.0","xaiFileId":" "}
+			"""));
+		ByteArrayResource pdf = new ByteArrayResource("%PDF-backfill".getBytes());
+
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).uploadFile(pdf))
+			.isInstanceOfSatisfying(AiClientException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.AI_RESPONSE_INVALID)
+			);
+	}
+
+	@Test
 	void deleteFileUsesInternalTokenAndAcceptsNoContent() throws Exception {
 		server.enqueue(new MockResponse().setResponseCode(204));
 
@@ -1030,6 +1077,7 @@ class HttpAiClientContractTest {
 			baseUrl,
 			INTERNAL_TOKEN,
 			Duration.ofMillis(300),
+			readTimeout,
 			readTimeout,
 			readTimeout,
 			readTimeout,

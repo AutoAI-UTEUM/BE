@@ -306,6 +306,12 @@ curl --fail --silent --show-error --no-buffer \
 - Spring 연동 게이트는 (1) 동일 material의 저장된 file ID가 내부 turn context에
   들어가는지, (2) `includeCurrentPage=false`에서 null인지, (3) 구자료의 null로
   기존 설명·QA가 정상인지 확인합니다.
+- 기존 ACTIVE·READY·`xaiFileId=null` 자료는 `POST /internal/ai/files`에 저장 원본을
+  multipart로 보내 소급 업로드합니다. 이 API는 텍스트 추출을 하지 않고 non-null
+  `xaiFileId`만 반환하며 `/extract` 자동 업로드 kill switch와 독립입니다. Spring의
+  `EDUPILOT_XAI_FILE_BACKFILL_ENABLED`(기본 false), batch(기본 1), retry backoff
+  (기본 PT6H)가 대량 작업을 통제합니다. 외부 호출 전후의 짧은 row-lock
+  트랜잭션만 사용하고, 실패해도 자료 READY를 유지합니다.
 
 ### 이벤트 중계 규칙
 
