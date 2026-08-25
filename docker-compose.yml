@@ -1,7 +1,15 @@
 name: edupilot
 
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "50m"
+      max-file: "3"
+
 services:
   mysql:
+    <<: *logging
     image: mysql:8.0
     command:
       - --character-set-server=utf8mb4
@@ -27,6 +35,7 @@ services:
       - edupilot-net
 
   main-service:
+    <<: *logging
     build:
       context: ./main-service
       dockerfile: Dockerfile
@@ -87,6 +96,7 @@ services:
       - edupilot-net
 
   ai-service:
+    <<: *logging
     profiles:
       - ai
     build:
