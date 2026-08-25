@@ -90,8 +90,10 @@ async def test_xai_file_client_rejects_provider_error_statuses(
             api_key=SecretStr("xai-test-not-real"),
             timeout_seconds=60,
         )
-        with pytest.raises(XaiFileClientError):
+        with pytest.raises(XaiFileClientError) as captured:
             await client.upload(b"%PDF-provider-error", "provider-error.pdf")
+
+    assert captured.value.retryable is (status_code >= 500)
 
 
 async def test_xai_file_client_rejects_blank_provider_file_id(
@@ -188,6 +190,109 @@ async def test_delete_endpoint_returns_204_even_when_kill_switch_is_off(
     assert response.status_code == 204
     assert response.content == b""
     assert fake_file_client.deletes == ["file-delete-contract"]
+
+
+async def test_upload_endpoint_returns_nonblank_file_id_when_kill_switch_is_off(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    settings: Settings,
+    fake_file_client: FakeXaiFileClient,
+) -> None:
+    assert settings.edupilot_xai_files_enabled is False
+    fake_file_client.upload_result = "  file-backfill-contract  "
+
+    response = await client.post(
+        "/internal/ai/files",
+        headers=auth_headers,
+        files={"file": ("private.pdf", b"%PDF-backfill", "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "schemaVersion": "1.0",
+        "xaiFileId": "file-backfill-contract",
+    }
+    assert fake_file_client.uploads == [(b"%PDF-backfill", "private.pdf")]
+
+
+async def test_upload_endpoint_requires_internal_token(
+    client: httpx.AsyncClient,
+    fake_file_client: FakeXaiFileClient,
+) -> None:
+    response = await client.post(
+        "/internal/ai/files",
+        files={"file": ("private.pdf", b"%PDF-private", "application/pdf")},
+    )
+
+    assert response.status_code == 401
+    assert fake_file_client.uploads == []
+
+
+async def test_upload_endpoint_maps_provider_failure_to_retryable_502(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    fake_file_client: FakeXaiFileClient,
+) -> None:
+    fake_file_client.upload_error = XaiFileClientError("FILE_UPLOAD_FAILED")
+
+    response = await client.post(
+        "/internal/ai/files",
+        headers=auth_headers,
+        files={"file": ("private.pdf", b"%PDF-private", "application/pdf")},
+    )
+
+    assert response.status_code == 502
+    error = InternalErrorResponse.model_validate(response.json())
+    assert error.error.code == "FILE_UPLOAD_FAILED"
+    assert error.error.category == "INTERNAL"
+    assert error.error.retryable is True
+
+
+@pytest.mark.parametrize(
+    ("filename", "content", "content_type"),
+    [
+        ("private.ppt", b"%PDF-private", "application/pdf"),
+        ("private.pdf", b"not-a-pdf", "application/pdf"),
+        ("private.pdf", b"", "application/pdf"),
+        ("private.pdf", b"%PDF-private", "application/octet-stream"),
+    ],
+)
+async def test_upload_endpoint_rejects_unsupported_input_before_provider_call(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    fake_file_client: FakeXaiFileClient,
+    filename: str,
+    content: bytes,
+    content_type: str,
+) -> None:
+    response = await client.post(
+        "/internal/ai/files",
+        headers=auth_headers,
+        files={"file": (filename, content, content_type)},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "UNSUPPORTED_FORMAT"
+    assert fake_file_client.uploads == []
+
+
+async def test_upload_endpoint_enforces_provider_size_limit_before_call(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    fake_file_client: FakeXaiFileClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("edupilot_ai.api.files.XAI_FILE_MAX_BYTES", 12)
+
+    response = await client.post(
+        "/internal/ai/files",
+        headers=auth_headers,
+        files={"file": ("private.pdf", b"%PDF-12345678", "application/pdf")},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "FILE_TOO_LARGE"
+    assert fake_file_client.uploads == []
 
 
 async def test_delete_endpoint_is_idempotent_for_already_missing_file(
