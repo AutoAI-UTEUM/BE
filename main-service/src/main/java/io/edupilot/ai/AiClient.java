@@ -44,6 +44,8 @@ public interface AiClient {
 
 	ExtractResponse extract(Resource pdfResource);
 
+	void deleteFile(String fileId);
+
 	OutlineResponse outline(OutlineRequest request);
 
 	CaptionsResponse captions(CaptionsRequest request);

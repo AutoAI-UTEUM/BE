@@ -36,10 +36,19 @@ public class MaterialExtractionPersistenceService {
 
 	@Transactional
 	public boolean complete(Long materialId, List<ExtractedPage> extractedPages) {
+		return complete(materialId, extractedPages, null).applied();
+	}
+
+	@Transactional
+	public CompletionResult complete(
+		Long materialId,
+		List<ExtractedPage> extractedPages,
+		String xaiFileId
+	) {
 		LearningMaterial material = materialRepository.findByIdForUpdate(materialId)
 			.orElse(null);
 		if (material == null || !material.isActiveAndProcessing()) {
-			return false;
+			return CompletionResult.discarded();
 		}
 
 		List<MaterialPage> pages = extractedPages.stream()
@@ -50,8 +59,9 @@ public class MaterialExtractionPersistenceService {
 			))
 			.toList();
 		pageRepository.saveAll(pages);
+		String replacedXaiFileId = material.replaceXaiFileId(xaiFileId);
 		material.markReady(pages.size());
-		return true;
+		return new CompletionResult(true, replacedXaiFileId);
 	}
 
 	@Transactional
@@ -89,5 +99,14 @@ public class MaterialExtractionPersistenceService {
 		Long materialId,
 		String storageKey
 	) {
+	}
+
+	public record CompletionResult(
+		boolean applied,
+		String replacedXaiFileId
+	) {
+		private static CompletionResult discarded() {
+			return new CompletionResult(false, null);
+		}
 	}
 }

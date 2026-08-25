@@ -494,6 +494,10 @@ class HttpAiClientContractTest {
 			  "pages": [
 			    {"pageNumber": 1, "text": "first"},
 			    {"pageNumber": 2, "text": "second"}
+			  ],
+			  "xaiFileId": "file-123",
+			  "warnings": [
+			    {"type": "FUTURE_WARNING", "message": "ignored"}
 			  ]
 			}
 			"""));
@@ -508,6 +512,11 @@ class HttpAiClientContractTest {
 
 		assertThat(response.pageCount()).isEqualTo(2);
 		assertThat(response.pages()).extracting("pageNumber").containsExactly(1, 2);
+		assertThat(response.xaiFileId()).isEqualTo("file-123");
+		assertThat(response.warnings()).singleElement().satisfies(warning -> {
+			assertThat(warning.type()).isEqualTo("FUTURE_WARNING");
+			assertThat(warning.message()).isEqualTo("ignored");
+		});
 		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
 		assertThat(request).isNotNull();
 		assertThat(request.getPath()).isEqualTo("/internal/ai/extract");
@@ -518,6 +527,38 @@ class HttpAiClientContractTest {
 			.contains("name=\"file\"")
 			.contains("filename=\"material.pdf\"")
 			.contains("%PDF-test");
+	}
+
+	@Test
+	void extractDefaultsMissingXaiFileMetadata() {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "pageCount": 1,
+			  "pages": [{"pageNumber": 1, "text": "page"}]
+			}
+			"""));
+		ByteArrayResource pdf = new ByteArrayResource("%PDF-test".getBytes());
+
+		var response = client(Duration.ofSeconds(1)).extract(pdf);
+
+		assertThat(response.xaiFileId()).isNull();
+		assertThat(response.warnings()).isEmpty();
+	}
+
+	@Test
+	void deleteFileUsesInternalTokenAndAcceptsNoContent() throws Exception {
+		server.enqueue(new MockResponse().setResponseCode(204));
+
+		client(Duration.ofSeconds(1)).deleteFile("file-123");
+
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getMethod()).isEqualTo("DELETE");
+		assertThat(request.getPath()).isEqualTo("/internal/ai/files/file-123");
+		assertThat(request.getHeader("X-Internal-Token"))
+			.isEqualTo(INTERNAL_TOKEN);
+		assertThat(request.getHeader("X-Trace-Id")).isEqualTo(TRACE_ID);
 	}
 
 	@Test
