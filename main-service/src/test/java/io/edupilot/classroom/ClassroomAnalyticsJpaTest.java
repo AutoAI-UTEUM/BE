@@ -3,7 +3,10 @@ package io.edupilot.classroom;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -19,10 +22,17 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.storage.FileStorage;
+import io.edupilot.quiz.GradingResult;
+import io.edupilot.quiz.Quiz;
+import io.edupilot.quiz.QuizRepository;
+import io.edupilot.quiz.QuizSubmission;
+import io.edupilot.quiz.QuizSubmissionRepository;
+import io.edupilot.quiz.QuizType;
 import io.edupilot.session.ChatMessage;
 import io.edupilot.session.ChatMessageRepository;
 import io.edupilot.session.LearningSession;
@@ -81,6 +91,10 @@ class ClassroomAnalyticsJpaTest {
 	private ChatMessageRepository chatMessageRepository;
 	@Autowired
 	private QaMessageRepository qaMessageRepository;
+	@Autowired
+	private QuizRepository quizRepository;
+	@Autowired
+	private QuizSubmissionRepository quizSubmissionRepository;
 	@Autowired
 	private SessionPageRecordRepository pageRecordRepository;
 	@Autowired
@@ -207,6 +221,169 @@ class ClassroomAnalyticsJpaTest {
 		assertThat(statistics.getQueryExecutionCount()).isLessThanOrEqualTo(6);
 	}
 
+	@Test
+	void studentAnalyticsUsesBatchQueriesAndLatestQuizAttempt() {
+		User instructor = user("detail-instructor@example.com", UserRole.INSTRUCTOR);
+		User student = user("detail-student@example.com", UserRole.LEARNER);
+		Classroom classroom = classroom(instructor, "Detail", "EEEE-FFFF");
+		memberRepository.saveAndFlush(ClassroomMember.create(classroom, student, NOW));
+		ClassroomWeek thirdWeek = weekRepository.saveAndFlush(
+			ClassroomWeek.create(
+				classroom, 3, "Week 3", null, ClassroomWeekStatus.PUBLISHED, 1
+			)
+		);
+		ClassroomWeek fifthWeek = weekRepository.saveAndFlush(
+			ClassroomWeek.create(
+				classroom, 5, "Week 5", null, ClassroomWeekStatus.PUBLISHED, 2
+			)
+		);
+		LearningMaterial viewed = material(
+			instructor,
+			"Viewed",
+			"materials/detail-viewed.pdf"
+		);
+		LearningMaterial unviewed = material(
+			instructor,
+			"Unviewed",
+			"materials/detail-unviewed.pdf"
+		);
+		weekMaterialRepository.save(ClassroomWeekMaterial.create(
+			fifthWeek,
+			viewed,
+			NOW
+		));
+		weekMaterialRepository.save(ClassroomWeekMaterial.create(
+			thirdWeek,
+			viewed,
+			NOW
+		));
+		weekMaterialRepository.save(ClassroomWeekMaterial.create(
+			fifthWeek,
+			unviewed,
+			NOW
+		));
+		LearningSession session = LearningSession.create(student, viewed);
+		ReflectionTestUtils.setField(session, "currentPage", 4);
+		session = sessionRepository.saveAndFlush(session);
+		for (int pageNumber = 1; pageNumber <= 3; pageNumber++) {
+			pageRecordRepository.upsertExplainedPage(session.getId(), pageNumber, NOW);
+		}
+
+		QaMessage recentQuestion = addQuestion(session, "recent question");
+		QaMessage oldQuestion = addQuestion(session, "old question");
+		Quiz submittedQuiz = quizRepository.saveAndFlush(Quiz.create(
+			session,
+			4,
+			"Submitted quiz",
+			4,
+			4,
+			QuizType.MCQ,
+			List.of(),
+			List.of(),
+			"1.0"
+		));
+		Quiz unsubmittedQuiz = quizRepository.saveAndFlush(Quiz.create(
+			session,
+			4,
+			"Unsubmitted quiz",
+			4,
+			4,
+			QuizType.SHORT,
+			List.of(),
+			List.of(),
+			"1.0"
+		));
+		quizSubmissionRepository.saveAndFlush(quizSubmission(
+			submittedQuiz,
+			student,
+			"detail-attempt-1",
+			1,
+			"40"
+		));
+		quizSubmissionRepository.saveAndFlush(quizSubmission(
+			submittedQuiz,
+			student,
+			"detail-attempt-2",
+			2,
+			"80"
+		));
+		entityManager.flush();
+		jdbcTemplate.update(
+			"UPDATE qa_messages SET created_at = ? WHERE id = ?",
+			Timestamp.from(NOW.minus(Duration.ofDays(7))),
+			recentQuestion.getId()
+		);
+		jdbcTemplate.update(
+			"UPDATE qa_messages SET created_at = ? WHERE id = ?",
+			Timestamp.from(NOW.minus(Duration.ofDays(8))),
+			oldQuestion.getId()
+		);
+		Instant lastViewedAt = NOW.minus(Duration.ofHours(1));
+		jdbcTemplate.update(
+			"UPDATE learning_sessions SET updated_at = ? WHERE id = ?",
+			Timestamp.from(lastViewedAt),
+			session.getId()
+		);
+		entityManager.clear();
+
+		Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class)
+			.getStatistics();
+		statistics.clear();
+
+		var recent = analyticsService.getStudentLearningAnalytics(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.getId(),
+			student.getId(),
+			ClassroomQuestionPeriod.LAST_7_DAYS
+		);
+
+		assertThat(recent.materials()).hasSize(2);
+		assertThat(recent.materials()).filteredOn(item -> item.materialId()
+			.equals(viewed.getId())).singleElement().satisfies(item -> {
+				assertThat(item.weekNumber()).isEqualTo(3);
+				assertThat(item.progressRate()).isEqualTo(30);
+				assertThat(item.viewed()).isTrue();
+				assertThat(item.lastViewedPage()).isEqualTo(4);
+				assertThat(item.lastViewedAt()).isEqualTo(lastViewedAt);
+			});
+		assertThat(recent.materials()).filteredOn(item -> item.materialId()
+			.equals(unviewed.getId())).singleElement().satisfies(item -> {
+				assertThat(item.progressRate()).isZero();
+				assertThat(item.viewed()).isFalse();
+				assertThat(item.lastViewedPage()).isNull();
+				assertThat(item.lastViewedAt()).isNull();
+			});
+		assertThat(recent.questionsByPage()).singleElement()
+			.satisfies(item -> assertThat(item.questionCount()).isEqualTo(1));
+		assertThat(recent.quizzes()).filteredOn(item -> item.quizId()
+			.equals(submittedQuiz.getId())).singleElement().satisfies(item -> {
+				assertThat(item.submitted()).isTrue();
+				assertThat(item.score()).isEqualByComparingTo("80");
+				assertThat(item.maxScore()).isEqualByComparingTo("100");
+				assertThat(item.passed()).isTrue();
+			});
+		assertThat(recent.quizzes()).filteredOn(item -> item.quizId()
+			.equals(unsubmittedQuiz.getId())).singleElement().satisfies(item -> {
+				assertThat(item.submitted()).isFalse();
+				assertThat(item.score()).isNull();
+				assertThat(item.maxScore()).isNull();
+				assertThat(item.passed()).isNull();
+				assertThat(item.submittedAt()).isNull();
+			});
+		assertThat(statistics.getQueryExecutionCount()).isLessThanOrEqualTo(8);
+
+		var all = analyticsService.getStudentLearningAnalytics(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.getId(),
+			student.getId(),
+			ClassroomQuestionPeriod.ALL
+		);
+		assertThat(all.questionsByPage()).singleElement()
+			.satisfies(item -> assertThat(item.questionCount()).isEqualTo(2));
+	}
+
 	private User user(String email, UserRole role) {
 		return userRepository.saveAndFlush(User.create(
 			email,
@@ -238,11 +415,39 @@ class ClassroomAnalyticsJpaTest {
 		return materialRepository.saveAndFlush(material);
 	}
 
-	private void addQuestion(LearningSession session, String content) {
+	private QaMessage addQuestion(LearningSession session, String content) {
 		QaThread thread = qaThreadRepository.save(QaThread.start(session));
 		ChatMessage chatMessage = chatMessageRepository.save(
-			ChatMessage.user(session, content, "request-" + session.getId())
+			ChatMessage.user(
+				session,
+				content,
+				"request-" + session.getId() + "-" + content.hashCode()
+			)
 		);
-		qaMessageRepository.save(QaMessage.from(thread, chatMessage));
+		return qaMessageRepository.saveAndFlush(QaMessage.from(thread, chatMessage));
+	}
+
+	private QuizSubmission quizSubmission(
+		Quiz quiz,
+		User student,
+		String requestId,
+		int attemptNo,
+		String score
+	) {
+		QuizSubmission submission = QuizSubmission.create(
+			quiz,
+			student,
+			requestId,
+			List.of(),
+			new GradingResult(
+				"1.0",
+				new BigDecimal(score),
+				new BigDecimal("100"),
+				List.of()
+			),
+			new BigDecimal(score).compareTo(new BigDecimal("60")) >= 0
+		);
+		ReflectionTestUtils.setField(submission, "attemptNo", attemptNo);
+		return submission;
 	}
 }

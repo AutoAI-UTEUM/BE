@@ -111,6 +111,7 @@
 | GET | `/api/classrooms` | 내 강의실 목록 | Y | 소유 또는 승인 멤버 관계 |
 | GET | `/api/classrooms/{id}` | 강의실 상세 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
 | GET | `/api/classrooms/{id}/analytics` | 강의자 학습 현황 집계 | Y | 소유 INSTRUCTOR |
+| GET | `/api/classrooms/{classroomId}/students/{studentId}/learning-analytics` | 학습자별 상세 학습 현황 | Y | 소유 INSTRUCTOR |
 | PATCH | `/api/classrooms/{id}` | 강의실 수정 | Y | 소유 INSTRUCTOR |
 | DELETE | `/api/classrooms/{id}` | 강의실 COMPLETED 전환 | Y | 소유 INSTRUCTOR |
 | DELETE | `/api/classrooms/{id}/permanent` | 강의실과 소속 운영 데이터 영구 삭제 | Y | 소유 INSTRUCTOR |
@@ -1511,6 +1512,74 @@ Query:
 - `inactiveLearnerCountLast7Days`는 같은 기간에 강의실 연결 자료의 세션 `updatedAt` 활동이 없는 멤버 수입니다.
 - `questionsByPage`는 QA 스레드 생성 시 저장된 `qa_threads.page_number`를 사용하며 현재 세션 페이지를 소급 추정하지 않습니다.
 - `lastUpdatedAt`은 캐시 시각이 아니라 이번 응답을 계산한 시각입니다.
+
+### GET `/api/classrooms/{classroomId}/students/{studentId}/learning-analytics`
+
+소유 `INSTRUCTOR`가 강의실 멤버 한 명의 자료별 학습 현황, 페이지별 질문 수, 통합학습 퀴즈 결과를 조회합니다. 비소유 강의실과 해당 강의실 멤버가 아닌 `studentId`는 모두 `CLASSROOM_NOT_FOUND`(404)로 은닉합니다.
+
+Query:
+
+| 파라미터 | 필수 | 설명 |
+| --- | :---: | --- |
+| `questionPeriod` | N | `LAST_7_DAYS`(기본) 또는 `ALL` |
+
+```json
+{
+  "materials": [
+    {
+      "materialId": 10,
+      "title": "선형회귀 기초",
+      "weekNumber": 2,
+      "progressRate": 30,
+      "viewed": true,
+      "lastViewedPage": 4,
+      "lastViewedAt": "2026-08-25T02:00:00Z"
+    },
+    {
+      "materialId": 11,
+      "title": "분류 기초",
+      "weekNumber": 3,
+      "progressRate": 0,
+      "viewed": false,
+      "lastViewedPage": null,
+      "lastViewedAt": null
+    }
+  ],
+  "questionsByPage": [
+    {
+      "materialId": 10,
+      "materialTitle": "선형회귀 기초",
+      "weekNumber": 2,
+      "pageNumber": 4,
+      "questionCount": 2
+    }
+  ],
+  "quizzes": [
+    {
+      "quizId": 700,
+      "materialId": 10,
+      "materialTitle": "선형회귀 기초",
+      "weekNumber": 2,
+      "title": "4페이지 확인 퀴즈",
+      "quizType": "MCQ",
+      "pageNumber": 4,
+      "submitted": true,
+      "score": 8.00,
+      "maxScore": 10.00,
+      "passed": true,
+      "submittedAt": "2026-08-25T02:10:00Z"
+    }
+  ],
+  "lastUpdatedAt": "2026-08-25T03:00:00Z"
+}
+```
+
+- `materials`는 주차 상태와 관계없이 강의실에 연결된 모든 고유 ACTIVE·READY PDF를 포함합니다. 한 자료가 여러 주차에 연결되면 가장 작은 `weekNumber`를 사용합니다.
+- `progressRate`는 기존 학습 진도와 동일하게 학생·자료의 ACTIVE·COMPLETED 세션에 기록된 고유 설명 완료 페이지 수를 자료 `pageCount`로 나눈 뒤 정수 반올림합니다.
+- `viewed`는 ACTIVE·COMPLETED 세션 존재 여부입니다. 최신 세션은 `updatedAt DESC, sessionId DESC`로 결정하며 미열람 자료는 `progressRate=0`, `lastViewedPage=null`, `lastViewedAt=null`입니다.
+- `questionsByPage`는 사용자 QA 메시지가 1개 이상인 페이지만 반환합니다. `LAST_7_DAYS`는 응답 계산 시각의 정확히 7일 전을 포함하며 `ALL`은 기간 제한이 없습니다.
+- `quizzes`는 학생의 강의실 자료 세션에서 생성된 전체 퀴즈를 포함합니다. 제출이 여러 번이면 가장 큰 `attemptNo`를 사용하고, 미제출은 `submitted=false`이며 점수·통과·제출 시각이 모두 `null`입니다. 비공개 정답 데이터는 포함하지 않습니다.
+- `lastUpdatedAt`은 이번 응답을 계산한 서버 UTC 시각입니다.
 
 ### PATCH `/api/classrooms/{id}`
 

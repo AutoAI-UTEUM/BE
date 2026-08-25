@@ -99,6 +99,32 @@ public interface QaMessageRepository extends JpaRepository<QaMessage, Long> {
 		@Param("since") Instant since
 	);
 
+	@Query("""
+		select session.material.id as materialId,
+		       thread.pageNumber as pageNumber,
+		       count(message.id) as questionCount
+		from QaMessage message
+		join message.thread thread
+		join thread.session session
+		join ClassroomMember member
+		  on member.user = session.user
+		where member.classroom.id = :classroomId
+		  and session.user.id = :studentId
+		  and session.material.id in :materialIds
+		  and session.status in :statuses
+		  and message.senderType = io.edupilot.session.SenderType.USER
+		  and (:since is null or message.createdAt >= :since)
+		group by session.material.id, thread.pageNumber
+		order by session.material.id, thread.pageNumber
+		""")
+	List<StudentQuestionByPageCount> findStudentQuestionCounts(
+		@Param("classroomId") Long classroomId,
+		@Param("studentId") Long studentId,
+		@Param("materialIds") Collection<Long> materialIds,
+		@Param("statuses") Collection<SessionStatus> statuses,
+		@Param("since") Instant since
+	);
+
 	interface ClassroomQuestionCount {
 		Long getMaterialId();
 		Integer getPageNumber();
@@ -108,6 +134,12 @@ public interface QaMessageRepository extends JpaRepository<QaMessage, Long> {
 
 	interface StudentQuestionCount {
 		Long getStudentId();
+		Long getQuestionCount();
+	}
+
+	interface StudentQuestionByPageCount {
+		Long getMaterialId();
+		Integer getPageNumber();
 		Long getQuestionCount();
 	}
 }

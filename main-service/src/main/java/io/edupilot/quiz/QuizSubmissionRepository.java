@@ -1,5 +1,7 @@
 package io.edupilot.quiz;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -96,4 +98,34 @@ public interface QuizSubmissionRepository
 		@Param("studentId") Long studentId,
 		@Param("weekNumber") Integer weekNumber
 	);
+
+	@Query("""
+		select submission.quiz.id as quizId,
+		       submission.score as score,
+		       submission.maxScore as maxScore,
+		       submission.passed as passed,
+		       submission.createdAt as submittedAt
+		from QuizSubmission submission
+		where submission.user.id = :studentId
+		  and submission.quiz.id in :quizIds
+		  and submission.attemptNo = (
+		    select max(candidate.attemptNo)
+		    from QuizSubmission candidate
+		    where candidate.quiz.id = submission.quiz.id
+		      and candidate.user.id = :studentId
+		  )
+		order by submission.quiz.id
+		""")
+	List<StudentLatestQuizSubmission> findLatestByStudentAndQuizIds(
+		@Param("studentId") Long studentId,
+		@Param("quizIds") Collection<Long> quizIds
+	);
+
+	interface StudentLatestQuizSubmission {
+		Long getQuizId();
+		BigDecimal getScore();
+		BigDecimal getMaxScore();
+		Boolean getPassed();
+		Instant getSubmittedAt();
+	}
 }

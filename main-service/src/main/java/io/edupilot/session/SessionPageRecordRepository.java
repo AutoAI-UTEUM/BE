@@ -58,6 +58,18 @@ public class SessionPageRecordRepository {
 		GROUP BY member.user_id, session.material_id
 		""";
 
+	private static final String STUDENT_MATERIAL_PROGRESS_COUNTS = """
+		SELECT session.material_id,
+		       COUNT(DISTINCT record.page_number) AS explained_page_count
+		FROM learning_sessions session
+		JOIN session_page_records record
+		  ON record.session_id = session.id
+		WHERE session.user_id = ?
+		  AND session.material_id IN (%s)
+		  AND session.status IN ('ACTIVE', 'COMPLETED')
+		GROUP BY session.material_id
+		""";
+
 	private final JdbcTemplate jdbcTemplate;
 
 	public SessionPageRecordRepository(JdbcTemplate jdbcTemplate) {
@@ -132,8 +144,41 @@ public class SessionPageRecordRepository {
 		);
 	}
 
+	public List<MaterialProgressCount> findStudentMaterialProgressCounts(
+		Long userId,
+		Collection<Long> materialIds
+	) {
+		if (materialIds.isEmpty()) {
+			return List.of();
+		}
+		String placeholders = String.join(
+			", ",
+			Collections.nCopies(materialIds.size(), "?")
+		);
+		Object[] arguments = new Object[materialIds.size() + 1];
+		arguments[0] = userId;
+		int index = 1;
+		for (Long materialId : materialIds) {
+			arguments[index++] = materialId;
+		}
+		return jdbcTemplate.query(
+			STUDENT_MATERIAL_PROGRESS_COUNTS.formatted(placeholders),
+			(rs, rowNum) -> new MaterialProgressCount(
+				rs.getLong("material_id"),
+				rs.getLong("explained_page_count")
+			),
+			arguments
+		);
+	}
+
 	public record UserMaterialProgressCount(
 		Long userId,
+		Long materialId,
+		long explainedPageCount
+	) {
+	}
+
+	public record MaterialProgressCount(
 		Long materialId,
 		long explainedPageCount
 	) {

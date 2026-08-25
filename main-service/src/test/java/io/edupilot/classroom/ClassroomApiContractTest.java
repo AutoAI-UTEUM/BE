@@ -42,6 +42,10 @@ import io.edupilot.classroom.dto.ClassroomAnalyticsMaterialResponse;
 import io.edupilot.classroom.dto.ClassroomAnalyticsResponse;
 import io.edupilot.classroom.dto.ClassroomDetailResponse;
 import io.edupilot.classroom.dto.ClassroomQuestionByPageResponse;
+import io.edupilot.classroom.dto.ClassroomStudentLearningAnalyticsResponse;
+import io.edupilot.classroom.dto.ClassroomStudentMaterialAnalyticsResponse;
+import io.edupilot.classroom.dto.ClassroomStudentQuestionByPageResponse;
+import io.edupilot.classroom.dto.ClassroomStudentQuizAnalyticsResponse;
 import io.edupilot.classroom.dto.ClassroomNoticeResponse;
 import io.edupilot.classroom.dto.ClassroomResourceListResponse;
 import io.edupilot.classroom.dto.ClassroomResourceResponse;
@@ -60,6 +64,7 @@ import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.note.NoteRepository;
 import io.edupilot.quiz.QuizRepository;
 import io.edupilot.quiz.QuizSubmissionRepository;
+import io.edupilot.quiz.QuizType;
 import io.edupilot.session.ChatMessageRepository;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.User;
@@ -459,6 +464,144 @@ class ClassroomApiContractTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer(learnerToken)))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.error.code").value("CLASSROOM_NOT_FOUND"));
+	}
+
+	@Test
+	void studentLearningAnalyticsExposesDetailedContractAndMasksAccess()
+		throws Exception {
+		Instant updatedAt = Instant.parse("2026-08-25T03:00:00Z");
+		when(analyticsService.getStudentLearningAnalytics(
+			1L,
+			UserRole.INSTRUCTOR,
+			30L,
+			101L,
+			ClassroomQuestionPeriod.LAST_7_DAYS
+		)).thenReturn(new ClassroomStudentLearningAnalyticsResponse(
+			List.of(new ClassroomStudentMaterialAnalyticsResponse(
+				10L,
+				"AI Basics",
+				2,
+				0,
+				false,
+				null,
+				null
+			)),
+			List.of(new ClassroomStudentQuestionByPageResponse(
+				10L,
+				"AI Basics",
+				2,
+				3,
+				2L
+			)),
+			List.of(new ClassroomStudentQuizAnalyticsResponse(
+				700L,
+				10L,
+				"AI Basics",
+				2,
+				"Week quiz",
+				QuizType.MCQ,
+				3,
+				false,
+				null,
+				null,
+				null,
+				null
+			)),
+			updatedAt
+		));
+
+		mockMvc.perform(get(
+				"/api/classrooms/30/students/101/learning-analytics"
+			).header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.materials[0].viewed").value(false))
+			.andExpect(jsonPath("$.data.materials[0].progressRate").value(0))
+			.andExpect(jsonPath("$.data.materials[0].lastViewedPage")
+				.value(org.hamcrest.Matchers.nullValue()))
+			.andExpect(jsonPath("$.data.materials[0].lastViewedAt")
+				.value(org.hamcrest.Matchers.nullValue()))
+			.andExpect(jsonPath("$.data.questionsByPage[0].materialTitle")
+				.value("AI Basics"))
+			.andExpect(jsonPath("$.data.quizzes[0].submitted").value(false))
+			.andExpect(jsonPath("$.data.quizzes[0].score")
+				.value(org.hamcrest.Matchers.nullValue()))
+			.andExpect(jsonPath("$.data.quizzes[0].maxScore")
+				.value(org.hamcrest.Matchers.nullValue()))
+			.andExpect(jsonPath("$.data.quizzes[0].passed")
+				.value(org.hamcrest.Matchers.nullValue()))
+			.andExpect(jsonPath("$.data.quizzes[0].submittedAt")
+				.value(org.hamcrest.Matchers.nullValue()))
+			.andExpect(jsonPath("$.data.quizzes[0].privateAnswerJson")
+				.doesNotExist())
+			.andExpect(jsonPath("$.data.lastUpdatedAt")
+				.value(updatedAt.toString()));
+		verify(analyticsService).getStudentLearningAnalytics(
+			1L,
+			UserRole.INSTRUCTOR,
+			30L,
+			101L,
+			ClassroomQuestionPeriod.LAST_7_DAYS
+		);
+
+		doThrow(new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND))
+			.when(analyticsService)
+			.getStudentLearningAnalytics(
+				2L,
+				UserRole.LEARNER,
+				30L,
+				101L,
+				ClassroomQuestionPeriod.LAST_7_DAYS
+			);
+		mockMvc.perform(get(
+				"/api/classrooms/30/students/101/learning-analytics"
+			).header(HttpHeaders.AUTHORIZATION, bearer(learnerToken)))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("CLASSROOM_NOT_FOUND"));
+
+		doThrow(new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND))
+			.when(analyticsService)
+			.getStudentLearningAnalytics(
+				1L,
+				UserRole.INSTRUCTOR,
+				30L,
+				999L,
+				ClassroomQuestionPeriod.LAST_7_DAYS
+			);
+		mockMvc.perform(get(
+				"/api/classrooms/30/students/999/learning-analytics"
+			).header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("CLASSROOM_NOT_FOUND"));
+	}
+
+	@Test
+	void studentLearningAnalyticsAcceptsAllQuestionPeriod() throws Exception {
+		when(analyticsService.getStudentLearningAnalytics(
+			1L,
+			UserRole.INSTRUCTOR,
+			30L,
+			101L,
+			ClassroomQuestionPeriod.ALL
+		)).thenReturn(new ClassroomStudentLearningAnalyticsResponse(
+			List.of(),
+			List.of(),
+			List.of(),
+			Instant.parse("2026-08-25T03:00:00Z")
+		));
+
+		mockMvc.perform(get(
+				"/api/classrooms/30/students/101/learning-analytics"
+			).queryParam("questionPeriod", "ALL")
+			.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isOk());
+
+		verify(analyticsService).getStudentLearningAnalytics(
+			1L,
+			UserRole.INSTRUCTOR,
+			30L,
+			101L,
+			ClassroomQuestionPeriod.ALL
+		);
 	}
 
 	@Test
