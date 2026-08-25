@@ -25,6 +25,19 @@ from edupilot_ai.llm.bridge import LlmBridge
 from edupilot_ai.llm.xai import XaiLlmBridge
 from edupilot_ai.settings import Settings
 
+_XAI_MAX_CONNECTIONS = 100
+_XAI_MAX_KEEPALIVE_CONNECTIONS = 20
+_XAI_KEEPALIVE_EXPIRY_SECONDS = 3.0
+
+
+def _xai_http_limits() -> httpx.Limits:
+    """Keep HTTPX's pool caps while expiring idle xAI connections sooner."""
+    return httpx.Limits(
+        max_connections=_XAI_MAX_CONNECTIONS,
+        max_keepalive_connections=_XAI_MAX_KEEPALIVE_CONNECTIONS,
+        keepalive_expiry=_XAI_KEEPALIVE_EXPIRY_SECONDS,
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class Dependencies:
@@ -47,7 +60,7 @@ def create_app(
         owned_http_client: httpx.AsyncClient | None = None
         bridge = resolved_dependencies.llm_bridge
         if bridge is None:
-            owned_http_client = httpx.AsyncClient()
+            owned_http_client = httpx.AsyncClient(limits=_xai_http_limits())
             bridge = XaiLlmBridge(
                 client=owned_http_client,
                 api_key=resolved_settings.xai_api_key,

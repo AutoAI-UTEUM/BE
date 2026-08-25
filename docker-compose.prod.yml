@@ -22,6 +22,8 @@ services:
     profiles: !reset []
     build: !reset null
     image: ghcr.io/autoai-uteum/ai-service:${TAG}
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-prod}
     restart: unless-stopped
 
   nginx:

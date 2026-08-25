@@ -1,8 +1,11 @@
 """xAI OpenAI-compatible structured-output adapter."""
 
+import asyncio
+import codecs
 import json
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
+from contextlib import AsyncExitStack
 from time import perf_counter
 from typing import Any
 
@@ -24,6 +27,8 @@ from edupilot_ai.settings import AgentLlmProfile
 
 XAI_BASE_URL = "https://api.x.ai/v1"
 XAI_CHAT_COMPLETIONS_URL = f"{XAI_BASE_URL}/chat/completions"
+_MAX_NETWORK_ATTEMPTS = 3
+_RETRYABLE_NETWORK_ERRORS = (httpx.NetworkError, httpx.RemoteProtocolError)
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +38,10 @@ def _log_call(
     model: str,
     started_at: float,
     status: str,
+    attempt: int,
     error_code: str | None = None,
     failure_kind: str | None = None,
+    exception_type: str | None = None,
 ) -> None:
     logger.log(
         logging.INFO if status == "SUCCESS" else logging.WARNING,
@@ -47,8 +54,23 @@ def _log_call(
             "durationMs": round((perf_counter() - started_at) * 1000, 3),
             "errorCode": error_code,
             "failureKind": failure_kind,
-            "attempt": 1,
+            "attempt": attempt,
+            "exceptionType": exception_type,
         },
+    )
+
+
+def _can_retry_network_error(
+    exception: httpx.RequestError,
+    *,
+    attempt: int,
+    no_retry_boundary_crossed: bool,
+) -> bool:
+    """Retry only selected transport failures before caller-visible output starts."""
+    return (
+        isinstance(exception, _RETRYABLE_NETWORK_ERRORS)
+        and not no_retry_boundary_crossed
+        and attempt < _MAX_NETWORK_ATTEMPTS
     )
 
 
@@ -94,19 +116,43 @@ class _StreamChunk(_XaiModel):
     usage: _CompletionUsage | None = None
 
 
-async def _sse_data(response: httpx.Response) -> AsyncIterator[str]:
+def _consume_sse_line(line: str, data_lines: list[str]) -> str | None:
+    if not line:
+        if data_lines:
+            data = "\n".join(data_lines)
+            data_lines.clear()
+            return data
+        return None
+    if line.startswith(":"):
+        return None
+    if line.startswith("data:"):
+        data_lines.append(line.removeprefix("data:").lstrip())
+    return None
+
+
+async def _sse_data(
+    response: httpx.Response,
+    *,
+    on_body_chunk: Callable[[], None] | None = None,
+) -> AsyncIterator[str]:
     """Parse SSE frames without exposing provider-specific framing upstream."""
     data_lines: list[str] = []
-    async for line in response.aiter_lines():
-        if not line:
-            if data_lines:
-                yield "\n".join(data_lines)
-                data_lines.clear()
-            continue
-        if line.startswith(":"):
-            continue
-        if line.startswith("data:"):
-            data_lines.append(line.removeprefix("data:").lstrip())
+    text_buffer = ""
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    async for chunk in response.aiter_bytes():
+        if chunk and on_body_chunk is not None:
+            on_body_chunk()
+        text_buffer += decoder.decode(chunk)
+        while "\n" in text_buffer:
+            line, text_buffer = text_buffer.split("\n", 1)
+            data = _consume_sse_line(line.removesuffix("\r"), data_lines)
+            if data is not None:
+                yield data
+    text_buffer += decoder.decode(b"", final=True)
+    if text_buffer:
+        data = _consume_sse_line(text_buffer.removesuffix("\r"), data_lines)
+        if data is not None:
+            yield data
     if data_lines:
         yield "\n".join(data_lines)
 
@@ -137,6 +183,7 @@ class XaiLlmBridge:
                 model=profile.model,
                 started_at=started_at,
                 status="FAILED",
+                attempt=1,
                 error_code=ErrorCategory.TIMEOUT.value,
                 failure_kind="timeout",
             )
@@ -154,47 +201,90 @@ class XaiLlmBridge:
             },
         }
 
-        try:
-            response = await self._client.post(
-                XAI_CHAT_COMPLETIONS_URL,
-                headers=self._headers(),
-                json=payload,
-                timeout=self._timeout(timeout_seconds),
-            )
-        except httpx.TimeoutException as exception:
-            _log_call(
-                model=profile.model,
-                started_at=started_at,
-                status="FAILED",
-                error_code=ErrorCategory.TIMEOUT.value,
-                failure_kind="timeout",
-            )
-            raise LlmBridgeError(
-                category=ErrorCategory.TIMEOUT,
-                retryable=True,
-            ) from exception
-        except httpx.RequestError as exception:
-            _log_call(
-                model=profile.model,
-                started_at=started_at,
-                status="FAILED",
-                error_code=ErrorCategory.INTERNAL.value,
-                failure_kind="network",
-            )
-            raise LlmBridgeError(
-                category=ErrorCategory.INTERNAL,
-                retryable=True,
-            ) from exception
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds
+        response: httpx.Response | None = None
+        successful_attempt = 1
+        for attempt in range(1, _MAX_NETWORK_ATTEMPTS + 1):
+            remaining_seconds = deadline - loop.time()
+            if remaining_seconds <= 0:
+                _log_call(
+                    model=profile.model,
+                    started_at=started_at,
+                    status="FAILED",
+                    attempt=attempt,
+                    error_code=ErrorCategory.TIMEOUT.value,
+                    failure_kind="timeout",
+                )
+                raise LlmBridgeError(
+                    category=ErrorCategory.TIMEOUT,
+                    retryable=True,
+                )
+
+            response_started = False
+            try:
+                async with asyncio.timeout_at(deadline):
+                    async with self._client.stream(
+                        "POST",
+                        XAI_CHAT_COMPLETIONS_URL,
+                        headers=self._headers(),
+                        json=payload,
+                        timeout=self._timeout(remaining_seconds),
+                    ) as attempt_response:
+                        # Structured output cannot be replayed once HTTP response
+                        # headers exist, even if the body later fails while buffering.
+                        response_started = True
+                        await attempt_response.aread()
+                        response = attempt_response
+            except (httpx.TimeoutException, TimeoutError) as exception:
+                _log_call(
+                    model=profile.model,
+                    started_at=started_at,
+                    status="FAILED",
+                    attempt=attempt,
+                    error_code=ErrorCategory.TIMEOUT.value,
+                    failure_kind="timeout",
+                    exception_type=type(exception).__name__,
+                )
+                raise LlmBridgeError(
+                    category=ErrorCategory.TIMEOUT,
+                    retryable=True,
+                ) from exception
+            except httpx.RequestError as exception:
+                retry = _can_retry_network_error(
+                    exception,
+                    attempt=attempt,
+                    no_retry_boundary_crossed=response_started,
+                )
+                _log_call(
+                    model=profile.model,
+                    started_at=started_at,
+                    status="RETRYING" if retry else "FAILED",
+                    attempt=attempt,
+                    error_code=ErrorCategory.INTERNAL.value,
+                    failure_kind="network",
+                    exception_type=type(exception).__name__,
+                )
+                if retry:
+                    continue
+                raise LlmBridgeError(
+                    category=ErrorCategory.INTERNAL,
+                    retryable=True,
+                ) from exception
+            successful_attempt = attempt
+            break
+
+        if response is None:  # pragma: no cover - loop exits only via success or error
+            raise AssertionError("xAI response missing after retry loop")
 
         if response.is_error:
             _log_call(
                 model=profile.model,
                 started_at=started_at,
                 status="FAILED",
+                attempt=successful_attempt,
                 error_code=ErrorCategory.INTERNAL.value,
-                failure_kind=(
-                    "rate_limit" if response.status_code == 429 else "provider"
-                ),
+                failure_kind=("rate_limit" if response.status_code == 429 else "provider"),
             )
             raise LlmBridgeError(
                 category=ErrorCategory.INTERNAL,
@@ -209,6 +299,7 @@ class XaiLlmBridge:
                 model=profile.model,
                 started_at=started_at,
                 status="FAILED",
+                attempt=successful_attempt,
                 error_code=ErrorCategory.SCHEMA.value,
                 failure_kind="schema",
             )
@@ -231,6 +322,7 @@ class XaiLlmBridge:
                 model=provider_response.model,
                 started_at=started_at,
                 status="FAILED",
+                attempt=successful_attempt,
                 error_code=ErrorCategory.SCHEMA.value,
                 failure_kind="schema",
             )
@@ -251,6 +343,7 @@ class XaiLlmBridge:
             model=provider_response.model,
             started_at=started_at,
             status="SUCCESS",
+            attempt=successful_attempt,
         )
         return LlmCompletion(
             output=output,
@@ -270,6 +363,7 @@ class XaiLlmBridge:
                 model=profile.model,
                 started_at=started_at,
                 status="FAILED",
+                attempt=1,
                 error_code=ErrorCategory.TIMEOUT.value,
                 failure_kind="timeout",
             )
@@ -281,129 +375,188 @@ class XaiLlmBridge:
         payload["stream"] = True
         payload["stream_options"] = {"include_usage": True}
 
-        provider_usage: _CompletionUsage | None = None
-        provider_model: str | None = None
-        completed = False
-        try:
-            async with self._client.stream(
-                "POST",
-                XAI_CHAT_COMPLETIONS_URL,
-                headers=self._headers(accept_stream=True),
-                json=payload,
-                timeout=self._timeout(timeout_seconds),
-            ) as response:
-                if response.is_error:
-                    _log_call(
-                        model=profile.model,
-                        started_at=started_at,
-                        status="FAILED",
-                        error_code=ErrorCategory.INTERNAL.value,
-                        failure_kind=(
-                            "rate_limit"
-                            if response.status_code == 429
-                            else "provider"
-                        ),
-                    )
-                    raise LlmBridgeError(
-                        category=ErrorCategory.INTERNAL,
-                        retryable=response.status_code == 429
-                        or response.status_code >= 500,
-                    )
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds
+        for attempt in range(1, _MAX_NETWORK_ATTEMPTS + 1):
+            remaining_seconds = deadline - loop.time()
+            if remaining_seconds <= 0:
+                _log_call(
+                    model=profile.model,
+                    started_at=started_at,
+                    status="FAILED",
+                    attempt=attempt,
+                    error_code=ErrorCategory.TIMEOUT.value,
+                    failure_kind="timeout",
+                )
+                raise LlmBridgeError(
+                    category=ErrorCategory.TIMEOUT,
+                    retryable=True,
+                )
 
-                async for data in _sse_data(response):
-                    if data == "[DONE]":
-                        completed = True
-                        break
-                    try:
-                        chunk = _StreamChunk.model_validate_json(data)
-                    except (json.JSONDecodeError, ValidationError) as exception:
+            provider_usage: _CompletionUsage | None = None
+            provider_model: str | None = None
+            completed = False
+            response_body_started = False
+            response: httpx.Response | None = None
+            try:
+                async with AsyncExitStack() as response_stack:
+                    async with asyncio.timeout_at(deadline):
+                        response = await response_stack.enter_async_context(
+                            self._client.stream(
+                                "POST",
+                                XAI_CHAT_COMPLETIONS_URL,
+                                headers=self._headers(accept_stream=True),
+                                json=payload,
+                                timeout=self._timeout(remaining_seconds),
+                            )
+                        )
+                    if response.is_error:
                         _log_call(
-                            model=provider_model or profile.model,
+                            model=profile.model,
                             started_at=started_at,
                             status="FAILED",
-                            error_code=ErrorCategory.SCHEMA.value,
-                            failure_kind="schema",
+                            attempt=attempt,
+                            error_code=ErrorCategory.INTERNAL.value,
+                            failure_kind=(
+                                "rate_limit" if response.status_code == 429 else "provider"
+                            ),
                         )
                         raise LlmBridgeError(
-                            category=ErrorCategory.SCHEMA,
-                            retryable=False,
-                        ) from exception
-                    provider_model = chunk.model
-                    if chunk.usage is not None:
-                        provider_usage = chunk.usage
-                    if chunk.choices:
-                        text = chunk.choices[0].delta.content
-                        if text:
-                            yield LlmTextDelta(text=text)
-        except httpx.TimeoutException as exception:
-            _log_call(
-                model=provider_model or profile.model,
-                started_at=started_at,
-                status="FAILED",
-                error_code=ErrorCategory.TIMEOUT.value,
-                failure_kind="timeout",
-            )
-            raise LlmBridgeError(
-                category=ErrorCategory.TIMEOUT,
-                retryable=True,
-            ) from exception
-        except httpx.RequestError as exception:
-            _log_call(
-                model=provider_model or profile.model,
-                started_at=started_at,
-                status="FAILED",
-                error_code=ErrorCategory.INTERNAL.value,
-                failure_kind="network",
-            )
-            raise LlmBridgeError(
-                category=ErrorCategory.INTERNAL,
-                retryable=True,
-            ) from exception
+                            category=ErrorCategory.INTERNAL,
+                            retryable=response.status_code == 429 or response.status_code >= 500,
+                        )
 
-        if not completed:
+                    def mark_response_body_started() -> None:
+                        nonlocal response_body_started
+                        response_body_started = True
+
+                    sse_events = _sse_data(
+                        response,
+                        on_body_chunk=mark_response_body_started,
+                    ).__aiter__()
+                    while True:
+                        try:
+                            # Scope the deadline to provider I/O only. Keeping an
+                            # asyncio timeout active across ``yield`` would also
+                            # cancel the downstream consumer while it handles a delta.
+                            if loop.time() >= deadline:
+                                raise TimeoutError
+                            async with asyncio.timeout_at(deadline):
+                                data = await anext(sse_events)
+                            if loop.time() >= deadline:
+                                raise TimeoutError
+                        except StopAsyncIteration:
+                            break
+                        if data == "[DONE]":
+                            completed = True
+                            break
+                        try:
+                            chunk = _StreamChunk.model_validate_json(data)
+                        except (json.JSONDecodeError, ValidationError) as exception:
+                            _log_call(
+                                model=provider_model or profile.model,
+                                started_at=started_at,
+                                status="FAILED",
+                                attempt=attempt,
+                                error_code=ErrorCategory.SCHEMA.value,
+                                failure_kind="schema",
+                            )
+                            raise LlmBridgeError(
+                                category=ErrorCategory.SCHEMA,
+                                retryable=False,
+                            ) from exception
+                        provider_model = chunk.model
+                        if chunk.usage is not None:
+                            provider_usage = chunk.usage
+                        if chunk.choices:
+                            text = chunk.choices[0].delta.content
+                            if text:
+                                yield LlmTextDelta(text=text)
+            except (httpx.TimeoutException, TimeoutError) as exception:
+                _log_call(
+                    model=provider_model or profile.model,
+                    started_at=started_at,
+                    status="FAILED",
+                    attempt=attempt,
+                    error_code=ErrorCategory.TIMEOUT.value,
+                    failure_kind="timeout",
+                    exception_type=type(exception).__name__,
+                )
+                raise LlmBridgeError(
+                    category=ErrorCategory.TIMEOUT,
+                    retryable=True,
+                ) from exception
+            except httpx.RequestError as exception:
+                raw_body_started = response is not None and response.num_bytes_downloaded > 0
+                retry = _can_retry_network_error(
+                    exception,
+                    attempt=attempt,
+                    no_retry_boundary_crossed=(response_body_started or raw_body_started),
+                )
+                _log_call(
+                    model=provider_model or profile.model,
+                    started_at=started_at,
+                    status="RETRYING" if retry else "FAILED",
+                    attempt=attempt,
+                    error_code=ErrorCategory.INTERNAL.value,
+                    failure_kind="network",
+                    exception_type=type(exception).__name__,
+                )
+                if retry:
+                    continue
+                raise LlmBridgeError(
+                    category=ErrorCategory.INTERNAL,
+                    retryable=True,
+                ) from exception
+
+            if not completed:
+                _log_call(
+                    model=provider_model or profile.model,
+                    started_at=started_at,
+                    status="FAILED",
+                    attempt=attempt,
+                    error_code=ErrorCategory.INTERNAL.value,
+                    failure_kind="provider",
+                )
+                raise LlmBridgeError(
+                    category=ErrorCategory.INTERNAL,
+                    retryable=True,
+                )
+            if provider_usage is None or provider_model is None:
+                _log_call(
+                    model=provider_model or profile.model,
+                    started_at=started_at,
+                    status="FAILED",
+                    attempt=attempt,
+                    error_code=ErrorCategory.SCHEMA.value,
+                    failure_kind="schema",
+                )
+                raise LlmBridgeError(
+                    category=ErrorCategory.SCHEMA,
+                    retryable=False,
+                )
+            if provider_model != profile.model:
+                logger.warning(
+                    "xAI response model mismatch: expected=%s actual=%s",
+                    profile.model,
+                    provider_model,
+                )
+            details = provider_usage.completion_tokens_details
             _log_call(
-                model=provider_model or profile.model,
-                started_at=started_at,
-                status="FAILED",
-                error_code=ErrorCategory.INTERNAL.value,
-                failure_kind="provider",
-            )
-            raise LlmBridgeError(
-                category=ErrorCategory.INTERNAL,
-                retryable=True,
-            )
-        if provider_usage is None or provider_model is None:
-            _log_call(
-                model=provider_model or profile.model,
-                started_at=started_at,
-                status="FAILED",
-                error_code=ErrorCategory.SCHEMA.value,
-                failure_kind="schema",
-            )
-            raise LlmBridgeError(
-                category=ErrorCategory.SCHEMA,
-                retryable=False,
-            )
-        if provider_model != profile.model:
-            logger.warning(
-                "xAI response model mismatch: expected=%s actual=%s",
-                profile.model,
-                provider_model,
-            )
-        details = provider_usage.completion_tokens_details
-        _log_call(
-            model=provider_model,
-            started_at=started_at,
-            status="SUCCESS",
-        )
-        yield LlmTextStreamCompleted(
-            usage=LlmUsage(
                 model=provider_model,
-                input_tokens=provider_usage.prompt_tokens,
-                output_tokens=provider_usage.completion_tokens,
-                reasoning_tokens=details.reasoning_tokens if details is not None else None,
+                started_at=started_at,
+                status="SUCCESS",
+                attempt=attempt,
             )
-        )
+            yield LlmTextStreamCompleted(
+                usage=LlmUsage(
+                    model=provider_model,
+                    input_tokens=provider_usage.prompt_tokens,
+                    output_tokens=provider_usage.completion_tokens,
+                    reasoning_tokens=(details.reasoning_tokens if details is not None else None),
+                )
+            )
+            return
 
     def _base_payload(
         self,
