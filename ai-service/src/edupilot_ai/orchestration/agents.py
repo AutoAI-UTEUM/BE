@@ -332,15 +332,15 @@ class QuizAgent:
             response_model=QuizGeneration,
             profile=self._profile,
             timeout_seconds=timeout_seconds,
+            attachments=_material_attachments(context),
         )
         quiz = completion.output
-        available_pages = {context.session.current_page}
-        if context.previous_page_text is not None and context.session.current_page > 1:
-            available_pages.add(context.session.current_page - 1)
-        if context.next_page_text is not None:
-            available_pages.add(context.session.current_page + 1)
-        covered_pages = set(range(quiz.coverage.start_page, quiz.coverage.end_page + 1))
-        if quiz.quiz_type is not quiz_type or not covered_pages.issubset(available_pages):
+        current_page = context.session.current_page
+        if (
+            quiz.quiz_type is not quiz_type
+            or quiz.coverage.start_page != current_page
+            or quiz.coverage.end_page != current_page
+        ):
             raise LlmBridgeError(
                 category=ErrorCategory.SCHEMA,
                 retryable=False,

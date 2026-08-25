@@ -603,6 +603,7 @@ class HttpAiClientContractTest {
 			"""));
 		OutlineRequest outlineRequest = new OutlineRequest(
 			"1.0",
+			"file-outline-phase-five",
 			2,
 			List.of(
 				new OutlineRequest.Page(1, "첫 페이지 전체 텍스트"),
@@ -625,6 +626,7 @@ class HttpAiClientContractTest {
 		assertThat(request.getHeader("X-Internal-Token")).isEqualTo(INTERNAL_TOKEN);
 		assertThat(request.getBody().readUtf8())
 			.contains("\"schemaVersion\":\"1.0\"")
+			.contains("\"xaiFileId\":\"file-outline-phase-five\"")
 			.contains("\"totalPages\":2")
 			.contains("\"pageNumber\":1")
 			.contains("첫 페이지 전체 텍스트")
