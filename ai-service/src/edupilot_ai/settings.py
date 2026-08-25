@@ -15,6 +15,14 @@ class ReasoningEffort(StrEnum):
     HIGH = "high"
 
 
+class RuntimeEnvironment(StrEnum):
+    """Deployment environments with an approved log-level policy."""
+
+    LOCAL = "local"
+    DEV = "dev"
+    PROD = "prod"
+
+
 class AgentLlmProfile(BaseModel):
     """DEC-002 D5 provider configuration for one agent role."""
 
@@ -54,6 +62,10 @@ class Settings(BaseSettings):
         validation_alias="MODEL_NAME",
         min_length=1,
     )
+    environment: RuntimeEnvironment = Field(
+        default=RuntimeEnvironment.LOCAL,
+        validation_alias="ENVIRONMENT",
+    )
 
     turn_timeout_seconds: PositiveInt = Field(
         default=180,
@@ -64,8 +76,12 @@ class Settings(BaseSettings):
         validation_alias="TURN_FIRST_EVENT_TIMEOUT_SECONDS",
     )
     grade_timeout_seconds: PositiveInt = Field(
-        default=90,
+        default=110,
         validation_alias="GRADE_TIMEOUT_SECONDS",
+    )
+    exam_draft_timeout_seconds: PositiveInt = Field(
+        default=120,
+        validation_alias="EXAM_DRAFT_TIMEOUT_SECONDS",
     )
     quiz_assessment_timeout_seconds: PositiveInt = Field(
         default=45,
@@ -79,6 +95,42 @@ class Settings(BaseSettings):
         default=120,
         validation_alias="EXTRACT_TIMEOUT_SECONDS",
     )
+    edupilot_xai_file_upload_timeout_seconds: PositiveInt = Field(
+        default=60,
+        validation_alias="EDUPILOT_XAI_FILE_UPLOAD_TIMEOUT_SECONDS",
+    )
+    edupilot_xai_files_enabled: bool = Field(
+        default=False,
+        validation_alias="EDUPILOT_XAI_FILES_ENABLED",
+    )
+    report_timeout_seconds: PositiveInt = Field(
+        default=180,
+        validation_alias="REPORT_TIMEOUT_SECONDS",
+    )
+    report_query_timeout_seconds: PositiveInt = Field(
+        default=60,
+        validation_alias="REPORT_QUERY_TIMEOUT_SECONDS",
+    )
+    edupilot_outline_timeout_seconds: PositiveInt = Field(
+        default=90,
+        validation_alias="EDUPILOT_OUTLINE_TIMEOUT_SECONDS",
+    )
+    edupilot_criteria_timeout_seconds: PositiveInt = Field(
+        default=75,
+        validation_alias="EDUPILOT_CRITERIA_TIMEOUT_SECONDS",
+    )
+    edupilot_captions_timeout_seconds: PositiveInt = Field(
+        default=60,
+        validation_alias="EDUPILOT_CAPTIONS_TIMEOUT_SECONDS",
+    )
+    edupilot_docchat_timeout_seconds: PositiveInt = Field(
+        default=60,
+        validation_alias="EDUPILOT_DOCCHAT_TIMEOUT_SECONDS",
+    )
+    edupilot_docchat_max_context_chars: PositiveInt = Field(
+        default=60_000,
+        validation_alias="EDUPILOT_DOCCHAT_MAX_CONTEXT_CHARS",
+    )
     edupilot_upload_max_mb: int = Field(
         default=45,
         ge=1,
@@ -90,6 +142,23 @@ class Settings(BaseSettings):
         ge=1,
         le=300,
         validation_alias="EDUPILOT_EXTRACT_MAX_PAGES",
+    )
+    # Image-only samples yield 0–65 symbols/page; 50 chars on 5% of pages is conservative.
+    edupilot_extract_min_chars_per_page: int = Field(
+        default=50,
+        ge=1,
+        validation_alias="EDUPILOT_EXTRACT_MIN_CHARS_PER_PAGE",
+    )
+    edupilot_extract_min_meaningful_page_ratio: float = Field(
+        default=0.05,
+        gt=0,
+        le=1,
+        validation_alias="EDUPILOT_EXTRACT_MIN_MEANINGFUL_PAGE_RATIO",
+    )
+    edupilot_outline_max_chars_per_page: int = Field(
+        default=1500,
+        ge=1,
+        validation_alias="EDUPILOT_OUTLINE_MAX_CHARS_PER_PAGE",
     )
 
     agent_reasoning_effort: ReasoningEffort = Field(
@@ -115,6 +184,59 @@ class Settings(BaseSettings):
     qa_reasoning_effort: ReasoningEffort = Field(
         default=ReasoningEffort.MEDIUM,
         validation_alias="QA_REASONING_EFFORT",
+    )
+    quiz_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.MEDIUM,
+        validation_alias="QUIZ_REASONING_EFFORT",
+    )
+    grader_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.HIGH,
+        validation_alias="GRADER_REASONING_EFFORT",
+    )
+    exam_draft_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.HIGH,
+        validation_alias="EXAM_DRAFT_REASONING_EFFORT",
+    )
+    assessment_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.HIGH,
+        validation_alias="ASSESSMENT_REASONING_EFFORT",
+    )
+    diagnosis_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.HIGH,
+        validation_alias="DIAGNOSIS_REASONING_EFFORT",
+    )
+    repair_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.MEDIUM,
+        validation_alias="REPAIR_REASONING_EFFORT",
+    )
+    report_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.HIGH,
+        validation_alias="REPORT_REASONING_EFFORT",
+    )
+    report_query_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.MEDIUM,
+        validation_alias="REPORT_QUERY_REASONING_EFFORT",
+    )
+    outline_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.LOW,
+        validation_alias="OUTLINE_REASONING_EFFORT",
+    )
+    criteria_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.LOW,
+        validation_alias="CRITERIA_REASONING_EFFORT",
+    )
+    captions_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.LOW,
+        validation_alias="CAPTIONS_REASONING_EFFORT",
+    )
+    docchat_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.LOW,
+        validation_alias="DOCCHAT_REASONING_EFFORT",
+    )
+    captions_model: str | None = Field(
+        default=None,
+        min_length=1,
+        validation_alias="CAPTIONS_MODEL",
     )
 
     @property
@@ -149,6 +271,69 @@ class Settings(BaseSettings):
     def qa_llm_profile(self) -> AgentLlmProfile:
         """Build the interactive question-answering profile."""
         return self._profile(self.qa_reasoning_effort)
+
+    @property
+    def quiz_llm_profile(self) -> AgentLlmProfile:
+        """Build the medium-reasoning quiz generation profile."""
+        return self._profile(self.quiz_reasoning_effort)
+
+    @property
+    def grader_llm_profile(self) -> AgentLlmProfile:
+        """Build the high-reasoning grading profile."""
+        return self._profile(self.grader_reasoning_effort)
+
+    @property
+    def exam_draft_llm_profile(self) -> AgentLlmProfile:
+        """Build the high-reasoning exam draft profile."""
+        return self._profile(self.exam_draft_reasoning_effort)
+
+    @property
+    def assessment_llm_profile(self) -> AgentLlmProfile:
+        """Build the high-reasoning quiz assessment profile."""
+        return self._profile(self.assessment_reasoning_effort)
+
+    @property
+    def diagnosis_llm_profile(self) -> AgentLlmProfile:
+        """Build the high-reasoning diagnosis profile."""
+        return self._profile(self.diagnosis_reasoning_effort)
+
+    @property
+    def repair_llm_profile(self) -> AgentLlmProfile:
+        """Build the focused misconception repair profile."""
+        return self._profile(self.repair_reasoning_effort)
+
+    @property
+    def report_llm_profile(self) -> AgentLlmProfile:
+        """Build the high-reasoning report generation profile."""
+        return self._profile(self.report_reasoning_effort)
+
+    @property
+    def report_query_llm_profile(self) -> AgentLlmProfile:
+        """Build the medium-reasoning report query profile."""
+        return self._profile(self.report_query_reasoning_effort)
+
+    @property
+    def outline_llm_profile(self) -> AgentLlmProfile:
+        """Build the low-reasoning material outline profile."""
+        return self._profile(self.outline_reasoning_effort)
+
+    @property
+    def criteria_llm_profile(self) -> AgentLlmProfile:
+        """Build the low-reasoning classroom criteria profile."""
+        return self._profile(self.criteria_reasoning_effort)
+
+    @property
+    def captions_llm_profile(self) -> AgentLlmProfile:
+        """Build the low-reasoning visual caption profile with an optional model override."""
+        profile = self._profile(self.captions_reasoning_effort)
+        if self.captions_model is None:
+            return profile
+        return profile.model_copy(update={"model": self.captions_model})
+
+    @property
+    def docchat_llm_profile(self) -> AgentLlmProfile:
+        """Build the low-reasoning lightweight document chat profile."""
+        return self._profile(self.docchat_reasoning_effort)
 
     @property
     def upload_max_bytes(self) -> int:

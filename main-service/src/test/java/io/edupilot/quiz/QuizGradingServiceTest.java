@@ -26,7 +26,9 @@ class QuizGradingServiceTest {
 
 	@Test
 	void gradesMcqDeterministicallyWithoutAi() {
-		QuizGradingService service = new QuizGradingService(aiClient);
+		QuizGradingService service = new QuizGradingService(
+			aiClient, new DeterministicAnswerGrader()
+		);
 		PreparedQuizSubmission prepared = prepared(
 			QuizType.MCQ,
 			List.of(
@@ -50,7 +52,9 @@ class QuizGradingServiceTest {
 
 	@Test
 	void gradesOxDeterministicallyWithoutAi() {
-		QuizGradingService service = new QuizGradingService(aiClient);
+		QuizGradingService service = new QuizGradingService(
+			aiClient, new DeterministicAnswerGrader()
+		);
 		PreparedQuizSubmission prepared = prepared(
 			QuizType.OX,
 			List.of(
@@ -73,7 +77,9 @@ class QuizGradingServiceTest {
 
 	@Test
 	void acceptsValidAiResultAndRejectsMismatchedTotal() {
-		QuizGradingService service = new QuizGradingService(aiClient);
+		QuizGradingService service = new QuizGradingService(
+			aiClient, new DeterministicAnswerGrader()
+		);
 		PreparedQuizSubmission prepared = prepared(
 			QuizType.SHORT,
 			List.of(privateShort("q1"), privateShort("q2")),
@@ -101,7 +107,9 @@ class QuizGradingServiceTest {
 
 	@Test
 	void rejectsMissingDuplicateOutOfRangeAndUnknownVerdictAiItems() {
-		QuizGradingService service = new QuizGradingService(aiClient);
+		QuizGradingService service = new QuizGradingService(
+			aiClient, new DeterministicAnswerGrader()
+		);
 		PreparedQuizSubmission prepared = prepared(
 			QuizType.SHORT,
 			List.of(privateShort("q1"), privateShort("q2")),
@@ -237,8 +245,8 @@ class QuizGradingServiceTest {
 			null,
 			null,
 			"기준 답안",
-			List.of(),
-			List.of(new RubricCriterion("정확성", BigDecimal.ONE)),
+			List.of("정확성"),
+			null,
 			null
 		);
 	}

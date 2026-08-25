@@ -3,6 +3,14 @@ spring:
     name: main-service
   profiles:
     default: local
+  security:
+    filter:
+      dispatcher-types: request, error
+  datasource:
+    hikari:
+      data-source-properties:
+        connectionTimeZone: UTC
+        forceConnectionTimeZoneToSession: true
   jpa:
     hibernate:
       ddl-auto: validate
@@ -29,6 +37,8 @@ springdoc:
     path: /swagger-ui.html
 
 edupilot:
+  google:
+    client-id: ${EDUPILOT_GOOGLE_CLIENT_ID:}
   cors:
     allowed-origins: ${EDUPILOT_CORS_ALLOWED_ORIGINS}
   ai:
@@ -37,16 +47,55 @@ edupilot:
     health-timeout: 2s
     read-timeout: 30s
     turn-read-timeout: ${EDUPILOT_AI_TURN_READ_TIMEOUT:200s}
-    grade-read-timeout: ${EDUPILOT_AI_GRADE_READ_TIMEOUT:90s}
+    stream-idle-timeout: ${EDUPILOT_AI_STREAM_IDLE_TIMEOUT:30s}
+    grade-read-timeout: ${EDUPILOT_AI_GRADE_READ_TIMEOUT:110s}
     pipeline-read-timeout: ${EDUPILOT_AI_PIPELINE_READ_TIMEOUT:45s}
-    extract-read-timeout: ${EDUPILOT_AI_EXTRACT_READ_TIMEOUT:120s}
+    assessment-read-timeout: ${EDUPILOT_AI_ASSESSMENT_READ_TIMEOUT:55s}
+    diagnosis-read-timeout: ${EDUPILOT_AI_DIAGNOSIS_READ_TIMEOUT:55s}
+    extract-read-timeout: ${EDUPILOT_AI_EXTRACT_READ_TIMEOUT:200s}
+    report-read-timeout: ${EDUPILOT_AI_REPORT_READ_TIMEOUT:220s}
+    report-query-read-timeout: ${EDUPILOT_AI_REPORT_QUERY_READ_TIMEOUT:75s}
+    criteria-read-timeout: ${EDUPILOT_AI_CRITERIA_READ_TIMEOUT:90s}
+    outline-timeout: ${EDUPILOT_AI_OUTLINE_TIMEOUT:110s}
+    captions-read-timeout: ${EDUPILOT_AI_CAPTIONS_READ_TIMEOUT:75s}
+    doc-chat-read-timeout: ${EDUPILOT_AI_DOCCHAT_READ_TIMEOUT:75s}
+    exam-draft-read-timeout: ${EDUPILOT_AI_EXAM_DRAFT_READ_TIMEOUT:120s}
     health-path: /health
   quiz:
     pass-ratio: ${EDUPILOT_QUIZ_PASS_RATIO:0.6}
+    proposal-min-page-text-length: ${EDUPILOT_QUIZ_PROPOSAL_MIN_PAGE_TEXT_LENGTH:200}
   material:
     upload-max-mb: ${EDUPILOT_UPLOAD_MAX_MB:45}
     max-pages: 300
+    extraction-stuck-threshold: ${EDUPILOT_MATERIAL_EXTRACTION_STUCK_THRESHOLD:PT30M}
+    outline:
+      backfill-batch: ${EDUPILOT_OUTLINE_BACKFILL_BATCH:3}
+    captions:
+      backfill-batch: ${EDUPILOT_CAPTION_BACKFILL_BATCH:1}
     page-text-api-enabled: false
+  exam:
+    grading:
+      lease-duration: PT5M
+      executor:
+        core-size: 4
+        max-size: 4
+        queue-capacity: 100
+  report:
+    recent-window: P14D
+    evidence-limit: 200
+    trend-threshold: 5.0
+    stage-excellent: 85
+    stage-good: 70
+    stage-fair: 50
+    policy-version: "1.0"
+    generation:
+      lease-duration: PT5M
+      cutoff: PT10M
+      poll-after-seconds: 5
+      executor:
+        core-size: 1
+        max-size: 2
+        queue-capacity: 50
   jwt:
     secret: ${EDUPILOT_JWT_SECRET}
     access-token-ttl: 1h

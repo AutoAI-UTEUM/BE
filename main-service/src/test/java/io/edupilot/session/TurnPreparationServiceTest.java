@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import io.edupilot.diagnosis.Diagnosis;
 import io.edupilot.diagnosis.DiagnosisRepository;
@@ -74,6 +75,78 @@ class TurnPreparationServiceTest {
 		verify(messageRepository, never()).saveAndFlush(
 			org.mockito.ArgumentMatchers.any()
 		);
+	}
+
+	@Test
+	void rejectsQuizSelectionWhileDiagnosisIsPending() {
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(session.getActiveTurnRequestId()).thenReturn("request-1");
+		when(session.getPageStatus())
+			.thenReturn(PageStatus.DIAGNOSIS_PENDING);
+
+		assertThatThrownBy(() -> service().assertEventAllowed(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.QUIZ_TYPE_SELECTED
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode())
+				.isEqualTo(ErrorCode.SESSION_STATE_CONFLICT)
+		);
+		verify(messageRepository, never()).saveAndFlush(
+			org.mockito.ArgumentMatchers.any()
+		);
+	}
+
+	@Test
+	void reusesFailedMessageForSameRequestWithoutAddingAnotherQuestion() {
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(session.getStatus()).thenReturn(SessionStatus.ACTIVE);
+		when(session.getActiveTurnRequestId()).thenReturn("request-1");
+		ChatMessage failed = ChatMessage.user(
+			session,
+			"같은 질문",
+			"request-1"
+		);
+		ReflectionTestUtils.setField(failed, "id", 501L);
+		failed.markFailed();
+		when(messageRepository.findBySession_IdAndRequestId(
+			100L,
+			"request-1"
+		)).thenReturn(Optional.of(failed));
+
+		PreparedTurn prepared = service().prepare(
+			1L,
+			100L,
+			"request-1",
+			"같은 질문",
+			null
+		);
+
+		assertThat(prepared.userMessageId()).isEqualTo(501L);
+		assertThat(failed.getStatus()).isEqualTo(ChatMessageStatus.COMPLETED);
+		verify(messageRepository, never()).saveAndFlush(
+			org.mockito.ArgumentMatchers.any()
+		);
+		verify(messageRepository).flush();
+	}
+
+	@Test
+	void marksPreparedUserMessageFailedForCompensation() {
+		ChatMessage message = ChatMessage.user(
+			session,
+			"질문",
+			"request-1"
+		);
+		when(messageRepository.findById(501L))
+			.thenReturn(Optional.of(message));
+
+		service().markFailed(501L);
+
+		assertThat(message.getStatus()).isEqualTo(ChatMessageStatus.FAILED);
+		verify(messageRepository).flush();
 	}
 
 	private void givenAnsweredDiagnosis() {

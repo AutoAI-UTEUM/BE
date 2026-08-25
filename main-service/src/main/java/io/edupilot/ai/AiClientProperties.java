@@ -18,9 +18,19 @@ public record AiClientProperties(
 	@NotNull Duration healthTimeout,
 	@NotNull Duration readTimeout,
 	@NotNull Duration turnReadTimeout,
+	@NotNull Duration streamIdleTimeout,
 	@NotNull Duration gradeReadTimeout,
 	@NotNull Duration pipelineReadTimeout,
+	@NotNull Duration assessmentReadTimeout,
+	@NotNull Duration diagnosisReadTimeout,
 	@NotNull Duration extractReadTimeout,
+	@NotNull Duration reportReadTimeout,
+	@NotNull Duration reportQueryReadTimeout,
+	@NotNull Duration criteriaReadTimeout,
+	@NotNull Duration outlineTimeout,
+	@NotNull Duration captionsReadTimeout,
+	@NotNull Duration docChatReadTimeout,
+	@NotNull Duration examDraftReadTimeout,
 	@NotBlank String healthPath
 ) {
 }

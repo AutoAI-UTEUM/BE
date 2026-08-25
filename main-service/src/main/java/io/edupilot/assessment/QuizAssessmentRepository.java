@@ -1,6 +1,7 @@
 package io.edupilot.assessment;
 
 import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
 
 import org.springframework.data.domain.Pageable;
@@ -31,5 +32,30 @@ public interface QuizAssessmentRepository
 		@Param("userId") Long userId,
 		@Param("materialId") Long materialId,
 		Pageable pageable
+	);
+
+	@Query("""
+		select assessment
+		from QuizAssessment assessment
+		join fetch assessment.submission submission
+		join submission.quiz quiz
+		join quiz.session session
+		where assessment.submission.id in :submissionIds
+		  and submission.user.id = :studentId
+		  and session.user.id = :studentId
+		  and exists (
+		    select link.id
+		    from ClassroomWeekMaterial link
+		    where link.material = session.material
+		      and link.week.classroom.id = :classroomId
+		      and (:weekNumber is null or link.week.weekNumber = :weekNumber)
+		  )
+		order by assessment.createdAt, assessment.id
+		""")
+	List<QuizAssessment> findReportAssessments(
+		@Param("classroomId") Long classroomId,
+		@Param("studentId") Long studentId,
+		@Param("weekNumber") Integer weekNumber,
+		@Param("submissionIds") Collection<Long> submissionIds
 	);
 }

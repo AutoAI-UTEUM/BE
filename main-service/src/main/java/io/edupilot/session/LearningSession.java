@@ -70,6 +70,12 @@ public class LearningSession {
 	@Column(name = "active_turn_started_at")
 	private Instant activeTurnStartedAt;
 
+	@Column(name = "conversation_reset_at")
+	private Instant conversationResetAt;
+
+	@Column(name = "conversation_reset_count", nullable = false)
+	private int conversationResetCount;
+
 	@Version
 	@Column(nullable = false)
 	private long version;
@@ -108,11 +114,32 @@ public class LearningSession {
 		this.status = SessionStatus.COMPLETED;
 	}
 
-	public void completeQuizSubmission(Long quizId, List<UiAction> uiActions) {
+	public void completeQuizSubmission(
+		Long quizId,
+		List<UiAction> uiActions,
+		boolean passed,
+		boolean currentPageQuiz
+	) {
 		if (Objects.equals(this.activeQuizId, quizId)) {
 			this.activeQuizId = null;
 		}
+		if (!currentPageQuiz) {
+			return;
+		}
+		if (passed) {
+			this.pageStatus = PageStatus.EXPLAINED;
+		}
 		this.lastUiActions = List.copyOf(uiActions);
+	}
+
+	public boolean declineQuizProposal(List<UiAction> nextUiActions) {
+		boolean hasQuizProposal = getLastUiActions().stream()
+			.anyMatch(action -> "SHOW_QUIZ_TYPE_SELECT".equals(action.yesEvent()));
+		if (!hasQuizProposal) {
+			return false;
+		}
+		this.lastUiActions = List.copyOf(nextUiActions);
+		return true;
 	}
 
 	public void startDiagnosis(Long diagnosisId, UiAction uiAction) {
@@ -121,10 +148,15 @@ public class LearningSession {
 		this.lastUiActions = List.of(uiAction);
 	}
 
-	public void completeDiagnosis(Long diagnosisId) {
+	public void completeDiagnosis(
+		Long diagnosisId,
+		boolean currentPageDiagnosis
+	) {
 		if (Objects.equals(this.pendingDiagnosisId, diagnosisId)) {
 			this.pendingDiagnosisId = null;
-			this.pageStatus = PageStatus.REPAIR_COMPLETED;
+			if (currentPageDiagnosis) {
+				this.pageStatus = PageStatus.REPAIR_COMPLETED;
+			}
 		}
 	}
 
@@ -165,6 +197,12 @@ public class LearningSession {
 			activeTurnRequestId = null;
 			activeTurnStartedAt = null;
 		}
+	}
+
+	public int startNewConversation(Instant startedAt) {
+		this.conversationResetAt = Objects.requireNonNull(startedAt);
+		this.conversationResetCount += 1;
+		return this.conversationResetCount;
 	}
 
 	public Long getId() {
@@ -213,6 +251,14 @@ public class LearningSession {
 
 	public String getActiveTurnRequestId() {
 		return activeTurnRequestId;
+	}
+
+	public Instant getConversationResetAt() {
+		return conversationResetAt;
+	}
+
+	public int getConversationResetCount() {
+		return conversationResetCount;
 	}
 
 	public Instant getUpdatedAt() {

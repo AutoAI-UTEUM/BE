@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
-from edupilot_ai.models.turn import ContractModel
+from edupilot_ai.models.base import ContractModel
 
 
 class ToolName(StrEnum):
@@ -23,6 +23,7 @@ class ToolName(StrEnum):
     GRADE_OPEN_RESPONSE = "GRADE_OPEN_RESPONSE"
     ASSESS_QUIZ_RESULT = "ASSESS_QUIZ_RESULT"
     DIAGNOSE_MISCONCEPTION = "DIAGNOSE_MISCONCEPTION"
+    WRITE_NOTE = "WRITE_NOTE"
 
 
 class PedagogyPolicy(ContractModel):
@@ -47,6 +48,7 @@ class TurnPlan(ContractModel):
     actions: list[PlanAction] = Field(min_length=1, max_length=10)
     reason: str
     memory_write: None = None
+    propose_note: bool = False
     stop: str | None = None
 
     @model_validator(mode="after")
@@ -59,4 +61,3 @@ class TurnPlan(ContractModel):
 
 class AgentOutput(ContractModel):
     markdown: str = Field(min_length=1)
-    thought_summary: str = Field(min_length=1)

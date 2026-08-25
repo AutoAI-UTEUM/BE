@@ -1,0 +1,145 @@
+# Required GitHub Secrets:
+# - PROD_SSH_HOST
+# - PROD_SSH_USER
+# - PROD_SSH_KEY
+# - GHCR_TOKEN (packages:write)
+#
+# Required GitHub Repository Variables:
+# - PROD_DOMAIN
+# - PROD_DEPLOY_PATH
+# - GHCR_USERNAME
+
+name: Deploy prod
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy-prod
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Validate deployment variables
+        shell: bash
+        env:
+          PROD_DOMAIN: ${{ vars.PROD_DOMAIN }}
+          PROD_DEPLOY_PATH: ${{ vars.PROD_DEPLOY_PATH }}
+          GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
+        run: |
+          set -euo pipefail
+          test -n "$PROD_DOMAIN"
+          test -n "$PROD_DEPLOY_PATH"
+          test -n "$GHCR_USERNAME"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ vars.GHCR_USERNAME }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build and push main-service image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./main-service
+          file: ./main-service/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/autoai-uteum/main-service:${{ github.sha }}
+            ghcr.io/autoai-uteum/main-service:prod
+
+      - name: Build and push ai-service image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./ai-service
+          file: ./ai-service/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/autoai-uteum/ai-service:${{ github.sha }}
+            ghcr.io/autoai-uteum/ai-service:prod
+
+      - name: Copy deployment configuration
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          source: docker-compose.yml,docker-compose.prod.yml,infra/nginx/edupilot.conf
+          target: ${{ vars.PROD_DEPLOY_PATH }}
+          overwrite: true
+
+      - name: Pull and restart prod services
+        uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_TAG: ${{ github.sha }}
+          PROD_DEPLOY_PATH: ${{ vars.PROD_DEPLOY_PATH }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          envs: DEPLOY_TAG,PROD_DEPLOY_PATH,GHCR_TOKEN,GHCR_USERNAME
+          script: |
+            set -eu
+            cd "$PROD_DEPLOY_PATH"
+            printf '%s' "$GHCR_TOKEN" |
+              docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+            ENVIRONMENT=prod TAG="$DEPLOY_TAG" docker compose --env-file .env \
+              -f docker-compose.yml -f docker-compose.prod.yml pull
+            ENVIRONMENT=prod TAG="$DEPLOY_TAG" docker compose --env-file .env \
+              -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+            ENVIRONMENT=prod TAG="$DEPLOY_TAG" docker compose --env-file .env \
+              -f docker-compose.yml -f docker-compose.prod.yml restart nginx
+            ENVIRONMENT=prod TAG="$DEPLOY_TAG" docker compose --env-file .env \
+              -f docker-compose.yml -f docker-compose.prod.yml ps
+
+      - name: Smoke test
+        shell: bash
+        env:
+          HEALTH_URL: https://${{ vars.PROD_DOMAIN }}/api/health
+          READINESS_URL: https://${{ vars.PROD_DOMAIN }}/api/health/ready
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            if curl --fail --silent --show-error "$HEALTH_URL"; then
+              break
+            fi
+            echo "Health check attempt $attempt/12 failed"
+            if [ "$attempt" -eq 12 ]; then
+              exit 1
+            fi
+            sleep 5
+          done
+
+          for attempt in $(seq 1 12); do
+            readiness_response="$(
+              curl --fail --silent --show-error "$READINESS_URL" || true
+            )"
+            if printf '%s' "$readiness_response" |
+              grep --extended-regexp --quiet '"aiService"[[:space:]]*:[[:space:]]*"UP"'; then
+              printf '%s\n' "$readiness_response"
+              exit 0
+            fi
+            echo "Readiness check attempt $attempt/12 failed"
+            sleep 5
+          done
+          exit 1

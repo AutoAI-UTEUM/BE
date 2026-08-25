@@ -48,7 +48,23 @@ public class TurnPreparationService {
 		if (!requestId.equals(session.getActiveTurnRequestId())) {
 			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
 		}
-
+		ChatMessage existing = messageRepository
+			.findBySession_IdAndRequestId(sessionId, requestId)
+			.orElse(null);
+		if (existing != null) {
+			if (existing.getStatus() != ChatMessageStatus.FAILED
+				|| !existing.getContent().equals(userContent)) {
+				throw new BusinessException(
+					ErrorCode.TURN_ALREADY_PROCESSED
+				);
+			}
+			if (diagnosisId != null) {
+				answerDiagnosis(session, userId, diagnosisId, userContent);
+			}
+			existing.retry();
+			messageRepository.flush();
+			return new PreparedTurn(existing.getId());
+		}
 		if (diagnosisId != null) {
 			answerDiagnosis(session, userId, diagnosisId, userContent);
 		}
@@ -57,6 +73,39 @@ public class TurnPreparationService {
 			ChatMessage.user(session, userContent, requestId)
 		);
 		return new PreparedTurn(message.getId());
+	}
+
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void markFailed(Long userMessageId) {
+		ChatMessage message = messageRepository.findById(userMessageId)
+			.orElseThrow(() ->
+				new BusinessException(ErrorCode.SESSION_STATE_CONFLICT));
+		message.markFailed();
+		messageRepository.flush();
+	}
+
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void assertEventAllowed(
+		Long userId,
+		Long sessionId,
+		String requestId,
+		TurnEventType eventType
+	) {
+		if (eventType != TurnEventType.QUIZ_TYPE_SELECTED) {
+			return;
+		}
+		LearningSession session = sessionRepository.findOwnedForUpdate(
+				sessionId,
+				userId
+			)
+			.orElseThrow(() ->
+				new BusinessException(ErrorCode.SESSION_NOT_FOUND));
+		if (!requestId.equals(session.getActiveTurnRequestId())) {
+			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
+		}
+		if (session.getPageStatus() == PageStatus.DIAGNOSIS_PENDING) {
+			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
+		}
 	}
 
 	private void answerDiagnosis(

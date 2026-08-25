@@ -19,6 +19,7 @@ import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.material.MaterialPageTextMerger;
 import io.edupilot.quiz.dto.QuizSubmitRequest;
 import io.edupilot.session.LearningSession;
 import io.edupilot.user.User;
@@ -33,9 +34,6 @@ class QuizSubmissionPreparationServiceTest {
 	private QuizRepository quizRepository;
 
 	@Mock
-	private QuizSubmissionRepository submissionRepository;
-
-	@Mock
 	private MaterialPageRepository materialPageRepository;
 
 	private QuizSubmissionPreparationService service;
@@ -45,8 +43,8 @@ class QuizSubmissionPreparationServiceTest {
 	void setUp() {
 		service = new QuizSubmissionPreparationService(
 			quizRepository,
-			submissionRepository,
-			materialPageRepository
+			materialPageRepository,
+			new MaterialPageTextMerger()
 		);
 		User owner = User.create("owner@example.com", "hash", "소유자");
 		ReflectionTestUtils.setField(owner, "id", 1L);
@@ -59,6 +57,7 @@ class QuizSubmissionPreparationServiceTest {
 		material.markReady(3);
 		LearningSession session = LearningSession.create(owner, material);
 		ReflectionTestUtils.setField(session, "id", 100L);
+		ReflectionTestUtils.setField(session, "activeQuizId", 50L);
 		quiz = Quiz.create(
 			session,
 			1,
@@ -140,14 +139,15 @@ class QuizSubmissionPreparationServiceTest {
 	}
 
 	@Test
-	void rejectsExistingSubmissionBeforeRequestValidation() {
-		when(submissionRepository.existsByQuiz_IdAndUser_Id(50L, 1L))
-			.thenReturn(true);
+	void rejectsQuizThatIsNotTheSessionActiveQuiz() {
+		LearningSession session = (LearningSession)
+			ReflectionTestUtils.getField(quiz, "session");
+		ReflectionTestUtils.setField(session, "activeQuizId", 51L);
 
 		assertThatThrownBy(() -> service.prepare(1L, 50L, null))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode())
-					.isEqualTo(ErrorCode.QUIZ_ALREADY_SUBMITTED)
+					.isEqualTo(ErrorCode.SESSION_STATE_CONFLICT)
 			);
 	}
 

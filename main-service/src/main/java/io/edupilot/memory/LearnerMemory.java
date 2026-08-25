@@ -1,7 +1,10 @@
 package io.edupilot.memory;
 
 import java.time.Instant;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Stream;
 
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -79,32 +82,63 @@ public class LearnerMemory {
 
 	private LearnerMemory(
 		User user,
-		LearningMaterial material,
-		MemoryWrite write
+		LearningMaterial material
 	) {
 		this.user = user;
 		this.material = material;
-		apply(write);
+		this.strengths = List.of();
+		this.weaknesses = List.of();
+		this.misconceptions = List.of();
+		this.explanationPreferences = List.of();
+		this.preferredQuizTypes = List.of();
+		this.nextCoachingGoals = List.of();
 	}
 
 	public static LearnerMemory create(
 		User user,
-		LearningMaterial material,
-		MemoryWrite write
+		LearningMaterial material
 	) {
-		return new LearnerMemory(user, material, write);
+		return new LearnerMemory(user, material);
 	}
 
-	public void apply(MemoryWrite write) {
-		this.strengths = List.copyOf(write.strengths());
-		this.weaknesses = List.copyOf(write.weaknesses());
-		this.misconceptions = List.copyOf(write.misconceptions());
-		this.explanationPreferences =
-			List.copyOf(write.explanationPreferences());
-		this.preferredQuizTypes = List.copyOf(write.preferredQuizTypes());
-		this.targetDifficulty = write.targetDifficulty();
-		this.nextCoachingGoals = List.copyOf(write.nextCoachingGoals());
-		this.memoryDigest = write.memoryDigest();
+	public void applyCandidates(List<LearnerMemoryCandidate> candidates) {
+		Set<String> nextStrengths = new LinkedHashSet<>(strengths);
+		Set<String> nextWeaknesses = new LinkedHashSet<>(weaknesses);
+		Set<String> nextMisconceptions = new LinkedHashSet<>(misconceptions);
+		Set<String> nextPreferences = new LinkedHashSet<>(
+			explanationPreferences
+		);
+		for (LearnerMemoryCandidate candidate : candidates) {
+			switch (candidate.getCandidateType()) {
+				case "STRENGTH" -> nextStrengths.add(candidate.getContent());
+				case "WEAKNESS" -> nextWeaknesses.add(candidate.getContent());
+				case "MISCONCEPTION" ->
+					nextMisconceptions.add(candidate.getContent());
+				case "PREFERENCE" ->
+					nextPreferences.add(candidate.getContent());
+				default -> throw new IllegalArgumentException(
+					"Unsupported memory candidate type"
+				);
+			}
+		}
+		this.strengths = List.copyOf(nextStrengths);
+		this.weaknesses = List.copyOf(nextWeaknesses);
+		this.misconceptions = List.copyOf(nextMisconceptions);
+		this.explanationPreferences = List.copyOf(nextPreferences);
+		this.memoryDigest = Stream.of(
+			strengths,
+			weaknesses,
+			misconceptions,
+			explanationPreferences,
+			preferredQuizTypes,
+			nextCoachingGoals
+		)
+			.flatMap(List::stream)
+			.distinct()
+			.collect(java.util.stream.Collectors.joining("; "));
+		if (memoryDigest.isEmpty()) {
+			memoryDigest = null;
+		}
 	}
 
 	public Long getId() {
@@ -117,6 +151,10 @@ public class LearnerMemory {
 
 	public List<String> getWeaknesses() {
 		return List.copyOf(weaknesses);
+	}
+
+	public List<String> getMisconceptions() {
+		return List.copyOf(misconceptions);
 	}
 
 	public List<String> getExplanationPreferences() {
@@ -133,6 +171,10 @@ public class LearnerMemory {
 
 	public String getTargetDifficulty() {
 		return targetDifficulty;
+	}
+
+	public List<String> getNextCoachingGoals() {
+		return List.copyOf(nextCoachingGoals);
 	}
 
 	public Instant getUpdatedAt() {

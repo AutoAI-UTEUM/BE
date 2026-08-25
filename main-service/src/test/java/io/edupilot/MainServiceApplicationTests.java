@@ -24,11 +24,14 @@ import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.ai.AiClientProperties;
 import io.edupilot.auth.RefreshTokenRepository;
+import io.edupilot.feedback.FeedbackRepository;
 import io.edupilot.global.config.ReadinessResponse;
 import io.edupilot.global.config.ReadinessService;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.material.MaterialOverviewRepository;
+import io.edupilot.note.NoteRepository;
 import io.edupilot.quiz.QuizRepository;
 import io.edupilot.quiz.QuizProperties;
 import io.edupilot.quiz.QuizSubmissionRepository;
@@ -39,6 +42,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@Epic10ServiceMocks
 class MainServiceApplicationTests {
 
 	@Autowired
@@ -66,10 +70,19 @@ class MainServiceApplicationTests {
 	private MaterialPageRepository materialPageRepository;
 
 	@MockitoBean
+	private MaterialOverviewRepository materialOverviewRepository;
+
+	@MockitoBean
 	private LearningSessionRepository learningSessionRepository;
 
 	@MockitoBean
 	private ChatMessageRepository chatMessageRepository;
+
+	@MockitoBean
+	private NoteRepository noteRepository;
+
+	@MockitoBean
+	private FeedbackRepository feedbackRepository;
 
 	@MockitoBean
 	private QuizRepository quizRepository;
@@ -136,14 +149,32 @@ class MainServiceApplicationTests {
 	void quizAndAiPipelineDefaultsMatchAcceptedContracts() {
 		assertThat(quizProperties.passRatio())
 			.isEqualByComparingTo(new BigDecimal("0.6"));
+		assertThat(quizProperties.proposalMinPageTextLength())
+			.isEqualTo(200);
 		assertThat(aiClientProperties.gradeReadTimeout())
-			.isEqualTo(Duration.ofSeconds(90));
+			.isEqualTo(Duration.ofSeconds(110));
 		assertThat(aiClientProperties.pipelineReadTimeout())
 			.isEqualTo(Duration.ofSeconds(45));
+		assertThat(aiClientProperties.assessmentReadTimeout())
+			.isEqualTo(Duration.ofSeconds(55));
+		assertThat(aiClientProperties.diagnosisReadTimeout())
+			.isEqualTo(Duration.ofSeconds(55));
+		assertThat(aiClientProperties.reportReadTimeout())
+			.isEqualTo(Duration.ofSeconds(220));
+		assertThat(aiClientProperties.reportQueryReadTimeout())
+			.isEqualTo(Duration.ofSeconds(75));
+		assertThat(aiClientProperties.criteriaReadTimeout())
+			.isEqualTo(Duration.ofSeconds(90));
+		assertThat(aiClientProperties.outlineTimeout())
+			.isEqualTo(Duration.ofSeconds(110));
 		assertThat(aiClientProperties.turnReadTimeout())
 			.isEqualTo(Duration.ofSeconds(200));
+		assertThat(aiClientProperties.streamIdleTimeout())
+			.isEqualTo(Duration.ofSeconds(30));
 		assertThat(aiClientProperties.healthTimeout())
 			.isEqualTo(Duration.ofSeconds(2));
+		assertThat(aiClientProperties.examDraftReadTimeout())
+			.isEqualTo(Duration.ofSeconds(120));
 	}
 
 	@Test
@@ -165,10 +196,43 @@ class MainServiceApplicationTests {
 				"$.components.securitySchemes.bearerAuth.scheme"
 			).value("bearer"))
 			.andExpect(jsonPath("$.paths['/api/auth/signup'].post").exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/auth/email-availability'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/auth/email-availability'].get.parameters[0].name"
+			).value("email"))
+			.andExpect(jsonPath(
+				"$.paths['/api/auth/email-availability'].get.parameters[0].required"
+			).value(true))
+			.andExpect(jsonPath("$.components.schemas.SignupRequest.required")
+				.value(org.hamcrest.Matchers.hasItem("role")))
+			.andExpect(jsonPath(
+				"$.components.schemas.SignupRequest.properties.role.enum"
+			)
+				.value(org.hamcrest.Matchers.contains("LEARNER", "INSTRUCTOR")))
 			.andExpect(jsonPath("$.paths['/api/auth/login'].post").exists())
 			.andExpect(jsonPath("$.paths['/api/auth/refresh'].post").exists())
 			.andExpect(jsonPath("$.paths['/api/auth/logout'].post").exists())
 			.andExpect(jsonPath("$.paths['/api/users/me'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/users/me'].patch").exists())
+			.andExpect(jsonPath("$.paths['/api/users/me/avatar'].post").exists())
+			.andExpect(jsonPath("$.paths['/api/users/me/avatar'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/users/me/avatar'].delete").exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/users/me/avatar'].post.requestBody.content"
+					+ "['multipart/form-data'].schema.properties.file"
+			).exists())
+			.andExpect(jsonPath("$.paths['/api/users/me/preferences'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/users/me/preferences'].patch").exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.UpdatePreferencesRequest.properties"
+					+ ".aiAnswerStyle.enum"
+			).value(org.hamcrest.Matchers.contains(
+				"CONCISE",
+				"NORMAL",
+				"DETAILED"
+			)))
 			.andExpect(jsonPath("$.paths['/api/sessions'].post").exists())
 			.andExpect(jsonPath("$.paths['/api/sessions'].get").exists())
 			.andExpect(jsonPath("$.paths['/api/sessions/{sessionId}'].get").exists())
@@ -186,6 +250,142 @@ class MainServiceApplicationTests {
 				"$.paths['/api/sessions/{sessionId}/complete'].post"
 			).exists())
 			.andExpect(jsonPath(
+				"$.paths['/api/sessions/{sessionId}/notes'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/sessions/{sessionId}/notes'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/materials/{materialId}/notes'].get"
+			).exists())
+			.andExpect(jsonPath("$.paths['/api/notes/{noteId}'].patch").exists())
+			.andExpect(jsonPath("$.paths['/api/notes/{noteId}'].delete").exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.CreateNoteRequest.required"
+			).value(org.hamcrest.Matchers.hasItem("content")))
+			.andExpect(jsonPath("$.paths['/api/feedback'].post").exists())
+			.andExpect(jsonPath("$.paths['/api/feedback'].get").doesNotExist())
+			.andExpect(jsonPath("$.paths['/api/classrooms'].post").exists())
+			.andExpect(jsonPath("$.paths['/api/classrooms'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/classrooms/{id}'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/classrooms/{id}'].patch").exists())
+			.andExpect(jsonPath("$.paths['/api/classrooms/{id}'].delete").exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/analytics'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/students/{studentId}/learning-analytics'].get.operationId"
+			).value("getClassroomStudentLearningAnalytics"))
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/students/{studentId}/learning-analytics'].get.parameters[2].name"
+			).value("questionPeriod"))
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/students/{studentId}/learning-analytics'].get.parameters[2].schema.enum"
+			).value(org.hamcrest.Matchers.containsInAnyOrder(
+				"LAST_7_DAYS",
+				"ALL"
+			)))
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomAnalyticsResponse.properties.questionsByPage"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomSummaryResponse.properties.materialCount"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomWeekResponse.properties.averageProgressRate"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomWeekMaterialResponse.properties.viewerCount"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomStudentResponse.properties.averageProgressRate"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomStudentResponse.properties.aiQuestionCountLast7Days"
+			).exists())
+			.andExpect(jsonPath("$.paths['/api/classroom-join-requests'].post").exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks/{weekNumber}'].patch"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks/{weekNumber}'].delete"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks/{weekId}/status'].patch"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks/reorder'].patch"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.UpdateClassroomWeekStatusRequest"
+					+ ".properties.status.enum"
+			).value(org.hamcrest.Matchers.contains(
+				"PRIVATE",
+				"SCHEDULED",
+				"PUBLISHED",
+				"BREAK"
+			)))
+			.andExpect(jsonPath(
+				"$.components.schemas.ReorderClassroomWeeksRequest.required"
+			).value(org.hamcrest.Matchers.hasItem("orderedWeekIds")))
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomWeekResponse.properties.weekId"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomWeekResponse.properties.displayOrder"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}'].delete"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/notices'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/notices'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/notices/{noticeId}'].patch"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{id}/notices/{noticeId}'].delete"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/users/me/schedule'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/users/me/schedule'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/users/me/schedule/{scheduleId}'].patch"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/users/me/schedule/{scheduleId}'].delete"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.CreatePersonalScheduleRequest.required"
+			).value(org.hamcrest.Matchers.hasItems(
+				"title", "startsAt", "endsAt", "hasTime"
+			)))
+			.andExpect(jsonPath(
+				"$.components.schemas.CreateFeedbackRequest.required"
+			).value(org.hamcrest.Matchers.hasItems("category", "message")))
+			.andExpect(jsonPath(
+				"$.components.schemas.CreateFeedbackRequest.properties.category.enum"
+			).value(org.hamcrest.Matchers.contains(
+				"BUG",
+				"FEATURE_REQUEST",
+				"GENERAL"
+			)))
+			.andExpect(jsonPath(
 				"$.paths['/api/sessions/{sessionId}/quizzes'].get"
 			).exists())
 			.andExpect(jsonPath(
@@ -193,6 +393,39 @@ class MainServiceApplicationTests {
 			).exists())
 			.andExpect(jsonPath(
 				"$.paths['/api/quizzes/{quizId}/submit'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/exams'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/exams'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/exams/{examId}/draft-questions'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.Question.discriminator.propertyName"
+			).value("questionType"))
+			.andExpect(jsonPath("$.paths['/api/exams/{examId}'].get").exists())
+			.andExpect(jsonPath("$.paths['/api/exams/{examId}'].patch").exists())
+			.andExpect(jsonPath("$.paths['/api/exams/{examId}'].delete").exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/exams/{examId}/publish'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/exams/{examId}/close'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/exams/{examId}/submissions'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/exams/{examId}/submissions'].post"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/exams/{examId}/submissions/{submissionId}'].get"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/exams/{examId}/submissions/me'].get"
 			).exists())
 			.andExpect(jsonPath(
 				"$.paths['/api/users/me/memory'].get"
@@ -207,8 +440,28 @@ class MainServiceApplicationTests {
 				"$.paths['/api/materials'].post.requestBody.content"
 					+ "['multipart/form-data'].schema.properties.title"
 			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/materials'].post.requestBody.content"
+					+ "['multipart/form-data'].schema.properties.classroomId"
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/materials'].post.requestBody.content"
+					+ "['multipart/form-data'].schema.properties.weekNumber"
+			).exists())
 			.andExpect(jsonPath("$.paths['/api/materials'].get").exists())
 			.andExpect(jsonPath("$.paths['/api/materials/{materialId}'].get").exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.MaterialSummaryResponse.properties.failureReason"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.MaterialSummaryResponse.properties.traceId.maxLength"
+			).value(64))
+			.andExpect(jsonPath(
+				"$.components.schemas.MaterialDetailResponse.properties.failureReason"
+			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.MaterialDetailResponse.properties.traceId.maxLength"
+			).value(64))
 			.andExpect(jsonPath("$.paths['/api/materials/{materialId}'].delete").exists())
 			.andExpect(jsonPath("$.paths['/api/materials/{materialId}/file'].get").exists())
 			.andExpect(jsonPath(

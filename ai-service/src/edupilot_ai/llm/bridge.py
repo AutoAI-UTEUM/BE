@@ -1,8 +1,8 @@
 """Provider-neutral structured-output LLM protocol."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel
 
@@ -10,6 +10,7 @@ from edupilot_ai.core.errors import ErrorCategory
 from edupilot_ai.settings import AgentLlmProfile
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
+type LlmMessage = Mapping[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +31,23 @@ class LlmCompletion[OutputT: BaseModel]:
     usage: LlmUsage
 
 
+@dataclass(frozen=True, slots=True)
+class LlmTextDelta:
+    """One provider text delta safe to expose as learner-facing Markdown."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class LlmTextStreamCompleted:
+    """Terminal provider metadata for one text stream."""
+
+    usage: LlmUsage
+
+
+type LlmTextStreamItem = LlmTextDelta | LlmTextStreamCompleted
+
+
 class LlmBridgeError(Exception):
     """Provider-neutral classified LLM failure."""
 
@@ -38,10 +56,12 @@ class LlmBridgeError(Exception):
         *,
         category: ErrorCategory,
         retryable: bool,
+        usage: LlmUsage | None = None,
     ) -> None:
         super().__init__(category.value)
         self.category = category
         self.retryable = retryable
+        self.usage = usage
 
 
 class LlmBridge(Protocol):
@@ -50,9 +70,20 @@ class LlmBridge(Protocol):
     async def complete_json(
         self,
         *,
-        messages: Sequence[Mapping[str, str]],
+        messages: Sequence[LlmMessage],
         response_model: type[ModelT],
         profile: AgentLlmProfile,
+        timeout_seconds: float,
     ) -> LlmCompletion[ModelT]:
         """Return validated structured output plus provider usage."""
+        ...
+
+    def complete_text_stream(
+        self,
+        *,
+        messages: Sequence[LlmMessage],
+        profile: AgentLlmProfile,
+        timeout_seconds: float,
+    ) -> AsyncIterator[LlmTextStreamItem]:
+        """Yield Markdown deltas followed by exactly one usage item."""
         ...

@@ -7,6 +7,8 @@ import static org.springframework.security.test.web.servlet.setup.SecurityMockMv
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -22,7 +24,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.mock.web.MockPart;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -32,21 +36,27 @@ import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.auth.JwtTokenProvider;
 import io.edupilot.auth.RefreshTokenRepository;
+import io.edupilot.feedback.FeedbackRepository;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.dto.MaterialDetailResponse;
 import io.edupilot.material.dto.MaterialListResponse;
+import io.edupilot.material.dto.MaterialOverviewResponse;
 import io.edupilot.material.dto.MaterialSummaryResponse;
+import io.edupilot.material.dto.DocChatResponse;
 import io.edupilot.session.ChatMessageRepository;
 import io.edupilot.session.LearningSessionRepository;
+import io.edupilot.note.NoteRepository;
 import io.edupilot.quiz.QuizRepository;
 import io.edupilot.quiz.QuizSubmissionRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
+import io.edupilot.user.UserRole;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@io.edupilot.Epic10ServiceMocks
 class MaterialApiContractTest {
 
 	@Autowired
@@ -60,6 +70,12 @@ class MaterialApiContractTest {
 
 	@MockitoBean
 	private MaterialService materialService;
+
+	@MockitoBean
+	private DocChatService docChatService;
+
+	@Autowired
+	private MaterialOverviewService overviewService;
 
 	@MockitoBean
 	private UserRepository userRepository;
@@ -78,6 +94,12 @@ class MaterialApiContractTest {
 
 	@MockitoBean
 	private ChatMessageRepository chatMessageRepository;
+
+	@MockitoBean
+	private NoteRepository noteRepository;
+
+	@MockitoBean
+	private FeedbackRepository feedbackRepository;
 
 	@MockitoBean
 	private QuizRepository quizRepository;
@@ -108,34 +130,39 @@ class MaterialApiContractTest {
 			"application/pdf",
 			"%PDF-test".getBytes()
 		);
-		MockMultipartFile title = new MockMultipartFile(
+		MockPart title = new MockPart(
 			"title",
-			"",
-			"text/plain",
-			"자료".getBytes(StandardCharsets.UTF_8)
+			"자료.pdf".getBytes(StandardCharsets.UTF_8)
 		);
+		MockPart classroomId = new MockPart("classroomId", "12".getBytes());
+		MockPart weekNumber = new MockPart("weekNumber", "1".getBytes());
 
 		mockMvc.perform(multipart("/api/materials")
 				.file(pdf)
-				.file(title))
+				.part(title, classroomId, weekNumber))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.error.code").value("AUTHENTICATION_REQUIRED"));
 
 		when(materialService.upload(
 			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(UserRole.LEARNER),
 			org.mockito.ArgumentMatchers.any(),
-			org.mockito.ArgumentMatchers.eq("자료")
+			org.mockito.ArgumentMatchers.eq("자료.pdf"),
+			org.mockito.ArgumentMatchers.eq(12L),
+			org.mockito.ArgumentMatchers.eq(1)
 		)).thenReturn(new MaterialSummaryResponse(
 			10L,
-			"자료",
+			"자료.pdf",
 			null,
 			MaterialProcessingStatus.PROCESSING,
+			null,
+			null,
 			Instant.parse("2026-07-25T00:00:00Z")
 		));
 
 		mockMvc.perform(multipart("/api/materials")
 				.file(pdf)
-				.file(title)
+				.part(title, classroomId, weekNumber)
 				.header(HttpHeaders.AUTHORIZATION, bearer()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.materialId").value(10))
@@ -168,6 +195,8 @@ class MaterialApiContractTest {
 			"자료",
 			2,
 			MaterialProcessingStatus.READY,
+			null,
+			null,
 			Instant.parse("2026-07-25T00:00:00Z")
 		);
 		when(materialService.list(1L, 0, 20)).thenReturn(
@@ -180,6 +209,8 @@ class MaterialApiContractTest {
 				2,
 				MaterialProcessingStatus.READY,
 				true,
+				null,
+				null,
 				Instant.parse("2026-07-25T00:00:00Z")
 			)
 		);
@@ -188,6 +219,12 @@ class MaterialApiContractTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.items[0].materialId").value(10))
+			.andExpect(jsonPath("$.data.items[0].failureReason").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.items[0].traceId").value(
+				org.hamcrest.Matchers.nullValue()
+			))
 			.andExpect(jsonPath("$.data.page").value(0))
 			.andExpect(jsonPath("$.data.size").value(20))
 			.andExpect(jsonPath("$.data.totalElements").value(1));
@@ -196,7 +233,240 @@ class MaterialApiContractTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.processingStatus").value("READY"))
+			.andExpect(jsonPath("$.data.learningAvailable").value(true))
+			.andExpect(jsonPath("$.data.failureReason").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.traceId").value(
+				org.hamcrest.Matchers.nullValue()
+			));
+	}
+
+	@Test
+	void overviewReturnsPendingEnvelopeAndHidesAccessFailure() throws Exception {
+		when(overviewService.get(1L, 10L)).thenReturn(
+			MaterialOverviewResponse.pending(10L)
+		);
+
+		mockMvc.perform(get("/api/materials/10/overview")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.materialId").value(10))
+			.andExpect(jsonPath("$.data.content").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.status").value("PENDING"))
+			.andExpect(jsonPath("$.data.updatedAt").value(
+				org.hamcrest.Matchers.nullValue()
+			));
+
+		when(overviewService.get(1L, 99L)).thenThrow(
+			new BusinessException(ErrorCode.MATERIAL_NOT_FOUND)
+		);
+
+		mockMvc.perform(get("/api/materials/99/overview")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("MATERIAL_NOT_FOUND"));
+	}
+
+	@Test
+	void docChatEndpointsUseValidatedRequestAndDocumentedEnvelope() throws Exception {
+		DocChatResponse response = new DocChatResponse(
+			"자료에 따르면 답은 42입니다.",
+			List.of(new DocChatResponse.Warning(
+				"CONTEXT_TRUNCATED",
+				"일부 문맥이 잘렸습니다."
+			))
+		);
+		when(docChatService.askMaterial(
+			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(10L),
+			org.mockito.ArgumentMatchers.any()
+		)).thenReturn(response);
+		when(docChatService.askQuiz(
+			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(10L),
+			org.mockito.ArgumentMatchers.any()
+		)).thenReturn(response);
+
+		String request = """
+			{"question":"핵심을 설명해줘","history":[
+			  {"role":"USER","content":"앞 질문"},
+			  {"role":"ASSISTANT","content":"앞 답변"}
+			]}
+			""";
+		mockMvc.perform(post("/api/materials/10/doc-chat")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(request))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.answer")
+				.value("자료에 따르면 답은 42입니다."))
+			.andExpect(jsonPath("$.data.warnings[0].type")
+				.value("CONTEXT_TRUNCATED"));
+
+		mockMvc.perform(post("/api/materials/10/quiz-chat")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(request))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.answer")
+				.value("자료에 따르면 답은 42입니다."));
+	}
+
+	@Test
+	void docChatRejectsInvalidQuestionAndHistoryRole() throws Exception {
+		mockMvc.perform(post("/api/materials/10/doc-chat")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"question\":\"   \",\"history\":[]}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+
+		mockMvc.perform(post("/api/materials/10/doc-chat")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"question":"질문","history":[
+					  {"role":"SYSTEM","content":"금지 역할"}
+					]}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("MALFORMED_REQUEST"));
+
+		String oversizedHistory = java.util.stream.IntStream.range(0, 51)
+			.mapToObj(index -> "{\"role\":\"USER\",\"content\":\"m"
+				+ index + "\"}")
+			.collect(java.util.stream.Collectors.joining(","));
+		mockMvc.perform(post("/api/materials/10/doc-chat")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"question\":\"질문\",\"history\":["
+					+ oversizedHistory + "]}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+	}
+
+	@Test
+	void docChatPreservesMaterialAccessAndProcessingErrors() throws Exception {
+		when(docChatService.askMaterial(
+			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(99L),
+			org.mockito.ArgumentMatchers.any()
+		)).thenThrow(new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
+		when(docChatService.askMaterial(
+			org.mockito.ArgumentMatchers.eq(1L),
+			org.mockito.ArgumentMatchers.eq(10L),
+			org.mockito.ArgumentMatchers.any()
+		)).thenThrow(new BusinessException(ErrorCode.MATERIAL_PROCESSING));
+
+		mockMvc.perform(post("/api/materials/99/doc-chat")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"question\":\"질문\",\"history\":[]}"))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("MATERIAL_NOT_FOUND"));
+
+		mockMvc.perform(post("/api/materials/10/doc-chat")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"question\":\"질문\",\"history\":[]}"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.error.code").value("MATERIAL_PROCESSING"));
+	}
+
+	@Test
+	void renameUsesDetailEnvelope() throws Exception {
+		when(materialService.rename(1L, 10L, "수정된 제목")).thenReturn(
+			new MaterialDetailResponse(
+				10L,
+				"수정된 제목",
+				2,
+				MaterialProcessingStatus.READY,
+				true,
+				null,
+				null,
+				Instant.parse("2026-07-25T00:00:00Z")
+			)
+		);
+
+		mockMvc.perform(patch("/api/materials/10")
+				.header(HttpHeaders.AUTHORIZATION, bearer())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"title\":\"수정된 제목\"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.materialId").value(10))
+			.andExpect(jsonPath("$.data.title").value("수정된 제목"))
+			.andExpect(jsonPath("$.data.processingStatus").value("READY"))
 			.andExpect(jsonPath("$.data.learningAvailable").value(true));
+	}
+
+	@Test
+	void failedMaterialExposesStructuredReasonAndAllowsLegacyNulls()
+		throws Exception {
+		MaterialSummaryResponse failedItem = new MaterialSummaryResponse(
+			10L,
+			"failed",
+			null,
+			MaterialProcessingStatus.FAILED,
+			MaterialFailureReason.EXTRACTION_FAILED,
+			"upload-trace-10",
+			Instant.parse("2026-07-25T00:00:00Z")
+		);
+		when(materialService.list(1L, 0, 20)).thenReturn(
+			new MaterialListResponse(List.of(failedItem), 0, 20, 1, 1)
+		);
+		when(materialService.detail(1L, 10L)).thenReturn(
+			new MaterialDetailResponse(
+				10L,
+				"failed",
+				null,
+				MaterialProcessingStatus.FAILED,
+				false,
+				MaterialFailureReason.EXTRACTION_FAILED,
+				"upload-trace-10",
+				Instant.parse("2026-07-25T00:00:00Z")
+			)
+		);
+		when(materialService.detail(1L, 11L)).thenReturn(
+			new MaterialDetailResponse(
+				11L,
+				"legacy failed",
+				null,
+				MaterialProcessingStatus.FAILED,
+				false,
+				null,
+				null,
+				Instant.parse("2026-07-24T00:00:00Z")
+			)
+		);
+
+		mockMvc.perform(get("/api/materials")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items[0].failureReason")
+				.value("EXTRACTION_FAILED"))
+			.andExpect(jsonPath("$.data.items[0].traceId")
+				.value("upload-trace-10"));
+
+		mockMvc.perform(get("/api/materials/10")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.failureReason")
+				.value("EXTRACTION_FAILED"))
+			.andExpect(jsonPath("$.data.traceId").value("upload-trace-10"));
+
+		mockMvc.perform(get("/api/materials/11")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.processingStatus").value("FAILED"))
+			.andExpect(jsonPath("$.data.failureReason").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.traceId").value(
+				org.hamcrest.Matchers.nullValue()
+			));
 	}
 
 	@Test
@@ -221,6 +491,10 @@ class MaterialApiContractTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer()))
 			.andExpect(status().isOk())
 			.andExpect(header().string(HttpHeaders.CONTENT_TYPE, "application/pdf"))
+			.andExpect(header().string(
+				HttpHeaders.CACHE_CONTROL,
+				"private, max-age=3600, immutable"
+			))
 			.andExpect(header().string(
 				HttpHeaders.CONTENT_DISPOSITION,
 				containsString("inline")

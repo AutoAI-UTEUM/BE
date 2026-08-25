@@ -1,8 +1,10 @@
 package io.edupilot.material;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,10 +36,19 @@ public class MaterialExtractionPersistenceService {
 
 	@Transactional
 	public boolean complete(Long materialId, List<ExtractedPage> extractedPages) {
+		return complete(materialId, extractedPages, null).applied();
+	}
+
+	@Transactional
+	public CompletionResult complete(
+		Long materialId,
+		List<ExtractedPage> extractedPages,
+		String xaiFileId
+	) {
 		LearningMaterial material = materialRepository.findByIdForUpdate(materialId)
 			.orElse(null);
 		if (material == null || !material.isActiveAndProcessing()) {
-			return false;
+			return CompletionResult.discarded();
 		}
 
 		List<MaterialPage> pages = extractedPages.stream()
@@ -48,24 +59,54 @@ public class MaterialExtractionPersistenceService {
 			))
 			.toList();
 		pageRepository.saveAll(pages);
+		String replacedXaiFileId = material.replaceXaiFileId(xaiFileId);
 		material.markReady(pages.size());
-		return true;
+		return new CompletionResult(true, replacedXaiFileId);
 	}
 
 	@Transactional
-	public boolean fail(Long materialId) {
+	public boolean fail(
+		Long materialId,
+		MaterialFailureReason failureReason,
+		String traceId
+	) {
 		LearningMaterial material = materialRepository.findByIdForUpdate(materialId)
 			.orElse(null);
 		if (material == null || !material.isActiveAndProcessing()) {
 			return false;
 		}
-		material.markFailed();
+		material.markFailed(failureReason, traceId);
 		return true;
+	}
+
+	@Transactional
+	public int failStuckExtractions(
+		Instant cutoff,
+		Instant now,
+		int batchSize
+	) {
+		List<Long> materialIds = materialRepository.findStuckProcessingIds(
+			cutoff,
+			PageRequest.of(0, batchSize)
+		);
+		if (materialIds.isEmpty()) {
+			return 0;
+		}
+		return materialRepository.failStuckProcessing(materialIds, cutoff, now);
 	}
 
 	public record ExtractionSnapshot(
 		Long materialId,
 		String storageKey
 	) {
+	}
+
+	public record CompletionResult(
+		boolean applied,
+		String replacedXaiFileId
+	) {
+		private static CompletionResult discarded() {
+			return new CompletionResult(false, null);
+		}
 	}
 }

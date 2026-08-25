@@ -128,6 +128,20 @@ public class ChatMessage {
 		return requestId;
 	}
 
+	public ChatMessageStatus getStatus() {
+		return status;
+	}
+
+	public void markFailed() {
+		this.status = ChatMessageStatus.FAILED;
+	}
+
+	public void retry() {
+		if (status == ChatMessageStatus.FAILED) {
+			this.status = ChatMessageStatus.COMPLETED;
+		}
+	}
+
 	public Instant getCreatedAt() {
 		return createdAt;
 	}

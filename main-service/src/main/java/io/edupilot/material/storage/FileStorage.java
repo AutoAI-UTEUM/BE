@@ -8,5 +8,13 @@ public interface FileStorage {
 
 	String store(InputStream inputStream);
 
+	String storeAvatar(InputStream inputStream, String extension);
+
+	String storeClassroomResource(InputStream inputStream);
+
+	void storePageImage(InputStream inputStream, String storageKey);
+
 	Resource load(String storageKey);
+
+	void delete(String storageKey);
 }

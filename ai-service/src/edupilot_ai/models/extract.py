@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from edupilot_ai.models.turn import ContractModel
+from edupilot_ai.models.base import ContractModel
 
 
 class ExtractedPage(ContractModel):
@@ -14,12 +14,21 @@ class ExtractedPage(ContractModel):
     text: str
 
 
+class ExtractWarning(ContractModel):
+    """Non-fatal post-extraction warning safe for Spring persistence."""
+
+    type: Literal["FILE_UPLOAD_FAILED"]
+    message: str = Field(min_length=1)
+
+
 class ExtractResponse(ContractModel):
     """Complete deterministic extraction result."""
 
     schema_version: Literal["1.0"] = "1.0"
     page_count: int = Field(ge=1)
     pages: list[ExtractedPage]
+    xai_file_id: str | None = None
+    warnings: list[ExtractWarning] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_pages(self) -> ExtractResponse:

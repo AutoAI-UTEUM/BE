@@ -11,13 +11,16 @@ public class UiActionResolver {
 		PageStatus previousStatus,
 		PageStatus currentStatus,
 		int currentPage,
-		Integer pageCount
+		Integer pageCount,
+		boolean quizEligible
 	) {
 		if (currentStatus == null || currentStatus == previousStatus) {
 			return List.of();
 		}
 		return switch (currentStatus) {
-			case EXPLAINED -> List.of(UiAction.quizProposal());
+			case EXPLAINED -> quizEligible
+				? List.of(UiAction.quizProposal())
+				: nextLearning(currentPage, pageCount);
 			case REPAIR_COMPLETED -> nextLearning(currentPage, pageCount);
 			default -> List.of();
 		};

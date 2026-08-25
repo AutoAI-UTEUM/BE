@@ -12,6 +12,7 @@ import io.edupilot.memory.LearnerMemoryCandidateRepository;
 import io.edupilot.memory.LearnerMemoryRepository;
 import io.edupilot.session.QaMessageRepository;
 import io.edupilot.session.QaThreadRepository;
+import io.edupilot.session.SessionPageRecordRepository;
 
 @Configuration
 @Profile("test")
@@ -50,5 +51,10 @@ class LearningSupportTestRepositoryConfig {
 	@Bean
 	QaMessageRepository qaMessageRepository() {
 		return Mockito.mock(QaMessageRepository.class);
+	}
+
+	@Bean
+	SessionPageRecordRepository sessionPageRecordRepository() {
+		return Mockito.mock(SessionPageRecordRepository.class);
 	}
 }

@@ -10,7 +10,7 @@ from pydantic import SecretStr
 
 from edupilot_ai.factory import Dependencies, create_app
 from edupilot_ai.settings import Settings
-from tests.fakes import FakeLlm
+from tests.fakes import FakeLlm, FakeXaiFileClient
 
 
 @pytest.fixture
@@ -29,10 +29,22 @@ def fake_llm() -> FakeLlm:
 
 
 @pytest.fixture
-def app(settings: Settings, fake_llm: FakeLlm) -> Iterator[FastAPI]:
+def fake_file_client() -> FakeXaiFileClient:
+    return FakeXaiFileClient()
+
+
+@pytest.fixture
+def app(
+    settings: Settings,
+    fake_llm: FakeLlm,
+    fake_file_client: FakeXaiFileClient,
+) -> Iterator[FastAPI]:
     yield create_app(
         settings=settings,
-        dependencies=Dependencies(llm_bridge=fake_llm),
+        dependencies=Dependencies(
+            llm_bridge=fake_llm,
+            file_client=fake_file_client,
+        ),
     )
 
 

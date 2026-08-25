@@ -20,10 +20,12 @@ import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.auth.JwtTokenProvider;
 import io.edupilot.auth.RefreshTokenRepository;
+import io.edupilot.feedback.FeedbackRepository;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.dto.MaterialPageResponse;
 import io.edupilot.session.ChatMessageRepository;
 import io.edupilot.session.LearningSessionRepository;
+import io.edupilot.note.NoteRepository;
 import io.edupilot.quiz.QuizRepository;
 import io.edupilot.quiz.QuizSubmissionRepository;
 import io.edupilot.user.User;
@@ -31,6 +33,7 @@ import io.edupilot.user.UserRepository;
 
 @SpringBootTest(properties = "edupilot.material.page-text-api-enabled=true")
 @ActiveProfiles("test")
+@io.edupilot.Epic10ServiceMocks
 class MaterialPageApiEnabledTest {
 
 	@Autowired
@@ -62,6 +65,12 @@ class MaterialPageApiEnabledTest {
 
 	@MockitoBean
 	private ChatMessageRepository chatMessageRepository;
+
+	@MockitoBean
+	private NoteRepository noteRepository;
+
+	@MockitoBean
+	private FeedbackRepository feedbackRepository;
 
 	@MockitoBean
 	private QuizRepository quizRepository;

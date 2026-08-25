@@ -95,6 +95,26 @@ class SessionMessageServiceTest {
 			);
 	}
 
+	@Test
+	void conversationResetDoesNotHideMessageHistory() {
+		session.startNewConversation(Instant.parse("2026-07-25T10:00:02Z"));
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+		ChatMessage newest = message(3L, "2026-07-25T10:00:03Z");
+		ChatMessage markerTime = message(2L, "2026-07-25T10:00:02Z");
+		ChatMessage older = message(1L, "2026-07-25T10:00:01Z");
+		when(messageRepository.findBySession_IdOrderByCreatedAtDescIdDesc(
+			org.mockito.ArgumentMatchers.eq(100L),
+			any()
+		)).thenReturn(List.of(newest, markerTime, older));
+
+		var response = messageService.messages(1L, 100L, null, 3);
+
+		assertThat(response.items())
+			.extracting(item -> item.messageId())
+			.containsExactly(1L, 2L, 3L);
+	}
+
 	private ChatMessage message(Long id, String createdAt) {
 		ChatMessage message = ChatMessage.ai(session, "응답 " + id);
 		ReflectionTestUtils.setField(message, "id", id);

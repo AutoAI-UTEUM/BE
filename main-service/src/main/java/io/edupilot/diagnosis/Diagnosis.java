@@ -120,6 +120,10 @@ public class Diagnosis {
 		return submission.getId();
 	}
 
+	public int getQuizPageNumber() {
+		return submission.getQuizPageNumber();
+	}
+
 	public String getDiagnosticPrompt() {
 		return diagnosticPrompt;
 	}
@@ -134,5 +138,9 @@ public class Diagnosis {
 
 	public DiagnosisStatus getStatus() {
 		return status;
+	}
+
+	public Instant getCreatedAt() {
+		return createdAt;
 	}
 }

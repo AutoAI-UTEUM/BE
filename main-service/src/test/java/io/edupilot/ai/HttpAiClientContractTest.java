@@ -21,10 +21,21 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ByteArrayResource;
 
 import io.edupilot.ai.dto.TurnRequest;
+import io.edupilot.ai.dto.CaptionsRequest;
+import io.edupilot.ai.dto.CaptionsResponse;
+import io.edupilot.ai.dto.CriteriaSuggestRequest;
 import io.edupilot.ai.dto.DiagnosisRequest;
+import io.edupilot.ai.dto.DocChatRequest;
+import io.edupilot.ai.dto.ExamDraftRequest;
+import io.edupilot.ai.dto.ExamDraftResponse;
+import io.edupilot.exam.ExamQuestionType;
 import io.edupilot.ai.dto.GradeRequest;
+import io.edupilot.ai.dto.OutlineRequest;
+import io.edupilot.ai.dto.OutlineResponse;
+import io.edupilot.report.ReportSourceType;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
 import io.edupilot.ai.dto.QuizAssessmentResponse;
+import io.edupilot.ai.dto.ReportGenerateRequest;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
 import okhttp3.mockwebserver.MockResponse;
@@ -82,6 +93,59 @@ class HttpAiClientContractTest {
 		assertThat(request.getHeader("X-Internal-Token")).isEqualTo(INTERNAL_TOKEN);
 		assertThat(request.getHeader("X-Trace-Id")).isEqualTo(TRACE_ID);
 		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
+	@Test
+	void turnUsesPerCallReadTimeout() {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "turnId": "turn-timeout",
+			  "turnGoal": "ANSWER_USER_QUESTION",
+			  "actionsExecuted": [],
+			  "messages": [],
+			  "statePatch": {},
+			  "uiActions": [],
+			  "memoryCandidates": []
+			}
+			""").setBodyDelay(500, TimeUnit.MILLISECONDS));
+
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1))
+			.executeTurn(
+				turnRequest("turn-timeout"),
+				Duration.ofMillis(100)
+			))
+			.isInstanceOfSatisfying(AiClientException.class, exception ->
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT)
+			);
+		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
+	@Test
+	void turnResponseDeserializesOptionalNoteDraft() {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "turnId": "turn-note",
+			  "turnGoal": "WRITE_NOTE",
+			  "actionsExecuted": [],
+			  "messages": [],
+			  "statePatch": {},
+			  "uiActions": [],
+			  "memoryCandidates": [],
+			  "noteDraft": {
+			    "title": "복습 노트",
+			    "content": "## 핵심\\n내용"
+			  }
+			}
+			"""));
+
+		var response = client(Duration.ofSeconds(1))
+			.executeTurn(turnRequest("turn-note"));
+
+		assertThat(response.noteDraft().title()).isEqualTo("복습 노트");
+		assertThat(response.noteDraft().content()).isEqualTo("## 핵심\n내용");
 	}
 
 	@Test
@@ -233,6 +297,95 @@ class HttpAiClientContractTest {
 	}
 
 	@Test
+	void gradePreservesUpstreamRequestInvalidCode() {
+		server.enqueue(jsonResponse(422, """
+			{
+			  "schemaVersion":"1.0",
+			  "error":{
+			    "code":"AI_REQUEST_INVALID",
+			    "category":"SCHEMA",
+			    "message":"invalid request",
+			    "retryable":false
+			  },
+			  "traceId":"ai-trace"
+			}
+			"""));
+
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).grade(gradeRequest()))
+			.isInstanceOfSatisfying(AiClientException.class, exception -> {
+				assertThat(exception.upstreamCode()).isEqualTo("AI_REQUEST_INVALID");
+				assertThat(exception.retryable()).isFalse();
+			});
+		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
+	@Test
+	void docChatUsesInternalContractAndMapsSchemaEnvelope() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion":"1.0",
+			  "answer":"document answer",
+			  "warnings":[{"type":"CONTEXT_TRUNCATED","message":"trimmed"}]
+			}
+			"""));
+		DocChatRequest request = new DocChatRequest(
+			"1.0",
+			List.of(new DocChatRequest.ContextDocument("material p.1-2", "text")),
+			List.of(new DocChatRequest.HistoryMessage("USER", "previous")),
+			"question"
+		);
+
+		var response = client(Duration.ofSeconds(1)).docChat(request);
+
+		assertThat(response.answer()).isEqualTo("document answer");
+		assertThat(response.warnings()).singleElement()
+			.extracting(io.edupilot.ai.dto.DocChatResponse.Warning::type)
+			.isEqualTo("CONTEXT_TRUNCATED");
+		RecordedRequest recorded = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(recorded.getPath()).isEqualTo("/internal/ai/doc-chat");
+		assertThat(recorded.getHeader("X-Internal-Token"))
+			.isEqualTo(INTERNAL_TOKEN);
+		assertThat(recorded.getBody().readUtf8())
+			.contains("\"schemaVersion\":\"1.0\"", "\"contextDocs\"", "\"history\"");
+
+		server.enqueue(jsonResponse(422, """
+			{
+			  "schemaVersion":"1.0",
+			  "error":{
+			    "code":"AI_REQUEST_INVALID",
+			    "category":"SCHEMA",
+			    "message":"invalid request",
+			    "retryable":false
+			  },
+			  "traceId":"ai-trace"
+			}
+			"""));
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).docChat(request))
+			.isInstanceOfSatisfying(AiClientException.class, exception -> {
+				assertThat(exception.errorCode())
+					.isEqualTo(ErrorCode.AI_RESPONSE_INVALID);
+				assertThat(exception.upstreamCode())
+					.isEqualTo("AI_REQUEST_INVALID");
+			});
+	}
+
+	@Test
+	void gradeOmitsAbsentOptionalContextFields() throws Exception {
+		server.enqueue(jsonResponse(200, gradeSuccessBody()));
+		GradeRequest base = gradeRequest();
+		client(Duration.ofSeconds(1)).grade(new GradeRequest(
+			base.schemaVersion(), base.quizId(), base.quizType(), base.items(),
+			base.studentAnswers(), null, null
+		));
+
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getBody().readUtf8())
+			.doesNotContain("pageContext")
+			.doesNotContain("learnerMemoryDigest");
+	}
+
+	@Test
 	void gradeTransportTimeoutWithoutRemoteFlagIsNotRetried() {
 		server.enqueue(jsonResponse(200, gradeSuccessBody())
 			.setBodyDelay(500, TimeUnit.MILLISECONDS));
@@ -341,6 +494,10 @@ class HttpAiClientContractTest {
 			  "pages": [
 			    {"pageNumber": 1, "text": "first"},
 			    {"pageNumber": 2, "text": "second"}
+			  ],
+			  "xaiFileId": "file-123",
+			  "warnings": [
+			    {"type": "FUTURE_WARNING", "message": "ignored"}
 			  ]
 			}
 			"""));
@@ -355,6 +512,11 @@ class HttpAiClientContractTest {
 
 		assertThat(response.pageCount()).isEqualTo(2);
 		assertThat(response.pages()).extracting("pageNumber").containsExactly(1, 2);
+		assertThat(response.xaiFileId()).isEqualTo("file-123");
+		assertThat(response.warnings()).singleElement().satisfies(warning -> {
+			assertThat(warning.type()).isEqualTo("FUTURE_WARNING");
+			assertThat(warning.message()).isEqualTo("ignored");
+		});
 		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
 		assertThat(request).isNotNull();
 		assertThat(request.getPath()).isEqualTo("/internal/ai/extract");
@@ -365,6 +527,38 @@ class HttpAiClientContractTest {
 			.contains("name=\"file\"")
 			.contains("filename=\"material.pdf\"")
 			.contains("%PDF-test");
+	}
+
+	@Test
+	void extractDefaultsMissingXaiFileMetadata() {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "pageCount": 1,
+			  "pages": [{"pageNumber": 1, "text": "page"}]
+			}
+			"""));
+		ByteArrayResource pdf = new ByteArrayResource("%PDF-test".getBytes());
+
+		var response = client(Duration.ofSeconds(1)).extract(pdf);
+
+		assertThat(response.xaiFileId()).isNull();
+		assertThat(response.warnings()).isEmpty();
+	}
+
+	@Test
+	void deleteFileUsesInternalTokenAndAcceptsNoContent() throws Exception {
+		server.enqueue(new MockResponse().setResponseCode(204));
+
+		client(Duration.ofSeconds(1)).deleteFile("file-123");
+
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getMethod()).isEqualTo("DELETE");
+		assertThat(request.getPath()).isEqualTo("/internal/ai/files/file-123");
+		assertThat(request.getHeader("X-Internal-Token"))
+			.isEqualTo(INTERNAL_TOKEN);
+		assertThat(request.getHeader("X-Trace-Id")).isEqualTo(TRACE_ID);
 	}
 
 	@Test
@@ -388,6 +582,88 @@ class HttpAiClientContractTest {
 			.isInstanceOfSatisfying(AiClientException.class, exception ->
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.AI_RESPONSE_INVALID)
 			);
+	}
+
+	@Test
+	void outlineSendsEveryPageTextAndParsesStructuredResponse() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "materialSummary": "자료 요약입니다.",
+			  "sections": [
+			    {
+			      "title": "핵심 단원",
+			      "startPage": 1,
+			      "endPage": 2,
+			      "keywords": ["개념", "예제"]
+			    }
+			  ],
+			  "totalPages": 2
+			}
+			"""));
+		OutlineRequest outlineRequest = new OutlineRequest(
+			"1.0",
+			2,
+			List.of(
+				new OutlineRequest.Page(1, "첫 페이지 전체 텍스트"),
+				new OutlineRequest.Page(2, "둘째 페이지 전체 텍스트")
+			)
+		);
+
+		OutlineResponse response = client(Duration.ofSeconds(1))
+			.outline(outlineRequest);
+
+		assertThat(response.materialSummary()).isEqualTo("자료 요약입니다.");
+		assertThat(response.sections()).singleElement().satisfies(section -> {
+			assertThat(section.title()).isEqualTo("핵심 단원");
+			assertThat(section.keywords()).containsExactly("개념", "예제");
+		});
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getMethod()).isEqualTo("POST");
+		assertThat(request.getPath()).isEqualTo("/internal/ai/outline");
+		assertThat(request.getHeader("X-Internal-Token")).isEqualTo(INTERNAL_TOKEN);
+		assertThat(request.getBody().readUtf8())
+			.contains("\"schemaVersion\":\"1.0\"")
+			.contains("\"totalPages\":2")
+			.contains("\"pageNumber\":1")
+			.contains("첫 페이지 전체 텍스트")
+			.contains("둘째 페이지 전체 텍스트");
+	}
+
+	@Test
+	void captionsSendsImageAndTextAndParsesNullableResults() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "captions": [
+			    {"pageNumber": 1, "caption": "diagram"},
+			    {"pageNumber": 2, "caption": null}
+			  ],
+			  "warnings": [
+			    {"type": "PAGE_CAPTION_FAILED", "message": "pageNumber 2"}
+			  ]
+			}
+			"""));
+		CaptionsRequest captionsRequest = new CaptionsRequest(
+			"1.0",
+			List.of(
+				new CaptionsRequest.Page(1, "aW1hZ2UtMQ==", "text 1"),
+				new CaptionsRequest.Page(2, "aW1hZ2UtMg==", "text 2")
+			)
+		);
+
+		CaptionsResponse response = client(Duration.ofSeconds(1))
+			.captions(captionsRequest);
+
+		assertThat(response.captions()).extracting(CaptionsResponse.PageCaption::caption)
+			.containsExactly("diagram", null);
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getPath()).isEqualTo("/internal/ai/captions");
+		assertThat(request.getBody().readUtf8())
+			.contains("\"imageBase64\":\"aW1hZ2UtMQ==\"")
+			.contains("\"extractedText\":\"text 2\"");
 	}
 
 	@Test
@@ -428,6 +704,47 @@ class HttpAiClientContractTest {
 		assertThat(request.getPath()).isEqualTo("/health");
 		assertThat(request.getHeader("X-Internal-Token")).isEqualTo(INTERNAL_TOKEN);
 		assertThat(request.getHeader("X-Trace-Id")).isEqualTo(TRACE_ID);
+	}
+
+	@Test
+	void criteriaSuggestionUsesDedicatedContractAndPath() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion":"1.0",
+			  "criteria":[
+			    {"key":"engagement","name":"참여도","description":"설명","rubric":"루브릭","allowedSources":["SESSION"],"weight":1.0,"minimumEvidence":2},
+			    {"key":"accuracy","name":"정확도","description":"설명","rubric":"루브릭","allowedSources":["QUIZ_SUBMISSION"],"weight":1.0,"minimumEvidence":2},
+			    {"key":"reflection","name":"성찰","description":"설명","rubric":"루브릭","allowedSources":["MEMORY"],"weight":1.0,"minimumEvidence":2}
+			  ],
+			  "warnings":[]
+			}
+			"""));
+
+		var response = client(Duration.ofSeconds(1)).suggestCriteria(
+			new CriteriaSuggestRequest(
+				"1.0",
+				List.of("concept_understanding"),
+				List.of(new CriteriaSuggestRequest.Material(
+					"자료",
+					"요약",
+					List.of(new OutlineResponse.Section(
+						"도입", 1, 2, List.of("개념")
+					))
+				))
+			)
+		);
+
+		assertThat(response.criteria()).hasSize(3);
+		assertThat(response.criteria().getFirst().allowedSources())
+			.containsExactly(ReportSourceType.SESSION);
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request.getPath())
+			.isEqualTo("/internal/ai/criteria/suggest");
+		assertThat(request.getBody().readUtf8())
+			.contains(
+				"\"existingCriterionKeys\":[\"concept_understanding\"]",
+				"\"materialSummary\":\"요약\""
+			);
 	}
 
 	@Test
@@ -602,6 +919,106 @@ class HttpAiClientContractTest {
 			.containsEntry("retried", "true");
 	}
 
+	@Test
+	void reportRejectsUnknownResponseField() {
+		server.enqueue(jsonResponse(200, reportSuccessBody().replace(
+			"\"usage\":",
+			"\"unexpected\": true, \"usage\":"
+		)));
+
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1))
+			.generateReport(reportRequest()))
+			.isInstanceOf(AiClientException.class)
+			.satisfies(exception -> assertThat(
+				((AiClientException)exception).errorCode()
+			).isEqualTo(ErrorCode.AI_RESPONSE_INVALID));
+	}
+
+	@Test
+	void reportRejectsInvalidJson() {
+		server.enqueue(jsonResponse(200, "{invalid-json"));
+
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1))
+			.generateReport(reportRequest()))
+			.isInstanceOf(AiClientException.class)
+			.satisfies(exception -> assertThat(
+				((AiClientException)exception).errorCode()
+			).isEqualTo(ErrorCode.AI_RESPONSE_INVALID));
+	}
+
+	@Test
+	void reportUsesDedicatedReadTimeout() {
+		server.enqueue(jsonResponse(200, reportSuccessBody())
+			.setBodyDelay(500, TimeUnit.MILLISECONDS));
+
+		assertThatThrownBy(() -> client(Duration.ofMillis(100))
+			.generateReport(reportRequest()))
+			.isInstanceOf(AiClientException.class)
+			.satisfies(exception -> assertThat(
+				((AiClientException)exception).errorCode()
+			).isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT));
+	}
+
+	@Test
+	void examDraftUsesDedicatedEndpointAndQuestionTypeDiscriminator() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "examId": 12,
+			  "questions": [
+			    {
+			      "questionType": "MCQ",
+			      "sourcePageNumber": 1,
+			      "questionId": "mcq-1",
+			      "questionText": "Question",
+			      "points": 5,
+			      "choices": [
+			        {"choiceId": "a", "text": "A"},
+			        {"choiceId": "b", "text": "B"}
+			      ],
+			      "answerChoiceId": "a",
+			      "explanation": "Because A"
+			    },
+			    {
+			      "questionType": "SHORT",
+			      "sourcePageNumber": null,
+			      "questionId": "short-1",
+			      "questionText": "Explain",
+			      "points": 5,
+			      "referenceAnswer": "Answer",
+			      "gradingCriteria": ["Accuracy"]
+			    }
+			  ],
+			  "usage": {
+			    "model": "grok-test",
+			    "inputTokens": 10,
+			    "outputTokens": 20,
+			    "reasoningTokens": null
+			  }
+			}
+			"""));
+
+		ExamDraftResponse response = client(Duration.ofSeconds(1))
+			.generateExamDraft(new ExamDraftRequest(
+				"1.0",
+				12L,
+				List.of(new ExamDraftRequest.PageContext(1, "Page text")),
+				List.of(
+					new ExamDraftRequest.QuestionPlanItem(ExamQuestionType.MCQ, 1),
+					new ExamDraftRequest.QuestionPlanItem(ExamQuestionType.SHORT, 1)
+				)
+			));
+
+		assertThat(response.questions().get(0))
+			.isInstanceOf(ExamDraftResponse.McqQuestion.class);
+		assertThat(response.questions().get(1))
+			.isInstanceOf(ExamDraftResponse.ShortQuestion.class);
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request.getPath()).isEqualTo("/internal/ai/exams/draft");
+		assertThat(request.getBody().readUtf8())
+			.contains("\"examId\":12", "\"pageContexts\"");
+	}
+
 	private HttpAiClient client(Duration readTimeout) {
 		return new HttpAiClient(properties(server.url("/").uri(), readTimeout));
 	}
@@ -611,6 +1028,16 @@ class HttpAiClientContractTest {
 			baseUrl,
 			INTERNAL_TOKEN,
 			Duration.ofMillis(300),
+			readTimeout,
+			readTimeout,
+			readTimeout,
+			readTimeout,
+			readTimeout,
+			readTimeout,
+			readTimeout,
+			readTimeout,
+			readTimeout,
+			readTimeout,
 			readTimeout,
 			readTimeout,
 			readTimeout,
@@ -629,6 +1056,71 @@ class HttpAiClientContractTest {
 			Map.of("eventType", "USER_QUESTION", "payload", Map.of()),
 			Map.of()
 		);
+	}
+
+	private ReportGenerateRequest reportRequest() {
+		return new ReportGenerateRequest(
+			"1.0",
+			"report-1",
+			"generation-1",
+			new ReportGenerateRequest.Scope("전체 기간", null, null),
+			List.of(),
+			new ReportGenerateRequest.DataQuality(
+				"1.0",
+				List.of(ReportGenerateRequest.EvidenceSourceType.QA),
+				List.of(ReportGenerateRequest.EvidenceSourceType.EXAM),
+				List.of(new ReportGenerateRequest.CriterionEligibility(
+					"question_specificity", true, null
+				))
+			),
+			List.of(new ReportGenerateRequest.Criterion(
+				"question_specificity",
+				"질문 구체성",
+				"질문의 구체성을 평가",
+				"질문의 구체성을 평가",
+				List.of(ReportGenerateRequest.EvidenceSourceType.QA),
+				1,
+				1
+			)),
+			List.of(new ReportGenerateRequest.Evidence(
+				"evidence-1",
+				ReportGenerateRequest.EvidenceSourceType.QA,
+				"2026-08-03T00:00:00Z",
+				"구체적인 질문",
+				"{\"characterCount\":20}"
+			)),
+			null
+		);
+	}
+
+	private String reportSuccessBody() {
+		return """
+			{
+			  "schemaVersion": "1.0",
+			  "reportId": "report-1",
+			  "criterionResults": [{
+			    "criterionKey": "question_specificity",
+			    "status": "ASSESSED",
+			    "score": 80,
+			    "narrative": "평가 서술",
+			    "evidenceIds": ["evidence-1"]
+			  }],
+			  "summary": {
+			    "overview": "요약",
+			    "strengths": [],
+			    "improvements": [],
+			    "misconceptionCandidates": [],
+			    "recommendedActions": []
+			  },
+			  "warnings": [],
+			  "usage": {
+			    "model": "test-model",
+			    "inputTokens": 10,
+			    "outputTokens": 20,
+			    "reasoningTokens": null
+			  }
+			}
+			""";
 	}
 
 	private GradeRequest gradeRequest() {

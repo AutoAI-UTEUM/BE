@@ -26,11 +26,7 @@ def make_pdf(*page_texts: str | None, password: str | None = None) -> bytes:
             }
         )
         resources = DictionaryObject(
-            {
-                NameObject("/Font"): DictionaryObject(
-                    {NameObject("/F1"): writer._add_object(font)}
-                )
-            }
+            {NameObject("/Font"): DictionaryObject({NameObject("/F1"): writer._add_object(font)})}
         )
         content = DecodedStreamObject()
         content.set_data(

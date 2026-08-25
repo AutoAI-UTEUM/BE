@@ -1,70 +1,81 @@
 package io.edupilot.session;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
-import io.edupilot.ai.dto.ActionExecuted;
 import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.memory.LearnerMemoryCandidate;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
 import io.edupilot.memory.MemoryEvidenceRef;
 import io.edupilot.memory.MemoryWrite;
+import io.edupilot.quiz.QuizProperties;
 import io.edupilot.quiz.QuizService;
 import io.edupilot.session.dto.MessageResponse;
+import io.edupilot.session.dto.NoteDraft;
 import io.edupilot.session.dto.TurnStateResponse;
 import io.edupilot.user.UserRepository;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class TurnPersistenceService {
 
 	private final LearningSessionRepository sessionRepository;
+	private final SessionPageRecordRepository pageRecordRepository;
 	private final ChatMessageRepository messageRepository;
 	private final QaThreadRepository qaThreadRepository;
 	private final QaMessageRepository qaMessageRepository;
 	private final LearnerMemoryCandidateRepository candidateRepository;
 	private final UserRepository userRepository;
 	private final LearningMaterialRepository materialRepository;
+	private final MaterialPageRepository materialPageRepository;
 	private final QuizService quizService;
+	private final QuizProperties quizProperties;
 	private final DiagnosisService diagnosisService;
 	private final UiActionResolver uiActionResolver;
-	private final ObjectMapper objectMapper;
+	private final Clock clock;
 
 	public TurnPersistenceService(
 		LearningSessionRepository sessionRepository,
+		SessionPageRecordRepository pageRecordRepository,
 		ChatMessageRepository messageRepository,
 		QaThreadRepository qaThreadRepository,
 		QaMessageRepository qaMessageRepository,
 		LearnerMemoryCandidateRepository candidateRepository,
 		UserRepository userRepository,
 		LearningMaterialRepository materialRepository,
+		MaterialPageRepository materialPageRepository,
 		QuizService quizService,
+		QuizProperties quizProperties,
 		DiagnosisService diagnosisService,
 		UiActionResolver uiActionResolver,
-		ObjectMapper objectMapper
+		Clock clock
 	) {
 		this.sessionRepository = sessionRepository;
+		this.pageRecordRepository = pageRecordRepository;
 		this.messageRepository = messageRepository;
 		this.qaThreadRepository = qaThreadRepository;
 		this.qaMessageRepository = qaMessageRepository;
 		this.candidateRepository = candidateRepository;
 		this.userRepository = userRepository;
 		this.materialRepository = materialRepository;
+		this.materialPageRepository = materialPageRepository;
 		this.quizService = quizService;
+		this.quizProperties = quizProperties;
 		this.diagnosisService = diagnosisService;
 		this.uiActionResolver = uiActionResolver;
-		this.objectMapper = objectMapper;
+		this.clock = clock;
 	}
 
 	@Transactional
@@ -117,46 +128,76 @@ public class TurnPersistenceService {
 				&& nextPageStatus != PageStatus.QUIZ_READY) {
 				throw policy();
 			}
-			JsonNode generation = quizGeneration(aiResponse);
 			activeQuizId = quizService.createFromGeneration(
 				sessionId,
-				generation
+				aiResponse.schemaVersion(),
+				aiResponse.quiz()
 			);
 			uiActions = uiActionResolver.forPageTransition(
 				previousPageStatus,
 				PageStatus.QUIZ_READY,
 				session.getCurrentPage(),
-				session.getMaterialPageCount()
+				session.getMaterialPageCount(),
+				false
+			);
+			uiActions = applyAllowedAiUiAction(
+				eventType,
+				session,
+				uiActions,
+				aiResponse
 			);
 			session.activateQuiz(activeQuizId, uiActions);
 		} else {
-			if (aiResponse.statePatch().containsKey("activeQuizId")) {
-				throw policy();
-			}
+			boolean applyPageTransition = true;
 			if (eventType == TurnEventType.DIAGNOSIS_ANSWER_SUBMITTED) {
-				completeDiagnosis(
+				applyPageTransition = completeDiagnosis(
 					diagnosisId,
 					aiMessages,
 					nextPageStatus,
 					aiResponse.statePatch()
 				);
 			}
-			PageStatus finalPageStatus = nextPageStatus == null
-				? session.getPageStatus()
-				: nextPageStatus;
-			boolean pageStatusChanged =
-				finalPageStatus != previousPageStatus;
-			uiActions = uiActionResolver.forPageTransition(
-				previousPageStatus,
-				finalPageStatus,
-				session.getCurrentPage(),
-				session.getMaterialPageCount()
-			);
-			session.applyAiTurn(
-				nextPageStatus,
-				uiActions,
-				pageStatusChanged
-			);
+			if (!applyPageTransition) {
+				uiActions = session.getLastUiActions();
+			} else {
+				PageStatus finalPageStatus = nextPageStatus == null
+					? session.getPageStatus()
+					: nextPageStatus;
+				boolean pageStatusChanged =
+					finalPageStatus != previousPageStatus;
+				boolean quizEligible = isQuizEligible(
+					session,
+					eventType,
+					finalPageStatus,
+					pageStatusChanged
+				);
+				uiActions = uiActionResolver.forPageTransition(
+					previousPageStatus,
+					finalPageStatus,
+					session.getCurrentPage(),
+					session.getMaterialPageCount(),
+					quizEligible
+				);
+				uiActions = applyAllowedAiUiAction(
+					eventType,
+					session,
+					uiActions,
+					aiResponse
+				);
+				session.applyAiTurn(
+					nextPageStatus,
+					uiActions,
+					pageStatusChanged
+				);
+			}
+			if (eventType == TurnEventType.EXPLAIN_CURRENT_PAGE
+				&& nextPageStatus == PageStatus.EXPLAINED) {
+				pageRecordRepository.upsertExplainedPage(
+					sessionId,
+					session.getCurrentPage(),
+					clock.instant()
+				);
+			}
 		}
 
 		saveMemoryCandidates(
@@ -182,9 +223,124 @@ public class TurnPersistenceService {
 				session.getPageStatus(),
 				session.getActiveQuizId()
 			),
+			NoteDraft.from(aiResponse.noteDraft()),
 			parseMemoryWrite(aiResponse.memoryWrite()),
 			session.getMaterialId()
 		);
+	}
+
+	@Transactional
+	public PersistedTurn persistCancelled(
+		Long userId,
+		Long sessionId,
+		String requestId,
+		String turnId,
+		String content
+	) {
+		LearningSession session = sessionRepository.findOwnedForUpdate(
+				sessionId,
+				userId
+			)
+			.orElseThrow(() ->
+				new BusinessException(ErrorCode.SESSION_NOT_FOUND));
+		if (session.getStatus() != SessionStatus.ACTIVE) {
+			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
+		}
+		if (!requestId.equals(session.getActiveTurnRequestId())) {
+			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
+		}
+
+		ChatMessage message = messageRepository.save(
+			ChatMessage.ai(session, content)
+		);
+		messageRepository.flush();
+		return new PersistedTurn(
+			turnId,
+			sessionId,
+			List.of(MessageResponse.from(message)),
+			List.of(),
+			new TurnStateResponse(
+				session.getCurrentPage(),
+				session.getPageStatus(),
+				session.getActiveQuizId()
+			),
+			null,
+			null,
+			session.getMaterialId()
+		);
+	}
+
+	private List<UiAction> applyAllowedAiUiAction(
+		TurnEventType eventType,
+		LearningSession session,
+		List<UiAction> resolvedUiActions,
+		io.edupilot.ai.dto.TurnResponse aiResponse
+	) {
+		List<Map<String, Object>> moveNextPageProposals =
+			aiResponse.uiActions().stream()
+				.filter(TurnResponseValidator::isMoveNextPageProposal)
+				.toList();
+		List<Map<String, Object>> noteProposals =
+			aiResponse.uiActions().stream()
+				.filter(TurnResponseValidator::isNoteProposal)
+				.toList();
+		if (moveNextPageProposals.isEmpty() && noteProposals.isEmpty()) {
+			return resolvedUiActions;
+		}
+		if (eventType != TurnEventType.USER_QUESTION
+			|| !resolvedUiActions.isEmpty()) {
+			List<Map<String, Object>> ignored = new ArrayList<>();
+			ignored.addAll(moveNextPageProposals);
+			ignored.addAll(noteProposals);
+			TurnResponseValidator.warnIgnoredUiActions(
+				aiResponse.turnId(),
+				ignored
+			);
+			return resolvedUiActions;
+		}
+
+		List<UiAction> accepted = new ArrayList<>();
+		Integer pageCount = session.getMaterialPageCount();
+		if (!moveNextPageProposals.isEmpty()
+			&& pageCount != null
+			&& session.getCurrentPage() == pageCount) {
+			TurnResponseValidator.warnMoveNextPageDroppedAtLastPage(
+				aiResponse.turnId(),
+				session.getCurrentPage(),
+				pageCount,
+				moveNextPageProposals.size()
+			);
+		} else if (!moveNextPageProposals.isEmpty()) {
+			accepted.add(UiAction.moveNextPage());
+		}
+		if (!noteProposals.isEmpty()) {
+			accepted.add(UiAction.noteProposal(
+				(String) noteProposals.getFirst().get("content")
+			));
+		}
+		return List.copyOf(accepted);
+	}
+
+	private boolean isQuizEligible(
+		LearningSession session,
+		TurnEventType eventType,
+		PageStatus finalPageStatus,
+		boolean pageStatusChanged
+	) {
+		if (finalPageStatus != PageStatus.EXPLAINED
+			|| !pageStatusChanged) {
+			return false;
+		}
+		if (eventType != TurnEventType.EXPLAIN_CURRENT_PAGE) {
+			return true;
+		}
+		int textLength = materialPageRepository
+			.findTextLengthByMaterialIdAndPageNumber(
+				session.getMaterialId(),
+				session.getCurrentPage()
+			)
+			.orElse(0);
+		return textLength >= quizProperties.proposalMinPageTextLength();
 	}
 
 	private List<ChatMessage> saveAiMessages(
@@ -281,7 +437,7 @@ public class TurnPersistenceService {
 		}
 	}
 
-	private void completeDiagnosis(
+	private boolean completeDiagnosis(
 		Long diagnosisId,
 		List<ChatMessage> messages,
 		PageStatus nextPageStatus,
@@ -298,7 +454,7 @@ public class TurnPersistenceService {
 			|| patch.get("pendingDiagnosis") != null) {
 			throw policy();
 		}
-		diagnosisService.completeDiagnosis(
+		return diagnosisService.completeDiagnosis(
 			diagnosisId,
 			repairs.getFirst().getContent()
 		);
@@ -307,18 +463,6 @@ public class TurnPersistenceService {
 	private PageStatus pageStatus(Map<String, Object> patch) {
 		Object value = patch.get("pageStatus");
 		return value == null ? null : PageStatus.valueOf((String) value);
-	}
-
-	private JsonNode quizGeneration(
-		io.edupilot.ai.dto.TurnResponse response
-	) {
-		for (ActionExecuted action : response.actionsExecuted()) {
-			Object generation = action.artifacts().get("quizGeneration");
-			if (generation != null) {
-				return objectMapper.valueToTree(generation);
-			}
-		}
-		throw new BusinessException(ErrorCode.AI_RESPONSE_INVALID);
 	}
 
 	private void saveMemoryCandidates(
@@ -335,15 +479,33 @@ public class TurnPersistenceService {
 				(String) value.get("type"),
 				(String) value.get("content"),
 				decimal(value.get("confidence")),
-				List.of(new MemoryEvidenceRef(
-					"TURN",
+				turnEvidenceRefs(
+					value.get("evidence"),
 					userMessageId,
 					sessionId
-				)),
+				),
 				"1.0"
 			));
 		}
 		candidateRepository.flush();
+	}
+
+	private List<MemoryEvidenceRef> turnEvidenceRefs(
+		Object value,
+		Long userMessageId,
+		Long sessionId
+	) {
+		@SuppressWarnings("unchecked")
+		List<String> evidence = (List<String>) value;
+		return evidence.stream()
+			.map(String::trim)
+			.map(reference -> new MemoryEvidenceRef(
+				"TURN",
+				userMessageId,
+				sessionId,
+				reference
+			))
+			.toList();
 	}
 
 	private MemoryWrite parseMemoryWrite(Map<String, Object> value) {
@@ -351,34 +513,17 @@ public class TurnPersistenceService {
 			return null;
 		}
 		try {
-			return new MemoryWrite(
-				stringList(value.get("strengths")),
-				stringList(value.get("weaknesses")),
-				stringList(value.get("misconceptions")),
-				stringList(value.get("explanationPreferences")),
-				stringList(value.get("preferredQuizTypes")),
-				nullableText(value.get("targetDifficulty")),
-				stringList(value.get("nextCoachingGoals")),
-				nullableText(value.get("memoryDigest")),
-				longList(value.get("candidateIds"))
-			);
+			if (!value.keySet().equals(Set.of("candidateIds"))) {
+				throw new IllegalArgumentException();
+			}
+			List<Long> candidateIds = longList(value.get("candidateIds"));
+			if (candidateIds.isEmpty()) {
+				throw new IllegalArgumentException();
+			}
+			return new MemoryWrite(candidateIds);
 		} catch (RuntimeException exception) {
 			throw new BusinessException(ErrorCode.AI_RESPONSE_INVALID);
 		}
-	}
-
-	private List<String> stringList(Object value) {
-		if (!(value instanceof List<?> list)) {
-			throw new IllegalArgumentException();
-		}
-		List<String> result = new ArrayList<>();
-		for (Object item : list) {
-			if (!(item instanceof String text) || !StringUtils.hasText(text)) {
-				throw new IllegalArgumentException();
-			}
-			result.add(text.trim());
-		}
-		return List.copyOf(result);
 	}
 
 	private List<Long> longList(Object value) {
@@ -387,8 +532,19 @@ public class TurnPersistenceService {
 		}
 		List<Long> result = new ArrayList<>();
 		for (Object item : list) {
-			Long id = nullableLong(item);
-			if (id == null || id < 1) {
+			Long id;
+			if (item instanceof Byte
+				|| item instanceof Short
+				|| item instanceof Integer
+				|| item instanceof Long) {
+				id = ((Number) item).longValue();
+			} else if (item instanceof BigInteger integer
+				&& integer.bitLength() < 63) {
+				id = integer.longValue();
+			} else {
+				throw new IllegalArgumentException();
+			}
+			if (id < 1) {
 				throw new IllegalArgumentException();
 			}
 			result.add(id);
@@ -402,10 +558,6 @@ public class TurnPersistenceService {
 		} catch (RuntimeException exception) {
 			throw policy();
 		}
-	}
-
-	private String nullableText(Object value) {
-		return value instanceof String text ? text : null;
 	}
 
 	private Long nullableLong(Object value) {

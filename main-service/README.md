@@ -26,6 +26,7 @@ EduPilot의 인증·권한·영속 상태와 Frontend용 외부 API를 담당하
 | `EDUPILOT_UPLOAD_MAX_MB` | `45` | PDF 업로드 최대 크기(MB) |
 | `EDUPILOT_AI_EXTRACT_READ_TIMEOUT` | `120s` | PDF 추출 내부 API read timeout |
 | `EDUPILOT_AI_TURN_READ_TIMEOUT` | `200s` | 동기 turn 내부 API read timeout(AI turn 총 예산 180s보다 20s 여유) |
+| `EDUPILOT_AI_STREAM_IDLE_TIMEOUT` | `30s` | NDJSON 최초 이벤트·이벤트 사이 최대 무응답 시간(heartbeat 포함) |
 | `EDUPILOT_AI_GRADE_READ_TIMEOUT` | `90s` | SHORT/ESSAY 채점 내부 API read timeout |
 | `EDUPILOT_AI_PIPELINE_READ_TIMEOUT` | `45s` | assessment·diagnosis 내부 API read timeout(v0.4 §4) |
 | `EDUPILOT_QUIZ_PASS_RATIO` | `0.6` | 퀴즈 통과 비율(0~1) |
@@ -56,7 +57,9 @@ Swagger UI: http://localhost:8080/swagger-ui.html
 
 ## 인증 흐름
 
-회원가입 후 로그인하면 access token은 응답 body로, refresh token은 `edupilot_refresh` HttpOnly 쿠키로 발급됩니다. access 만료 시 `/api/auth/refresh`가 쿠키를 회전하며 로그아웃과 탈퇴는 저장된 refresh를 폐기합니다.
+회원가입은 `role`에 `LEARNER` 또는 `INSTRUCTOR`를 필수로 받으며 `ADMIN` 공개 가입은 허용하지 않습니다. 로그인하면 access token은 응답 body로, refresh token은 `edupilot_refresh` HttpOnly 쿠키로 발급됩니다. access 만료 시 `/api/auth/refresh`가 쿠키를 회전하며 로그아웃과 탈퇴는 저장된 refresh를 폐기합니다.
+
+V8 migration은 기존 `USER` 계정을 `LEARNER`로 전환합니다. 배포 전에 발급된 `role=USER` access token은 무효가 될 수 있으므로 배포 후 한 번 재로그인해야 합니다.
 
 ## FastAPI 연동 로컬 검증
 

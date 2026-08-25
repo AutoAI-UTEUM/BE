@@ -2,7 +2,6 @@ package io.edupilot.quiz.dto;
 
 import java.util.List;
 
-import io.edupilot.quiz.PublicQuizQuestion;
 import io.edupilot.quiz.Quiz;
 import io.edupilot.quiz.QuizType;
 
@@ -15,12 +14,15 @@ public record QuizDetailResponse(
 	int coverageStartPage,
 	int coverageEndPage,
 	int questionCount,
-	List<PublicQuizQuestion> questions,
+	List<QuizQuestionResponse> questions,
 	boolean submitted
 ) {
 
 	public static QuizDetailResponse from(Quiz quiz, boolean submitted) {
-		List<PublicQuizQuestion> questions = quiz.getPublicQuestions();
+		List<QuizQuestionResponse> questions = quiz.getPublicQuestions()
+			.stream()
+			.map(QuizQuestionResponse::from)
+			.toList();
 		return new QuizDetailResponse(
 			quiz.getId(),
 			quiz.getSessionId(),

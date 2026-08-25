@@ -1,6 +1,11 @@
 package io.edupilot.session;
 
+import java.util.List;
+
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,9 +16,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import io.edupilot.auth.AuthenticatedUser;
 import io.edupilot.global.response.ApiResponse;
+import io.edupilot.session.dto.ConversationStartResponse;
 import io.edupilot.session.dto.CreateSessionRequest;
 import io.edupilot.session.dto.MessageListResponse;
 import io.edupilot.session.dto.PageMoveRequest;
@@ -21,6 +28,7 @@ import io.edupilot.session.dto.PageStateResponse;
 import io.edupilot.session.dto.SessionCreateResponse;
 import io.edupilot.session.dto.SessionDetailResponse;
 import io.edupilot.session.dto.SessionListResponse;
+import io.edupilot.session.dto.TurnCancellationResponse;
 import io.edupilot.session.dto.TurnRequest;
 import io.edupilot.session.dto.TurnResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -40,15 +48,38 @@ public class SessionController {
 	private final SessionService sessionService;
 	private final SessionTurnService turnService;
 	private final SessionMessageService messageService;
+	private final SessionStreamService streamService;
 
 	public SessionController(
 		SessionService sessionService,
 		SessionTurnService turnService,
-		SessionMessageService messageService
+		SessionMessageService messageService,
+		SessionStreamService streamService
 	) {
 		this.sessionService = sessionService;
 		this.turnService = turnService;
 		this.messageService = messageService;
+		this.streamService = streamService;
+	}
+
+	@GetMapping(
+		value = "/{sessionId}/stream",
+		produces = MediaType.TEXT_EVENT_STREAM_VALUE
+	)
+	@Operation(summary = "인증된 학습 turn SSE 연결")
+	public ResponseEntity<SseEmitter> stream(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long sessionId
+	) {
+		return ResponseEntity.ok()
+			.contentType(MediaType.TEXT_EVENT_STREAM)
+			.header(HttpHeaders.CACHE_CONTROL, "no-cache")
+			.header(HttpHeaders.CONNECTION, "keep-alive")
+			.header("X-Accel-Buffering", "no")
+			.body(streamService.connect(
+				authenticatedUser.userId(),
+				sessionId
+			));
 	}
 
 	@PostMapping
@@ -121,6 +152,30 @@ public class SessionController {
 		);
 	}
 
+	@PostMapping("/{sessionId}/quiz-decline")
+	@Operation(summary = "퀴즈 제안 거절")
+	public ApiResponse<List<UiAction>> declineQuizProposal(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long sessionId
+	) {
+		return ApiResponse.success(sessionService.declineQuizProposal(
+			authenticatedUser.userId(),
+			sessionId
+		));
+	}
+
+	@PostMapping("/{sessionId}/conversations")
+	@Operation(summary = "LLM 호출 없는 새 대화 시작")
+	public ApiResponse<ConversationStartResponse> startNewConversation(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long sessionId
+	) {
+		return ApiResponse.success(sessionService.startNewConversation(
+			authenticatedUser.userId(),
+			sessionId
+		));
+	}
+
 	@PostMapping("/{sessionId}/turns")
 	@Operation(
 		summary = "학습 turn AI 처리",
@@ -138,6 +193,20 @@ public class SessionController {
 		return ApiResponse.success(
 			turnService.execute(authenticatedUser.userId(), sessionId, request)
 		);
+	}
+
+	@PostMapping("/{sessionId}/turns/cancel")
+	@Operation(summary = "진행 중인 스트리밍 학습 turn 취소")
+	public ApiResponse<TurnCancellationResponse> cancelTurn(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@PathVariable Long sessionId
+	) {
+		return ApiResponse.success(new TurnCancellationResponse(
+			streamService.cancelTurn(
+				authenticatedUser.userId(),
+				sessionId
+			)
+		));
 	}
 
 	@GetMapping("/{sessionId}/messages")

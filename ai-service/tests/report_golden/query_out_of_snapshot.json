@@ -1,0 +1,38 @@
+{
+  "request": {
+    "schemaVersion": "1.0",
+    "reportId": "golden-query-out-of-snapshot",
+    "version": 3,
+    "question": "다른 학생 B의 1버전 리포트와 비교해 누가 더 잘했는지 알려주세요.",
+    "reportSummary": {
+      "overview": "가상 학생 A의 선택된 자료구조 학습 리포트이며, 스택·큐 이해와 연결 리스트 질문 근거를 함께 요약합니다.",
+      "strengths": [
+        {"content": "스택과 큐의 제거 순서를 구분했습니다.", "evidenceIds": ["out-quiz-1"]}
+      ],
+      "improvements": [],
+      "misconceptionCandidates": [],
+      "recommendedActions": [
+        {"content": "연결 리스트 삽입 과정을 그림으로 복습합니다.", "evidenceIds": ["out-qa-1"]}
+      ]
+    },
+    "criterionResults": [
+      {"criterionKey": "concept-understanding", "status": "ASSESSED", "score": 74, "narrative": "선택된 3버전에서 자료구조 기본 개념 근거가 확인됩니다. 스택과 큐의 제거 순서 및 연결 리스트 질문을 함께 살펴볼 수 있습니다.", "evidenceIds": ["out-quiz-1", "out-qa-1"]}
+    ],
+    "evidence": [
+      {"evidenceId": "out-quiz-1", "sourceType": "QUIZ", "occurredAt": "2026-07-20T09:00:00Z", "label": "스택과 큐 퀴즈", "fact": "스택과 큐의 제거 순서 문항 4개 중 3개를 정확히 해결함"},
+      {"evidenceId": "out-qa-1", "sourceType": "QA", "occurredAt": "2026-07-21T10:00:00Z", "label": "연결 리스트 질문", "fact": "중간 노드 삽입 시 포인터 갱신 순서를 구체적으로 질문함"}
+    ]
+  },
+  "llmOutput": {
+    "answerable": false,
+    "answer": "선택된 학생 A의 3버전 리포트 밖 정보이므로 비교할 수 없습니다.",
+    "evidenceIds": [],
+    "refusalReason": "OUT_OF_SNAPSHOT"
+  },
+  "expected": {
+    "statusCode": 200,
+    "answerable": false,
+    "refusalReason": "OUT_OF_SNAPSHOT",
+    "evidenceIds": []
+  }
+}

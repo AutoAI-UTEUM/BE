@@ -1,17 +1,35 @@
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "50m"
+      max-file: "3"
+
 services:
   mysql:
     restart: unless-stopped
 
   main-service:
     build: !reset null
-    image: ghcr.io/autoai-edupilot/main-service:${TAG}
+    image: ghcr.io/autoai-uteum/main-service:${TAG}
     environment:
       SPRING_PROFILES_ACTIVE: prod
       EDUPILOT_STORAGE_DIR: /var/lib/edupilot/storage
     ports: !reset []
     restart: unless-stopped
 
+  ai-service:
+    profiles: !reset []
+    build: !reset null
+    image: ghcr.io/autoai-uteum/ai-service:${TAG}
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-prod}
+      EDUPILOT_XAI_FILES_ENABLED: ${XAI_FILES_ENABLED:-false}
+      EDUPILOT_XAI_FILE_UPLOAD_TIMEOUT_SECONDS: 60
+    restart: unless-stopped
+
   nginx:
+    <<: *logging
     image: nginx:stable
     environment:
       EDUPILOT_DOMAIN: ${EDUPILOT_DOMAIN}

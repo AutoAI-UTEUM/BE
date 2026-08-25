@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -17,6 +18,7 @@ import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.MaterialPage;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.material.MaterialPageTextMerger;
 import io.edupilot.quiz.dto.QuizSubmitRequest;
 import io.edupilot.session.SessionStatus;
 import tools.jackson.databind.JsonNode;
@@ -25,17 +27,17 @@ import tools.jackson.databind.JsonNode;
 public class QuizSubmissionPreparationService {
 
 	private final QuizRepository quizRepository;
-	private final QuizSubmissionRepository submissionRepository;
 	private final MaterialPageRepository materialPageRepository;
+	private final MaterialPageTextMerger pageTextMerger;
 
 	public QuizSubmissionPreparationService(
 		QuizRepository quizRepository,
-		QuizSubmissionRepository submissionRepository,
-		MaterialPageRepository materialPageRepository
+		MaterialPageRepository materialPageRepository,
+		MaterialPageTextMerger pageTextMerger
 	) {
 		this.quizRepository = quizRepository;
-		this.submissionRepository = submissionRepository;
 		this.materialPageRepository = materialPageRepository;
+		this.pageTextMerger = pageTextMerger;
 	}
 
 	@Transactional(readOnly = true)
@@ -49,8 +51,8 @@ public class QuizSubmissionPreparationService {
 		if (quiz.getSessionStatus() != SessionStatus.ACTIVE) {
 			throw new BusinessException(ErrorCode.QUIZ_NOT_SUBMITTABLE);
 		}
-		if (submissionRepository.existsByQuiz_IdAndUser_Id(quizId, userId)) {
-			throw new BusinessException(ErrorCode.QUIZ_ALREADY_SUBMITTED);
+		if (!Objects.equals(quiz.getSessionActiveQuizId(), quizId)) {
+			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
 		}
 		if (request == null
 			|| !StringUtils.hasText(request.requestId())
@@ -126,10 +128,10 @@ public class QuizSubmissionPreparationService {
 	) {
 		switch (quizType) {
 			case MCQ -> {
-				Set<String> optionIds = question.options() == null
+				Set<String> optionIds = question.choices() == null
 					? Set.of()
-					: question.options().stream()
-						.map(QuizOption::optionId)
+					: question.choices().stream()
+						.map(QuizOption::choiceId)
 						.collect(Collectors.toCollection(HashSet::new));
 				if (!optionIds.contains(answer)) {
 					throw invalidAnswer();
@@ -157,7 +159,10 @@ public class QuizSubmissionPreparationService {
 		String text = pages.stream()
 			.map(page -> "[Page %d]%n%s".formatted(
 				page.getPageNumber(),
-				page.getTextContent()
+				pageTextMerger.mergeCaption(
+					page.getTextContent(),
+					page.getCaption()
+				)
 			))
 			.collect(Collectors.joining("\n\n"));
 		return new GradeRequest.PageContext(

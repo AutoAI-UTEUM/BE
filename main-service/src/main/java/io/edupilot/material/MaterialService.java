@@ -12,19 +12,24 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
+import io.edupilot.classroom.ClassroomWeekService;
 import io.edupilot.material.dto.MaterialDetailResponse;
 import io.edupilot.material.dto.MaterialListResponse;
 import io.edupilot.material.dto.MaterialPageResponse;
 import io.edupilot.material.dto.MaterialSummaryResponse;
 import io.edupilot.material.storage.FileStorage;
 import io.edupilot.material.storage.StorageException;
+import io.edupilot.notification.NotificationTriggerService;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
+import io.edupilot.user.UserRole;
 
 @Service
 public class MaterialService {
@@ -39,6 +44,10 @@ public class MaterialService {
 	private final MaterialProperties properties;
 	private final MaterialDeletionGuard deletionGuard;
 	private final ApplicationEventPublisher eventPublisher;
+	private final MaterialAccessService accessService;
+	private final ClassroomWeekService weekService;
+	private final NotificationTriggerService notificationTriggerService;
+	private final MaterialXaiFileLifecycleService xaiFileLifecycleService;
 
 	public MaterialService(
 		LearningMaterialRepository materialRepository,
@@ -47,7 +56,11 @@ public class MaterialService {
 		FileStorage fileStorage,
 		MaterialProperties properties,
 		MaterialDeletionGuard deletionGuard,
-		ApplicationEventPublisher eventPublisher
+		ApplicationEventPublisher eventPublisher,
+		MaterialAccessService accessService,
+		ClassroomWeekService weekService,
+		NotificationTriggerService notificationTriggerService,
+		MaterialXaiFileLifecycleService xaiFileLifecycleService
 	) {
 		this.materialRepository = materialRepository;
 		this.pageRepository = pageRepository;
@@ -56,6 +69,10 @@ public class MaterialService {
 		this.properties = properties;
 		this.deletionGuard = deletionGuard;
 		this.eventPublisher = eventPublisher;
+		this.accessService = accessService;
+		this.weekService = weekService;
+		this.notificationTriggerService = notificationTriggerService;
+		this.xaiFileLifecycleService = xaiFileLifecycleService;
 	}
 
 	@Transactional
@@ -64,6 +81,19 @@ public class MaterialService {
 		MultipartFile file,
 		String title
 	) {
+		return upload(ownerId, UserRole.LEARNER, file, title, null, null);
+	}
+
+	@Transactional
+	public MaterialSummaryResponse upload(
+		Long ownerId,
+		UserRole role,
+		MultipartFile file,
+		String title,
+		Long classroomId,
+		Integer weekNumber
+	) {
+		validateClassroomParts(classroomId, weekNumber);
 		validateFile(file);
 		String normalizedTitle = validateTitle(title);
 
@@ -73,16 +103,37 @@ public class MaterialService {
 		} catch (IOException exception) {
 			throw new StorageException("업로드 파일을 읽을 수 없습니다.", exception);
 		}
-
-		User owner = userRepository.getReferenceById(ownerId);
-		LearningMaterial material = materialRepository.save(
-			LearningMaterial.create(owner, normalizedTitle, storageKey)
-		);
-		eventPublisher.publishEvent(new MaterialExtractionRequested(
-			material.getId(),
-			MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY)
-		));
-		return MaterialSummaryResponse.from(material);
+		registerRollbackCleanup(storageKey);
+		try {
+			User owner = userRepository.getReferenceById(ownerId);
+			LearningMaterial material = materialRepository.saveAndFlush(
+				LearningMaterial.create(owner, normalizedTitle, storageKey)
+			);
+			if (classroomId != null) {
+				weekService.linkUploadedMaterial(
+					ownerId,
+					role,
+					classroomId,
+					weekNumber,
+					material
+				);
+				notificationTriggerService.materialUploaded(
+					classroomId,
+					material.getId(),
+					material.getTitle()
+				);
+			}
+			eventPublisher.publishEvent(new MaterialExtractionRequested(
+				material.getId(),
+				MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY)
+			));
+			return MaterialSummaryResponse.from(material);
+		} catch (RuntimeException exception) {
+			if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+				deleteStoredFile(storageKey, exception);
+			}
+			throw exception;
+		}
 	}
 
 	@Transactional(readOnly = true)
@@ -102,12 +153,34 @@ public class MaterialService {
 
 	@Transactional(readOnly = true)
 	public MaterialDetailResponse detail(Long ownerId, Long materialId) {
-		return MaterialDetailResponse.from(activeOwnedMaterial(ownerId, materialId));
+		return MaterialDetailResponse.from(accessService.requireAccessible(
+			ownerId,
+			materialId
+		));
+	}
+
+	@Transactional
+	public MaterialDetailResponse rename(
+		Long ownerId,
+		Long materialId,
+		String title
+	) {
+		String normalizedTitle = validateTitle(title);
+		LearningMaterial material = materialRepository
+			.findByIdAndOwner_IdAndStatus(
+				materialId,
+				ownerId,
+				MaterialStatus.ACTIVE
+			)
+			.orElseThrow(() -> new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
+		material.rename(normalizedTitle);
+		materialRepository.flush();
+		return MaterialDetailResponse.from(material);
 	}
 
 	@Transactional(readOnly = true)
 	public MaterialFile file(Long ownerId, Long materialId) {
-		LearningMaterial material = activeOwnedMaterial(ownerId, materialId);
+		LearningMaterial material = accessService.requireAccessible(ownerId, materialId);
 		return new MaterialFile(material.getId(), fileStorage.load(material.getStorageKey()));
 	}
 
@@ -117,7 +190,7 @@ public class MaterialService {
 		Long materialId,
 		int pageNumber
 	) {
-		LearningMaterial material = activeOwnedMaterial(ownerId, materialId);
+		LearningMaterial material = accessService.requireAccessible(ownerId, materialId);
 		if (material.getProcessingStatus() == MaterialProcessingStatus.PROCESSING) {
 			throw new BusinessException(ErrorCode.MATERIAL_PROCESSING);
 		}
@@ -145,14 +218,9 @@ public class MaterialService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
 		deletionGuard.assertDeletable(materialId);
 		material.delete();
-	}
-
-	private LearningMaterial activeOwnedMaterial(Long ownerId, Long materialId) {
-		return materialRepository.findByIdAndOwner_IdAndStatus(
-			materialId,
-			ownerId,
-			MaterialStatus.ACTIVE
-		).orElseThrow(() -> new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
+		if (material.getXaiFileId() != null) {
+			xaiFileLifecycleService.deleteAfterCommit(material.getXaiFileId());
+		}
 	}
 
 	private void validateFile(MultipartFile file) {
@@ -179,5 +247,40 @@ public class MaterialService {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}
 		return normalized;
+	}
+
+	private void validateClassroomParts(Long classroomId, Integer weekNumber) {
+		if ((classroomId == null) != (weekNumber == null)
+			|| weekNumber != null && weekNumber < 1) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+		}
+	}
+
+	private void registerRollbackCleanup(String storageKey) {
+		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+			return;
+		}
+		TransactionSynchronizationManager.registerSynchronization(
+			new TransactionSynchronization() {
+				@Override
+				public void afterCompletion(int status) {
+					if (status != STATUS_COMMITTED) {
+						try {
+							fileStorage.delete(storageKey);
+						} catch (RuntimeException ignored) {
+							// 원래 롤백 원인을 보존합니다.
+						}
+					}
+				}
+			}
+		);
+	}
+
+	private void deleteStoredFile(String storageKey, RuntimeException cause) {
+		try {
+			fileStorage.delete(storageKey);
+		} catch (RuntimeException cleanupFailure) {
+			cause.addSuppressed(cleanupFailure);
+		}
 	}
 }

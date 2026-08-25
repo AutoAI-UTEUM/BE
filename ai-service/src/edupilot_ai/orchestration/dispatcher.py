@@ -1,20 +1,40 @@
 """Sequential tool execution and statePatch merging."""
 
+import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from time import perf_counter
 from typing import Any
 
-from edupilot_ai.llm.bridge import LlmBridgeError, LlmUsage
+from edupilot_ai.core.errors import ErrorCategory
+from edupilot_ai.core.logging import bind_log_context, reset_log_context
+from edupilot_ai.llm.bridge import (
+    LlmBridgeError,
+    LlmTextDelta,
+    LlmUsage,
+)
 from edupilot_ai.models.plan import PlanAction, ToolName, TurnPlan
+from edupilot_ai.models.quiz import QuizGeneration, QuizType
 from edupilot_ai.models.turn import (
     ActionExecuted,
     Adjustment,
     DetailLevel,
     Message,
+    NoteDraft,
     QaThreadMode,
 )
-from edupilot_ai.orchestration.agents import AgentResult, ExplainerAgent, QaAgent
+from edupilot_ai.orchestration.agents import (
+    AgentResult,
+    AgentTextStream,
+    ExplainerAgent,
+    NoteAgent,
+    QaAgent,
+    QuizAgent,
+    RepairAgent,
+)
 from edupilot_ai.orchestration.context import AgentContext
 from edupilot_ai.orchestration.policy import PolicyViolation
+from edupilot_ai.orchestration.timing import TurnDeadline
 
 _PAGE_STATUS_VALUES = {
     "EXPLAINING",
@@ -23,7 +43,8 @@ _PAGE_STATUS_VALUES = {
     "DIAGNOSIS_PENDING",
     "REPAIR_COMPLETED",
 }
-_ALLOWED_PATCH_KEYS = {"pageStatus", "activeQuizId", "pendingDiagnosis", "qaThread"}
+_ALLOWED_PATCH_KEYS = {"pageStatus", "pendingDiagnosis", "qaThread"}
+logger = logging.getLogger(__name__)
 
 
 def merge_state_patch(current: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
@@ -60,31 +81,61 @@ class DispatchResult:
     state_patch: dict[str, Any] = field(default_factory=dict)
     ui_actions: list[dict[str, Any]] = field(default_factory=list)
     usages: list[LlmUsage] = field(default_factory=list)
+    quiz: QuizGeneration | None = None
+    memory_candidates: list[dict[str, Any]] = field(default_factory=list)
+    memory_write: dict[str, Any] | None = None
+    note_draft: NoteDraft | None = None
     failure: LlmBridgeError | PolicyViolation | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class DispatchTextDelta:
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class DispatchStreamCompleted:
+    result: DispatchResult
+
+
+type DispatchStreamItem = DispatchTextDelta | DispatchStreamCompleted
+
+
 class ToolDispatcher:
-    def __init__(self, *, explainer: ExplainerAgent, qa: QaAgent, model: str) -> None:
+    def __init__(
+        self,
+        *,
+        explainer: ExplainerAgent,
+        qa: QaAgent,
+        model: str,
+        quiz: QuizAgent | None = None,
+        repair: RepairAgent | None = None,
+        note: NoteAgent | None = None,
+    ) -> None:
         self._explainer = explainer
         self._qa = qa
         self._model = model
+        self._quiz = quiz
+        self._repair = repair
+        self._note = note
 
     async def dispatch(
         self,
         plan: TurnPlan,
         context: AgentContext,
+        deadline: TurnDeadline,
         adjustments: list[Adjustment] | None = None,
     ) -> DispatchResult:
         result = DispatchResult()
         verified_adjustments = adjustments or []
         for action in plan.actions:
+            started_at = perf_counter()
+            tokens = bind_log_context(action_id=action.action_id)
             action_adjustments = [
-                item
-                for item in verified_adjustments
-                if item.belongs_to(action.action_id)
+                item for item in verified_adjustments if item.belongs_to(action.action_id)
             ]
             try:
-                outcome = await self._execute(action, context)
+                outcome = await self._execute(action, context, deadline)
                 result.state_patch = merge_state_patch(result.state_patch, outcome.state_patch)
                 result.actions.append(
                     ActionExecuted(
@@ -94,8 +145,29 @@ class ToolDispatcher:
                         adjustments=action_adjustments,
                     )
                 )
-                result.messages.append(outcome.message)
+                if outcome.message is not None:
+                    result.messages.append(outcome.message)
+                result.ui_actions.extend(outcome.ui_actions)
+                if outcome.quiz is not None:
+                    if result.quiz is not None:
+                        raise PolicyViolation("multiple quiz results are not allowed")
+                    result.quiz = outcome.quiz
+                self._record_note_result(result, outcome)
+                self._record_memory_result(result, action, outcome)
                 result.usages.append(outcome.usage)
+                logger.info(
+                    "tool action completed",
+                    extra={
+                        "actionId": action.action_id,
+                        "agent": outcome.agent,
+                        "tool": action.tool.value,
+                        "status": "SUCCESS",
+                        "durationMs": round(
+                            (perf_counter() - started_at) * 1000,
+                            3,
+                        ),
+                    },
+                )
             except (LlmBridgeError, PolicyViolation) as error:
                 result.actions.append(
                     ActionExecuted(
@@ -106,31 +178,259 @@ class ToolDispatcher:
                     )
                 )
                 result.failure = error
+                error_code = (
+                    error.category.value
+                    if isinstance(error, LlmBridgeError)
+                    else "AI_POLICY_REJECTED"
+                )
+                logger.warning(
+                    "tool action failed",
+                    extra={
+                        "actionId": action.action_id,
+                        "tool": action.tool.value,
+                        "status": "FAILED",
+                        "durationMs": round(
+                            (perf_counter() - started_at) * 1000,
+                            3,
+                        ),
+                        "errorCode": error_code,
+                    },
+                )
                 break
+            finally:
+                reset_log_context(tokens)
         return result
 
-    async def _execute(self, action: PlanAction, context: AgentContext) -> AgentResult:
+    async def dispatch_stream(
+        self,
+        plan: TurnPlan,
+        context: AgentContext,
+        adjustments: list[Adjustment],
+        deadline: TurnDeadline,
+    ) -> AsyncIterator[DispatchStreamItem]:
+        result = DispatchResult()
+        for action in plan.actions:
+            started_at = perf_counter()
+            action_adjustments = [item for item in adjustments if item.belongs_to(action.action_id)]
+            try:
+                if action.tool in {ToolName.EXPLAIN_PAGE, ToolName.ANSWER_QUESTION}:
+                    stream = self._agent_stream(action, context, deadline)
+                    content: list[str] = []
+                    usage: LlmUsage | None = None
+                    async for item in stream.items:
+                        if isinstance(item, LlmTextDelta):
+                            if usage is not None:
+                                raise LlmBridgeError(
+                                    category=ErrorCategory.SCHEMA,
+                                    retryable=False,
+                                )
+                            content.append(item.text)
+                            yield DispatchTextDelta(text=item.text)
+                        elif usage is None:
+                            usage = item.usage
+                        else:
+                            raise LlmBridgeError(
+                                category=ErrorCategory.SCHEMA,
+                                retryable=False,
+                            )
+                    if usage is None or not content:
+                        raise LlmBridgeError(
+                            category=ErrorCategory.SCHEMA,
+                            retryable=False,
+                        )
+                    outcome = AgentResult(
+                        agent=stream.agent,
+                        message=Message(
+                            message_type=stream.message_type,
+                            content="".join(content),
+                        ),
+                        state_patch=stream.state_patch,
+                        usage=usage,
+                        ui_actions=stream.ui_actions,
+                    )
+                else:
+                    outcome = await self._execute(action, context, deadline)
+                result.state_patch = merge_state_patch(
+                    result.state_patch,
+                    outcome.state_patch,
+                )
+                result.actions.append(
+                    ActionExecuted(
+                        action_id=action.action_id,
+                        agent=outcome.agent,
+                        status="SUCCESS",
+                        adjustments=action_adjustments,
+                    )
+                )
+                if outcome.message is not None:
+                    result.messages.append(outcome.message)
+                result.ui_actions.extend(outcome.ui_actions)
+                if outcome.quiz is not None:
+                    if result.quiz is not None:
+                        raise PolicyViolation("multiple quiz results are not allowed")
+                    result.quiz = outcome.quiz
+                self._record_note_result(result, outcome)
+                self._record_memory_result(result, action, outcome)
+                result.usages.append(outcome.usage)
+                logger.info(
+                    "tool action completed",
+                    extra={
+                        "actionId": action.action_id,
+                        "agent": outcome.agent,
+                        "tool": action.tool.value,
+                        "status": "SUCCESS",
+                        "durationMs": round(
+                            (perf_counter() - started_at) * 1000,
+                            3,
+                        ),
+                    },
+                )
+            except (LlmBridgeError, PolicyViolation) as error:
+                result.actions.append(
+                    ActionExecuted(
+                        action_id=action.action_id,
+                        agent=action.tool.value,
+                        status="FAILED",
+                        adjustments=action_adjustments,
+                    )
+                )
+                result.failure = error
+                error_code = (
+                    error.category.value
+                    if isinstance(error, LlmBridgeError)
+                    else "AI_POLICY_REJECTED"
+                )
+                logger.warning(
+                    "tool action failed",
+                    extra={
+                        "actionId": action.action_id,
+                        "tool": action.tool.value,
+                        "status": "FAILED",
+                        "durationMs": round(
+                            (perf_counter() - started_at) * 1000,
+                            3,
+                        ),
+                        "errorCode": error_code,
+                    },
+                )
+                break
+        yield DispatchStreamCompleted(result=result)
+
+    async def _execute(
+        self,
+        action: PlanAction,
+        context: AgentContext,
+        deadline: TurnDeadline,
+    ) -> AgentResult:
         if action.tool is ToolName.EXPLAIN_PAGE:
             return await self._explainer.run(
                 context,
                 DetailLevel(str(action.args["detailLevel"])),
+                timeout_seconds=deadline.remaining_seconds(),
             )
         if action.tool is ToolName.ANSWER_QUESTION:
             mode = QaThreadMode(str(action.args["qaThreadMode"]))
             thread_ref = None if mode is QaThreadMode.START_NEW else context.qa_thread_ref()
             if mode is QaThreadMode.FOLLOW_UP and thread_ref is None:
                 raise PolicyViolation("FOLLOW_UP requires qaThreadDigest threadRef")
-            return await self._qa.run(context, mode, thread_ref)
+            return await self._qa.run(
+                context,
+                mode,
+                thread_ref,
+                timeout_seconds=deadline.remaining_seconds(),
+            )
         if action.tool.value.startswith("GENERATE_QUIZ_"):
-            return self._stub("QuizAgent", "퀴즈 생성 기능은 준비 중입니다. (이슈 #31)")
+            if self._quiz is None:
+                raise PolicyViolation("QuizAgent is not configured")
+            quiz_type = QuizType(str(action.args["quizType"]))
+            return await self._quiz.run(
+                context,
+                quiz_type,
+                timeout_seconds=deadline.remaining_seconds(),
+            )
         if action.tool is ToolName.REPAIR_MISCONCEPTION:
-            return self._stub("RepairAgent", "오개념 교정 기능은 준비 중입니다. (이슈 #38)")
+            if self._repair is None:
+                raise PolicyViolation("RepairAgent is not configured")
+            return await self._repair.run(
+                context,
+                timeout_seconds=deadline.remaining_seconds(),
+            )
+        if action.tool is ToolName.WRITE_NOTE:
+            if self._note is None:
+                raise PolicyViolation("NoteAgent is not configured")
+            return await self._note.run(
+                context,
+                str(action.args["noteInstruction"]),
+                timeout_seconds=deadline.remaining_seconds(),
+            )
+        if action.tool is ToolName.BUILD_MEMORY_CANDIDATE:
+            candidate = {
+                "type": action.args["type"],
+                "content": action.args["content"],
+                "confidence": action.args["confidence"],
+                "evidence": action.args["evidence"],
+                # Compatibility field; existing-candidate promotion uses memoryWrite.
+                "promotionRequested": False,
+            }
+            return AgentResult(
+                agent="LearnerMemoryService",
+                message=None,
+                state_patch={},
+                usage=LlmUsage(self._model, 0, 0, None),
+                memory_candidates=[candidate],
+            )
+        if action.tool is ToolName.PROMOTE_MEMORY:
+            return AgentResult(
+                agent="LearnerMemoryService",
+                message=None,
+                state_patch={},
+                usage=LlmUsage(self._model, 0, 0, None),
+            )
         raise PolicyViolation("tool is not implemented in issue #23")
 
-    def _stub(self, agent: str, content: str) -> AgentResult:
-        return AgentResult(
-            agent=agent,
-            message=Message(message_type="SYSTEM", content=content),
-            state_patch={},
-            usage=LlmUsage(self._model, 0, 0, None),
+    @staticmethod
+    def _record_note_result(result: DispatchResult, outcome: AgentResult) -> None:
+        if outcome.note_draft is None:
+            return
+        if result.note_draft is not None:
+            raise PolicyViolation("multiple note drafts are not allowed")
+        result.note_draft = outcome.note_draft
+
+    @staticmethod
+    def _record_memory_result(
+        result: DispatchResult,
+        action: PlanAction,
+        outcome: AgentResult,
+    ) -> None:
+        result.memory_candidates.extend(outcome.memory_candidates)
+        if action.tool is not ToolName.PROMOTE_MEMORY:
+            return
+        if result.memory_write is not None:
+            raise PolicyViolation("multiple memory promotions in one turn")
+        candidate_ids = action.args["candidateIds"]
+        if not isinstance(candidate_ids, list):
+            raise PolicyViolation("memory promotion result is invalid")
+        result.memory_write = {"candidateIds": list(candidate_ids)}
+
+    def _agent_stream(
+        self,
+        action: PlanAction,
+        context: AgentContext,
+        deadline: TurnDeadline,
+    ) -> AgentTextStream:
+        if action.tool is ToolName.EXPLAIN_PAGE:
+            return self._explainer.stream(
+                context,
+                DetailLevel(str(action.args["detailLevel"])),
+                timeout_seconds=deadline.remaining_seconds(),
+            )
+        mode = QaThreadMode(str(action.args["qaThreadMode"]))
+        thread_ref = None if mode is QaThreadMode.START_NEW else context.qa_thread_ref()
+        if mode is QaThreadMode.FOLLOW_UP and thread_ref is None:
+            raise PolicyViolation("FOLLOW_UP requires qaThreadDigest threadRef")
+        return self._qa.stream(
+            context,
+            mode,
+            thread_ref,
+            timeout_seconds=deadline.remaining_seconds(),
         )

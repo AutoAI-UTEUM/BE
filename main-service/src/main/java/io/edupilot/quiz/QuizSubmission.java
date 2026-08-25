@@ -8,6 +8,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import io.edupilot.session.UiAction;
 import io.edupilot.user.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -113,8 +114,32 @@ public class QuizSubmission {
 		return quiz.getId();
 	}
 
+	Quiz getQuiz() {
+		return quiz;
+	}
+
+	public int getQuizPageNumber() {
+		return quiz.getPageNumber();
+	}
+
+	public Long getSessionId() {
+		return quiz.getSessionId();
+	}
+
+	public Long getSessionPendingDiagnosisId() {
+		return quiz.getSessionPendingDiagnosisId();
+	}
+
+	public List<UiAction> getSessionUiActions() {
+		return quiz.getSessionUiActions();
+	}
+
 	public Long getUserId() {
 		return user.getId();
+	}
+
+	public int getAttemptNo() {
+		return attemptNo;
 	}
 
 	public QuizType getQuizType() {
@@ -135,6 +160,14 @@ public class QuizSubmission {
 
 	public GradingResult getGradingResult() {
 		return gradingResult;
+	}
+
+	List<SubmittedAnswer> getSubmittedAnswers() {
+		return List.copyOf(submittedAnswerData.answers());
+	}
+
+	List<PrivateQuizQuestion> getPrivateQuestions() {
+		return quiz.getPrivateQuestions();
 	}
 
 	public Instant getCreatedAt() {

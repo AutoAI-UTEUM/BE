@@ -9,6 +9,8 @@ import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -26,7 +28,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.mock.web.MockCookie;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -36,21 +40,28 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.global.security.TraceIdFilter;
+import io.edupilot.feedback.FeedbackRepository;
+import io.edupilot.global.error.BusinessException;
+import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.logging.AccessLogFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.note.NoteRepository;
+import io.edupilot.material.storage.FileStorage;
 import io.edupilot.quiz.QuizRepository;
 import io.edupilot.quiz.QuizSubmissionRepository;
 import io.edupilot.session.ChatMessageRepository;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
+import io.edupilot.user.UserRole;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@io.edupilot.Epic10ServiceMocks
 class AuthApiContractTest {
 
 	private static final String TRACE_ID = "auth-contract-trace";
@@ -92,17 +103,29 @@ class AuthApiContractTest {
 	private ChatMessageRepository chatMessageRepository;
 
 	@MockitoBean
+	private NoteRepository noteRepository;
+
+	@MockitoBean
+	private FeedbackRepository feedbackRepository;
+
+	@MockitoBean
 	private QuizRepository quizRepository;
 
 	@MockitoBean
 	private QuizSubmissionRepository quizSubmissionRepository;
+
+	@MockitoBean
+	private FileStorage fileStorage;
+
+	@MockitoBean
+	private GoogleIdTokenVerifier googleIdTokenVerifier;
 
 	private MockMvc mockMvc;
 	private User user;
 
 	@BeforeEach
 	void setUp() {
-		reset(userRepository, refreshTokenRepository);
+		reset(userRepository, refreshTokenRepository, googleIdTokenVerifier);
 		mockMvc = MockMvcBuilders.webAppContextSetup(context)
 			.apply(springSecurity())
 			.addFilters(traceIdFilter, accessLogFilter)
@@ -116,17 +139,228 @@ class AuthApiContractTest {
 	}
 
 	@Test
+	void googleLoginIsPublicAndReturnsLoginEnvelopeWithRefreshCookie() throws Exception {
+		when(googleIdTokenVerifier.verify("google-id-token")).thenReturn(
+			new GoogleProfile("google-subject", "user@example.com", "홍길동")
+		);
+		when(userRepository.findByGoogleSub("google-subject"))
+			.thenReturn(Optional.of(user));
+
+		mockMvc.perform(post("/api/auth/google")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"idToken":"google-id-token"}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.accessToken").isString())
+			.andExpect(jsonPath("$.data.tokenType").value("Bearer"))
+			.andExpect(jsonPath("$.data.expiresIn").value(3600))
+			.andExpect(jsonPath("$.data.user.id").value(1))
+			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
+				"edupilot_refresh="
+			)))
+			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
+				"Path=/api/auth"
+			)))
+			.andExpect(content().string(not(containsString("google-id-token"))))
+			.andExpect(content().string(not(containsString("refreshToken"))));
+	}
+
+	@Test
+	void newGoogleProfileWithoutSignupDetailsReturnsSignupRequired() throws Exception {
+		when(googleIdTokenVerifier.verify("google-id-token")).thenReturn(
+			new GoogleProfile("new-subject", "new@example.com", "신규 사용자")
+		);
+		when(userRepository.findByGoogleSub("new-subject"))
+			.thenReturn(Optional.empty());
+		when(userRepository.findByEmail("new@example.com"))
+			.thenReturn(Optional.empty());
+
+		mockMvc.perform(post("/api/auth/google")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"idToken":"google-id-token"}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.error.code").value("SIGNUP_REQUIRED"))
+			.andExpect(jsonPath("$.error.message").value(
+				"추가 정보 입력이 필요합니다."
+			));
+	}
+
+	@Test
+	void invalidGoogleIdTokenReturnsTokenInvalidUnauthorized() throws Exception {
+		when(googleIdTokenVerifier.verify("invalid-id-token"))
+			.thenThrow(new BusinessException(ErrorCode.TOKEN_INVALID));
+
+		mockMvc.perform(post("/api/auth/google")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"idToken":"invalid-id-token"}
+					"""))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code").value("TOKEN_INVALID"))
+			.andExpect(content().string(not(containsString("invalid-id-token"))));
+	}
+
+	@Test
 	void signupValidatesEmailAndPasswordContract() throws Exception {
 		mockMvc.perform(post("/api/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
-					{"email":"bad-email","password":"short","name":"홍길동"}
+					{
+					  "email":"bad-email",
+					  "password":"short",
+					  "name":"홍길동",
+					  "role":"LEARNER"
+					}
 					"""))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"))
 			.andExpect(jsonPath("$.error.details[*].field").value(
 				org.hamcrest.Matchers.hasItems("email", "password")
 			));
+	}
+
+	@Test
+	void signupAcceptsPublicRolesAndRejectsMissingOrReservedRoles() throws Exception {
+		when(userRepository.existsByEmail(any())).thenReturn(false);
+		when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> {
+			User saved = invocation.getArgument(0);
+			ReflectionTestUtils.setField(saved, "id", 2L);
+			return saved;
+		});
+
+		mockMvc.perform(post("/api/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email":"instructor@example.com",
+					  "password":"password123",
+					  "name":"강사",
+					  "role":"INSTRUCTOR"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(2))
+			.andExpect(jsonPath("$.data.role").value("INSTRUCTOR"));
+
+		mockMvc.perform(post("/api/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email":"missing-role@example.com",
+					  "password":"password123",
+					  "name":"학습자"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"))
+			.andExpect(jsonPath("$.error.details[*].field").value(
+				org.hamcrest.Matchers.hasItem("role")
+			));
+
+		for (String role : java.util.List.of("USER", "ADMIN", "UNKNOWN")) {
+			mockMvc.perform(post("/api/auth/signup")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+						{
+						  "email":"invalid-role@example.com",
+						  "password":"password123",
+						  "name":"사용자",
+						  "role":"%s"
+						}
+						""".formatted(role)))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("MALFORMED_REQUEST"));
+		}
+	}
+
+	@Test
+	void signupAcceptsOptionalAccountFieldsAndReturnsExpandedUserContract() throws Exception {
+		when(userRepository.existsByEmail(any())).thenReturn(false);
+		when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> {
+			User saved = invocation.getArgument(0);
+			ReflectionTestUtils.setField(saved, "id", 4L);
+			return saved;
+		});
+
+		mockMvc.perform(post("/api/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email":"profile@example.com",
+					  "password":"password123",
+					  "name":"학습자",
+					  "role":"LEARNER",
+					  "affiliation":"EduPilot University",
+					  "learningEmailOptIn":true,
+					  "termsVersion":"2026-07-01",
+					  "privacyVersion":"2026-07-01"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(4))
+			.andExpect(jsonPath("$.data.affiliation").value("EduPilot University"))
+			.andExpect(jsonPath("$.data.avatarUrl").value(org.hamcrest.Matchers.nullValue()))
+			.andExpect(jsonPath("$.data.learningEmailOptIn").value(true));
+	}
+
+	@Test
+	void signupRejectsUnknownOrPartialConsentVersions() throws Exception {
+		when(userRepository.existsByEmail(any())).thenReturn(false);
+
+		for (String consentFields : java.util.List.of(
+			"\"termsVersion\":\"2026-08-01\",\"privacyVersion\":\"2026-08-01\"",
+			"\"termsVersion\":\"2026-07-01\""
+		)) {
+			mockMvc.perform(post("/api/auth/signup")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+						{
+						  "email":"consent@example.com",
+						  "password":"password123",
+						  "name":"학습자",
+						  "role":"LEARNER",
+						  %s
+						}
+						""".formatted(consentFields)))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+		}
+	}
+
+	@Test
+	void emailAvailabilityIsPublicAndUsesSignupValidationRules() throws Exception {
+		when(userRepository.existsByEmail("available@example.com")).thenReturn(false);
+		when(userRepository.existsByEmail("existing@example.com")).thenReturn(true);
+		when(userRepository.existsByEmail("withdrawn@example.com")).thenReturn(false);
+
+		mockMvc.perform(get("/api/auth/email-availability")
+				.param("email", "AVAILABLE@Example.COM"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.available").value(true));
+
+		mockMvc.perform(get("/api/auth/email-availability")
+				.param("email", "existing@example.com"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.available").value(false));
+
+		mockMvc.perform(get("/api/auth/email-availability")
+				.param("email", "withdrawn@example.com"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.available").value(true));
+
+		for (String invalidEmail : java.util.List.of("", "not-an-email")) {
+			mockMvc.perform(get("/api/auth/email-availability")
+					.param("email", invalidEmail))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+		}
+
+		mockMvc.perform(get("/api/auth/email-availability"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
 	}
 
 	@Test
@@ -143,6 +377,14 @@ class AuthApiContractTest {
 			.andExpect(jsonPath("$.data.tokenType").value("Bearer"))
 			.andExpect(jsonPath("$.data.expiresIn").value(3600))
 			.andExpect(jsonPath("$.data.user.id").value(1))
+			.andExpect(jsonPath("$.data.user.role").value("LEARNER"))
+			.andExpect(jsonPath("$.data.user.affiliation").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.user.avatarUrl").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.user.learningEmailOptIn").value(false))
 			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
 				"edupilot_refresh="
 			)))
@@ -254,7 +496,115 @@ class AuthApiContractTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.id").value(1))
 			.andExpect(jsonPath("$.data.email").value("user@example.com"))
-			.andExpect(jsonPath("$.data.role").value("USER"));
+			.andExpect(jsonPath("$.data.role").value("LEARNER"))
+			.andExpect(jsonPath("$.data.affiliation").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.avatarUrl").value(
+				org.hamcrest.Matchers.nullValue()
+			))
+			.andExpect(jsonPath("$.data.learningEmailOptIn").value(false));
+	}
+
+	@Test
+	void profileAndAvatarEndpointsUseExpandedAuthenticatedContract() throws Exception {
+		when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+		when(fileStorage.storeAvatar(any(), org.mockito.ArgumentMatchers.eq("png")))
+			.thenReturn("avatars/avatar.png");
+		String accessToken = jwtTokenProvider.createAccessToken(user);
+
+		mockMvc.perform(patch("/api/users/me")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"name":"새 이름","affiliation":"EduPilot University"}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.name").value("새 이름"))
+			.andExpect(jsonPath("$.data.affiliation").value("EduPilot University"));
+
+		MockMultipartFile avatar = new MockMultipartFile(
+			"file",
+			"avatar.png",
+			"image/png",
+			new byte[] {
+				(byte)0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+				0x00, 0x00, 0x00, 0x00
+			}
+		);
+		mockMvc.perform(multipart("/api/users/me/avatar")
+				.file(avatar)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.avatarUrl").value("/api/users/me/avatar"));
+
+		when(fileStorage.load("avatars/avatar.png"))
+			.thenReturn(new ByteArrayResource(new byte[] {1, 2, 3}));
+		mockMvc.perform(get("/api/users/me/avatar")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+			.andExpect(status().isOk())
+			.andExpect(header().string(HttpHeaders.CONTENT_TYPE, "image/png"))
+			.andExpect(header().string(HttpHeaders.CACHE_CONTROL,
+				org.hamcrest.Matchers.containsString("no-store")));
+	}
+
+	@Test
+	void preferencesReturnDefaultsAndPatchSelectedValues() throws Exception {
+		when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+		String accessToken = jwtTokenProvider.createAccessToken(user);
+
+		mockMvc.perform(get("/api/users/me/preferences")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.newMaterialNotification").value(true))
+			.andExpect(jsonPath("$.data.studyReminder").value(true))
+			.andExpect(jsonPath("$.data.aiAnswerStyle").value("NORMAL"));
+
+		mockMvc.perform(patch("/api/users/me/preferences")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"studyReminder":false,"aiAnswerStyle":"DETAILED"}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.newMaterialNotification").value(true))
+			.andExpect(jsonPath("$.data.studyReminder").value(false))
+			.andExpect(jsonPath("$.data.aiAnswerStyle").value("DETAILED"));
+	}
+
+	@Test
+	void loginAndMePreserveInstructorRole() throws Exception {
+		User instructor = User.create(
+			"instructor@example.com",
+			passwordEncoder.encode("password123"),
+			"강사",
+			UserRole.INSTRUCTOR
+		);
+		ReflectionTestUtils.setField(instructor, "id", 3L);
+		when(userRepository.findByEmail("instructor@example.com"))
+			.thenReturn(Optional.of(instructor));
+		when(userRepository.findById(3L)).thenReturn(Optional.of(instructor));
+
+		var loginResult = mockMvc.perform(post("/api/auth/login")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"email":"instructor@example.com","password":"password123"}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.user.role").value("INSTRUCTOR"))
+			.andReturn();
+
+		String responseBody = loginResult.getResponse().getContentAsString();
+		String accessToken = new com.fasterxml.jackson.databind.ObjectMapper()
+			.readTree(responseBody)
+			.path("data")
+			.path("accessToken")
+			.asText();
+
+		mockMvc.perform(get("/api/users/me")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.role").value("INSTRUCTOR"));
 	}
 
 	@Test

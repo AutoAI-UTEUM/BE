@@ -1,7 +1,7 @@
 # EduPilot 배포·롤백 운영 가이드
 
-이 문서는 이슈 #45 범위의 Main Service, MySQL, Nginx 구성과 dev 배포 절차를
-설명합니다. AI Service 컨테이너와 Frontend 빌드·배포는 후속 작업입니다.
+이 문서는 이슈 #45와 후속 이슈 #88 범위의 Main Service, AI Service, MySQL, Nginx
+구성과 dev 배포 절차를 설명합니다. Frontend 빌드·배포는 후속 작업입니다.
 
 ## 1. 요구 사항
 
@@ -85,7 +85,7 @@ marker만 생성하지 말고 애플리케이션의 실제 업로드 API로 검�
 ```bash
 curl --fail --silent \
   -H 'Content-Type: application/json' \
-  -d '{"email":"storage-check@example.com","password":"password123","name":"Storage Check"}' \
+  -d '{"email":"storage-check@example.com","password":"password123","name":"Storage Check","role":"LEARNER"}' \
   http://localhost:8080/api/auth/signup
 
 ACCESS_TOKEN="$(
@@ -141,14 +141,18 @@ curl --fail http://localhost:8080/api/health
 
 `curl --version`과 health 상태 `healthy`, 외부 health 응답 200을 모두 확인해야 합니다.
 
-AI Service는 후속 이미지 계약 전까지 비활성 profile입니다. 외부 포트가 생기지
-않았는지 다음 명령으로 확인합니다.
+AI Service는 Python 3.14·uv 기반 멀티스테이지 이미지로 빌드하며, 런타임
+healthcheck는 `curl` 대신 Python `urllib.request`로 `/health`를 확인합니다. 로컬에서는
+`ai` profile을 명시할 때만 기동하고 외부 포트는 공개하지 않습니다.
 
 ```bash
+docker build --tag edupilot-ai-service:local ai-service
 docker compose --env-file .env --profile ai config
 ```
 
-출력의 `ai-service`에는 `ports`가 없어야 합니다.
+출력의 `ai-service`에는 build와 healthcheck가 있고 `ports`는 없어야 합니다. 운영
+오버레이를 병합하면 profile 게이트와 build가 제거되고
+`ghcr.io/autoai-uteum/ai-service:${TAG}` 이미지를 사용해야 합니다.
 
 ## 5. 최초 1회 dev 서버 준비
 
@@ -180,6 +184,7 @@ chmod 600 /opt/edupilot/.env
 - `EDUPILOT_CORS_ALLOWED_ORIGINS=https://YOUR_DEV_DOMAIN`
 - `EDUPILOT_JWT_SECRET`
 - `EDUPILOT_INTERNAL_TOKEN`
+- `XAI_API_KEY`
 - `EDUPILOT_AI_BASE_URL`
 - `EDUPILOT_DOMAIN`
 - `EDUPILOT_STORAGE_DIR=/var/lib/edupilot/storage`
@@ -240,9 +245,10 @@ GitHub `dev` Environment와 다음 Secrets를 등록합니다.
 
 1. 대상 `develop` SHA를 확인합니다.
 2. Actions의 `Deploy dev`를 수동 실행합니다.
-3. 이미지에 SHA와 `latest` 태그가 push됐는지 확인합니다.
+3. Main Service와 AI Service 이미지에 SHA와 `latest` 태그가 push됐는지 확인합니다.
 4. SCP, Compose pull/up, smoke test가 순서대로 성공했는지 확인합니다.
 5. `https://DEV_DOMAIN/api/health`가 200인지 다시 확인합니다.
+6. `https://DEV_DOMAIN/api/health/ready` 응답의 `aiService`가 `UP`인지 확인합니다.
 
 워크플로는 Compose와 Nginx 설정만 전달하며 서버의 `.env`를 덮어쓰지 않습니다.
 
@@ -255,9 +261,9 @@ GitHub `dev` Environment와 다음 Secrets를 등록합니다.
 cd /opt/edupilot
 PREVIOUS_TAG=previous-git-sha
 
-TAG="$PREVIOUS_TAG" docker compose --env-file .env \
+ENVIRONMENT=dev TAG="$PREVIOUS_TAG" docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.prod.yml pull main-service
-TAG="$PREVIOUS_TAG" docker compose --env-file .env \
+ENVIRONMENT=dev TAG="$PREVIOUS_TAG" docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.prod.yml up -d main-service nginx
 
 curl --fail "https://YOUR_DEV_DOMAIN/api/health"
@@ -280,18 +286,18 @@ curl --fail "https://YOUR_DEV_DOMAIN/api/health"
 현재 상태와 최근 로그를 확인합니다.
 
 ```bash
-TAG=current-git-sha docker compose --env-file .env \
+ENVIRONMENT=dev TAG=current-git-sha docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.prod.yml ps
-TAG=current-git-sha docker compose --env-file .env \
+ENVIRONMENT=dev TAG=current-git-sha docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.prod.yml logs --tail=200 main-service
-TAG=current-git-sha docker compose --env-file .env \
+ENVIRONMENT=dev TAG=current-git-sha docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.prod.yml logs --tail=200 mysql nginx
 ```
 
 DB 변경 배포 전에는 논리 백업을 생성합니다.
 
 ```bash
-TAG=current-git-sha docker compose --env-file .env \
+ENVIRONMENT=dev TAG=current-git-sha docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.prod.yml exec -T mysql \
   sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump -uroot \
     --single-transaction --all-databases' > "mysql-$(date +%Y%m%d-%H%M%S).sql"
@@ -308,12 +314,18 @@ docker run --rm \
   --volume edupilot-certbot-certs:/etc/letsencrypt \
   certbot/certbot renew --webroot --webroot-path /var/www/certbot
 
-TAG=current-git-sha docker compose --env-file .env \
+ENVIRONMENT=dev TAG=current-git-sha docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.prod.yml exec nginx nginx -s reload
 ```
 
 ## 9. 이번 작업 이후 수동 확인
 
+AI Service Docker 이미지와 Compose·Deploy dev 계약의 저장소 반영은 완료됐습니다.
+병합 후 실제 dev 환경에는 다음 확인이 남습니다.
+
+- 서버 `.env`에 실제 `XAI_API_KEY` 추가
+- develop 병합 후 Actions의 `Deploy dev` 실행
+- `https://edu-pilot.duckdns.org/api/health/ready`에서 전체 상태와 `aiService`가 `UP`인지 확인
 - EC2와 보안 그룹 생성
 - DNS 연결과 certbot 최초 발급
 - GitHub Secrets·Variables·dev Environment 등록

@@ -1,5 +1,6 @@
 """POST /internal/ai/turn orchestration contract."""
 
+import logging
 from copy import deepcopy
 
 import httpx
@@ -16,9 +17,11 @@ from edupilot_ai.models.plan import (
 )
 from edupilot_ai.models.turn import TurnRequest, TurnResponse
 from edupilot_ai.orchestration.agents import ExplainerAgent, QaAgent
-from edupilot_ai.orchestration.context import ContextBuilder
+from edupilot_ai.orchestration.context import ContextBuilder, PlanContext
 from edupilot_ai.orchestration.dispatcher import ToolDispatcher, merge_state_patch
 from edupilot_ai.orchestration.policy import PolicyVerifier, PolicyViolation
+from edupilot_ai.orchestration.prompts import plan_messages
+from edupilot_ai.orchestration.timing import TurnDeadline
 from edupilot_ai.settings import Settings
 from tests.fakes import FakeLlm
 
@@ -57,13 +60,11 @@ async def test_explain_current_page_turn(
         "eventType": "EXPLAIN_CURRENT_PAGE",
         "payload": {"detailLevel": "DETAILED"},
     }
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["learnerConfidence"] = "HIGH"
     fake_llm.queue(
-        make_plan(
-            ToolName.EXPLAIN_PAGE,
-            {"page": 3, "detailLevel": "DETAILED"},
-            "EXPLAIN_CURRENT_PAGE",
-        ),
-        AgentOutput(markdown="상세한 현재 페이지 설명", thought_summary="페이지 설명"),
+        AgentOutput(markdown="상세한 현재 페이지 설명"),
     )
 
     response = await post_turn(client, auth_headers, payload)
@@ -75,8 +76,79 @@ async def test_explain_current_page_turn(
     assert turn.state_patch == {"pageStatus": "EXPLAINED"}
     assert turn.actions_executed[0].agent == "ExplainerAgent"
     assert "adjustments" not in response.json()["actionsExecuted"][0]
-    assert len(fake_llm.calls) == 2
-    assert "learnerMemoryDigest" in fake_llm.calls[1][0][1]["content"]
+    assert response.json()["memoryWrite"] is None
+    assert len(fake_llm.calls) == 1
+    assert '"learnerConfidence": "HIGH"' in fake_llm.calls[0][0][1]["content"]
+    assert "learnerMemoryDigest" in fake_llm.calls[0][0][1]["content"]
+    assert "모든 학습자 대상 텍스트" in fake_llm.calls[0][0][0]["content"]
+
+
+async def test_explain_empty_page_returns_fixed_guidance_without_agent_llm(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "EXPLAIN_CURRENT_PAGE",
+        "payload": {"detailLevel": "NORMAL"},
+    }
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["currentPageText"] = ""
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["messages"][0]["content"] == (
+        "이 페이지에는 설명할 텍스트 내용이 없어요. 이미지나 도형 중심 페이지라면 "
+        "다음 페이지로 이동해 학습을 이어가 주세요."
+    )
+    assert body["statePatch"] == {"pageStatus": "EXPLAINED"}
+    assert fake_llm.calls == []
+    assert fake_llm.stream_calls == []
+
+
+def test_plan_prompt_declares_policy_value_contracts(
+    turn_payload: dict[str, object],
+) -> None:
+    agent_context = ContextBuilder().build(TurnRequest.model_validate(turn_payload))
+    context = PlanContext.from_agent_context(agent_context)
+
+    system_prompt = plan_messages(context, retry=False)[0]["content"]
+
+    assert "qaThreadMode must be exactly START_NEW or FOLLOW_UP" in system_prompt
+    assert "START_NEW requires threadRef=null" in system_prompt
+    assert "FOLLOW_UP requires the exact snapshot qaThreadDigest.threadRef" in system_prompt
+    assert "if qaThreadDigest is absent, choose START_NEW" in system_prompt
+    assert "quizType must equal the event payload value" in system_prompt
+    assert "PROMOTE_MEMORY={candidateIds}" in system_prompt
+    assert "memory.temporaryCandidates" in system_prompt
+    assert "never invent a new candidateId" in system_prompt
+    assert "confidence is at least 0.7" in system_prompt
+    assert "unique evidenceRefs total at least 2" in system_prompt
+    assert "one of MCQ, OX, SHORT, ESSAY" in system_prompt
+    assert "diagnosisId must equal snapshot pendingDiagnosis.diagnosisId" in system_prompt
+    assert "type must be one of STRENGTH, WEAKNESS, MISCONCEPTION, PREFERENCE" in (system_prompt)
+    assert "confidence must be a number from 0 to 1" in system_prompt
+
+
+def test_plan_prompt_forbids_ui_prompt_tools(
+    turn_payload: dict[str, object],
+) -> None:
+    agent_context = ContextBuilder().build(TurnRequest.model_validate(turn_payload))
+    context = PlanContext.from_agent_context(agent_context)
+
+    system_prompt = plan_messages(context, retry=False)[0]["content"]
+
+    assert "PROMPT_BINARY_DECISION" in system_prompt
+    assert "PROMPT_QUIZ_TYPE_SELECTION" in system_prompt
+    assert "must never appear in the Plan" in system_prompt
+    assert "EXPLAIN_CURRENT_PAGE->EXPLAIN_PAGE" in system_prompt
+    assert "USER_QUESTION->ANSWER_QUESTION" in system_prompt
+    assert "QUIZ_TYPE_SELECTED->GENERATE_QUIZ_{type}" in system_prompt
+    assert "DIAGNOSIS_ANSWER_SUBMITTED->REPAIR_MISCONCEPTION" in system_prompt
 
 
 @pytest.mark.parametrize(
@@ -98,10 +170,7 @@ async def test_explain_current_page_turn(
         ),
     ],
 )
-async def test_explain_policy_records_adjustment(
-    client: httpx.AsyncClient,
-    fake_llm: FakeLlm,
-    auth_headers: dict[str, str],
+def test_explain_policy_records_adjustment(
     turn_payload: dict[str, object],
     plan_args: dict[str, object],
     field: str,
@@ -114,15 +183,12 @@ async def test_explain_policy_records_adjustment(
         "eventType": "EXPLAIN_CURRENT_PAGE",
         "payload": {"detailLevel": "DETAILED"},
     }
-    fake_llm.queue(
-        make_plan(ToolName.EXPLAIN_PAGE, plan_args, "EXPLAIN_CURRENT_PAGE"),
-        AgentOutput(markdown="보정된 현재 페이지 설명", thought_summary="페이지 설명"),
-    )
+    context = ContextBuilder().build(TurnRequest.model_validate(payload))
+    plan = make_plan(ToolName.EXPLAIN_PAGE, plan_args, "EXPLAIN_CURRENT_PAGE")
 
-    response = await post_turn(client, auth_headers, payload)
+    _, adjustments = PolicyVerifier().verify(plan, context)
 
-    assert response.status_code == 200
-    assert response.json()["actionsExecuted"][0]["adjustments"] == [
+    assert [item.model_dump(by_alias=True) for item in adjustments] == [
         {
             "field": field,
             "from": from_value,
@@ -132,28 +198,137 @@ async def test_explain_policy_records_adjustment(
     ]
 
 
+def test_explain_policy_normalizes_page_number_alias(
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "EXPLAIN_CURRENT_PAGE",
+        "payload": {"detailLevel": "NORMAL"},
+    }
+    context = ContextBuilder().build(TurnRequest.model_validate(payload))
+    plan = make_plan(
+        ToolName.EXPLAIN_PAGE,
+        {"pageNumber": 1, "detailLevel": "NORMAL"},
+        "EXPLAIN_CURRENT_PAGE",
+    )
+
+    _, adjustments = PolicyVerifier().verify(plan, context)
+
+    assert [item.model_dump(by_alias=True) for item in adjustments] == [
+        {
+            "field": "page",
+            "from": 1,
+            "to": 3,
+            "reason": "PAGE_MISMATCH_CORRECTED",
+        }
+    ]
+
+
+def test_explain_policy_still_rejects_missing_required_key(
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "EXPLAIN_CURRENT_PAGE",
+        "payload": {"detailLevel": "NORMAL"},
+    }
+    context = ContextBuilder().build(TurnRequest.model_validate(payload))
+    plan = make_plan(
+        ToolName.EXPLAIN_PAGE,
+        {
+            "detailLevel": "NORMAL",
+            "content": "PRIVATE-STUDENT-ANSWER",
+        },
+        "EXPLAIN_CURRENT_PAGE",
+    )
+
+    with pytest.raises(PolicyViolation, match="tool args do not match policy"):
+        PolicyVerifier().verify(plan, context)
+
+
+async def test_policy_rejection_logs_reason_and_plan_actions(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    fake_llm.queue(
+        make_plan(
+            ToolName.ANSWER_QUESTION,
+            {"qaThreadMode": "START_NEW", "content": "PRIVATE-STUDENT-ANSWER"},
+            "ANSWER_USER_QUESTION",
+        )
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="edupilot_ai.orchestration.service",
+    ):
+        response = await post_turn(client, auth_headers, turn_payload)
+
+    assert response.status_code == 502
+    assert "tool args do not match policy" in caplog.text
+    assert "ANSWER_QUESTION" in caplog.text
+    assert "qaThreadMode" in caplog.text
+    assert "PRIVATE-STUDENT-ANSWER" not in caplog.text
+
+
 async def test_user_question_start_new(
     client: httpx.AsyncClient,
     fake_llm: FakeLlm,
     auth_headers: dict[str, str],
     turn_payload: dict[str, object],
 ) -> None:
+    payload = deepcopy(turn_payload)
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["learnerConfidence"] = "LOW"
     fake_llm.queue(
         make_plan(
             ToolName.ANSWER_QUESTION,
             {"qaThreadMode": "START_NEW", "threadRef": None},
             "ANSWER_USER_QUESTION",
         ),
-        AgentOutput(markdown="편차는 평균에서 떨어진 정도입니다.", thought_summary="근거 연결"),
+        AgentOutput(markdown="편차는 평균에서 떨어진 정도입니다."),
+    )
+
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 200
+    turn = TurnResponse.model_validate(response.json())
+    assert turn.messages[0].message_type == "QA"
+    assert turn.state_patch == {"qaThread": {"mode": "START_NEW"}}
+    assert len(fake_llm.calls) == 2
+    assert '"qaThreadDigest": null' in fake_llm.calls[1][0][1]["content"]
+    assert '"learnerConfidence": "LOW"' in fake_llm.calls[1][0][1]["content"]
+    assert "모든 학습자 대상 텍스트" in fake_llm.calls[1][0][0]["content"]
+
+
+@pytest.mark.parametrize("mode_alias", ["NEW", "new"])
+async def test_user_question_new_alias_strips_invented_thread_ref(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+    mode_alias: str,
+) -> None:
+    fake_llm.queue(
+        make_plan(
+            ToolName.ANSWER_QUESTION,
+            {"qaThreadMode": mode_alias, "threadRef": "qa-invented"},
+            "ANSWER_USER_QUESTION",
+        ),
+        AgentOutput(markdown="편차는 평균과의 차이입니다."),
     )
 
     response = await post_turn(client, auth_headers, turn_payload)
 
     assert response.status_code == 200
     turn = TurnResponse.model_validate(response.json())
-    assert turn.messages[0].message_type == "QA"
     assert turn.state_patch == {"qaThread": {"mode": "START_NEW"}}
-    assert '"qaThreadDigest": null' in fake_llm.calls[1][0][1]["content"]
+    assert len(fake_llm.calls) == 2
 
 
 async def test_user_question_follow_up_includes_thread_and_latest_repair(
@@ -173,7 +348,7 @@ async def test_user_question_follow_up_includes_thread_and_latest_repair(
             {"qaThreadMode": "FOLLOW_UP", "threadRef": "qa-7"},
             "ANSWER_FOLLOW_UP",
         ),
-        AgentOutput(markdown="앞선 설명과 연결하면...", thought_summary="후속 연결"),
+        AgentOutput(markdown="앞선 설명과 연결하면..."),
     )
 
     response = await post_turn(client, auth_headers, payload)
@@ -196,14 +371,6 @@ async def test_qa_insufficient_evidence_does_not_call_agent_llm(
     context = payload["context"]
     assert isinstance(context, dict)
     context["currentPageText"] = ""
-    fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "START_NEW", "threadRef": None},
-            "ANSWER_USER_QUESTION",
-        )
-    )
-
     response = await post_turn(client, auth_headers, payload)
 
     assert response.status_code == 200
@@ -211,7 +378,7 @@ async def test_qa_insufficient_evidence_does_not_call_agent_llm(
         "제공된 강의 자료만으로는 이 질문에 답하기 어렵습니다. "
         "현재 페이지와 관련된 질문으로 다시 물어봐 주세요."
     )
-    assert len(fake_llm.calls) == 1
+    assert fake_llm.calls == []
 
 
 async def test_pipeline_tool_is_rejected_by_policy(
@@ -220,8 +387,46 @@ async def test_pipeline_tool_is_rejected_by_policy(
     auth_headers: dict[str, str],
     turn_payload: dict[str, object],
 ) -> None:
+    fake_llm.queue(make_plan(ToolName.GRADE_OPEN_RESPONSE, {}, "INVALID_PIPELINE_TOOL"))
+
+    response = await post_turn(client, auth_headers, turn_payload)
+
+    assert response.status_code == 502
+    error = InternalErrorResponse.model_validate(response.json())
+    assert error.error.code == "AI_POLICY_REJECTED"
+    assert error.error.category == "POLICY"
+
+
+async def test_ui_prompt_tool_is_rejected_by_policy(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
     fake_llm.queue(
-        make_plan(ToolName.GRADE_OPEN_RESPONSE, {}, "INVALID_PIPELINE_TOOL")
+        TurnPlan(
+            turn_goal="ANSWER_USER_QUESTION",
+            pedagogy_policy=PedagogyPolicy(
+                mode="GROUND_FIRST",
+                reason="contract test",
+                allow_direct_answer=True,
+                hint_depth="MEDIUM",
+                intervention_budget=2,
+            ),
+            actions=[
+                PlanAction(
+                    action_id="action-1",
+                    tool=ToolName.ANSWER_QUESTION,
+                    args={"qaThreadMode": "START_NEW", "threadRef": None},
+                ),
+                PlanAction(
+                    action_id="action-2",
+                    tool=ToolName.PROMPT_BINARY_DECISION,
+                    args={},
+                ),
+            ],
+            reason="contract test plan",
+        )
     )
 
     response = await post_turn(client, auth_headers, turn_payload)
@@ -230,6 +435,7 @@ async def test_pipeline_tool_is_rejected_by_policy(
     error = InternalErrorResponse.model_validate(response.json())
     assert error.error.code == "AI_POLICY_REJECTED"
     assert error.error.category == "POLICY"
+    assert len(fake_llm.calls) == 1
 
 
 async def test_plan_schema_failure_regenerates_once(
@@ -245,7 +451,7 @@ async def test_plan_schema_failure_regenerates_once(
             {"qaThreadMode": "START_NEW", "threadRef": None},
             "ANSWER_USER_QUESTION",
         ),
-        AgentOutput(markdown="재생성 후 답변", thought_summary="재생성"),
+        AgentOutput(markdown="재생성 후 답변"),
     )
 
     response = await post_turn(client, auth_headers, turn_payload)
@@ -314,7 +520,7 @@ async def test_turn_aggregates_plan_and_agent_usage(
         LlmUsage("grok-4.5", 10, 4, 2),
     )
     fake_llm.queue_completion(
-        AgentOutput(markdown="usage answer", thought_summary="usage"),
+        AgentOutput(markdown="usage answer"),
         LlmUsage("grok-4.5", 5, 8, 3),
     )
 
@@ -347,6 +553,80 @@ async def test_follow_up_without_digest_is_rejected(
 
     assert response.status_code == 502
     assert response.json()["error"]["category"] == "POLICY"
+
+
+async def test_follow_up_forged_thread_ref_is_rejected(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["qaThreadDigest"] = {"threadRef": "qa-7", "summary": "편차 질문"}
+    fake_llm.queue(
+        make_plan(
+            ToolName.ANSWER_QUESTION,
+            {"qaThreadMode": "FOLLOW_UP", "threadRef": "qa-forged"},
+            "ANSWER_FOLLOW_UP",
+        )
+    )
+
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 502
+    assert response.json()["error"]["category"] == "POLICY"
+    assert len(fake_llm.calls) == 1
+
+
+@pytest.mark.parametrize("mode_alias", ["FOLLOWUP", "follow-up"])
+def test_policy_normalizes_follow_up_aliases(
+    turn_payload: dict[str, object],
+    mode_alias: str,
+) -> None:
+    payload = deepcopy(turn_payload)
+    context_payload = payload["context"]
+    assert isinstance(context_payload, dict)
+    context_payload["qaThreadDigest"] = {
+        "threadRef": "qa-7",
+        "summary": "편차 질문",
+    }
+    context = ContextBuilder().build(TurnRequest.model_validate(payload))
+    plan = make_plan(
+        ToolName.ANSWER_QUESTION,
+        {"qaThreadMode": mode_alias, "threadRef": "qa-7"},
+        "ANSWER_FOLLOW_UP",
+    )
+
+    corrected, adjustments = PolicyVerifier().verify(plan, context)
+
+    assert corrected.actions[0].args == {
+        "qaThreadMode": "FOLLOW_UP",
+        "threadRef": "qa-7",
+    }
+    assert adjustments == []
+
+
+async def test_unknown_qa_thread_mode_is_rejected(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    fake_llm.queue(
+        make_plan(
+            ToolName.ANSWER_QUESTION,
+            {"qaThreadMode": "CONTINUE", "threadRef": None},
+            "ANSWER_USER_QUESTION",
+        )
+    )
+
+    response = await post_turn(client, auth_headers, turn_payload)
+
+    assert response.status_code == 502
+    assert response.json()["error"]["category"] == "POLICY"
+    assert len(fake_llm.calls) == 1
 
 
 async def test_intervention_budget_violation_is_rejected(
@@ -422,49 +702,24 @@ async def test_event_payload_mismatch_returns_schema_envelope(
     assert response.json()["error"]["category"] == "SCHEMA"
 
 
-@pytest.mark.parametrize(
-    ("event", "tool", "args", "agent", "content"),
-    [
-        (
-            {"eventType": "QUIZ_TYPE_SELECTED", "payload": {"quizType": "MCQ"}},
-            ToolName.GENERATE_QUIZ_MCQ,
-            {"quizType": "MCQ"},
-            "QuizAgent",
-            "퀴즈 생성 기능은 준비 중입니다. (이슈 #31)",
-        ),
-        (
-            {
-                "eventType": "DIAGNOSIS_ANSWER_SUBMITTED",
-                "payload": {"diagnosisId": 30, "answer": "제 답입니다"},
-            },
-            ToolName.REPAIR_MISCONCEPTION,
-            {"diagnosisId": 30},
-            "RepairAgent",
-            "오개념 교정 기능은 준비 중입니다. (이슈 #38)",
-        ),
-    ],
-)
-async def test_deferred_turns_remain_stubs(
+@pytest.mark.parametrize("invalid_confidence", [0.7, "VERY_HIGH"])
+async def test_learner_confidence_rejects_float_and_unknown_enum(
     client: httpx.AsyncClient,
     fake_llm: FakeLlm,
     auth_headers: dict[str, str],
     turn_payload: dict[str, object],
-    event: dict[str, object],
-    tool: ToolName,
-    args: dict[str, object],
-    agent: str,
-    content: str,
+    invalid_confidence: object,
 ) -> None:
     payload = deepcopy(turn_payload)
-    payload["event"] = event
-    fake_llm.queue(make_plan(tool, args, "DEFERRED_AGENT_STUB"))
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["learnerConfidence"] = invalid_confidence
 
     response = await post_turn(client, auth_headers, payload)
 
-    assert response.status_code == 200
-    assert response.json()["actionsExecuted"][0]["agent"] == agent
-    assert response.json()["messages"][0]["content"] == content
-    assert len(fake_llm.calls) == 1
+    assert response.status_code == 422
+    assert response.json()["error"]["category"] == "SCHEMA"
+    assert fake_llm.calls == []
 
 
 async def test_dispatcher_marks_partial_failure(
@@ -493,7 +748,7 @@ async def test_dispatcher_marks_partial_failure(
     )
     PolicyVerifier().verify(plan, context)
     fake_llm.queue(
-        AgentOutput(markdown="first answer", thought_summary="first"),
+        AgentOutput(markdown="first answer"),
         LlmBridgeError(category=ErrorCategory.TIMEOUT, retryable=True),
     )
     dispatcher = ToolDispatcher(
@@ -502,7 +757,11 @@ async def test_dispatcher_marks_partial_failure(
         model=settings.model_name,
     )
 
-    result = await dispatcher.dispatch(plan, context)
+    result = await dispatcher.dispatch(
+        plan,
+        context,
+        TurnDeadline.start(180),
+    )
 
     assert [action.status for action in result.actions] == ["SUCCESS", "FAILED"]
     assert result.messages[0].content == "first answer"
@@ -512,6 +771,11 @@ async def test_dispatcher_marks_partial_failure(
 def test_state_patch_allowlist_rejects_unknown_key() -> None:
     with pytest.raises(PolicyViolation):
         merge_state_patch({}, {"sessionStatus": "COMPLETED"})
+
+
+def test_state_patch_allowlist_rejects_active_quiz_id() -> None:
+    with pytest.raises(PolicyViolation, match="statePatch key is not allowed"):
+        merge_state_patch({}, {"activeQuizId": 99})
 
 
 def test_state_patch_rejects_conflicting_values() -> None:

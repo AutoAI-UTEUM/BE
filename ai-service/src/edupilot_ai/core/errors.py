@@ -1,5 +1,6 @@
 """Standard internal API error contract."""
 
+import logging
 from enum import StrEnum
 from http import HTTPStatus
 from typing import Literal
@@ -10,6 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 SCHEMA_VERSION: Literal["1.0"] = "1.0"
+logger = logging.getLogger(__name__)
 
 
 class ErrorCategory(StrEnum):
@@ -99,6 +101,10 @@ async def validation_exception_handler(
     _exception: Exception,
 ) -> JSONResponse:
     """Map Pydantic/FastAPI request validation failures to category SCHEMA."""
+    logger.warning(
+        "internal API validation failed",
+        extra={"status": 422, "errorCode": "AI_REQUEST_INVALID"},
+    )
     return build_error_response(
         status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
         trace_id=request_trace_id(request),
@@ -114,6 +120,11 @@ async def unexpected_exception_handler(
     _exception: Exception,
 ) -> JSONResponse:
     """Return a stable envelope for unhandled failures."""
+    logger.error(
+        "internal API request failed unexpectedly",
+        extra={"status": 500, "errorCode": "AI_INTERNAL_ERROR"},
+        exc_info=_exception,
+    )
     return build_error_response(
         status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
         trace_id=request_trace_id(request),
@@ -131,6 +142,10 @@ async def internal_api_exception_handler(
     """Serialize an explicitly classified application error."""
     if not isinstance(exception, InternalApiError):
         raise TypeError
+    logger.warning(
+        "internal API request failed",
+        extra={"status": int(exception.status_code), "errorCode": exception.code},
+    )
     return build_error_response(
         status_code=exception.status_code,
         trace_id=request_trace_id(request),

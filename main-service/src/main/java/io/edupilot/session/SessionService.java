@@ -11,12 +11,13 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
-import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.material.LearningMaterial;
-import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.material.MaterialProcessingStatus;
+import io.edupilot.session.dto.ConversationStartResponse;
 import io.edupilot.session.dto.PageStateResponse;
 import io.edupilot.session.dto.SessionCreateResponse;
 import io.edupilot.session.dto.SessionDetailResponse;
@@ -30,34 +31,37 @@ public class SessionService {
 	static final Duration TURN_CLAIM_TTL = Duration.ofMinutes(5);
 
 	private final LearningSessionRepository sessionRepository;
-	private final LearningMaterialRepository materialRepository;
 	private final UserRepository userRepository;
 	private final StateReducer stateReducer;
 	private final Clock clock;
 	private final DiagnosisService diagnosisService;
+	private final MaterialAccessService materialAccessService;
+	private final UiActionResolver uiActionResolver;
 
 	public SessionService(
 		LearningSessionRepository sessionRepository,
-		LearningMaterialRepository materialRepository,
 		UserRepository userRepository,
 		StateReducer stateReducer,
 		Clock clock,
-		DiagnosisService diagnosisService
+		DiagnosisService diagnosisService,
+		MaterialAccessService materialAccessService,
+		UiActionResolver uiActionResolver
 	) {
 		this.sessionRepository = sessionRepository;
-		this.materialRepository = materialRepository;
 		this.userRepository = userRepository;
 		this.stateReducer = stateReducer;
 		this.clock = clock;
 		this.diagnosisService = diagnosisService;
+		this.materialAccessService = materialAccessService;
+		this.uiActionResolver = uiActionResolver;
 	}
 
 	@Transactional
 	public SessionCreateResponse create(Long userId, Long materialId) {
-		LearningMaterial material = materialRepository.findByIdForUpdate(materialId)
-			.filter(LearningMaterial::isActive)
-			.filter(candidate -> candidate.getOwnerId().equals(userId))
-			.orElseThrow(() -> new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
+		LearningMaterial material = materialAccessService.requireAccessibleForUpdate(
+			userId,
+			materialId
+		);
 		validateReady(material);
 
 		return sessionRepository.findByUser_IdAndMaterial_IdAndStatus(
@@ -122,10 +126,32 @@ public class SessionService {
 		if (session.getStatus() != SessionStatus.ACTIVE) {
 			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
 		}
+		materialAccessService.assertAccessible(userId, session.getMaterialId());
 		assertNoLiveTurn(session);
 		session.complete();
 		sessionRepository.flush();
 		return SessionDetailResponse.from(session);
+	}
+
+	@Transactional
+	public List<UiAction> declineQuizProposal(Long userId, Long sessionId) {
+		materialAccessService.assertSessionAccessible(userId, sessionId);
+		LearningSession session = ownedSessionForUpdate(userId, sessionId);
+		if (session.getStatus() == SessionStatus.DELETED) {
+			throw new BusinessException(ErrorCode.SESSION_NOT_FOUND);
+		}
+		if (session.getStatus() != SessionStatus.ACTIVE) {
+			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
+		}
+
+		List<UiAction> nextUiActions = uiActionResolver.nextLearning(
+			session.getCurrentPage(),
+			session.getMaterialPageCount()
+		);
+		if (session.declineQuizProposal(nextUiActions)) {
+			sessionRepository.flush();
+		}
+		return session.getLastUiActions();
 	}
 
 	@Transactional
@@ -148,6 +174,7 @@ public class SessionService {
 		if (session.getStatus() != SessionStatus.ACTIVE) {
 			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
 		}
+		materialAccessService.assertAccessible(userId, session.getMaterialId());
 		Integer pageCount = session.getMaterialPageCount();
 		if (pageNumber < 1 || pageCount == null || pageNumber > pageCount) {
 			throw new BusinessException(ErrorCode.PAGE_OUT_OF_RANGE);
@@ -167,6 +194,25 @@ public class SessionService {
 			sessionRepository.flush();
 		}
 		return PageStateResponse.from(session);
+	}
+
+	@Transactional
+	public ConversationStartResponse startNewConversation(
+		Long userId,
+		Long sessionId
+	) {
+		LearningSession session = ownedSessionForUpdate(userId, sessionId);
+		if (session.getStatus() == SessionStatus.DELETED) {
+			throw new BusinessException(ErrorCode.SESSION_NOT_FOUND);
+		}
+		if (session.getStatus() != SessionStatus.ACTIVE) {
+			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
+		}
+		Instant startedAt = clock.instant();
+		assertNoLiveTurn(session, startedAt);
+		int conversationNumber = session.startNewConversation(startedAt);
+		sessionRepository.flush();
+		return ConversationStartResponse.of(conversationNumber, startedAt);
 	}
 
 	private void validateReady(LearningMaterial material) {
@@ -190,7 +236,11 @@ public class SessionService {
 	}
 
 	private void assertNoLiveTurn(LearningSession session) {
-		Instant staleBefore = clock.instant().minus(TURN_CLAIM_TTL);
+		assertNoLiveTurn(session, clock.instant());
+	}
+
+	private void assertNoLiveTurn(LearningSession session, Instant now) {
+		Instant staleBefore = now.minus(TURN_CLAIM_TTL);
 		if (session.hasLiveTurn(staleBefore)) {
 			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
 		}

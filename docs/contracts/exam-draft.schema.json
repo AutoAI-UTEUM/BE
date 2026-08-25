@@ -1,0 +1,822 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EduPilot Exam Draft Contracts",
+  "schemas": {
+    "ExamDraftRequest": {
+      "$defs": {
+        "ExamPageContext": {
+          "additionalProperties": false,
+          "properties": {
+            "pageNumber": {
+              "exclusiveMinimum": 0,
+              "title": "Pagenumber",
+              "type": "integer"
+            },
+            "text": {
+              "minLength": 1,
+              "title": "Text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pageNumber",
+            "text"
+          ],
+          "title": "ExamPageContext",
+          "type": "object"
+        },
+        "ExamQuestionPlanItem": {
+          "additionalProperties": false,
+          "properties": {
+            "questionType": {
+              "$ref": "#/$defs/QuizType"
+            },
+            "count": {
+              "minimum": 1,
+              "title": "Count",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "questionType",
+            "count"
+          ],
+          "title": "ExamQuestionPlanItem",
+          "type": "object"
+        },
+        "QuizType": {
+          "enum": [
+            "MCQ",
+            "OX",
+            "SHORT",
+            "ESSAY"
+          ],
+          "title": "QuizType",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "1.0",
+          "title": "Schemaversion",
+          "type": "string"
+        },
+        "examId": {
+          "exclusiveMinimum": 0,
+          "title": "Examid",
+          "type": "integer"
+        },
+        "pageContexts": {
+          "items": {
+            "$ref": "#/$defs/ExamPageContext"
+          },
+          "maxItems": 30,
+          "minItems": 1,
+          "title": "Pagecontexts",
+          "type": "array"
+        },
+        "questionPlan": {
+          "items": {
+            "$ref": "#/$defs/ExamQuestionPlanItem"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "title": "Questionplan",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "examId",
+        "pageContexts",
+        "questionPlan"
+      ],
+      "title": "ExamDraftRequest",
+      "type": "object"
+    },
+    "ExamDraftOutput": {
+      "$defs": {
+        "DraftEssayQuestion": {
+          "additionalProperties": false,
+          "properties": {
+            "questionId": {
+              "minLength": 1,
+              "title": "Questionid",
+              "type": "string"
+            },
+            "questionText": {
+              "minLength": 1,
+              "title": "Questiontext",
+              "type": "string"
+            },
+            "points": {
+              "exclusiveMinimum": 0,
+              "title": "Points",
+              "type": "number"
+            },
+            "modelAnswer": {
+              "minLength": 1,
+              "title": "Modelanswer",
+              "type": "string"
+            },
+            "rubric": {
+              "items": {
+                "$ref": "#/$defs/RubricCriterion"
+              },
+              "minItems": 1,
+              "title": "Rubric",
+              "type": "array"
+            },
+            "questionType": {
+              "const": "ESSAY",
+              "default": "ESSAY",
+              "title": "Questiontype",
+              "type": "string"
+            },
+            "sourcePageNumber": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Sourcepagenumber"
+            }
+          },
+          "required": [
+            "questionId",
+            "questionText",
+            "points",
+            "modelAnswer",
+            "rubric"
+          ],
+          "title": "DraftEssayQuestion",
+          "type": "object"
+        },
+        "DraftMcqQuestion": {
+          "additionalProperties": false,
+          "properties": {
+            "questionId": {
+              "minLength": 1,
+              "title": "Questionid",
+              "type": "string"
+            },
+            "questionText": {
+              "minLength": 1,
+              "title": "Questiontext",
+              "type": "string"
+            },
+            "points": {
+              "exclusiveMinimum": 0,
+              "title": "Points",
+              "type": "number"
+            },
+            "choices": {
+              "items": {
+                "$ref": "#/$defs/QuizChoice"
+              },
+              "minItems": 2,
+              "title": "Choices",
+              "type": "array"
+            },
+            "answerChoiceId": {
+              "minLength": 1,
+              "title": "Answerchoiceid",
+              "type": "string"
+            },
+            "explanation": {
+              "minLength": 1,
+              "title": "Explanation",
+              "type": "string"
+            },
+            "questionType": {
+              "const": "MCQ",
+              "default": "MCQ",
+              "title": "Questiontype",
+              "type": "string"
+            },
+            "sourcePageNumber": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Sourcepagenumber"
+            }
+          },
+          "required": [
+            "questionId",
+            "questionText",
+            "points",
+            "choices",
+            "answerChoiceId",
+            "explanation"
+          ],
+          "title": "DraftMcqQuestion",
+          "type": "object"
+        },
+        "DraftOxQuestion": {
+          "additionalProperties": false,
+          "properties": {
+            "questionId": {
+              "minLength": 1,
+              "title": "Questionid",
+              "type": "string"
+            },
+            "questionText": {
+              "minLength": 1,
+              "title": "Questiontext",
+              "type": "string"
+            },
+            "points": {
+              "exclusiveMinimum": 0,
+              "title": "Points",
+              "type": "number"
+            },
+            "answerValue": {
+              "title": "Answervalue",
+              "type": "boolean"
+            },
+            "explanation": {
+              "minLength": 1,
+              "title": "Explanation",
+              "type": "string"
+            },
+            "questionType": {
+              "const": "OX",
+              "default": "OX",
+              "title": "Questiontype",
+              "type": "string"
+            },
+            "sourcePageNumber": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Sourcepagenumber"
+            }
+          },
+          "required": [
+            "questionId",
+            "questionText",
+            "points",
+            "answerValue",
+            "explanation"
+          ],
+          "title": "DraftOxQuestion",
+          "type": "object"
+        },
+        "DraftShortQuestion": {
+          "additionalProperties": false,
+          "properties": {
+            "questionId": {
+              "minLength": 1,
+              "title": "Questionid",
+              "type": "string"
+            },
+            "questionText": {
+              "minLength": 1,
+              "title": "Questiontext",
+              "type": "string"
+            },
+            "points": {
+              "exclusiveMinimum": 0,
+              "title": "Points",
+              "type": "number"
+            },
+            "referenceAnswer": {
+              "minLength": 1,
+              "title": "Referenceanswer",
+              "type": "string"
+            },
+            "gradingCriteria": {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "title": "Gradingcriteria",
+              "type": "array"
+            },
+            "questionType": {
+              "const": "SHORT",
+              "default": "SHORT",
+              "title": "Questiontype",
+              "type": "string"
+            },
+            "sourcePageNumber": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Sourcepagenumber"
+            }
+          },
+          "required": [
+            "questionId",
+            "questionText",
+            "points",
+            "referenceAnswer",
+            "gradingCriteria"
+          ],
+          "title": "DraftShortQuestion",
+          "type": "object"
+        },
+        "QuizChoice": {
+          "additionalProperties": false,
+          "description": "Public MCQ choice.",
+          "properties": {
+            "choiceId": {
+              "minLength": 1,
+              "title": "Choiceid",
+              "type": "string"
+            },
+            "text": {
+              "minLength": 1,
+              "title": "Text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "choiceId",
+            "text"
+          ],
+          "title": "QuizChoice",
+          "type": "object"
+        },
+        "RubricCriterion": {
+          "additionalProperties": false,
+          "description": "Private grading rubric retained only for Spring persistence.",
+          "properties": {
+            "criterion": {
+              "minLength": 1,
+              "title": "Criterion",
+              "type": "string"
+            },
+            "weight": {
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "title": "Weight",
+              "type": "number"
+            }
+          },
+          "required": [
+            "criterion",
+            "weight"
+          ],
+          "title": "RubricCriterion",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "questions": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "ESSAY": "#/$defs/DraftEssayQuestion",
+                "MCQ": "#/$defs/DraftMcqQuestion",
+                "OX": "#/$defs/DraftOxQuestion",
+                "SHORT": "#/$defs/DraftShortQuestion"
+              },
+              "propertyName": "questionType"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/DraftMcqQuestion"
+              },
+              {
+                "$ref": "#/$defs/DraftOxQuestion"
+              },
+              {
+                "$ref": "#/$defs/DraftShortQuestion"
+              },
+              {
+                "$ref": "#/$defs/DraftEssayQuestion"
+              }
+            ]
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Questions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "questions"
+      ],
+      "title": "ExamDraftOutput",
+      "type": "object"
+    },
+    "ExamDraftResponse": {
+      "$defs": {
+        "DraftEssayQuestion": {
+          "additionalProperties": false,
+          "properties": {
+            "questionId": {
+              "minLength": 1,
+              "title": "Questionid",
+              "type": "string"
+            },
+            "questionText": {
+              "minLength": 1,
+              "title": "Questiontext",
+              "type": "string"
+            },
+            "points": {
+              "exclusiveMinimum": 0,
+              "title": "Points",
+              "type": "number"
+            },
+            "modelAnswer": {
+              "minLength": 1,
+              "title": "Modelanswer",
+              "type": "string"
+            },
+            "rubric": {
+              "items": {
+                "$ref": "#/$defs/RubricCriterion"
+              },
+              "minItems": 1,
+              "title": "Rubric",
+              "type": "array"
+            },
+            "questionType": {
+              "const": "ESSAY",
+              "default": "ESSAY",
+              "title": "Questiontype",
+              "type": "string"
+            },
+            "sourcePageNumber": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Sourcepagenumber"
+            }
+          },
+          "required": [
+            "questionId",
+            "questionText",
+            "points",
+            "modelAnswer",
+            "rubric"
+          ],
+          "title": "DraftEssayQuestion",
+          "type": "object"
+        },
+        "DraftMcqQuestion": {
+          "additionalProperties": false,
+          "properties": {
+            "questionId": {
+              "minLength": 1,
+              "title": "Questionid",
+              "type": "string"
+            },
+            "questionText": {
+              "minLength": 1,
+              "title": "Questiontext",
+              "type": "string"
+            },
+            "points": {
+              "exclusiveMinimum": 0,
+              "title": "Points",
+              "type": "number"
+            },
+            "choices": {
+              "items": {
+                "$ref": "#/$defs/QuizChoice"
+              },
+              "minItems": 2,
+              "title": "Choices",
+              "type": "array"
+            },
+            "answerChoiceId": {
+              "minLength": 1,
+              "title": "Answerchoiceid",
+              "type": "string"
+            },
+            "explanation": {
+              "minLength": 1,
+              "title": "Explanation",
+              "type": "string"
+            },
+            "questionType": {
+              "const": "MCQ",
+              "default": "MCQ",
+              "title": "Questiontype",
+              "type": "string"
+            },
+            "sourcePageNumber": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Sourcepagenumber"
+            }
+          },
+          "required": [
+            "questionId",
+            "questionText",
+            "points",
+            "choices",
+            "answerChoiceId",
+            "explanation"
+          ],
+          "title": "DraftMcqQuestion",
+          "type": "object"
+        },
+        "DraftOxQuestion": {
+          "additionalProperties": false,
+          "properties": {
+            "questionId": {
+              "minLength": 1,
+              "title": "Questionid",
+              "type": "string"
+            },
+            "questionText": {
+              "minLength": 1,
+              "title": "Questiontext",
+              "type": "string"
+            },
+            "points": {
+              "exclusiveMinimum": 0,
+              "title": "Points",
+              "type": "number"
+            },
+            "answerValue": {
+              "title": "Answervalue",
+              "type": "boolean"
+            },
+            "explanation": {
+              "minLength": 1,
+              "title": "Explanation",
+              "type": "string"
+            },
+            "questionType": {
+              "const": "OX",
+              "default": "OX",
+              "title": "Questiontype",
+              "type": "string"
+            },
+            "sourcePageNumber": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Sourcepagenumber"
+            }
+          },
+          "required": [
+            "questionId",
+            "questionText",
+            "points",
+            "answerValue",
+            "explanation"
+          ],
+          "title": "DraftOxQuestion",
+          "type": "object"
+        },
+        "DraftShortQuestion": {
+          "additionalProperties": false,
+          "properties": {
+            "questionId": {
+              "minLength": 1,
+              "title": "Questionid",
+              "type": "string"
+            },
+            "questionText": {
+              "minLength": 1,
+              "title": "Questiontext",
+              "type": "string"
+            },
+            "points": {
+              "exclusiveMinimum": 0,
+              "title": "Points",
+              "type": "number"
+            },
+            "referenceAnswer": {
+              "minLength": 1,
+              "title": "Referenceanswer",
+              "type": "string"
+            },
+            "gradingCriteria": {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "title": "Gradingcriteria",
+              "type": "array"
+            },
+            "questionType": {
+              "const": "SHORT",
+              "default": "SHORT",
+              "title": "Questiontype",
+              "type": "string"
+            },
+            "sourcePageNumber": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Sourcepagenumber"
+            }
+          },
+          "required": [
+            "questionId",
+            "questionText",
+            "points",
+            "referenceAnswer",
+            "gradingCriteria"
+          ],
+          "title": "DraftShortQuestion",
+          "type": "object"
+        },
+        "QuizChoice": {
+          "additionalProperties": false,
+          "description": "Public MCQ choice.",
+          "properties": {
+            "choiceId": {
+              "minLength": 1,
+              "title": "Choiceid",
+              "type": "string"
+            },
+            "text": {
+              "minLength": 1,
+              "title": "Text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "choiceId",
+            "text"
+          ],
+          "title": "QuizChoice",
+          "type": "object"
+        },
+        "RubricCriterion": {
+          "additionalProperties": false,
+          "description": "Private grading rubric retained only for Spring persistence.",
+          "properties": {
+            "criterion": {
+              "minLength": 1,
+              "title": "Criterion",
+              "type": "string"
+            },
+            "weight": {
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "title": "Weight",
+              "type": "number"
+            }
+          },
+          "required": [
+            "criterion",
+            "weight"
+          ],
+          "title": "RubricCriterion",
+          "type": "object"
+        },
+        "Usage": {
+          "additionalProperties": false,
+          "properties": {
+            "model": {
+              "title": "Model",
+              "type": "string"
+            },
+            "inputTokens": {
+              "minimum": 0,
+              "title": "Inputtokens",
+              "type": "integer"
+            },
+            "outputTokens": {
+              "minimum": 0,
+              "title": "Outputtokens",
+              "type": "integer"
+            },
+            "reasoningTokens": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Reasoningtokens"
+            }
+          },
+          "required": [
+            "model",
+            "inputTokens",
+            "outputTokens"
+          ],
+          "title": "Usage",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "questions": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "ESSAY": "#/$defs/DraftEssayQuestion",
+                "MCQ": "#/$defs/DraftMcqQuestion",
+                "OX": "#/$defs/DraftOxQuestion",
+                "SHORT": "#/$defs/DraftShortQuestion"
+              },
+              "propertyName": "questionType"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/DraftMcqQuestion"
+              },
+              {
+                "$ref": "#/$defs/DraftOxQuestion"
+              },
+              {
+                "$ref": "#/$defs/DraftShortQuestion"
+              },
+              {
+                "$ref": "#/$defs/DraftEssayQuestion"
+              }
+            ]
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Questions",
+          "type": "array"
+        },
+        "schemaVersion": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schemaversion",
+          "type": "string"
+        },
+        "examId": {
+          "exclusiveMinimum": 0,
+          "title": "Examid",
+          "type": "integer"
+        },
+        "usage": {
+          "$ref": "#/$defs/Usage"
+        }
+      },
+      "required": [
+        "questions",
+        "examId",
+        "usage"
+      ],
+      "title": "ExamDraftResponse",
+      "type": "object"
+    }
+  }
+}

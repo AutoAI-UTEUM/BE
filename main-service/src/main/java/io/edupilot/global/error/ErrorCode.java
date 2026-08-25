@@ -19,10 +19,70 @@ public enum ErrorCode {
 	TOKEN_INVALID("TOKEN_INVALID", HttpStatus.UNAUTHORIZED, "유효하지 않은 인증 토큰입니다."),
 	TOKEN_EXPIRED("TOKEN_EXPIRED", HttpStatus.UNAUTHORIZED, "인증 토큰이 만료되었습니다."),
 	ACCESS_DENIED("ACCESS_DENIED", HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
+	CLASSROOM_NOT_FOUND(
+		"CLASSROOM_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"강의실을 찾을 수 없습니다."
+	),
+	INVALID_INVITE_CODE(
+		"INVALID_INVITE_CODE",
+		HttpStatus.NOT_FOUND,
+		"유효하지 않은 초대 코드입니다."
+	),
+	ALREADY_CLASSROOM_MEMBER(
+		"ALREADY_CLASSROOM_MEMBER",
+		HttpStatus.CONFLICT,
+		"이미 강의실에 참여하고 있습니다."
+	),
+	JOIN_REQUEST_ALREADY_PENDING(
+		"JOIN_REQUEST_ALREADY_PENDING",
+		HttpStatus.CONFLICT,
+		"이미 대기 중인 참여 요청이 있습니다."
+	),
+	JOIN_REQUEST_ALREADY_PROCESSED(
+		"JOIN_REQUEST_ALREADY_PROCESSED",
+		HttpStatus.CONFLICT,
+		"이미 처리된 참여 요청입니다."
+	),
+	CLASSROOM_COMPLETED(
+		"CLASSROOM_COMPLETED",
+		HttpStatus.CONFLICT,
+		"완료된 강의실에서는 이 작업을 수행할 수 없습니다."
+	),
+	WEEK_NOT_FOUND(
+		"WEEK_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"강의실 주차를 찾을 수 없습니다."
+	),
+	WEEK_ALREADY_EXISTS(
+		"WEEK_ALREADY_EXISTS",
+		HttpStatus.CONFLICT,
+		"같은 번호의 강의실 주차가 이미 존재합니다."
+	),
+	MATERIAL_ALREADY_LINKED(
+		"MATERIAL_ALREADY_LINKED",
+		HttpStatus.CONFLICT,
+		"자료가 이미 해당 주차에 연결되어 있습니다."
+	),
+	MATERIAL_LINKED_TO_CLASSROOM(
+		"MATERIAL_LINKED_TO_CLASSROOM",
+		HttpStatus.CONFLICT,
+		"강의실에 연결된 자료는 삭제할 수 없습니다."
+	),
+	CLASSROOM_WEEK_RANGE_CONFLICT(
+		"CLASSROOM_WEEK_RANGE_CONFLICT",
+		HttpStatus.CONFLICT,
+		"기존 주차가 변경할 강의실 기간을 벗어납니다."
+	),
 	EMAIL_ALREADY_EXISTS(
 		"EMAIL_ALREADY_EXISTS",
 		HttpStatus.CONFLICT,
 		"이미 사용 중인 이메일입니다."
+	),
+	SIGNUP_REQUIRED(
+		"SIGNUP_REQUIRED",
+		HttpStatus.CONFLICT,
+		"추가 정보 입력이 필요합니다."
 	),
 	INVALID_CREDENTIALS(
 		"INVALID_CREDENTIALS",
@@ -81,6 +141,16 @@ public enum ErrorCode {
 		HttpStatus.CONFLICT,
 		"현재 세션 상태에서 요청을 처리할 수 없습니다."
 	),
+	NOTE_NOT_FOUND(
+		"NOTE_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"노트를 찾을 수 없습니다."
+	),
+	SCHEDULE_NOT_FOUND(
+		"SCHEDULE_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"일정을 찾을 수 없습니다."
+	),
 	UNSUPPORTED_EVENT_TYPE(
 		"UNSUPPORTED_EVENT_TYPE",
 		HttpStatus.BAD_REQUEST,
@@ -95,6 +165,11 @@ public enum ErrorCode {
 		"TURN_IN_PROGRESS",
 		HttpStatus.CONFLICT,
 		"다른 학습 턴을 처리하고 있습니다."
+	),
+	TURN_CANCELLED(
+		"TURN_CANCELLED",
+		HttpStatus.CONFLICT,
+		"학습 턴이 취소되었습니다."
 	),
 	QUIZ_NOT_FOUND(
 		"QUIZ_NOT_FOUND",
@@ -121,6 +196,31 @@ public enum ErrorCode {
 		HttpStatus.CONFLICT,
 		"현재 제출할 수 없는 퀴즈입니다."
 	),
+	EXAM_NOT_FOUND(
+		"EXAM_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"시험을 찾을 수 없습니다."
+	),
+	EXAM_NOT_PUBLISHED(
+		"EXAM_NOT_PUBLISHED",
+		HttpStatus.CONFLICT,
+		"공개된 시험이 아닙니다."
+	),
+	EXAM_NOT_EDITABLE(
+		"EXAM_NOT_EDITABLE",
+		HttpStatus.CONFLICT,
+		"수정 가능한 시험이 아닙니다."
+	),
+	EXAM_ALREADY_SUBMITTED(
+		"EXAM_ALREADY_SUBMITTED",
+		HttpStatus.CONFLICT,
+		"이미 제출한 시험입니다."
+	),
+	INVALID_EXAM_ANSWER(
+		"INVALID_EXAM_ANSWER",
+		HttpStatus.BAD_REQUEST,
+		"시험 답안을 확인해 주세요."
+	),
 	GRADING_RESULT_INVALID(
 		"GRADING_RESULT_INVALID",
 		HttpStatus.BAD_GATEWAY,
@@ -135,6 +235,26 @@ public enum ErrorCode {
 		"DIAGNOSIS_NOT_PENDING",
 		HttpStatus.CONFLICT,
 		"답변 대기 상태의 진단이 아닙니다."
+	),
+	REPORT_NOT_FOUND(
+		"REPORT_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"리포트를 찾을 수 없습니다."
+	),
+	REPORT_CRITERION_LIMIT_EXCEEDED(
+		"REPORT_CRITERION_LIMIT_EXCEEDED",
+		HttpStatus.BAD_REQUEST,
+		"활성 리포트 평가 기준은 20개를 초과할 수 없습니다."
+	),
+	REPORT_CRITERIA_GENERATION_NOT_READY(
+		"REPORT_CRITERIA_GENERATION_NOT_READY",
+		HttpStatus.BAD_REQUEST,
+		"개요가 생성된 자료가 없습니다"
+	),
+	REPORT_CRITERION_DUPLICATE(
+		"REPORT_CRITERION_DUPLICATE",
+		HttpStatus.CONFLICT,
+		"같은 리포트 평가 기준이 이미 존재합니다."
 	),
 	RESOURCE_NOT_FOUND("RESOURCE_NOT_FOUND", HttpStatus.NOT_FOUND, "리소스를 찾을 수 없습니다."),
 	RATE_LIMIT_EXCEEDED(

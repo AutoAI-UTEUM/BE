@@ -62,7 +62,15 @@ public class QaMessage {
 		return senderType;
 	}
 
+	public Long getId() {
+		return id;
+	}
+
 	public String getContent() {
 		return content;
+	}
+
+	public Instant getCreatedAt() {
+		return createdAt;
 	}
 }

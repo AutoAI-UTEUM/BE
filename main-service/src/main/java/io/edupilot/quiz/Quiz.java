@@ -9,6 +9,7 @@ import org.hibernate.type.SqlTypes;
 
 import io.edupilot.session.LearningSession;
 import io.edupilot.session.SessionStatus;
+import io.edupilot.session.UiAction;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -127,6 +128,18 @@ public class Quiz {
 
 	public Long getMaterialId() {
 		return session.getMaterialId();
+	}
+
+	public Long getSessionActiveQuizId() {
+		return session.getActiveQuizId();
+	}
+
+	Long getSessionPendingDiagnosisId() {
+		return session.getPendingDiagnosisId();
+	}
+
+	List<UiAction> getSessionUiActions() {
+		return session.getLastUiActions();
 	}
 
 	public SessionStatus getSessionStatus() {

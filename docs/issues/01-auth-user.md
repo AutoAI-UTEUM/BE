@@ -31,7 +31,7 @@ type: feature
 
 ## 사용자 흐름
 
-1. 사용자가 이메일, 비밀번호, 이름으로 가입한다.
+1. 사용자가 이메일, 비밀번호, 이름과 `LEARNER | INSTRUCTOR` 역할로 가입한다.
 2. 사용자가 이메일과 비밀번호로 로그인한다.
 3. Main Service가 자격 증명을 검증하고 JWT를 발급한다.
 4. Frontend가 인증이 필요한 API에 Bearer token을 전송한다.
@@ -42,6 +42,7 @@ type: feature
 ### 포함
 
 - 회원가입, 로그인, 내 정보 API
+- 공개 가입 역할 선택과 역할 포함 응답·JWT 계약
 - 이메일 중복과 입력 검증
 - 비밀번호 단방향 해시
 - JWT access token 생성·검증
@@ -54,6 +55,7 @@ type: feature
 - OAuth/social login
 - 비밀번호 찾기·이메일 인증
 - ADMIN 상세 관리 화면
+- 강사 전용 기능·차등 권한(#102)
 - refresh token은 `DEC-004`에서 Must로 승격된 경우에만 포함
 
 ## 작업 후보 — 필요할 때만 Sub-issue 생성
@@ -87,6 +89,7 @@ GET  /api/users/me
 - 잘못된 자격 증명
 - 만료·위조 JWT
 - 삭제/비활성 사용자
+- 누락·지원하지 않는 가입 역할
 - 인증이 필요한 API의 토큰 누락
 
 ## 보안 규칙

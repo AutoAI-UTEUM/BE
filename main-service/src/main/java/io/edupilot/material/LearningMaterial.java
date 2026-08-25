@@ -44,6 +44,19 @@ public class LearningMaterial {
 	private MaterialProcessingStatus processingStatus;
 
 	@Enumerated(EnumType.STRING)
+	@Column(name = "failure_reason", length = 40)
+	private MaterialFailureReason failureReason;
+
+	@Column(name = "failure_trace_id", length = 64)
+	private String failureTraceId;
+
+	@Column(name = "captions_completed_at")
+	private Instant captionsCompletedAt;
+
+	@Column(name = "xai_file_id", length = 255)
+	private String xaiFileId;
+
+	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)
 	private MaterialStatus status;
 
@@ -64,6 +77,8 @@ public class LearningMaterial {
 		this.storageKey = storageKey;
 		this.pageCount = null;
 		this.processingStatus = MaterialProcessingStatus.PROCESSING;
+		this.failureReason = null;
+		this.failureTraceId = null;
 		this.status = MaterialStatus.ACTIVE;
 	}
 
@@ -79,16 +94,43 @@ public class LearningMaterial {
 		this.processingStatus = MaterialProcessingStatus.READY;
 	}
 
-	public void markFailed() {
+	public void markFailed(
+		MaterialFailureReason failureReason,
+		String failureTraceId
+	) {
 		if (!isActiveAndProcessing()) {
 			return;
 		}
+		if (failureReason == null) {
+			throw new IllegalArgumentException("failureReason is required");
+		}
+		if (failureTraceId != null && failureTraceId.length() > 64) {
+			throw new IllegalArgumentException("failureTraceId exceeds 64 characters");
+		}
 		this.pageCount = null;
 		this.processingStatus = MaterialProcessingStatus.FAILED;
+		this.failureReason = failureReason;
+		this.failureTraceId = failureTraceId;
 	}
 
 	public void delete() {
 		this.status = MaterialStatus.DELETED;
+	}
+
+	public String replaceXaiFileId(String newXaiFileId) {
+		if (newXaiFileId == null || newXaiFileId.isBlank()) {
+			return null;
+		}
+		String normalized = newXaiFileId.trim();
+		String previous = xaiFileId;
+		xaiFileId = normalized;
+		return previous != null && !previous.equals(normalized)
+			? previous
+			: null;
+	}
+
+	public void rename(String title) {
+		this.title = title;
 	}
 
 	public boolean isActiveAndProcessing() {
@@ -128,11 +170,31 @@ public class LearningMaterial {
 		return processingStatus;
 	}
 
+	public MaterialFailureReason getFailureReason() {
+		return failureReason;
+	}
+
+	public String getFailureTraceId() {
+		return failureTraceId;
+	}
+
+	public String getXaiFileId() {
+		return xaiFileId;
+	}
+
 	public MaterialStatus getStatus() {
 		return status;
 	}
 
 	public Instant getCreatedAt() {
 		return createdAt;
+	}
+
+	public Instant getCaptionsCompletedAt() {
+		return captionsCompletedAt;
+	}
+
+	public void completeCaptionGeneration(Instant completedAt) {
+		this.captionsCompletedAt = completedAt;
 	}
 }

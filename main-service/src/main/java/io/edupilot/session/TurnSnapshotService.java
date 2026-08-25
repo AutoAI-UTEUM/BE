@@ -1,5 +1,6 @@
 package io.edupilot.session;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -19,6 +20,7 @@ import io.edupilot.diagnosis.RepairResultRepository;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.material.MaterialPageTextMerger;
 import io.edupilot.memory.LearnerMemory;
 import io.edupilot.memory.LearnerMemoryCandidate;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
@@ -32,9 +34,11 @@ public class TurnSnapshotService {
 	private static final int MESSAGE_LIMIT = 10;
 	private static final int QA_MESSAGE_LIMIT = 6;
 	private static final int QA_CONTENT_LIMIT = 500;
+	private static final int MEMORY_CANDIDATE_LIMIT = 10;
 
 	private final LearningSessionRepository sessionRepository;
 	private final MaterialPageRepository pageRepository;
+	private final MaterialPageTextMerger pageTextMerger;
 	private final ChatMessageRepository messageRepository;
 	private final QaThreadRepository qaThreadRepository;
 	private final QaMessageRepository qaMessageRepository;
@@ -47,6 +51,7 @@ public class TurnSnapshotService {
 	public TurnSnapshotService(
 		LearningSessionRepository sessionRepository,
 		MaterialPageRepository pageRepository,
+		MaterialPageTextMerger pageTextMerger,
 		ChatMessageRepository messageRepository,
 		QaThreadRepository qaThreadRepository,
 		QaMessageRepository qaMessageRepository,
@@ -58,6 +63,7 @@ public class TurnSnapshotService {
 	) {
 		this.sessionRepository = sessionRepository;
 		this.pageRepository = pageRepository;
+		this.pageTextMerger = pageTextMerger;
 		this.messageRepository = messageRepository;
 		this.qaThreadRepository = qaThreadRepository;
 		this.qaMessageRepository = qaMessageRepository;
@@ -72,7 +78,8 @@ public class TurnSnapshotService {
 	public TurnSnapshot build(
 		Long userId,
 		Long sessionId,
-		Long currentRequestMessageId
+		Long currentRequestMessageId,
+		boolean includeCurrentPage
 	) {
 		LearningSession session = sessionRepository
 			.findByIdAndUser_Id(sessionId, userId)
@@ -97,26 +104,36 @@ public class TurnSnapshotService {
 		Map<String, Object> context = new LinkedHashMap<>();
 		context.put(
 			"currentPageText",
-			pageText(materialId, session.getCurrentPage())
+			includeCurrentPage
+				? pageText(materialId, session.getCurrentPage())
+				: null
 		);
 		context.put(
 			"previousPageText",
-			session.getCurrentPage() == 1
+			!includeCurrentPage || session.getCurrentPage() == 1
 				? null
 				: pageText(materialId, session.getCurrentPage() - 1)
 		);
 		context.put(
 			"nextPageText",
-			session.getMaterialPageCount() == null
+			!includeCurrentPage
+				|| session.getMaterialPageCount() == null
 				|| session.getCurrentPage() >= session.getMaterialPageCount()
 				? null
 				: pageText(materialId, session.getCurrentPage() + 1)
 		);
 		context.put(
 			"recentMessages",
-			recentMessages(sessionId, currentRequestMessageId)
+			recentMessages(
+				sessionId,
+				currentRequestMessageId,
+				session.getConversationResetAt()
+			)
 		);
-		context.put("qaThreadDigest", qaThreadDigest(sessionId));
+		context.put(
+			"qaThreadDigest",
+			qaThreadDigest(sessionId, session.getConversationResetAt())
+		);
 		context.put(
 			"quizAssessments",
 			recentAssessmentsForSession(sessionId)
@@ -137,13 +154,15 @@ public class TurnSnapshotService {
 			"pendingDiagnosis",
 			pendingDiagnosis(sessionId, session.getPendingDiagnosisId())
 		);
-		context.put("latestRepair", latestRepair(sessionId));
-		context.put("conversationSummary", null);
+		context.put(
+			"latestRepair",
+			latestRepair(sessionId, session.getConversationResetAt())
+		);
 		context.put(
 			"memory",
 			Map.of(
 				"temporaryCandidates",
-				temporaryCandidates(userId, materialId)
+				temporaryCandidates(userId, materialId, sessionId)
 			)
 		);
 		return new TurnSnapshot(sessionData, context, materialId);
@@ -152,22 +171,34 @@ public class TurnSnapshotService {
 	private String pageText(Long materialId, int pageNumber) {
 		return pageRepository
 			.findByMaterial_IdAndPageNumber(materialId, pageNumber)
-			.map(page -> truncate(page.getTextContent(), PAGE_TEXT_LIMIT))
+			.map(page -> truncate(
+				pageTextMerger.mergeCaption(
+					page.getTextContent(),
+					page.getCaption()
+				),
+				PAGE_TEXT_LIMIT
+			))
 			.orElse(null);
 	}
 
 	private List<Map<String, Object>> recentMessages(
 		Long sessionId,
-		Long excludedMessageId
+		Long excludedMessageId,
+		Instant conversationResetAt
 	) {
 		List<ChatMessage> messages = new ArrayList<>(
-			messageRepository.findBySession_IdOrderByCreatedAtDescIdDesc(
+			messageRepository.findRecentContextMessages(
 				sessionId,
 				PageRequest.of(0, MESSAGE_LIMIT + 1)
 			)
 		);
 		messages.removeIf(message ->
-			message.getId().equals(excludedMessageId));
+			message.getStatus() == ChatMessageStatus.FAILED
+				|| message.getId().equals(excludedMessageId)
+				|| isBeforeOrAtReset(
+					message.getCreatedAt(),
+					conversationResetAt
+				));
 		if (messages.size() > MESSAGE_LIMIT) {
 			messages = new ArrayList<>(messages.subList(0, MESSAGE_LIMIT));
 		}
@@ -184,14 +215,20 @@ public class TurnSnapshotService {
 			.toList();
 	}
 
-	private Map<String, Object> qaThreadDigest(Long sessionId) {
+	private Map<String, Object> qaThreadDigest(
+		Long sessionId,
+		Instant conversationResetAt
+	) {
 		QaThread thread = qaThreadRepository
 			.findTopBySession_IdAndStatusOrderByUpdatedAtDescIdDesc(
 				sessionId,
 				QaThreadStatus.ACTIVE
 			)
 			.orElse(null);
-		if (thread == null) {
+		if (thread == null || isBeforeOrAtReset(
+		thread.getCreatedAt(),
+		conversationResetAt
+		)) {
 			return null;
 		}
 		List<QaMessage> messages = new ArrayList<>(
@@ -285,11 +322,17 @@ public class TurnSnapshotService {
 		return value;
 	}
 
-	private Map<String, Object> latestRepair(Long sessionId) {
+	private Map<String, Object> latestRepair(
+		Long sessionId,
+		Instant conversationResetAt
+	) {
 		RepairResult repair = repairRepository
 			.findTopBySession_IdOrderByCreatedAtDescIdDesc(sessionId)
 			.orElse(null);
-		if (repair == null) {
+		if (repair == null || isBeforeOrAtReset(
+			repair.getCreatedAt(),
+			conversationResetAt
+		)) {
 			return null;
 		}
 		return Map.of(
@@ -302,7 +345,8 @@ public class TurnSnapshotService {
 
 	private List<Map<String, Object>> temporaryCandidates(
 		Long userId,
-		Long materialId
+		Long materialId,
+		Long sessionId
 	) {
 		return candidateRepository
 			.findByUser_IdAndMaterial_IdAndStatusOrderByCreatedAtDescIdDesc(
@@ -311,6 +355,10 @@ public class TurnSnapshotService {
 				MemoryCandidateStatus.CANDIDATE
 			)
 			.stream()
+			.filter(candidate -> candidate.getEvidenceRefs().stream()
+				.anyMatch(reference ->
+					sessionId.equals(reference.sessionId())))
+			.limit(MEMORY_CANDIDATE_LIMIT)
 			.map(this::candidateData)
 			.toList();
 	}
@@ -332,5 +380,13 @@ public class TurnSnapshotService {
 			return value;
 		}
 		return value.substring(0, maximumLength);
+	}
+
+	private boolean isBeforeOrAtReset(
+		Instant createdAt,
+		Instant conversationResetAt
+	) {
+		return conversationResetAt != null
+			&& (createdAt == null || !createdAt.isAfter(conversationResetAt));
 	}
 }

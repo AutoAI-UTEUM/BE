@@ -1,9 +1,6 @@
 package io.edupilot.quiz;
 
-import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -12,6 +9,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.edupilot.ai.dto.QuizGeneration;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.quiz.dto.QuizDetailResponse;
@@ -20,90 +18,64 @@ import io.edupilot.quiz.dto.QuizSummaryResponse;
 import io.edupilot.session.LearningSession;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.session.SessionStatus;
-import tools.jackson.databind.JsonNode;
 
 @Service
 public class QuizService {
 
-	private static final String SCHEMA_VERSION = "1.0";
-	private static final int MIN_QUESTION_COUNT = 5;
-	private static final int MAX_QUESTION_COUNT = 10;
 	private static final int QUIZ_LIST_LIMIT = 100;
-	private static final BigDecimal RUBRIC_WEIGHT_TOLERANCE =
-		new BigDecimal("0.001");
 
 	private final QuizRepository quizRepository;
 	private final QuizSubmissionRepository submissionRepository;
 	private final LearningSessionRepository sessionRepository;
+	private final QuizGenerationValidator generationValidator;
 
 	public QuizService(
 		QuizRepository quizRepository,
 		QuizSubmissionRepository submissionRepository,
-		LearningSessionRepository sessionRepository
+		LearningSessionRepository sessionRepository,
+		QuizGenerationValidator generationValidator
 	) {
 		this.quizRepository = quizRepository;
 		this.submissionRepository = submissionRepository;
 		this.sessionRepository = sessionRepository;
+		this.generationValidator = generationValidator;
 	}
 
 	@Transactional
-	public Long createFromGeneration(Long sessionId, JsonNode generation) {
+	public Long createFromGeneration(
+		Long sessionId,
+		String schemaVersion,
+		QuizGeneration generation
+	) {
 		LearningSession session = sessionRepository.findById(sessionId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
 		Integer materialPageCount = session.getMaterialPageCount();
 		if (materialPageCount == null) {
 			throw invalidGeneration();
 		}
-
-		String schemaVersion = requiredText(generation, "schemaVersion");
-		if (!SCHEMA_VERSION.equals(schemaVersion)) {
-			throw invalidGeneration();
-		}
-		requiredText(generation, "generationId");
-		QuizType quizType = requiredQuizType(generation);
-		int page = requiredPositiveInt(generation, "page");
-		int coverageStartPage = requiredPositiveInt(
+		int page = session.getCurrentPage();
+		generationValidator.validate(
 			generation,
-			"coverageStartPage"
+			schemaVersion,
+			null,
+			snapshotPages(page, materialPageCount)
 		);
-		int coverageEndPage = requiredPositiveInt(
-			generation,
-			"coverageEndPage"
-		);
-		String title = requiredText(generation, "title");
-		if (title.length() > 255) {
-			throw invalidGeneration();
-		}
-		int questionCount = requiredPositiveInt(generation, "questionCount");
-		JsonNode questionsNode = requiredArray(generation, "questions");
-
-		if (page > materialPageCount
-			|| coverageStartPage > coverageEndPage
-			|| coverageEndPage > materialPageCount
-			|| questionCount < MIN_QUESTION_COUNT
-			|| questionCount > MAX_QUESTION_COUNT
-			|| questionsNode.size() != questionCount) {
-			throw invalidGeneration();
-		}
-
-		List<PublicQuizQuestion> publicQuestions = new ArrayList<>();
-		List<PrivateQuizQuestion> privateQuestions = new ArrayList<>();
-		Set<String> questionIds = new HashSet<>();
-		for (JsonNode questionNode : questionsNode) {
-			ParsedQuestion parsed = parseQuestion(questionNode, quizType);
-			if (!questionIds.add(parsed.publicQuestion().questionId())) {
-				throw invalidGeneration();
-			}
-			publicQuestions.add(parsed.publicQuestion());
-			privateQuestions.add(parsed.privateQuestion());
-		}
+		QuizType quizType = QuizType.valueOf(generation.quizType());
+		List<PublicQuizQuestion> publicQuestions = generation.questions()
+			.stream()
+			.map(question -> publicQuestion(question, quizType))
+			.toList();
+		List<PrivateQuizQuestion> privateQuestions = generation.questions()
+			.stream()
+			.map(question -> privateQuestion(question, quizType))
+			.toList();
 
 		Quiz quiz = quizRepository.saveAndFlush(Quiz.create(
 			session,
 			page,
-			title,
-			coverageStartPage,
-			coverageEndPage,
+			generation.title().trim(),
+			generation.coverage().startPage(),
+			generation.coverage().endPage(),
 			quizType,
 			publicQuestions,
 			privateQuestions,
@@ -158,272 +130,95 @@ public class QuizService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.QUIZ_NOT_FOUND));
 	}
 
-	private ParsedQuestion parseQuestion(
-		JsonNode questionNode,
+	private PublicQuizQuestion publicQuestion(
+		QuizGeneration.Question question,
 		QuizType quizType
 	) {
-		if (questionNode == null || !questionNode.isObject()) {
-			throw invalidGeneration();
-		}
-		String questionId = requiredText(questionNode, "questionId");
-		String questionText = requiredText(questionNode, "questionText");
-		BigDecimal maxScore = requiredPositiveDecimal(questionNode, "maxScore");
+		List<QuizOption> options = quizType == QuizType.MCQ
+			? question.choices().stream()
+				.map(choice -> new QuizOption(
+					choice.choiceId().trim(),
+					choice.text().trim()
+				))
+				.toList()
+			: null;
+		return new PublicQuizQuestion(
+			question.questionId().trim(),
+			question.questionText().trim(),
+			question.points(),
+			options
+		);
+	}
 
+	private PrivateQuizQuestion privateQuestion(
+		QuizGeneration.Question question,
+		QuizType quizType
+	) {
+		String questionId = question.questionId().trim();
 		return switch (quizType) {
-			case MCQ -> parseMcq(
-				questionNode,
+			case MCQ -> new PrivateQuizQuestion(
 				questionId,
-				questionText,
-				maxScore
+				question.answerChoiceId().trim(),
+				null,
+				question.explanation().trim(),
+				null,
+				null,
+				null,
+				null
 			);
-			case OX -> parseOx(
-				questionNode,
+			case OX -> new PrivateQuizQuestion(
 				questionId,
-				questionText,
-				maxScore
+				null,
+				question.answerValue(),
+				question.explanation().trim(),
+				null,
+				null,
+				null,
+				null
 			);
-			case SHORT -> parseShort(
-				questionNode,
+			case SHORT -> new PrivateQuizQuestion(
 				questionId,
-				questionText,
-				maxScore
+				null,
+				null,
+				null,
+				question.referenceAnswer().trim(),
+				question.gradingCriteria().stream()
+					.map(String::trim)
+					.toList(),
+				null,
+				null
 			);
-			case ESSAY -> parseEssay(
-				questionNode,
+			case ESSAY -> new PrivateQuizQuestion(
 				questionId,
-				questionText,
-				maxScore
+				null,
+				null,
+				null,
+				null,
+				null,
+				question.rubric().stream()
+					.map(value -> new RubricCriterion(
+						value.criterion().trim(),
+						value.weight()
+					))
+					.toList(),
+				question.modelAnswer().trim()
 			);
 		};
 	}
 
-	private ParsedQuestion parseMcq(
-		JsonNode questionNode,
-		String questionId,
-		String questionText,
-		BigDecimal maxScore
-	) {
-		JsonNode optionsNode = requiredArray(questionNode, "options");
-		if (optionsNode.size() == 0) {
-			throw invalidGeneration();
+	private Set<Integer> snapshotPages(int currentPage, int pageCount) {
+		Set<Integer> pages = new java.util.LinkedHashSet<>();
+		if (currentPage > 1) {
+			pages.add(currentPage - 1);
 		}
-		List<QuizOption> options = new ArrayList<>();
-		Set<String> optionIds = new HashSet<>();
-		for (JsonNode optionNode : optionsNode) {
-			String optionId = requiredText(optionNode, "optionId");
-			String text = requiredText(optionNode, "text");
-			if (!optionIds.add(optionId)) {
-				throw invalidGeneration();
-			}
-			options.add(new QuizOption(optionId, text));
+		pages.add(currentPage);
+		if (currentPage < pageCount) {
+			pages.add(currentPage + 1);
 		}
-		String correctOptionId = requiredText(questionNode, "correctOptionId");
-		if (!optionIds.contains(correctOptionId)) {
-			throw invalidGeneration();
-		}
-		String explanation = requiredText(questionNode, "explanation");
-		return new ParsedQuestion(
-			new PublicQuizQuestion(
-				questionId,
-				questionText,
-				maxScore,
-				List.copyOf(options)
-			),
-			new PrivateQuizQuestion(
-				questionId,
-				correctOptionId,
-				null,
-				explanation,
-				null,
-				null,
-				null,
-				null
-			)
-		);
-	}
-
-	private ParsedQuestion parseOx(
-		JsonNode questionNode,
-		String questionId,
-		String questionText,
-		BigDecimal maxScore
-	) {
-		JsonNode correctAnswer = questionNode.get("correctAnswer");
-		if (correctAnswer == null || !correctAnswer.isBoolean()) {
-			throw invalidGeneration();
-		}
-		String explanation = requiredText(questionNode, "explanation");
-		return new ParsedQuestion(
-			new PublicQuizQuestion(questionId, questionText, maxScore, null),
-			new PrivateQuizQuestion(
-				questionId,
-				null,
-				correctAnswer.booleanValue(),
-				explanation,
-				null,
-				null,
-				null,
-				null
-			)
-		);
-	}
-
-	private ParsedQuestion parseShort(
-		JsonNode questionNode,
-		String questionId,
-		String questionText,
-		BigDecimal maxScore
-	) {
-		String referenceAnswer = requiredText(questionNode, "referenceAnswer");
-		List<String> keywords = parseTextArray(
-			requiredArray(questionNode, "acceptableKeywords")
-		);
-		List<RubricCriterion> rubric = parseRubric(
-			requiredArray(questionNode, "rubric")
-		);
-		return new ParsedQuestion(
-			new PublicQuizQuestion(questionId, questionText, maxScore, null),
-			new PrivateQuizQuestion(
-				questionId,
-				null,
-				null,
-				null,
-				referenceAnswer,
-				keywords,
-				rubric,
-				null
-			)
-		);
-	}
-
-	private ParsedQuestion parseEssay(
-		JsonNode questionNode,
-		String questionId,
-		String questionText,
-		BigDecimal maxScore
-	) {
-		String modelAnswer = requiredText(questionNode, "modelAnswer");
-		List<RubricCriterion> rubric = parseRubric(
-			requiredArray(questionNode, "rubric")
-		);
-		BigDecimal weightSum = rubric.stream()
-			.map(RubricCriterion::weight)
-			.reduce(BigDecimal.ZERO, BigDecimal::add);
-		if (weightSum.subtract(BigDecimal.ONE).abs()
-			.compareTo(RUBRIC_WEIGHT_TOLERANCE) > 0) {
-			throw invalidGeneration();
-		}
-		return new ParsedQuestion(
-			new PublicQuizQuestion(questionId, questionText, maxScore, null),
-			new PrivateQuizQuestion(
-				questionId,
-				null,
-				null,
-				null,
-				null,
-				null,
-				rubric,
-				modelAnswer
-			)
-		);
-	}
-
-	private List<String> parseTextArray(JsonNode arrayNode) {
-		List<String> values = new ArrayList<>();
-		for (JsonNode value : arrayNode) {
-			if (!value.isString() || value.stringValue().isBlank()) {
-				throw invalidGeneration();
-			}
-			values.add(value.stringValue().trim());
-		}
-		return List.copyOf(values);
-	}
-
-	private List<RubricCriterion> parseRubric(JsonNode rubricNode) {
-		if (rubricNode.size() == 0) {
-			throw invalidGeneration();
-		}
-		List<RubricCriterion> criteria = new ArrayList<>();
-		for (JsonNode criterionNode : rubricNode) {
-			BigDecimal weight = requiredDecimal(criterionNode, "weight");
-			if (weight.compareTo(BigDecimal.ZERO) <= 0) {
-				throw invalidGeneration();
-			}
-			criteria.add(new RubricCriterion(
-				requiredText(criterionNode, "criterion"),
-				weight
-			));
-		}
-		return List.copyOf(criteria);
-	}
-
-	private QuizType requiredQuizType(JsonNode generation) {
-		String value = requiredText(generation, "quizType");
-		try {
-			return QuizType.valueOf(value);
-		} catch (IllegalArgumentException exception) {
-			throw new BusinessException(ErrorCode.UNSUPPORTED_QUIZ_TYPE);
-		}
-	}
-
-	private String requiredText(JsonNode node, String field) {
-		if (node == null || !node.isObject()) {
-			throw invalidGeneration();
-		}
-		JsonNode value = node.get(field);
-		if (value == null || !value.isString() || value.stringValue().isBlank()) {
-			throw invalidGeneration();
-		}
-		return value.stringValue().trim();
-	}
-
-	private int requiredPositiveInt(JsonNode node, String field) {
-		JsonNode value = node == null ? null : node.get(field);
-		if (value == null
-			|| !value.isIntegralNumber()
-			|| !value.canConvertToInt()
-			|| value.intValue() < 1) {
-			throw invalidGeneration();
-		}
-		return value.intValue();
-	}
-
-	private BigDecimal requiredPositiveDecimal(JsonNode node, String field) {
-		BigDecimal value = requiredDecimal(node, field);
-		if (value.compareTo(BigDecimal.ZERO) <= 0
-			|| value.precision() > 10
-			|| Math.max(0, value.stripTrailingZeros().scale()) > 2) {
-			throw invalidGeneration();
-		}
-		return value;
-	}
-
-	private BigDecimal requiredDecimal(JsonNode node, String field) {
-		JsonNode value = node == null ? null : node.get(field);
-		if (value == null || !value.isNumber()) {
-			throw invalidGeneration();
-		}
-		return value.decimalValue();
-	}
-
-	private JsonNode requiredArray(JsonNode node, String field) {
-		if (node == null || !node.isObject()) {
-			throw invalidGeneration();
-		}
-		JsonNode value = node.get(field);
-		if (value == null || !value.isArray()) {
-			throw invalidGeneration();
-		}
-		return value;
+		return Set.copyOf(pages);
 	}
 
 	private BusinessException invalidGeneration() {
 		return new BusinessException(ErrorCode.AI_RESPONSE_INVALID);
-	}
-
-	private record ParsedQuestion(
-		PublicQuizQuestion publicQuestion,
-		PrivateQuizQuestion privateQuestion
-	) {
 	}
 }

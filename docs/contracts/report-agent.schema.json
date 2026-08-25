@@ -1,0 +1,1214 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EduPilot Report Agent Contracts",
+  "schemas": {
+    "ReportGenerateRequest": {
+      "$defs": {
+        "CriterionEligibility": {
+          "additionalProperties": false,
+          "properties": {
+            "criterionKey": {
+              "minLength": 1,
+              "title": "Criterionkey",
+              "type": "string"
+            },
+            "eligible": {
+              "title": "Eligible",
+              "type": "boolean"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Reason"
+            }
+          },
+          "required": [
+            "criterionKey",
+            "eligible"
+          ],
+          "title": "CriterionEligibility",
+          "type": "object"
+        },
+        "PreviousCriterionResult": {
+          "additionalProperties": false,
+          "properties": {
+            "criterionKey": {
+              "minLength": 1,
+              "title": "Criterionkey",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "ASSESSED",
+                "INSUFFICIENT_DATA"
+              ],
+              "title": "Status",
+              "type": "string"
+            },
+            "score": {
+              "anyOf": [
+                {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Score"
+            }
+          },
+          "required": [
+            "criterionKey",
+            "status"
+          ],
+          "title": "PreviousCriterionResult",
+          "type": "object"
+        },
+        "PreviousReportSummary": {
+          "additionalProperties": false,
+          "properties": {
+            "version": {
+              "minimum": 1,
+              "title": "Version",
+              "type": "integer"
+            },
+            "criterionResults": {
+              "items": {
+                "$ref": "#/$defs/PreviousCriterionResult"
+              },
+              "title": "Criterionresults",
+              "type": "array"
+            }
+          },
+          "required": [
+            "version",
+            "criterionResults"
+          ],
+          "title": "PreviousReportSummary",
+          "type": "object"
+        },
+        "ReportCriterion": {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "minLength": 1,
+              "title": "Key",
+              "type": "string"
+            },
+            "name": {
+              "minLength": 1,
+              "title": "Name",
+              "type": "string"
+            },
+            "description": {
+              "title": "Description",
+              "type": "string"
+            },
+            "rubric": {
+              "title": "Rubric",
+              "type": "string"
+            },
+            "allowedSourceTypes": {
+              "items": {
+                "enum": [
+                  "QUIZ",
+                  "QA",
+                  "DIAGNOSIS",
+                  "REPAIR",
+                  "MEMORY",
+                  "EXAM",
+                  "SESSION"
+                ],
+                "type": "string"
+              },
+              "title": "Allowedsourcetypes",
+              "type": "array"
+            },
+            "minimumEvidence": {
+              "minimum": 0,
+              "title": "Minimumevidence",
+              "type": "integer"
+            },
+            "version": {
+              "minimum": 1,
+              "title": "Version",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "key",
+            "name",
+            "description",
+            "rubric",
+            "allowedSourceTypes",
+            "minimumEvidence",
+            "version"
+          ],
+          "title": "ReportCriterion",
+          "type": "object"
+        },
+        "ReportDataQuality": {
+          "additionalProperties": false,
+          "properties": {
+            "policyVersion": {
+              "minLength": 1,
+              "title": "Policyversion",
+              "type": "string"
+            },
+            "availableSources": {
+              "items": {
+                "enum": [
+                  "QUIZ",
+                  "QA",
+                  "DIAGNOSIS",
+                  "REPAIR",
+                  "MEMORY",
+                  "EXAM",
+                  "SESSION"
+                ],
+                "type": "string"
+              },
+              "title": "Availablesources",
+              "type": "array"
+            },
+            "missingSources": {
+              "items": {
+                "enum": [
+                  "QUIZ",
+                  "QA",
+                  "DIAGNOSIS",
+                  "REPAIR",
+                  "MEMORY",
+                  "EXAM",
+                  "SESSION"
+                ],
+                "type": "string"
+              },
+              "title": "Missingsources",
+              "type": "array"
+            },
+            "criterionEligibility": {
+              "items": {
+                "$ref": "#/$defs/CriterionEligibility"
+              },
+              "title": "Criterioneligibility",
+              "type": "array"
+            }
+          },
+          "required": [
+            "policyVersion",
+            "availableSources",
+            "missingSources",
+            "criterionEligibility"
+          ],
+          "title": "ReportDataQuality",
+          "type": "object"
+        },
+        "ReportEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "evidenceId": {
+              "minLength": 1,
+              "title": "Evidenceid",
+              "type": "string"
+            },
+            "sourceType": {
+              "enum": [
+                "QUIZ",
+                "QA",
+                "DIAGNOSIS",
+                "REPAIR",
+                "MEMORY",
+                "EXAM",
+                "SESSION"
+              ],
+              "title": "Sourcetype",
+              "type": "string"
+            },
+            "occurredAt": {
+              "minLength": 1,
+              "title": "Occurredat",
+              "type": "string"
+            },
+            "label": {
+              "minLength": 1,
+              "title": "Label",
+              "type": "string"
+            },
+            "fact": {
+              "minLength": 1,
+              "title": "Fact",
+              "type": "string"
+            }
+          },
+          "required": [
+            "evidenceId",
+            "sourceType",
+            "occurredAt",
+            "label",
+            "fact"
+          ],
+          "title": "ReportEvidence",
+          "type": "object"
+        },
+        "ReportMetric": {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "minLength": 1,
+              "title": "Key",
+              "type": "string"
+            },
+            "label": {
+              "minLength": 1,
+              "title": "Label",
+              "type": "string"
+            },
+            "value": {
+              "title": "Value",
+              "type": "string"
+            },
+            "window": {
+              "enum": [
+                "CUMULATIVE",
+                "RECENT"
+              ],
+              "title": "Window",
+              "type": "string"
+            }
+          },
+          "required": [
+            "key",
+            "label",
+            "value",
+            "window"
+          ],
+          "title": "ReportMetric",
+          "type": "object"
+        },
+        "ReportScope": {
+          "additionalProperties": false,
+          "properties": {
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Label"
+            },
+            "periodStart": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Periodstart"
+            },
+            "periodEnd": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Periodend"
+            }
+          },
+          "title": "ReportScope",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "1.0",
+          "title": "Schemaversion",
+          "type": "string"
+        },
+        "reportId": {
+          "minLength": 1,
+          "title": "Reportid",
+          "type": "string"
+        },
+        "generationId": {
+          "minLength": 1,
+          "title": "Generationid",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/ReportScope"
+        },
+        "metrics": {
+          "items": {
+            "$ref": "#/$defs/ReportMetric"
+          },
+          "title": "Metrics",
+          "type": "array"
+        },
+        "dataQuality": {
+          "$ref": "#/$defs/ReportDataQuality"
+        },
+        "criteria": {
+          "items": {
+            "$ref": "#/$defs/ReportCriterion"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Criteria",
+          "type": "array"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/ReportEvidence"
+          },
+          "maxItems": 200,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "previousReport": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PreviousReportSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "reportId",
+        "generationId",
+        "scope",
+        "metrics",
+        "dataQuality",
+        "criteria",
+        "evidence"
+      ],
+      "title": "ReportGenerateRequest",
+      "type": "object"
+    },
+    "ReportGenerateOutput": {
+      "$defs": {
+        "EvidencedStatement": {
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "minLength": 1,
+              "title": "Content",
+              "type": "string"
+            },
+            "evidenceIds": {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "title": "Evidenceids",
+              "type": "array"
+            }
+          },
+          "required": [
+            "content",
+            "evidenceIds"
+          ],
+          "title": "EvidencedStatement",
+          "type": "object"
+        },
+        "ReportCriterionResult": {
+          "additionalProperties": false,
+          "properties": {
+            "criterionKey": {
+              "minLength": 1,
+              "title": "Criterionkey",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "ASSESSED",
+                "INSUFFICIENT_DATA"
+              ],
+              "title": "Status",
+              "type": "string"
+            },
+            "score": {
+              "anyOf": [
+                {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Score"
+            },
+            "narrative": {
+              "minLength": 1,
+              "title": "Narrative",
+              "type": "string"
+            },
+            "evidenceIds": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Evidenceids",
+              "type": "array"
+            }
+          },
+          "required": [
+            "criterionKey",
+            "status",
+            "narrative",
+            "evidenceIds"
+          ],
+          "title": "ReportCriterionResult",
+          "type": "object"
+        },
+        "ReportSummary": {
+          "additionalProperties": false,
+          "properties": {
+            "overview": {
+              "minLength": 1,
+              "title": "Overview",
+              "type": "string"
+            },
+            "strengths": {
+              "items": {
+                "$ref": "#/$defs/EvidencedStatement"
+              },
+              "title": "Strengths",
+              "type": "array"
+            },
+            "improvements": {
+              "items": {
+                "$ref": "#/$defs/EvidencedStatement"
+              },
+              "title": "Improvements",
+              "type": "array"
+            },
+            "misconceptionCandidates": {
+              "items": {
+                "$ref": "#/$defs/EvidencedStatement"
+              },
+              "title": "Misconceptioncandidates",
+              "type": "array"
+            },
+            "recommendedActions": {
+              "items": {
+                "$ref": "#/$defs/EvidencedStatement"
+              },
+              "title": "Recommendedactions",
+              "type": "array"
+            }
+          },
+          "required": [
+            "overview",
+            "strengths",
+            "improvements",
+            "misconceptionCandidates",
+            "recommendedActions"
+          ],
+          "title": "ReportSummary",
+          "type": "object"
+        },
+        "ReportWarning": {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "enum": [
+                "CONFLICTING_EVIDENCE",
+                "SPARSE_EVIDENCE",
+                "OUT_OF_SCOPE_INPUT"
+              ],
+              "title": "Type",
+              "type": "string"
+            },
+            "message": {
+              "minLength": 1,
+              "title": "Message",
+              "type": "string"
+            },
+            "evidenceIds": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Evidenceids",
+              "type": "array"
+            }
+          },
+          "required": [
+            "type",
+            "message",
+            "evidenceIds"
+          ],
+          "title": "ReportWarning",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "criterionResults": {
+          "items": {
+            "$ref": "#/$defs/ReportCriterionResult"
+          },
+          "minItems": 1,
+          "title": "Criterionresults",
+          "type": "array"
+        },
+        "summary": {
+          "$ref": "#/$defs/ReportSummary"
+        },
+        "warnings": {
+          "items": {
+            "$ref": "#/$defs/ReportWarning"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "criterionResults",
+        "summary",
+        "warnings"
+      ],
+      "title": "ReportGenerateOutput",
+      "type": "object"
+    },
+    "ReportGenerateResponse": {
+      "$defs": {
+        "EvidencedStatement": {
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "minLength": 1,
+              "title": "Content",
+              "type": "string"
+            },
+            "evidenceIds": {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "title": "Evidenceids",
+              "type": "array"
+            }
+          },
+          "required": [
+            "content",
+            "evidenceIds"
+          ],
+          "title": "EvidencedStatement",
+          "type": "object"
+        },
+        "ReportCriterionResult": {
+          "additionalProperties": false,
+          "properties": {
+            "criterionKey": {
+              "minLength": 1,
+              "title": "Criterionkey",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "ASSESSED",
+                "INSUFFICIENT_DATA"
+              ],
+              "title": "Status",
+              "type": "string"
+            },
+            "score": {
+              "anyOf": [
+                {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Score"
+            },
+            "narrative": {
+              "minLength": 1,
+              "title": "Narrative",
+              "type": "string"
+            },
+            "evidenceIds": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Evidenceids",
+              "type": "array"
+            }
+          },
+          "required": [
+            "criterionKey",
+            "status",
+            "narrative",
+            "evidenceIds"
+          ],
+          "title": "ReportCriterionResult",
+          "type": "object"
+        },
+        "ReportSummary": {
+          "additionalProperties": false,
+          "properties": {
+            "overview": {
+              "minLength": 1,
+              "title": "Overview",
+              "type": "string"
+            },
+            "strengths": {
+              "items": {
+                "$ref": "#/$defs/EvidencedStatement"
+              },
+              "title": "Strengths",
+              "type": "array"
+            },
+            "improvements": {
+              "items": {
+                "$ref": "#/$defs/EvidencedStatement"
+              },
+              "title": "Improvements",
+              "type": "array"
+            },
+            "misconceptionCandidates": {
+              "items": {
+                "$ref": "#/$defs/EvidencedStatement"
+              },
+              "title": "Misconceptioncandidates",
+              "type": "array"
+            },
+            "recommendedActions": {
+              "items": {
+                "$ref": "#/$defs/EvidencedStatement"
+              },
+              "title": "Recommendedactions",
+              "type": "array"
+            }
+          },
+          "required": [
+            "overview",
+            "strengths",
+            "improvements",
+            "misconceptionCandidates",
+            "recommendedActions"
+          ],
+          "title": "ReportSummary",
+          "type": "object"
+        },
+        "ReportWarning": {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "enum": [
+                "CONFLICTING_EVIDENCE",
+                "SPARSE_EVIDENCE",
+                "OUT_OF_SCOPE_INPUT"
+              ],
+              "title": "Type",
+              "type": "string"
+            },
+            "message": {
+              "minLength": 1,
+              "title": "Message",
+              "type": "string"
+            },
+            "evidenceIds": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Evidenceids",
+              "type": "array"
+            }
+          },
+          "required": [
+            "type",
+            "message",
+            "evidenceIds"
+          ],
+          "title": "ReportWarning",
+          "type": "object"
+        },
+        "Usage": {
+          "additionalProperties": false,
+          "properties": {
+            "model": {
+              "title": "Model",
+              "type": "string"
+            },
+            "inputTokens": {
+              "minimum": 0,
+              "title": "Inputtokens",
+              "type": "integer"
+            },
+            "outputTokens": {
+              "minimum": 0,
+              "title": "Outputtokens",
+              "type": "integer"
+            },
+            "reasoningTokens": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Reasoningtokens"
+            }
+          },
+          "required": [
+            "model",
+            "inputTokens",
+            "outputTokens"
+          ],
+          "title": "Usage",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "criterionResults": {
+          "items": {
+            "$ref": "#/$defs/ReportCriterionResult"
+          },
+          "minItems": 1,
+          "title": "Criterionresults",
+          "type": "array"
+        },
+        "summary": {
+          "$ref": "#/$defs/ReportSummary"
+        },
+        "warnings": {
+          "items": {
+            "$ref": "#/$defs/ReportWarning"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "schemaVersion": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schemaversion",
+          "type": "string"
+        },
+        "reportId": {
+          "minLength": 1,
+          "title": "Reportid",
+          "type": "string"
+        },
+        "usage": {
+          "$ref": "#/$defs/Usage"
+        }
+      },
+      "required": [
+        "criterionResults",
+        "summary",
+        "warnings",
+        "reportId",
+        "usage"
+      ],
+      "title": "ReportGenerateResponse",
+      "type": "object"
+    },
+    "ReportQueryRequest": {
+      "$defs": {
+        "EvidencedStatement": {
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "minLength": 1,
+              "title": "Content",
+              "type": "string"
+            },
+            "evidenceIds": {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "title": "Evidenceids",
+              "type": "array"
+            }
+          },
+          "required": [
+            "content",
+            "evidenceIds"
+          ],
+          "title": "EvidencedStatement",
+          "type": "object"
+        },
+        "ReportCriterionResult": {
+          "additionalProperties": false,
+          "properties": {
+            "criterionKey": {
+              "minLength": 1,
+              "title": "Criterionkey",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "ASSESSED",
+                "INSUFFICIENT_DATA"
+              ],
+              "title": "Status",
+              "type": "string"
+            },
+            "score": {
+              "anyOf": [
+                {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Score"
+            },
+            "narrative": {
+              "minLength": 1,
+              "title": "Narrative",
+              "type": "string"
+            },
+            "evidenceIds": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Evidenceids",
+              "type": "array"
+            }
+          },
+          "required": [
+            "criterionKey",
+            "status",
+            "narrative",
+            "evidenceIds"
+          ],
+          "title": "ReportCriterionResult",
+          "type": "object"
+        },
+        "ReportEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "evidenceId": {
+              "minLength": 1,
+              "title": "Evidenceid",
+              "type": "string"
+            },
+            "sourceType": {
+              "enum": [
+                "QUIZ",
+                "QA",
+                "DIAGNOSIS",
+                "REPAIR",
+                "MEMORY",
+                "EXAM",
+                "SESSION"
+              ],
+              "title": "Sourcetype",
+              "type": "string"
+            },
+            "occurredAt": {
+              "minLength": 1,
+              "title": "Occurredat",
+              "type": "string"
+            },
+            "label": {
+              "minLength": 1,
+              "title": "Label",
+              "type": "string"
+            },
+            "fact": {
+              "minLength": 1,
+              "title": "Fact",
+              "type": "string"
+            }
+          },
+          "required": [
+            "evidenceId",
+            "sourceType",
+            "occurredAt",
+            "label",
+            "fact"
+          ],
+          "title": "ReportEvidence",
+          "type": "object"
+        },
+        "ReportSummary": {
+          "additionalProperties": false,
+          "properties": {
+            "overview": {
+              "minLength": 1,
+              "title": "Overview",
+              "type": "string"
+            },
+            "strengths": {
+              "items": {
+                "$ref": "#/$defs/EvidencedStatement"
+              },
+              "title": "Strengths",
+              "type": "array"
+            },
+            "improvements": {
+              "items": {
+                "$ref": "#/$defs/EvidencedStatement"
+              },
+              "title": "Improvements",
+              "type": "array"
+            },
+            "misconceptionCandidates": {
+              "items": {
+                "$ref": "#/$defs/EvidencedStatement"
+              },
+              "title": "Misconceptioncandidates",
+              "type": "array"
+            },
+            "recommendedActions": {
+              "items": {
+                "$ref": "#/$defs/EvidencedStatement"
+              },
+              "title": "Recommendedactions",
+              "type": "array"
+            }
+          },
+          "required": [
+            "overview",
+            "strengths",
+            "improvements",
+            "misconceptionCandidates",
+            "recommendedActions"
+          ],
+          "title": "ReportSummary",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "1.0",
+          "title": "Schemaversion",
+          "type": "string"
+        },
+        "reportId": {
+          "minLength": 1,
+          "title": "Reportid",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "question": {
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        },
+        "reportSummary": {
+          "$ref": "#/$defs/ReportSummary"
+        },
+        "criterionResults": {
+          "items": {
+            "$ref": "#/$defs/ReportCriterionResult"
+          },
+          "title": "Criterionresults",
+          "type": "array"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/ReportEvidence"
+          },
+          "maxItems": 200,
+          "title": "Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "reportId",
+        "version",
+        "question",
+        "reportSummary",
+        "criterionResults",
+        "evidence"
+      ],
+      "title": "ReportQueryRequest",
+      "type": "object"
+    },
+    "ReportQueryOutput": {
+      "additionalProperties": false,
+      "properties": {
+        "answerable": {
+          "title": "Answerable",
+          "type": "boolean"
+        },
+        "answer": {
+          "minLength": 1,
+          "title": "Answer",
+          "type": "string"
+        },
+        "evidenceIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "refusalReason": {
+          "anyOf": [
+            {
+              "enum": [
+                "OUT_OF_SNAPSHOT",
+                "NO_EVIDENCE",
+                "POLICY_REFUSED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refusalreason"
+        }
+      },
+      "required": [
+        "answerable",
+        "answer",
+        "evidenceIds"
+      ],
+      "title": "ReportQueryOutput",
+      "type": "object"
+    },
+    "ReportQueryResponse": {
+      "$defs": {
+        "Usage": {
+          "additionalProperties": false,
+          "properties": {
+            "model": {
+              "title": "Model",
+              "type": "string"
+            },
+            "inputTokens": {
+              "minimum": 0,
+              "title": "Inputtokens",
+              "type": "integer"
+            },
+            "outputTokens": {
+              "minimum": 0,
+              "title": "Outputtokens",
+              "type": "integer"
+            },
+            "reasoningTokens": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Reasoningtokens"
+            }
+          },
+          "required": [
+            "model",
+            "inputTokens",
+            "outputTokens"
+          ],
+          "title": "Usage",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "answerable": {
+          "title": "Answerable",
+          "type": "boolean"
+        },
+        "answer": {
+          "minLength": 1,
+          "title": "Answer",
+          "type": "string"
+        },
+        "evidenceIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "refusalReason": {
+          "anyOf": [
+            {
+              "enum": [
+                "OUT_OF_SNAPSHOT",
+                "NO_EVIDENCE",
+                "POLICY_REFUSED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refusalreason"
+        },
+        "schemaVersion": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schemaversion",
+          "type": "string"
+        },
+        "usage": {
+          "$ref": "#/$defs/Usage"
+        }
+      },
+      "required": [
+        "answerable",
+        "answer",
+        "evidenceIds",
+        "usage"
+      ],
+      "title": "ReportQueryResponse",
+      "type": "object"
+    }
+  }
+}

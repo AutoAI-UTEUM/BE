@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | Open |
-| 마지막 갱신 | 2026-07-23 |
+| 마지막 갱신 | 2026-08-03 |
 
 확정된 선택은 날짜, 결정자, 이유를 기록하고 관련 문서를 함께 갱신합니다. 마감일은 팀 일정 확정 후 입력합니다.
 
 `DEC-001` 같은 값은 이 문서 안에서 결정을 추적하기 위한 ID이며 GitHub 이슈 번호가 아닙니다. 기본적으로 관련 Epic의 `결정 필요` 체크박스로 관리합니다. 여러 팀의 합의가 필요하거나 실제 개발을 막는 항목만 별도 `[Decision]` 이슈로 만들고, 이 표에 GitHub 이슈 링크를 추가합니다.
 
-**현재 Open 상태의 결정이 없습니다** — DEC-001~028 전체 Accepted. 마지막 잔여였던 DEC-013 세부 계약(이벤트 스키마·heartbeat·취소·재연결·저장 시점)은 [API 명세](api-spec.md) §9 "SSE 스트리밍 계약 (확정)"으로 해소됐습니다. 새 결정이 필요해지면 이 표 형식으로 다시 등재합니다.
+**현재 별도 Open 상태로 등록된 DEC는 없습니다.** DEC-001~035의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC-033의 잔여 TBD 목록에서 추적합니다. 새 결정이 필요해지면 이 표 형식으로 다시 등재합니다.
 
 | ID | 결정 항목 | 현재 후보/질문 | 영향 | 소유자 | 목표 시점 |
 | --- | --- | --- | --- | --- | --- |
@@ -147,9 +147,9 @@
 - 상태: Accepted
 - 결정일: 2026-07-21
 - 결정자: 한승준 (Backend)
-- 선택: MVP는 세션 단일 `pageStatus`를 유지한다. 페이지 이동 시 새 페이지 상태는 `NOT_EXPLAINED`로 초기화하며, 과거 페이지의 설명 원문은 채팅 이력으로 복원한다. 페이지별 이력 모델(`SessionPageProgress`) 분리는 MVP 이후 확장으로 미룬다.
-- 이유: 상태 전이·복원 로직이 단순해지고, 재방문 시 "설명할까요?" UI가 다시 떠도 사용자가 거절하면 그만이라 UX 손실이 작다.
-- 대안과 trade-off: 페이지별 분리는 방문 이력 보존이 강점이나 테이블·전이 복잡도가 증가한다. 재방문 페이지의 중복 설명은 LLM 비용이 들 수 있어, 재방문 시 기본 선택지를 "아니오"로 두는 UX 보완을 FE와 합의한다.
+- 선택: MVP는 세션 단일 `pageStatus`를 유지한다. 페이지 이동 시 새 페이지 상태는 `NOT_EXPLAINED`로 초기화하고 과거 설명 원문은 채팅 이력으로 복원한다. 진도율 근거에 한해 성공한 설명 완료 페이지를 `SessionPageRecord`로 누적하며, 페이지별 전체 상태 모델(`SessionPageProgress`)은 도입하지 않는다.
+- 이유: 런타임 상태 전이·복원 로직은 단순하게 유지하면서도 현재 페이지 근사 없이 설명 완료된 고유 페이지 수를 결정적으로 집계할 수 있다.
+- 대안과 trade-off: 페이지별 전체 상태 모델은 방문·학습 상태를 풍부하게 보존하지만 테이블과 전이 복잡도가 증가한다. 완료 근거만 `(session_id, page_number)` 1행으로 유지하고 재설명 시각을 갱신해 필요한 진도 데이터만 저장한다.
 - 후속 변경 문서: domain-model §4 pageStatus, feature-spec §4, api-spec §5
 
 ### DEC-024 — 활성 세션 재사용
@@ -179,7 +179,7 @@
 - 상태: Accepted
 - 결정일: 2026-07-21
 - 결정자: 한승준 (Backend) + AI 담당 합의
-- 선택: **FastAPI가 추출을 실행하고 Spring이 저장·상태 전이를 소유**한다. 흐름: Spring이 업로드 저장(PROCESSING) → 백그라운드에서 내부 API `POST /internal/ai/extract`로 PDF를 멀티파트 전송 → FastAPI가 페이지별 텍스트를 추출해 배열로 반환 → Spring이 `material_pages` 저장 후 READY/FAILED 전이. LLM provider는 **Grok API(xAI)** 를 사용하며, 에이전트 문맥의 기본 근거는 이 추출 텍스트다(Grok 파일 첨부는 보조 수단으로 AI 담당이 실험 후 결정).
+- 선택: **FastAPI가 추출을 실행하고 Spring이 저장·상태 전이를 소유**한다. 흐름: Spring이 업로드 저장(PROCESSING) → 백그라운드에서 내부 API `POST /internal/ai/extract`로 PDF를 멀티파트 전송 → FastAPI가 페이지별 텍스트를 추출해 배열로 반환 → Spring이 `material_pages` 저장 후 READY/FAILED 전이. LLM provider는 **Grok API(xAI)** 를 사용하며, 에이전트 문맥의 기본 근거는 이 추출 텍스트다. xAI Files 원본 업로드·첨부 전환은 DEC-035가 단계적으로 확장한다.
 - 이유: Python 추출 생태계를 활용하면서 "FastAPI는 영속 데이터를 직접 만들지 않는다"는 아키텍처 원칙을 유지한다. 추출은 LLM 판단이 없는 결정적 전처리라 하이브리드 원칙(DEC-022)과 충돌하지 않는다. Grok 파일 첨부(attachment_search)는 페이지 단위 문맥 제어가 약해 자체 추출이 설계와 정합.
 - 대안과 trade-off: Spring 내 추출(PDFBox)은 경계가 단순하나 팀 결정(Python 측 추출)과 상이. FastAPI 직접 DB 저장은 원칙 위반으로 배제.
 - 후속 변경 문서: api-spec §8 내부 API 표, feature-spec §3, Epic3 이슈 구조([AI] 추출 이슈 필수)
@@ -297,7 +297,7 @@
 
 ### DEC-026 — 자료 접근 모델 (소유자 전용)
 
-- 상태: Accepted
+- 상태: Partially Superseded — 개인 자료의 소유자 전용 원칙은 유지하고, 승인된 강의실 멤버의 공개 자료 학습 접근은 DEC-030으로 확장
 - 결정일: 2026-07-20
 - 결정자: 프로젝트 담당자
 - 선택: MVP에서 학습 자료는 업로드한 본인만 조회·학습할 수 있다. "접근 가능한 자료"는 "본인이 업로드한 자료"를 의미한다.
@@ -342,14 +342,145 @@
 
 ### DEC-018 — TEACHER·LMS 도메인 (제외 확정)
 
-- 상태: Accepted
+- 상태: Partially Superseded — 계정 역할 제외 부분은 DEC-029, 강의실 최소셋 제외 부분은 DEC-030으로 대체. Course·Lecture·Assignment·Notification 도메인 제외 결정은 유지
 - 결정일: 2026-07-23
 - 결정자: 프로젝트 담당자
-- 선택: **`TEACHER` 권한과 Course/Lecture/Assignment/Notification 도메인을 MVP·차기 범위에서 제외한다.** 스키마 예약(빈 테이블·미사용 컬럼)도 두지 않는다.
+- 선택: **Course/Lecture/Assignment/Notification 도메인을 MVP·차기 범위에서 제외한다.** 스키마 예약(빈 테이블·미사용 컬럼)도 두지 않는다. 기존 `TEACHER` 역할 제외 결정은 DEC-029의 `INSTRUCTOR` 공개 계정 역할 도입으로 대체한다.
 - 이유: 기획안 제외 목록의 방향을 그대로 종결하는 것이다. BIGINT PK·enum 확장이 쉬워 선제 예약의 이점이 없고 과설계만 남는다.
 - 대안과 trade-off: 도메인 선예약은 확장 시 migration을 줄이지만, 요구가 확정되지 않은 상태의 스키마는 재작업 가능성이 더 크다.
-- **이후 개선안**: 교사-학생 관계 요구가 실제로 생기면 별도 DEC로 승격해 도메인 모델부터 재설계한다. 그 시점에 이 DEC를 Superseded로 갱신한다.
+- **이후 개선안**: Course/Lecture/Assignment/Notification 도메인 제외 결정은 #102에서 별도 범위를 승인하기 전까지 유지합니다.
 - 후속 변경 문서: [요구사항 명세](requirements.md) §1, [프로젝트 목표](project-goals.md), [도메인 모델](domain-model.md)
+
+### DEC-029 — 공개 계정 역할 LEARNER·INSTRUCTOR
+
+- 상태: Accepted — [GitHub #100](https://github.com/AutoAI-EduPilot/BE/issues/100) 결정 기록
+- 결정일: 2026-07-31
+- 결정자: 팀 — 승준 역할 정책 승인, 이감재의 "가입 시 역할 선택 UI 확정" 확인
+- 선택:
+  - 공개 계정 역할은 `LEARNER`, `INSTRUCTOR`로 구분하고 회원가입 시 사용자가 직접 선택합니다.
+  - `ADMIN`은 내부 관리용 예약 역할로 유지하며 공개 회원가입에서는 거부합니다.
+  - 기존 `USER` 데이터는 migration으로 `LEARNER`로 전환합니다.
+  - 이번 결정의 구현 범위는 역할 저장, JWT claim, signup·login·내 정보 API 계약까지입니다.
+  - 역할 저장·JWT 계약은 공통으로 유지하되, 강의실 최소셋의 차등 권한은 DEC-030을 적용합니다.
+- 이유: FE가 가입 시 역할 선택을 선반영했고 팀이 강사 계정 역할 도입 방향을 선택했습니다. 역할 계약을 먼저 명시하되 미확정 LMS 도메인을 함께 선행 구현하지 않도록 경계를 분리합니다.
+- 대안과 trade-off: 역할을 구분하지 않고 단일 `USER`로 유지하면 현재 구현은 단순하지만 FE 계약과 향후 강사 기능의 주체가 불명확합니다. 가입 후 관리자 승인 방식은 권한 상승 통제가 강하지만 승인 운영 요구가 없어 MVP에서는 자기 선택 방식을 사용합니다.
+- 호환성: 배포 전에 발급된 `role=USER` access token은 `TOKEN_INVALID`가 되며 refresh 또는 재로그인으로 `LEARNER` 토큰을 다시 발급받아야 합니다. 기존 DB 사용자는 V8 migration에서 `LEARNER`로 변환합니다.
+- 후속 변경 문서: [요구사항 명세](requirements.md), [프로젝트 목표](project-goals.md), [도메인 모델](domain-model.md), [API 명세](api-spec.md), [데이터베이스](database.md), [화면-API 매핑](screen-api-map.md)
+
+### DEC-030 — 강의실 최소셋·자료 접근·진도 계약
+
+- 상태: Accepted — [GitHub #126](https://github.com/AutoAI-EduPilot/BE/issues/126) 계약, FE 검토 완료
+- 결정일: 2026-08-02
+- 결정자: 프로젝트 담당자, Frontend 담당자
+- 선택:
+  - 강의실 개설·초대 참여·주차 자료·즉시 공지·캘린더 파생 조회를 MVP에 포함합니다. DEC-018의 강의실 제외 부분만 대체하며 Course·Lecture·Assignment·Notification, 통계·리마인더·예약 게시·CUSTOM 일정은 계속 제외합니다.
+  - 강의실은 `INSTRUCTOR`가 소유하고 관리합니다. `LEARNER`와 본인이 소유하지 않은 강의실에 참여한 `INSTRUCTOR`는 승인 멤버로서 공개된 주차와 연결 자료를 조회하고 그 자료로 본인 통합학습 세션을 생성·진행할 수 있습니다. 소유권을 숨겨야 하는 강의실 접근은 `CLASSROOM_NOT_FOUND`, 역할 부족은 `ACCESS_DENIED`를 사용합니다.
+  - `LEARNER`와 `INSTRUCTOR`의 기존 개인 PDF 업로드를 유지하고 예약 역할 `ADMIN`의 기존 개인 업로드 계약도 변경하지 않습니다. 강의실 업로드·기존 자료 연결·연결 해제는 해당 강의실 소유 `INSTRUCTOR`만 수행합니다. 전역 자료 목록은 본인 소유 자료만 반환하고 강의실 자료는 주차 API에서 발견합니다.
+  - 동일 사용자의 동일 자료 학습 이력은 개인 학습과 여러 강의실에서 공유합니다. `learning_sessions`에 `classroom_id`를 추가하지 않으며, 강의실 진도는 공개 주차에 연결된 고유 자료의 사용자×자료 설명 완료 이력을 합산합니다. 다른 사용자의 이력은 공유하지 않습니다.
+  - 강의실 진도율은 공개 주차에 연결된 고유 READY 자료를 대상으로 `고유 (material_id, page_number) 설명 완료 수 ÷ 고유 자료 page_count 합 × 100`을 정수 반올림합니다. 같은 자료의 여러 주차 연결은 한 번만 계산하고, 이력 또는 유효한 분모가 없으면 0입니다.
+  - 주차 상태는 저장하지 않고 `release_at`과 현재 UTC 시각을 비교해 파생합니다. `NULL`은 즉시 공개, 미래는 `SCHEDULED`, 도래 시각 이후는 `PUBLISHED`입니다.
+  - `currentWeek`은 `Asia/Seoul`의 오늘을 기준으로 `min(weekCount, floor((today-startDate)/7)+1)`로 계산하고, 시작 전은 1, 종료 후는 `weekCount`입니다. `weekCount`는 `ceil((endDate-startDate+1일)/7)`로 서버가 계산합니다.
+  - 주차 번호는 `1 <= weekNumber <= weekCount`입니다. 기존 최대 주차보다 작아지도록 `endDate`를 줄이는 요청은 `CLASSROOM_WEEK_RANGE_CONFLICT`로 거부합니다. `startDate`는 생성 후 변경하지 않습니다.
+  - PATCH에서 필드 생략은 변경 없음, `releaseAt: null`은 즉시 공개, `description: null`은 설명 삭제를 의미합니다.
+  - 강의실 색상은 `BLUE | GREEN | PURPLE | ORANGE | RED | GRAY`를 사용합니다. FE 표시값은 각각 `#3B82F6`, `#22C55E`, `#8B5CF6`, `#F97316`, `#EF4444`, `#64748B`입니다.
+  - 참여 요청은 `(classroom, user)`당 한 행입니다. 거절 후 재요청은 같은 행을 `PENDING`으로 바꾸고 `requested_at`을 갱신하며 `processed_at`을 비웁니다. 멤버 탈퇴·강퇴는 MVP에서 지원하지 않습니다.
+  - 자료 연결 해제 또는 공개 취소 후 다른 소유권·공개 주차 접근 경로가 없으면 신규 자료 조회·파일 조회·세션 생성과 기존 세션의 추가 학습 턴을 차단합니다. 기존 세션·메시지·퀴즈 기록은 보존합니다. 완료 강의실은 명시적 상태 전환으로만 만들고 기존 멤버에게 공개 자료 조회와 본인 통합학습을 유지하되 강의실 관리 쓰기는 거부합니다.
+- 이유: 강의실은 리포트·강의실 통계의 권한 경계와 자료 범위를 제공하면서도 기존 사용자×자료 학습 모델과 AI snapshot 계약을 재사용할 수 있습니다. 강의실별 세션 복제를 피하고 설명 완료 이력을 자료 학습 성취의 공통 근거로 사용합니다.
+- 대안과 trade-off: 세션에 `classroom_id`를 저장하면 강의실별 학습 출처를 엄격히 분리할 수 있지만 동일 자료의 중복 세션·진도와 API 변경이 발생해 MVP에서 제외합니다. 학습자 개인 업로드 금지는 기존 자유 학습 흐름을 깨므로 채택하지 않습니다.
+- 후속 변경 문서: [API 명세](api-spec.md), [데이터베이스](database.md), [에러 코드](error-code.md), [도메인 모델](domain-model.md), [화면-API 매핑](screen-api-map.md)
+
+### DEC-031 — 별도 시험 생성·응시·채점 계약
+
+- 상태: Accepted — [GitHub #133](https://github.com/AutoAI-EduPilot/BE/issues/133)에서 프로젝트 담당자가 권장안을 승인했습니다. AI 담당자의 사전 설계 확인은 승인 게이트에서 제외하되 AI Service v0.6 구현·계약 테스트·재기동 검증은 후속 완료 게이트로 유지합니다. 제출 후 정답·해설 공개(D4)는 Deferred이며, 확정 전까지 비공개를 적용합니다.
+- 결정일: 2026-08-03
+- 결정자: 프로젝트 담당자. grade optional 필드와 정수 `quizId`는 본 결정으로 확정하며 AI 담당자는 구현·검증 결과를 보고합니다.
+- 선택:
+  - **D1 — 출제**: MVP는 강사 직접 출제만 지원합니다. AI 시험 초안 생성(#135)은 Phase C로 이월하며 `exam_questions.source` 같은 선행 확장 컬럼을 두지 않습니다.
+  - **D2 — 재응시**: `allow_retake=false`가 기본입니다. 허용 시 모든 시도를 `attempt_no` 순서로 보존합니다. 운영 화면의 최신 제출은 상태와 무관한 `MAX(attempt_no)`, 성적·리포트 대표값은 DEC-032에 따라 `MAX(attempt_no WHERE status=GRADED)`로 파생합니다.
+  - **D3 — 주관식 루브릭**: SHORT의 `referenceAnswer`와 ESSAY의 `modelAnswer`는 필수이고 rubric은 선택입니다. `null`과 빈 배열은 모두 미입력으로 취급해 grade 호출 시 `[{"criterion":"모범 답안 부합도","weight":1.0}]`을 주입합니다. DRAFT에는 불완전한 weight 합도 저장할 수 있고, 공개 시 입력된 rubric의 weight 합이 1.0인지 검증합니다.
+  - **D4 — 정답·해설 공개**: 정책 확정 전에는 제출 후에도 정답, 해설, 모범 답안과 rubric을 학생 응답에 포함하지 않습니다. 공개 전환은 별도 결정으로 추가하며 기존 공개 문항 조회 경로에는 조건부 정답 직렬화를 넣지 않습니다.
+  - **D5 — AI 채점**: SHORT/ESSAY는 기존 `/internal/ai/grade`를 재사용합니다. 시험은 `pageContext`와 `learnerMemoryDigest`를 생략하고, 동일 답안의 채점이 학습자 메모리에 따라 달라지지 않게 합니다. grade `quizId`에는 숫자 `examId`를 사용하며 wire 타입 변경은 후속 계약 버전에서 다룹니다. 응답이 있는 SHORT와 ESSAY를 유형별로 묶어 각 최대 1회 호출하고, 한 유형 호출이 실패해도 나머지 유형은 계속 호출해 성공 결과를 보존합니다.
+  - **D6 — 미응답**: 누락 답안은 `answer=NULL`, `score=0`, `verdict=WRONG`, `feedback=NULL`로 저장하고 AI 채점 요청에서 제외합니다. 전 문항 미응답 제출도 유효한 0점 시도로 보존합니다.
+  - **D7 — 채점 실패**: AI 대상 답안은 채점 완료 전과 실패 시 `score`, `verdict`, `feedback`을 `NULL`로 둡니다. 제출 총점·정규화 점수도 완전한 채점 전에는 `NULL`이며, 결정적 채점 결과와 미응답 결과는 유지합니다.
+  - **D8 — 빈 DRAFT**: 문항이 없는 DRAFT와 `total_score=0`을 허용합니다. 공개 시점에만 문항 1개 이상, 양수 총점, 유형별 비공개 정답과 rubric 불변식을 검증합니다.
+  - 시험 상태는 `DRAFT → PUBLISHED → CLOSED` 단방향입니다. 공개는 PUBLISHED에서, 마감은 CLOSED에서만 멱등입니다. DRAFT 마감은 `EXAM_NOT_PUBLISHED`, CLOSED 공개는 `EXAM_NOT_EDITABLE`로 거부합니다.
+  - 완료 강의실은 신규 학습 활동인 시험 생성·수정·공개·제출만 `CLASSROOM_COMPLETED`로 차단합니다. 기존 PUBLISHED 시험의 마감과 DRAFT 시험의 물리 삭제는 정리 작업으로 허용합니다.
+  - 동일 제출의 네트워크 재시도는 같은 `requestId`를 사용해 기존 제출을 반환하고, 재응시는 반드시 새 `requestId`를 발급합니다.
+  - 응답이 있는 SHORT/ESSAY 문항이 하나도 없으면 AI를 호출하지 않고 결정적 결과만으로 `GRADED`를 확정합니다. 실제 AI 호출이 하나 이상 발생하고 일반 채점 오류가 하나라도 생긴 경우에만 `GRADING_FAILED`로 저장합니다.
+  - 최초 동기 채점 계약에서는 `AI_REQUEST_INVALID`을 보상 삭제 후 `INTERNAL_SERVER_ERROR`(500)로 반환하기로 했습니다. 비동기 채점 전환 이후의 처리는 DEC-032가 대체합니다.
+- 이유: 별도 시험은 통합 학습 퀴즈와 데이터를 분리하면서 기존 결정적 채점과 GraderAgent 검증을 재사용해야 합니다. 공개 전 편집 자유도, 채점 실패의 정확한 표현, 전 시도 보존을 보장해야 리포트의 최신·누적 추세가 왜곡되지 않습니다.
+- 대안과 trade-off: 정답·해설 즉시 공개는 학습 피드백이 빠르지만 재응시 시험의 정답 노출 문제가 있어 보류했습니다. AI 출제 초안은 편의성이 있으나 ReportAgent보다 우선하지 않아 Phase C로 이월합니다.
+- 후속 변경 문서: [API 명세](api-spec.md) §6.2, [데이터베이스](database.md), [도메인 모델](domain-model.md), [에러 코드](error-code.md), [화면-API 매핑](screen-api-map.md), [AI 연동 계약](ai-integration-contract.md) v0.6
+
+### DEC-032 — 시험 비동기 채점·복구와 성적 대표값
+
+- 상태: Accepted — 시험 도메인 구현 후 발견된 고아 `SUBMITTED` 복구와 응답 지연 문제를 보완합니다. 신규 구현 이슈 번호는 원격 이슈 등록 후 연결합니다.
+- 결정일: 2026-08-03
+- 결정자: 프로젝트 담당자
+- 선택:
+  - 응답 있는 SHORT/ESSAY가 있으면 제출을 `SUBMITTED`로 커밋하고 동일한 `ExamSubmissionResponse` 봉투를 HTTP 202로 즉시 반환합니다. MCQ/OX 전용 또는 주관식 전부 미응답은 기존대로 즉시 `GRADED`, HTTP 200입니다. FE는 HTTP 코드가 아니라 본문의 `status`로 분기합니다.
+  - `SUBMITTED` 응답은 총점·정규화 점수·채점 시각뿐 아니라 이미 계산된 MCQ/OX의 문항별 `score`, `verdict`, `feedback`도 null로 마스킹합니다. 본인 `answer`, `maxScore`, `questionId`는 유지하며 문항별 결과는 `GRADED | GRADING_FAILED`에서만 공개합니다. 이는 재응시 허용 시험에서 객관식 정오답 선공개로 생기는 정보 이득을 막기 위함입니다.
+  - 제출 커밋 뒤 bounded executor(core 4, max 4, queue 100, AbortPolicy)에 직접 전달합니다. worker는 5분 lease를 조건부 claim하고 `status=SUBMITTED AND grading_lease_token=:token`일 때만 terminal 결과를 반영해 늦은 worker 덮어쓰기를 막습니다.
+  - scheduler는 30초마다 최대 100건을 처리합니다. `SUBMITTED.updated_at`을 마지막 채점 시도 시작 시각으로 사용하며 30분 컷오프에서 첫 두 번은 재큐잉하고 세 번째는 `GRADING_FAILED`로 종결합니다. 카운트와 상태 변경은 기존 CAS 조건을 유지하며 active lease보다 우선합니다. 강사는 실패 제출을 저장 답안으로 재채점할 수 있고 이때 카운트를 0으로 초기화합니다. 일반 AI 오류와 잡힌 worker 예외는 즉시 실패 처리합니다.
+  - 비동기 worker가 `AI_REQUEST_INVALID`을 받으면 재시도하지 않고 `GRADING_FAILED`로 종결하며 ERROR 로그로 Spring-AI 계약 결함을 구분합니다. 원 POST에 500을 반환하거나 이미 커밋된 제출을 보상 삭제하지 않습니다. 이 항목은 DEC-031의 동기 처리 규칙을 대체합니다.
+  - 같은 `requestId`는 기존 상태를 반환합니다. 최신 제출이 `SUBMITTED`이면 새 requestId를 거부하고, `GRADING_FAILED`는 `allowRetake`와 무관하게 응시권을 소모하지 않아 새 requestId로 다음 attempt를 만들 수 있습니다.
+  - 운영 조회·polling·제출 제한의 최신 시도는 상태와 무관한 `MAX(attempt_no)`입니다. 성적·리포트 대표 제출은 `MAX(attempt_no WHERE status=GRADED)`이며 실패 시도는 제외합니다. 예를 들어 1회차 `GRADED` 80점 뒤 2회차 `GRADING_FAILED`이면 대표 성적은 1회차 80점입니다. GRADED 시도가 없는 학생은 점수·성취도 집계에서 제외합니다.
+- 이유: 외부 AI 호출을 요청 트랜잭션과 분리하면서 프로세스 종료·executor 포화·늦은 worker에도 제출을 회수할 수 있어야 합니다. 채점 실패는 시스템 장애이므로 이미 확정된 학생 성적을 지우거나 응시권을 영구 소모해서는 안 됩니다.
+- 대안과 trade-off: 동기 채점은 구현이 단순하지만 요청 지연과 고아 제출 복구가 어렵습니다. 단일 30분 절대 컷오프는 executor 적체와 일시 장애를 영구 실패로 만들 수 있어, 제한된 3개 채점 창과 강사 재채점 API를 추가하고 기존 lease·CAS 구조는 유지합니다.
+- 후속 변경 문서: [API 명세](api-spec.md) §6.2, [데이터베이스](database.md), [도메인 모델](domain-model.md), [에러 코드](error-code.md), [화면-API 매핑](screen-api-map.md), [리포트 설계](report-agent-design.md)
+
+### DEC-033 — 리포트 범위·평가 정책
+
+- 상태: Accepted — [GitHub #117](https://github.com/AutoAI-EduPilot/BE/issues/117) 결정
+- 결정일: 2026-08-03
+- 결정자: 프로젝트 담당자, Main Service 담당자
+- 선택:
+  - MVP 리포트 생성·조회·질의응답은 강의실 관리 `INSTRUCTOR` 전용입니다. 학생 본인 조회는 허용하지 않으며, 문구 수위와 심리적 영향을 검토한 뒤 도입 여부를 다시 결정하는 명시적 TBD로 둡니다.
+  - 분석 범위는 **전체 기간**과 **주차 선택** 두 종류입니다. 세션 단위와 시험 단위의 개별 선택은 TBD입니다.
+  - 누적 지표와 비교할 최근 window는 **14일**입니다.
+  - 생성 진행 확인은 시험 비동기 채점과 같은 **HTTP 202 응답 + status polling** 패턴을 사용합니다. SSE 진행 이벤트는 TBD입니다.
+  - 기본 평가 기준은 초안 10종에서 `학습 자신감`을 제외한 **9종**입니다. 자기보고 데이터가 없어 항상 `INSUFFICIENT_DATA`가 되기 때문이며, 자기보고 기능을 도입할 때 다시 추가합니다. 기본 weight는 균등하고 criterion별 최소 근거는 **2건**입니다.
+  - 종합 단계는 **우수 / 양호 / 보통 / 보완 필요**의 4단계입니다. 종합 점수와 단계는 Spring이 충분한 항목만 대상으로 결정적으로 계산합니다.
+  - 페이지 진도는 `progressDataAvailable=true`로 포함합니다. V9 `session_page_records`가 성공한 `EXPLAIN_CURRENT_PAGE` 턴이 `EXPLAINED`로 완료된 페이지만 기록하므로 설계 §3.2의 설명 완료 근거 요건을 충족합니다. 기록은 `TurnPersistenceService`, 집계는 `SessionPageRecordRepository.countDistinctByUserIdAndMaterialId`, 진도율은 `LearningProgressService`를 재사용합니다.
+  - 별도 시험 도메인의 병합·배포가 완료됐으므로 리포트는 처음부터 별도 시험을 포함하고 Phase 1과 Phase 2를 통합 착수합니다.
+  - 학생 리포트의 version·previous report·trend는 scope별 체인으로 관리합니다. FULL은 FULL끼리, WEEK는 같은 주차끼리 연결하며 V25 이전 혼합 체인의 역사적 연결·trend는 보정하지 않습니다.
+  - 리포트 snapshot과 리포트 QA는 무기한 보관하고 학생 탈퇴 시 기존 `UserWithdrawalHook` 패턴에 연동해 삭제합니다. 보관 기한 단축은 TBD입니다.
+  - evidence는 공개 가능한 label과 최소 fact만 노출합니다. 전체 원문·정답·루브릭은 노출하지 않습니다.
+  - 리포트 생성용 read timeout은 구현 이슈에서 `edupilot.ai.report-read-timeout=180s` 프로퍼티로 신설합니다.
+  - 잔여 TBD는 SSE 진행 이벤트, 세션·시험 단위 범위 선택, 학생 본인 조회, 보관 기한 단축, 강의실 전체 경향 리포트의 최소 인원입니다.
+- 이유: 현재 강의실·별도 시험·페이지 설명 완료 근거를 재사용하면 추정 진도나 미확정 시험 계약 없이 강사 지도용 리포트를 시작할 수 있습니다. 자기보고가 없는 평가 기준과 과도한 원문 노출은 데이터 품질·심리·보안 위험이 있어 제외합니다.
+- 대안과 trade-off: 학생 조회와 세밀한 범위 선택, SSE, 장기 보관 단축은 사용성과 운영 효율을 높일 수 있지만 문구 정책·개인정보·계약 복잡도 검토가 선행돼야 합니다. 학습 자신감을 행동 데이터로 추론하면 구현은 가능하지만 근거 없는 심리 판단이 되므로 채택하지 않습니다.
+- 후속 변경 문서: [요구사항 명세](requirements.md), [리포트 설계](report-agent-design.md), [리포트 작업 분해](issues/13-report-agent.md)
+
+### DEC-034 — 리포트 내부 AI 계약 5건
+
+- 상태: Accepted — [GitHub #118](https://github.com/AutoAI-EduPilot/BE/issues/118) 중 내부 AI 계약 5건 확정. 외부 Report API 계약은 계속 진행합니다.
+- 결정일: 2026-08-03
+- 결정자: 프로젝트 담당자, Main Service 담당자
+- 선택:
+  - `reportId`와 `generationId`의 wire 타입은 Spring 내부 타입과 무관하게 **string**으로 고정하며 union 타입을 허용하지 않습니다.
+  - evidence 상한은 **200개**입니다. Spring `ReportSnapshotBuilder`가 결정적 선별 규칙으로 상한 안의 evidence를 구성하는 1차 방어를 담당하고, AI Service는 `max_length=200` 초과 요청을 HTTP 422로 거부하는 2차 방어를 담당합니다.
+  - criteria 상한은 **20개**입니다. Spring criterion CRUD가 강의실당 활성 기준 20개 초과 등록을 거부하는 1차 강제 지점이고, AI Service의 `max_length=20`은 이중 안전망입니다.
+  - `previousReport`는 직전 **1개 version**의 `criterionKey`, `score`, `status`만 전달하며 narrative는 포함하지 않습니다.
+  - `trend`는 Spring이 점수 이력으로 결정적으로 계산해 저장합니다. AI 요청·응답 스키마에는 포함하지 않으며, 도메인의 `ReportCriterionResult.trend`는 Spring 계산값의 저장 컬럼으로 유지합니다.
+- 이유: 단일 wire 타입과 양쪽 상한 검증으로 계약 분기와 프롬프트 비대화를 막고, 이전 narrative의 자기복제 및 AI 추세 재계산을 차단합니다.
+- 대안과 trade-off: 숫자·문자열 union ID는 Spring 구현 선택을 노출해 소비자 검증을 복잡하게 합니다. AI가 trend를 생성하면 서술 유연성은 높지만 동일 이력의 재현성이 떨어지므로 채택하지 않습니다.
+- 후속 변경 문서: [리포트 설계](report-agent-design.md), [리포트 작업 분해](issues/13-report-agent.md). 실제 DTO·AI 계약 반영은 #121 및 후속 구현 이슈에서 수행합니다.
+
+### DEC-035 — PDF 원본의 xAI Files 단계 전환
+
+- 상태: Accepted — 설계자 승인, Phase 1 구현 이슈 [GitHub #303](https://github.com/AutoAI-UTEUM/BE/issues/303)
+- 결정일: 2026-08-25
+- 결정자: 프로젝트 설계자, AI Service 담당자
+- 선택:
+  - LLM이 PDF 원본을 직접 읽는 구조로 단계적으로 전환하되, 기존 페이지 텍스트 추출은 페이지 근거의 앵커·폴백으로 유지합니다.
+  - Phase 1은 `EDUPILOT_XAI_FILES_ENABLED` kill switch가 켜진 경우에만 추출 성공 원본을 xAI Files에 업로드합니다. 기본값은 `false`이며 응답의 nullable `xaiFileId`와 `warnings[{type,message}]`로 결과를 전달합니다.
+  - 업로드 실패나 xAI 파일 제한 48MiB 초과는 `FILE_UPLOAD_FAILED` warning으로 강등하고 텍스트 추출 성공 응답은 HTTP 200을 유지합니다.
+  - `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작합니다. 삭제 성공과 이미 없는 파일(404)은 204로 멱등 처리하고, 그 밖의 provider 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)로 반환합니다.
+  - Spring은 `xaiFileId`를 자료에 저장하고 자료 삭제 시 정리 훅을 호출합니다. 파일 ID를 실제 턴 요청에 첨부하는 경로는 Phase 3에서 별도 도입합니다.
+- 이유: 원본의 시각·레이아웃 정보를 이후 LLM 입력에서 활용할 수 있는 기반을 만들면서도, provider 업로드 장애 때문에 이미 성공한 결정적 텍스트 추출과 자료 등록이 실패하지 않도록 단계와 실패 경계를 분리합니다.
+- 대안과 trade-off: 즉시 원본 첨부만 사용하면 페이지 단위 근거 제어와 provider 장애 폴백을 잃습니다. 텍스트 추출만 유지하면 시각·레이아웃 정보 활용이 제한됩니다. 양쪽을 병행하면 저장·삭제 수명주기 관리가 추가되지만 kill switch와 멱등 삭제로 운영 위험을 제한합니다.
+- 후속 변경 문서: [AI 통합 계약](ai-integration-contract.md) §0·§2·§6.1·§7, [API 명세](api-spec.md) §8, [에러 코드](error-code.md), [에이전트 명세](agent-system-spec.md). 턴 첨부는 Phase 3 후속 이슈에서 계약·구현합니다.
 
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 

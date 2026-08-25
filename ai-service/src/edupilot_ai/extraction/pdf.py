@@ -59,7 +59,13 @@ def clean_page_text(text: str) -> str:
     return "\n".join(cleaned_lines).strip()
 
 
-def extract_pdf(path: Path, *, max_pages: int) -> ExtractedDocument:
+def extract_pdf(
+    path: Path,
+    *,
+    max_pages: int,
+    min_chars_per_page: int,
+    min_meaningful_page_ratio: float,
+) -> ExtractedDocument:
     """Extract all page text or raise one of the contract-safe domain errors."""
     try:
         reader = PdfReader(path, strict=False)
@@ -77,7 +83,7 @@ def extract_pdf(path: Path, *, max_pages: int) -> ExtractedDocument:
             )
             for index, page in enumerate(reader.pages, start=1)
         )
-    except (PdfExtractionError, PdfPageLimitError):
+    except PdfExtractionError, PdfPageLimitError:
         raise
     except FileNotDecryptedError as exception:
         raise PdfExtractionError(PdfFailureReason.ENCRYPTED) from exception
@@ -85,6 +91,10 @@ def extract_pdf(path: Path, *, max_pages: int) -> ExtractedDocument:
         raise PdfExtractionError(PdfFailureReason.CORRUPTED) from exception
 
     if not pages or all(not page.text for page in pages):
+        raise PdfExtractionError(PdfFailureReason.NO_TEXT)
+
+    meaningful_pages = sum(1 for page in pages if len(page.text) >= min_chars_per_page)
+    if meaningful_pages / len(pages) < min_meaningful_page_ratio:
         raise PdfExtractionError(PdfFailureReason.NO_TEXT)
 
     return ExtractedDocument(pages=pages)

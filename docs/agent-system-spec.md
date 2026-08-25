@@ -3,12 +3,12 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 다른 팀원 구현을 위한 참고·계약 초안 |
-| 마지막 갱신 | 2026-07-23 |
-| 변경 이력 | 2026-07-23: Grok 전환·계약 v0.4 정합 용어 정리 |
+| 마지막 갱신 | 2026-08-25 |
+| 변경 이력 | 2026-07-23: Grok 전환·계약 v0.4 정합 용어 정리<br>2026-08-17: 계약 v0.6 정합화<br>2026-08-25: xAI Files 업로드·삭제 Phase 1 반영 |
 | 구현 소유 | FastAPI AI Server |
 | 연동 소유 | Spring Backend ↔ FastAPI AI Server |
 
-> **주의**: 이 문서의 입출력·엔드포인트·이벤트가 [docs/ai-integration-contract.md](ai-integration-contract.md)(v0.4)와 충돌하면 계약 문서가 우선한다.
+> **주의**: 이 문서의 입출력·엔드포인트·이벤트가 [docs/ai-integration-contract.md](ai-integration-contract.md)(v0.6)와 충돌하면 계약 문서가 우선한다.
 
 ## 0. 문서 범위와 우선순위
 
@@ -104,11 +104,14 @@ Orchestrator에 전달할 문맥을 만듭니다.
 
 - 최신 세션 상태
 - 현재 페이지와 필요한 이전/다음 페이지 내용
-- 최근 대화와 conversation summary
+- 최근 대화(MVP는 별도 대화 요약 필드를 전송하지 않음)
 - 활성 QA thread digest
 - 최근 QuizAssessment
 - 확정 LearnerMemory digest
 - pending diagnosis와 repair 문맥
+
+현재 페이지 텍스트가 빈 문자열이면 ExplainerAgent와 QaAgent는 LLM을 호출하지 않고
+텍스트 내용이 없다는 고정 안내를 반환합니다.
 
 예시:
 
@@ -133,7 +136,7 @@ Orchestrator Plan의 JSON 스키마와 교수 정책을 검증하고 허용되�
 
 ### LlmBridge
 
-Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출력, 스트리밍, timeout, provider 오류 변환을 담당하되 도메인 정책을 결정하지 않습니다. 페이지 근거는 파일 업로드가 아니라 Spring이 추출해 동봉하는 `pageContext` 텍스트로 전달받습니다(DEC-006).
+Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출력, 스트리밍, timeout, provider 오류 변환과 xAI Files 업로드·삭제를 담당하되 도메인 정책을 결정하지 않습니다. 페이지 근거의 앵커·폴백은 Spring이 추출해 동봉하는 `pageContext` 텍스트입니다. Phase 1은 추출 성공 원본을 선택적으로 업로드해 `xaiFileId`만 반환하며, 턴 첨부는 Phase 3 범위입니다(DEC-006·035).
 
 ## 3. 멀티 에이전트 턴 처리 단계
 
@@ -141,12 +144,13 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
 2. **StateReducer**: LLM 없이 가능한 상태 변경을 Spring이 먼저 처리합니다. 상태 변경 자체가 새 AI 턴을 의미하지는 않습니다.
 3. **컨텍스트 수집**: Spring 스냅샷을 기반으로 ContextBuilder가 필요한 문맥을 구성합니다.
 4. **Plan 생성**: Orchestrator가 이번 턴의 목적, 교수 정책, 액션을 결정합니다.
+   이벤트→도구가 유일하게 결정되는 턴(현재 페이지 설명, 퀴즈 유형 선택, 결정적 안내 응답)은 Orchestrator가 LLM 호출 없이 Plan을 결정적으로 합성합니다. 합성 Plan도 동일하게 Plan 검증을 거칩니다.
 5. **Plan 검증**: Policy/Verifier가 스키마, 허용 도구, 현재 상태, 교수 정책을 검사합니다.
 6. **도구 실행**: ToolDispatcher가 검증된 전문 에이전트/서비스를 실행합니다.
 7. **결과 수집**: 메시지, 퀴즈, 채점, 진단 등 결과를 표준 DTO로 수집합니다.
 8. **런타임 상태 패치**: 설명 완료, 진단 대기 등 허용된 `statePatch`를 만듭니다.
 9. **턴 결과 정리**: 사용자 입력, 에이전트 메시지, UI 액션, 실행 이력을 합칩니다.
-10. **요약/평가 handoff**: 대화는 `conversationSummary`, 퀴즈 결과는 별도 QuizResultLog/Assessment에 정리합니다. 퀴즈 원본을 대화 요약에 넣지 않습니다.
+10. **요약/평가 handoff**: 대화 문맥은 최근 메시지와 QA thread digest로, 퀴즈 결과는 별도 QuizResultLog/Assessment로 정리합니다. 퀴즈 원본을 대화 문맥에 넣지 않습니다.
 11. **최종 저장**: Spring이 계약과 상태 전이를 검증한 뒤 MySQL에 트랜잭션으로 저장하고 FE에 반환합니다.
 
 ## 4. 에이전트 및 서비스 역할
@@ -165,7 +169,9 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
 
 - 먼저 `turnGoal`을 결정하고 그 후 도구를 선택합니다.
 - 전문 작업은 해당 에이전트에 위임합니다.
-- 단일 관찰만으로 `memoryWrite`를 만들지 않습니다.
+- Plan의 `memoryWrite`는 항상 `null`입니다. 실제 `memoryWrite`는 검증된
+  `PROMOTE_MEMORY` 액션 성공 시 턴 응답 최상위에 `{ "candidateIds": [...] }`로
+  생성합니다.
 - 사용 가능한 tool과 허용된 args만 출력합니다.
 - 설명문/QA 답변을 Plan에 직접 생성하지 않습니다.
 - 오류 시 임의 동작 대신 안전한 `stop`을 반환합니다.
@@ -175,7 +181,7 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
 ```json
 {
   "schemaVersion": "1.0",
-  "turnGoal": "EXPLAIN_PAGE_AND_OFFER_QUIZ",
+  "turnGoal": "EXPLAIN_CURRENT_PAGE",
   "pedagogyPolicy": {
     "mode": "EXPLAIN_FIRST",
     "reason": "새 페이지이므로 먼저 설명이 필요함",
@@ -192,18 +198,9 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
         "page": 2,
         "detailLevel": "NORMAL"
       }
-    },
-    {
-      "actionId": "a2",
-      "type": "CALL_TOOL",
-      "tool": "PROMPT_BINARY_DECISION",
-      "args": {
-        "contentMarkdown": "퀴즈를 진행할까요?",
-        "decisionType": "QUIZ_DECISION"
-      }
     }
   ],
-  "reason": "현재 페이지 설명 뒤 이해 확인을 제안함",
+  "reason": "현재 페이지 설명 요청에 맞는 도구를 선택함",
   "memoryWrite": null,
   "stop": null
 }
@@ -235,12 +232,12 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
 
 ```json
 {
-  "markdown": "...",
-  "thoughtSummary": "현재 페이지 핵심 개념과 학생 수준에 맞춘 설명 진행 요약"
+  "markdown": "..."
 }
 ```
 
-`thoughtSummary`는 사용자 표시/관찰 가능한 짧은 작업 요약이며 비공개 내부 추론 원문이 아닙니다.
+진행 요약은 모델 출력이 아니라 §8의 파이프라인 고정 `thought_summary` 이벤트로
+생성합니다.
 
 ### 4.3 QaAgent
 
@@ -268,23 +265,23 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
 
 ```json
 {
-  "markdown": "...",
-  "thoughtSummary": "질문과 페이지 근거를 연결한 진행 요약"
+  "markdown": "..."
 }
 ```
 
 ### 4.4 QuizAgent
 
-목적: 현재 페이지 또는 누적 학습 범위와 학생 상태를 바탕으로 선택된 유형의 퀴즈 JSON을 생성합니다.
+목적: 현재 페이지와 학생 상태를 바탕으로 선택된 유형의 퀴즈 JSON을 생성합니다.
 
 입력:
 
 - `pageContext`(Backend 추출 페이지 텍스트 동봉 — DEC-006), `page`
 - `quizType`: `MCQ`, `OX`, `SHORT`, `ESSAY`
-- `coverageStartPage`, `coverageEndPage`
 - `learnerLevel`, `learnerConfidence`
 - `learnerMemoryDigest`, 관련 있는 `qaThreadDigest`
-- `sessionId`, `materialId` 추적 정보
+
+`coverage`는 생성 출력이며 turn snapshot이 제공한 페이지로 제한합니다. 별도 범위가
+없는 기본 퀴즈는 현재 페이지 단일 범위로 생성합니다.
 
 학습 정책:
 
@@ -309,9 +306,10 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
   "schemaVersion": "1.0",
   "generationId": "generation-reference",
   "quizType": "MCQ",
-  "page": 3,
-  "coverageStartPage": 1,
-  "coverageEndPage": 3,
+  "coverage": {
+    "startPage": 3,
+    "endPage": 3
+  },
   "title": "선형회귀 핵심 확인",
   "questionCount": 5,
   "questions": []
@@ -403,9 +401,7 @@ Spring은 문항 ID, 점수 범위, 합계, 만점 일치를 다시 검증합니
 
 ```json
 {
-  "markdown": "...",
-  "focusConcepts": ["..."],
-  "thoughtSummary": "교정 대상과 설명 방향의 짧은 진행 요약"
+  "markdown": "..."
 }
 ```
 
@@ -473,7 +469,7 @@ Spring은 문항 ID, 점수 범위, 합계, 만점 일치를 다시 검증합니
     {
       "type": "WEAKNESS",
       "content": "...",
-      "confidence": "LOW"
+      "confidence": 0.6
     }
   ],
   "evidence": ["..."]
@@ -491,7 +487,7 @@ Spring은 문항 ID, 점수 범위, 합계, 만점 일치를 다시 검증합니
 - `repairResult`
 - `qaHistory`
 - `currentMemory`
-- 승격 시 Orchestrator의 검증된 `memoryWrite`
+- 승격 시 스냅샷의 임시 후보와 검증된 `PROMOTE_MEMORY.candidateIds`
 
 관리 필드:
 
@@ -551,7 +547,6 @@ Spring은 문항 ID, 점수 범위, 합계, 만점 일치를 다시 검증합니
   },
   "conversation": {
     "recentMessages": [],
-    "conversationSummary": "...",
     "qaThreadDigest": null
   },
   "quiz": {
@@ -589,7 +584,7 @@ Spring은 문항 ID, 점수 범위, 합계, 만점 일치를 다시 검증합니
 | `pedagogyPolicy` | 난이도, 설명 모드, 힌트 깊이 등 |
 | `actions` | 순서가 있는 실행 액션 |
 | `reason` | 정책 검증/디버깅용 짧은 이유 |
-| `memoryWrite` | 근거가 충분한 경우에만 존재 |
+| `memoryWrite` | Plan에서는 항상 `null`; 실제 값은 `PROMOTE_MEMORY` 성공 시 턴 응답 최상위에 생성 |
 | `stop` | 안전하게 중단할 사유/사용자 안내 |
 
 ### 허용 도구 초안
@@ -605,8 +600,6 @@ Spring은 문항 ID, 점수 범위, 합계, 만점 일치를 다시 검증합니
 - `REPAIR_MISCONCEPTION`
 - `BUILD_MEMORY_CANDIDATE`
 - `PROMOTE_MEMORY`
-- `PROMPT_BINARY_DECISION`
-- `PROMPT_QUIZ_TYPE_SELECTION`
 
 Spring 결정적 파이프라인 전용 기능(자유 턴 Plan에서 사용 금지 — Policy가 거부):
 
@@ -618,20 +611,39 @@ Spring 결정적 파이프라인 전용 기능(자유 턴 Plan에서 사용 금�
 
 ### 액션 실행 결과
 
+ToolDispatcher는 액션별 사용자 출력 봉투를 만들지 않습니다. 메시지는 `messages`,
+상태 변경안은 턴 단위 `statePatch`, 실행 이력은 `actionsExecuted`에 각각 모아 계약
+§3.3의 턴 응답으로 반환합니다.
+
 ```json
 {
-  "actionId": "a1",
-  "tool": "EXPLAIN_PAGE",
-  "status": "SUCCESS",
-  "userOutput": {
-    "messageType": "EXPLANATION",
-    "content": "..."
-  },
-  "artifacts": {},
-  "statePatch": {
-    "pageStatus": "EXPLAINED"
-  },
-  "error": null
+  "schemaVersion": "1.0",
+  "turnId": "turn-1",
+  "turnGoal": "EXPLAIN_CURRENT_PAGE",
+  "actionsExecuted": [
+    {
+      "actionId": "a1",
+      "agent": "ExplainerAgent",
+      "status": "SUCCESS"
+    }
+  ],
+  "messages": [
+    {
+      "messageType": "EXPLANATION",
+      "content": "..."
+    }
+  ],
+  "statePatch": { "pageStatus": "EXPLAINED" },
+  "uiActions": [],
+  "quiz": null,
+  "memoryCandidates": [],
+  "memoryWrite": null,
+  "usage": {
+    "model": "grok-4.5-<date>",
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "reasoningTokens": 0
+  }
 }
 ```
 
@@ -640,7 +652,8 @@ Spring 결정적 파이프라인 전용 기능(자유 턴 Plan에서 사용 금�
 - 스키마 오류: 한 번의 구조화 재생성/수정 시도 후 실패 응답을 반환하는 방안을 검토합니다.
 - 알 수 없는 tool/args: 실행하지 않고 Policy 오류로 중단합니다.
 - Grok(xAI) timeout/rate limit: 제한된 정책에 따라 재시도하고 Spring에 분류된 오류를 반환합니다.
-- 일부 액션 성공 후 후속 액션 실패: 성공 artifact와 실패 지점을 명시하고 Spring이 원자 반영 여부를 결정합니다.
+- 후속 액션이 실패하면 부분 결과를 반환하지 않고 턴 전체를 실패 처리합니다. 모든
+  액션이 성공한 경우에만 최종 결과를 반환합니다.
 - 근거 부족: 답을 꾸며내지 않고 한계 안내 메시지를 생성합니다.
 - 필수 문맥 누락: 안전한 stop과 필요한 입력을 반환합니다.
 
@@ -649,14 +662,18 @@ Spring 결정적 파이프라인 전용 기능(자유 턴 Plan에서 사용 금�
 ### 정책 검증
 
 - 현재 상태에서 허용된 tool인가? (파이프라인 전용 기능이 자유 턴 Plan에 등장하면 거부)
-- 통과한 퀴즈에 근거 없이 교정을 호출하지 않는가?
 - 진단 답변 전 RepairAgent를 호출하지 않는가?
 - 새 QA와 후속 QA의 thread mode가 일치하는가?
 - 페이지 범위와 퀴즈 범위가 유효한가?
 - 메모리 승격에 반복 근거가 있는가?
 - action 수와 intervention budget을 넘지 않는가?
+- `pageNumber` args 키는 계약 키 `page`로 결정적으로 보정하는가?
+- `qaThreadMode` 별칭(`NEW`, `FOLLOWUP`, `FOLLOW-UP`)을 계약 enum
+  (`START_NEW`, `FOLLOW_UP`)으로 정규화하는가?
 
-파이프라인 구간 규칙("퀴즈 타입과 채점 도구 일치", "통과한 퀴즈에 진단을 실행하지 않음")은 하이브리드 원칙에 따라 Spring의 이벤트 타입·점수 기준 규칙이 구조적으로 집행합니다. Policy/Verifier는 자유 턴 Plan에 대해서만 위 검증을 수행합니다.
+> **하이브리드 원칙**: 퀴즈 타입과 채점 도구의 일치, 통과 여부에 따른 진단·교정
+> 호출 같은 점수 기준 규칙은 Spring의 이벤트 구조가 결정적으로 집행합니다.
+> Policy/Verifier는 자유 턴 Plan에 대해서만 위 검증을 수행합니다.
 
 ### Dispatcher 실행
 
@@ -665,25 +682,32 @@ Spring 결정적 파이프라인 전용 기능(자유 턴 Plan에서 사용 금�
 - 사용자 메시지와 내부 artifact를 분리합니다.
 - 퀴즈 정답/루브릭을 UI action에 포함하지 않습니다.
 - 허용된 상태 패치만 합칩니다.
-- 동일 action/turn ID 중복 실행 방지 전략을 둡니다.
+- 에이전트가 이동 제안 등 UI action을 생성하면 결과 종합 단계에서 수집해 응답
+  `uiActions`에 싣습니다. Spring은 allowlist로 수용 여부를 결정합니다.
+- 멱등성은 Spring의 `requestId`가 소유하며 FastAPI는 자체 중복 실행 저장소를 두지
+  않습니다.
 
 ## 8. 실시간 스트리밍
 
-- 답변 content chunk와 사용자 표시용 `thoughtSummary`/진행 상태를 점진적으로 전달합니다.
-- ToolDispatcher에서 Spring과 Frontend까지 전달하는 기본 외부 스트림은 SSE를 사용합니다.
+- AI Service → Spring 내부 전송은 요청 `Accept: application/x-ndjson`에 따라 NDJSON을
+  사용하며, Spring → FE 외부 전송은 SSE를 사용합니다.
+- `status` 이벤트의 `stage`는 `PLANNING`, `EXPLAINING`, `ANSWERING`,
+  `FINALIZING` 4종입니다.
+- 본문은 `content_delta`로 점진 전달합니다. `thought_summary`는 모델 출력이나 내부
+  추론이 아니라 파이프라인이 만드는 결정적 한국어 진행 문구입니다.
 - Grok(xAI)의 스트리밍·구조화 출력 지원 방식은 실제 사용 모델의 공식 가이드를 기준으로 구현 시 확인합니다.
-- `thoughtSummary`는 내부 chain-of-thought가 아니라 짧은 처리 단계/근거 요약입니다.
 - ToolDispatcher는 청크를 표준 스트림 이벤트로 변환하고 Spring이 FE에 중계합니다.
 - 완료 전에 받은 청크는 임시 UI 상태이며, 최종 결과 검증 후 확정 저장합니다.
-- 중단, 취소, 재연결, 마지막 이벤트 ID 정책은 FE/BE/AI가 공동 확정합니다.
+- 10초 동안 다른 이벤트가 없으면 `heartbeat`를 발행합니다. `completed`와 `error`는
+  상호 배타이며 하나만 정확히 1회 마지막에 발행합니다.
 
-이벤트 후보:
+내부 이벤트:
 
 ```text
 status
 thought_summary
 content_delta
-ui_action
+heartbeat
 completed
 error
 ```
@@ -792,9 +816,7 @@ error
 - 각 agent JSON Schema와 `schemaVersion` 호환 정책
 - Orchestrator 허용 tool 목록과 args
 - Plan 보정과 완전 거부의 기준
-- 모델 선택과 페이지 근거(`pageContext` 텍스트 동봉 — DEC-006) 전달 방식
+- 모델 선택과 페이지 근거 전달 방식(`pageContext` 텍스트 앵커·폴백 유지, xAI Files 턴 첨부는 Phase 3 — DEC-006·035)
 - timeout, 재시도, rate limit, fallback 모델 정책
-- 부분 액션 성공 시 Spring 반영 원자성
 - 평가 큐 크기와 메모리 승격 근거 기준
-- SSE 이벤트 schema와 heartbeat·취소·재연결
 - AI 결과 및 prompt/response의 로그·보관·마스킹 정책
