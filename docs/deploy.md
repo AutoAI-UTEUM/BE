@@ -261,9 +261,9 @@ GitHub `dev` Environment와 다음 Secrets를 등록합니다.
 cd /opt/edupilot
 PREVIOUS_TAG=previous-git-sha
 
-TAG="$PREVIOUS_TAG" docker compose --env-file .env \
+ENVIRONMENT=dev TAG="$PREVIOUS_TAG" docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.prod.yml pull main-service
-TAG="$PREVIOUS_TAG" docker compose --env-file .env \
+ENVIRONMENT=dev TAG="$PREVIOUS_TAG" docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.prod.yml up -d main-service nginx
 
 curl --fail "https://YOUR_DEV_DOMAIN/api/health"
@@ -286,18 +286,18 @@ curl --fail "https://YOUR_DEV_DOMAIN/api/health"
 현재 상태와 최근 로그를 확인합니다.
 
 ```bash
-TAG=current-git-sha docker compose --env-file .env \
+ENVIRONMENT=dev TAG=current-git-sha docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.prod.yml ps
-TAG=current-git-sha docker compose --env-file .env \
+ENVIRONMENT=dev TAG=current-git-sha docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.prod.yml logs --tail=200 main-service
-TAG=current-git-sha docker compose --env-file .env \
+ENVIRONMENT=dev TAG=current-git-sha docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.prod.yml logs --tail=200 mysql nginx
 ```
 
 DB 변경 배포 전에는 논리 백업을 생성합니다.
 
 ```bash
-TAG=current-git-sha docker compose --env-file .env \
+ENVIRONMENT=dev TAG=current-git-sha docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.prod.yml exec -T mysql \
   sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump -uroot \
     --single-transaction --all-databases' > "mysql-$(date +%Y%m%d-%H%M%S).sql"
@@ -314,7 +314,7 @@ docker run --rm \
   --volume edupilot-certbot-certs:/etc/letsencrypt \
   certbot/certbot renew --webroot --webroot-path /var/www/certbot
 
-TAG=current-git-sha docker compose --env-file .env \
+ENVIRONMENT=dev TAG=current-git-sha docker compose --env-file .env \
   -f docker-compose.yml -f docker-compose.prod.yml exec nginx nginx -s reload
 ```
 
