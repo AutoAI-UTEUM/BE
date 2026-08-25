@@ -1,3 +1,10 @@
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "50m"
+      max-file: "3"
+
 services:
   mysql:
     restart: unless-stopped
@@ -18,6 +25,7 @@ services:
     restart: unless-stopped
 
   nginx:
+    <<: *logging
     image: nginx:stable
     environment:
       EDUPILOT_DOMAIN: ${EDUPILOT_DOMAIN}

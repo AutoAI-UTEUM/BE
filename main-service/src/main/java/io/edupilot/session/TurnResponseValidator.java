@@ -98,33 +98,42 @@ public class TurnResponseValidator {
 		String expectedQuizType,
 		Set<Integer> availableQuizPages
 	) {
+		ValidationContext context = new ValidationContext(
+			expectedTurnId,
+			eventType
+		);
 		if (response == null) {
-			throw invalid("turn response is null");
+			throw invalid(context, "response", "non-null object", "null");
 		}
 		if (!expectedTurnId.equals(response.turnId())) {
-			throw invalid("turnId mismatch");
+			throw invalid(context, "turnId", "request turnId", "mismatch");
 		}
 		if (response.messages() == null) {
-			throw invalid("messages must not be null");
+			throw invalid(context, "messages", "array", "null");
 		}
 		if (response.statePatch() == null) {
-			throw invalid("statePatch must not be null");
+			throw invalid(context, "statePatch", "object", "null");
 		}
 		if (response.uiActions() == null) {
-			throw invalid("uiActions must not be null");
+			throw invalid(context, "uiActions", "array", "null");
 		}
 		if (response.memoryCandidates() == null) {
-			throw invalid("memoryCandidates must not be null");
+			throw invalid(context, "memoryCandidates", "array", "null");
 		}
-		validateMessages(response);
-		validateStatePatch(response.statePatch(), expectedQaThreadRef);
+		validateMessages(response, context);
+		validateStatePatch(
+			response.statePatch(),
+			expectedQaThreadRef,
+			context
+		);
 		validateQuiz(
 			response,
 			eventType,
 			expectedQuizType,
-			availableQuizPages
+			availableQuizPages,
+			context
 		);
-		validateNoteDraft(response);
+		validateNoteDraft(response, context);
 		warnIgnoredUiActions(
 			response.turnId(),
 			response.uiActions().stream()
@@ -134,27 +143,37 @@ public class TurnResponseValidator {
 				.toList()
 		);
 		warnIgnoredActiveQuizId(response);
-		validateMemoryCandidates(response);
+		validateMemoryCandidates(response, context);
 	}
 
-	private void validateMessages(TurnResponse response) {
+	private void validateMessages(
+		TurnResponse response,
+		ValidationContext context
+	) {
 		for (int index = 0; index < response.messages().size(); index++) {
 			Map<String, Object> message = response.messages().get(index);
 			if (message == null) {
 				throw invalid(
-					"messages[%d] must not be null".formatted(index)
+					context,
+					"messages[%d]".formatted(index),
+					"object",
+					"null"
 				);
 			}
 			if (!MESSAGE_TYPES.contains(text(message, "messageType"))) {
 				throw invalid(
-					"messages[%d].messageType is unsupported"
-						.formatted(index)
+					context,
+					"messages[%d].messageType".formatted(index),
+					MESSAGE_TYPES,
+					enumValue(message.get("messageType"))
 				);
 			}
 			if (!StringUtils.hasText(text(message, "content"))) {
 				throw invalid(
-					"messages[%d].content must not be blank"
-						.formatted(index)
+					context,
+					"messages[%d].content".formatted(index),
+					"non-blank text",
+					textState(message.get("content"))
 				);
 			}
 		}
@@ -162,16 +181,31 @@ public class TurnResponseValidator {
 
 	private void validateStatePatch(
 		Map<String, Object> patch,
-		String expectedQaThreadRef
+		String expectedQaThreadRef,
+		ValidationContext context
 	) {
 		if (!PATCH_FIELDS.containsAll(patch.keySet())) {
-			throw policy("statePatch contains unsupported field");
+			throw policy(
+				context,
+				"statePatch.fields",
+				PATCH_FIELDS,
+				patch.keySet()
+			);
 		}
 		if (patch.containsKey("pageStatus")
 			&& !PAGE_STATUSES.contains(text(patch, "pageStatus"))) {
-			throw policy("statePatch.pageStatus is unsupported");
+			throw policy(
+				context,
+				"statePatch.pageStatus",
+				PAGE_STATUSES,
+				enumValue(patch.get("pageStatus"))
+			);
 		}
-		validateNullablePositiveLong(patch, "pendingDiagnosis");
+		validateNullablePositiveLong(
+			patch,
+			"pendingDiagnosis",
+			context
+		);
 		if (!patch.containsKey("qaThread")) {
 			return;
 		}
@@ -180,7 +214,10 @@ public class TurnResponseValidator {
 			|| qaThread.keySet().stream()
 				.anyMatch(key -> !(key instanceof String))) {
 			throw policy(
-				"statePatch.qaThread must be an object with string keys"
+				context,
+				"statePatch.qaThread",
+				"object with string keys",
+				valueType(raw)
 			);
 		}
 		Set<String> keys = qaThread.keySet().stream()
@@ -191,28 +228,45 @@ public class TurnResponseValidator {
 		if ("START_NEW".equals(mode)) {
 			if (!keys.equals(Set.of("mode"))) {
 				throw policy(
-					"statePatch.qaThread START_NEW fields mismatch"
+					context,
+					"statePatch.qaThread.fields",
+					Set.of("mode"),
+					keys
 				);
 			}
 			return;
 		}
 		if (!"FOLLOW_UP".equals(mode)) {
-			throw policy("statePatch.qaThread.mode is unsupported");
+			throw policy(
+				context,
+				"statePatch.qaThread.mode",
+				Set.of("START_NEW", "FOLLOW_UP"),
+				enumValue(qaThread.get("mode"))
+			);
 		}
 		if (!keys.equals(Set.of("mode", "threadRef"))) {
 			throw policy(
-				"statePatch.qaThread FOLLOW_UP fields mismatch"
+				context,
+				"statePatch.qaThread.fields",
+				Set.of("mode", "threadRef"),
+				keys
 			);
 		}
 		if (threadRef == null
 			|| !threadRef.matches("qa-[1-9][0-9]*")) {
 			throw policy(
-				"statePatch.qaThread.threadRef format is invalid"
+				context,
+				"statePatch.qaThread.threadRef",
+				"qa-{positive integer}",
+				threadRef == null ? "null or non-text" : "malformed text"
 			);
 		}
 		if (!threadRef.equals(expectedQaThreadRef)) {
 			throw policy(
-				"statePatch.qaThread.threadRef does not match snapshot"
+				context,
+				"statePatch.qaThread.threadRef",
+				"snapshot threadRef",
+				"different reference"
 			);
 		}
 	}
@@ -273,13 +327,16 @@ public class TurnResponseValidator {
 		TurnResponse response,
 		TurnEventType eventType,
 		String expectedQuizType,
-		Set<Integer> availableQuizPages
+		Set<Integer> availableQuizPages,
+		ValidationContext context
 	) {
 		boolean quizTurn = eventType == TurnEventType.QUIZ_TYPE_SELECTED;
 		if (quizTurn != (response.quiz() != null)) {
 			throw invalid(
-				"quiz presence mismatch: expected=%s actual=%s"
-					.formatted(quizTurn, response.quiz() != null)
+				context,
+				"quiz.presence",
+				quizTurn,
+				response.quiz() != null
 			);
 		}
 		if (!quizTurn) {
@@ -293,16 +350,29 @@ public class TurnResponseValidator {
 		);
 	}
 
-	private void validateNoteDraft(TurnResponse response) {
+	private void validateNoteDraft(
+		TurnResponse response,
+		ValidationContext context
+	) {
 		if (response.noteDraft() == null) {
 			return;
 		}
 		if (!StringUtils.hasText(response.noteDraft().title())
 			|| response.noteDraft().title().length() > 60) {
-			throw invalid("noteDraft.title is invalid");
+			throw invalid(
+				context,
+				"noteDraft.title",
+				"non-blank text length<=60",
+				textState(response.noteDraft().title())
+			);
 		}
 		if (!StringUtils.hasText(response.noteDraft().content())) {
-			throw invalid("noteDraft.content must not be blank");
+			throw invalid(
+				context,
+				"noteDraft.content",
+				"non-blank text",
+				textState(response.noteDraft().content())
+			);
 		}
 	}
 
@@ -319,7 +389,10 @@ public class TurnResponseValidator {
 			.log("Ignored AI activeQuizId statePatch");
 	}
 
-	private void validateMemoryCandidates(TurnResponse response) {
+	private void validateMemoryCandidates(
+		TurnResponse response,
+		ValidationContext context
+	) {
 		for (int index = 0;
 			index < response.memoryCandidates().size();
 			index++) {
@@ -327,65 +400,91 @@ public class TurnResponseValidator {
 				response.memoryCandidates().get(index);
 			if (candidate == null) {
 				throw invalid(
-					"memoryCandidates[%d] must not be null"
-						.formatted(index)
+					context,
+					"memoryCandidates[%d]".formatted(index),
+					"object",
+					"null"
 				);
 			}
 			if (!candidate.keySet().equals(MEMORY_CANDIDATE_FIELDS)) {
 				throw invalid(
-					"memoryCandidates[%d] fields mismatch"
-						.formatted(index)
+					context,
+					"memoryCandidates[%d].fields".formatted(index),
+					MEMORY_CANDIDATE_FIELDS,
+					candidate.keySet()
 				);
 			}
 			if (!MEMORY_CANDIDATE_TYPES.contains(
 				text(candidate, "type")
 			)) {
 				throw invalid(
-					"memoryCandidates[%d].type is unsupported"
-						.formatted(index)
+					context,
+					"memoryCandidates[%d].type".formatted(index),
+					MEMORY_CANDIDATE_TYPES,
+					enumValue(candidate.get("type"))
 				);
 			}
 			if (!StringUtils.hasText(text(candidate, "content"))) {
 				throw invalid(
-					"memoryCandidates[%d].content must not be blank"
-						.formatted(index)
+					context,
+					"memoryCandidates[%d].content".formatted(index),
+					"non-blank text",
+					textState(candidate.get("content"))
 				);
 			}
 			if (!(candidate.get("promotionRequested") instanceof Boolean)) {
 				throw invalid(
-					"memoryCandidates[%d].promotionRequested must be boolean"
-						.formatted(index)
+					context,
+					"memoryCandidates[%d].promotionRequested".formatted(index),
+					"boolean",
+					valueType(candidate.get("promotionRequested"))
 				);
 			}
 			BigDecimal confidence = decimal(candidate.get("confidence"));
 			if (confidence == null) {
 				throw invalid(
-					"memoryCandidates[%d].confidence must be numeric"
-						.formatted(index)
+					context,
+					"memoryCandidates[%d].confidence".formatted(index),
+					"number between 0 and 1",
+					valueType(candidate.get("confidence"))
 				);
 			}
 			if (confidence.compareTo(BigDecimal.ZERO) < 0
 				|| confidence.compareTo(BigDecimal.ONE) > 0) {
 				throw invalid(
-					"memoryCandidates[%d].confidence must be between 0 and 1"
-						.formatted(index)
+					context,
+					"memoryCandidates[%d].confidence".formatted(index),
+					"0..1",
+					confidence
 				);
 			}
-			validateMemoryEvidence(candidate.get("evidence"), index);
+			validateMemoryEvidence(
+				candidate.get("evidence"),
+				index,
+				context
+			);
 		}
 	}
 
-	private void validateMemoryEvidence(Object value, int candidateIndex) {
+	private void validateMemoryEvidence(
+		Object value,
+		int candidateIndex,
+		ValidationContext context
+	) {
 		if (!(value instanceof List<?> evidence)) {
 			throw invalid(
-				"memoryCandidates[%d].evidence must be an array"
-					.formatted(candidateIndex)
+				context,
+				"memoryCandidates[%d].evidence".formatted(candidateIndex),
+				"non-empty array",
+				valueType(value)
 			);
 		}
 		if (evidence.isEmpty()) {
 			throw invalid(
-				"memoryCandidates[%d].evidence must not be empty"
-					.formatted(candidateIndex)
+				context,
+				"memoryCandidates[%d].evidence".formatted(candidateIndex),
+				"size>=1",
+				"size=0"
 			);
 		}
 		Set<String> unique = new HashSet<>();
@@ -393,20 +492,29 @@ public class TurnResponseValidator {
 			Object item = evidence.get(index);
 			if (!(item instanceof String text)) {
 				throw invalid(
-					"memoryCandidates[%d].evidence[%d] must be text"
-						.formatted(candidateIndex, index)
+					context,
+					"memoryCandidates[%d].evidence[%d]"
+						.formatted(candidateIndex, index),
+					"text",
+					valueType(item)
 				);
 			}
 			if (!StringUtils.hasText(text)) {
 				throw invalid(
-					"memoryCandidates[%d].evidence[%d] must not be blank"
-						.formatted(candidateIndex, index)
+					context,
+					"memoryCandidates[%d].evidence[%d]"
+						.formatted(candidateIndex, index),
+					"non-blank text",
+					textState(text)
 				);
 			}
 			if (!unique.add(text.trim())) {
 				throw invalid(
-					"memoryCandidates[%d].evidence contains duplicate item"
-						.formatted(candidateIndex)
+					context,
+					"memoryCandidates[%d].evidence.uniqueness"
+						.formatted(candidateIndex),
+					"unique items",
+					"duplicate at index=%d".formatted(index)
 				);
 			}
 		}
@@ -414,7 +522,8 @@ public class TurnResponseValidator {
 
 	private void validateNullablePositiveLong(
 		Map<String, Object> values,
-		String field
+		String field,
+		ValidationContext context
 	) {
 		if (!values.containsKey(field) || values.get(field) == null) {
 			return;
@@ -424,7 +533,10 @@ public class TurnResponseValidator {
 			|| number.longValue() < 1
 			|| number.doubleValue() != number.longValue()) {
 			throw policy(
-				"statePatch.%s must be a positive integer".formatted(field)
+				context,
+				"statePatch.%s".formatted(field),
+				"positive integer",
+				numericState(value)
 			);
 		}
 	}
@@ -451,24 +563,88 @@ public class TurnResponseValidator {
 		return null;
 	}
 
-	private BusinessException invalid(String reason) {
-		return rejected(ErrorCode.AI_RESPONSE_INVALID, reason);
+	private String enumValue(Object value) {
+		return value instanceof String ? textState(value) : valueType(value);
 	}
 
-	private BusinessException policy(String reason) {
-		return rejected(ErrorCode.AI_POLICY_REJECTED, reason);
+	private String textState(Object value) {
+		if (!(value instanceof String text)) {
+			return valueType(value);
+		}
+		return StringUtils.hasText(text)
+			? "text length=%d".formatted(text.length())
+			: "blank text length=%d".formatted(text.length());
 	}
 
-	private BusinessException rejected(ErrorCode errorCode, String reason) {
+	private String numericState(Object value) {
+		return value instanceof Number ? value.toString() : valueType(value);
+	}
+
+	private String valueType(Object value) {
+		return value == null ? "null" : value.getClass().getSimpleName();
+	}
+
+	private BusinessException invalid(
+		ValidationContext context,
+		String validationItem,
+		Object expected,
+		Object actual
+	) {
+		return rejected(
+			context,
+			ErrorCode.AI_RESPONSE_INVALID,
+			validationItem,
+			expected,
+			actual
+		);
+	}
+
+	private BusinessException policy(
+		ValidationContext context,
+		String validationItem,
+		Object expected,
+		Object actual
+	) {
+		return rejected(
+			context,
+			ErrorCode.AI_POLICY_REJECTED,
+			validationItem,
+			expected,
+			actual
+		);
+	}
+
+	private BusinessException rejected(
+		ValidationContext context,
+		ErrorCode errorCode,
+		String validationItem,
+		Object expected,
+		Object actual
+	) {
 		log.atWarn()
 			.addKeyValue(
 				"traceId",
 				MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY)
 			)
+			.addKeyValue("turnId", context.turnId())
+			.addKeyValue(
+				"eventType",
+				context.eventType() == null
+					? "UNKNOWN"
+					: context.eventType().name()
+			)
 			.addKeyValue("validator", TurnResponseValidator.class.getSimpleName())
 			.addKeyValue("errorCode", errorCode.code())
-			.addKeyValue("reason", reason)
-			.log("AI response validation rejected");
+			.addKeyValue("validationItem", validationItem)
+			.addKeyValue("expected", expected)
+			.addKeyValue("actual", actual)
+			.log("AI response validation failed");
 		return new BusinessException(errorCode);
+	}
+
+	private record ValidationContext(
+		String turnId,
+		TurnEventType eventType
+	) {
 	}
 }
