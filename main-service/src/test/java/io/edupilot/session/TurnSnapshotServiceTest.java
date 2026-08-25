@@ -147,8 +147,11 @@ class TurnSnapshotServiceTest {
 	}
 
 	@Test
-	void contextUsesExactlyV05ContractKeys() {
+	void contextUsesExactlyV06ContractKeysIncludingXaiFileId() {
 		LearningSession session = session();
+		LearningMaterial material = (LearningMaterial) ReflectionTestUtils
+			.getField(session, "material");
+		material.replaceXaiFileId("file-turn-snapshot");
 		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
 			.thenReturn(Optional.of(session));
 		when(messageRepository
@@ -187,6 +190,7 @@ class TurnSnapshotServiceTest {
 		TurnSnapshot snapshot = service().build(1L, 100L, 501L, true);
 
 		assertThat(snapshot.context()).containsOnlyKeys(
+			"xaiFileId",
 			"currentPageText",
 			"previousPageText",
 			"nextPageText",
@@ -202,6 +206,8 @@ class TurnSnapshotServiceTest {
 		);
 		assertThat(snapshot.context().get("learnerMemoryDigest"))
 			.isEqualTo("promoted digest");
+		assertThat(snapshot.context().get("xaiFileId"))
+			.isEqualTo("file-turn-snapshot");
 	}
 
 	@Test
@@ -213,10 +219,11 @@ class TurnSnapshotServiceTest {
 		TurnSnapshot snapshot = service().build(1L, 100L, 501L, false);
 
 		assertThat(snapshot.context())
+			.containsEntry("xaiFileId", null)
 			.containsEntry("currentPageText", null)
 			.containsEntry("previousPageText", null)
 			.containsEntry("nextPageText", null)
-			.hasSize(12);
+			.hasSize(13);
 		org.mockito.Mockito.verifyNoInteractions(pageRepository);
 	}
 
@@ -364,7 +371,7 @@ class TurnSnapshotServiceTest {
 		assertThat((List<?>) ((Map<?, ?>) snapshot.context().get("memory"))
 			.get("temporaryCandidates"))
 			.singleElement();
-		assertThat(snapshot.context()).hasSize(12);
+		assertThat(snapshot.context()).hasSize(13);
 	}
 
 	@Test
@@ -438,7 +445,7 @@ class TurnSnapshotServiceTest {
 					"confidence",
 					"evidenceRefs"
 				));
-		assertThat(snapshot.context()).hasSize(12);
+		assertThat(snapshot.context()).hasSize(13);
 	}
 
 	private TurnSnapshotService service() {

@@ -103,6 +103,10 @@ public class TurnSnapshotService {
 
 		Map<String, Object> context = new LinkedHashMap<>();
 		context.put(
+			"xaiFileId",
+			includeCurrentPage ? session.getMaterialXaiFileId() : null
+		);
+		context.put(
 			"currentPageText",
 			includeCurrentPage
 				? pageText(materialId, session.getCurrentPage())
