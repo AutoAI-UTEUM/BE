@@ -201,6 +201,42 @@ public class LearningProgressService {
 		return Map.copyOf(rates);
 	}
 
+	@Transactional(readOnly = true)
+	public Map<Long, Integer> calculateStudentMaterialProgressRates(
+		Long studentId,
+		Collection<LearningMaterial> materials
+	) {
+		Map<Long, LearningMaterial> distinctMaterials = new LinkedHashMap<>();
+		for (LearningMaterial material : materials) {
+			distinctMaterials.putIfAbsent(material.getId(), material);
+		}
+		Map<Long, Long> explainedPagesByMaterial = new LinkedHashMap<>();
+		for (var count : pageRecordRepository.findStudentMaterialProgressCounts(
+			studentId,
+			distinctMaterials.keySet()
+		)) {
+			explainedPagesByMaterial.put(
+				count.materialId(),
+				count.explainedPageCount()
+			);
+		}
+		Map<Long, Integer> rates = new LinkedHashMap<>();
+		for (LearningMaterial material : distinctMaterials.values()) {
+			long explainedPageCount = explainedPagesByMaterial.getOrDefault(
+				material.getId(),
+				0L
+			);
+			rates.put(
+				material.getId(),
+				progressRate(
+					explainedPageCount,
+					material.getPageCount()
+				)
+			);
+		}
+		return Map.copyOf(rates);
+	}
+
 	private int progressRate(long explainedPageCount, Integer pageCount) {
 		return progressRate(
 			explainedPageCount,

@@ -274,6 +274,18 @@ class MainServiceApplicationTests {
 				"$.paths['/api/classrooms/{id}/analytics'].get"
 			).exists())
 			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/students/{studentId}/learning-analytics'].get.operationId"
+			).value("getClassroomStudentLearningAnalytics"))
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/students/{studentId}/learning-analytics'].get.parameters[2].name"
+			).value("questionPeriod"))
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/students/{studentId}/learning-analytics'].get.parameters[2].schema.enum"
+			).value(org.hamcrest.Matchers.containsInAnyOrder(
+				"LAST_7_DAYS",
+				"ALL"
+			)))
+			.andExpect(jsonPath(
 				"$.components.schemas.ClassroomAnalyticsResponse.properties.questionsByPage"
 			).exists())
 			.andExpect(jsonPath(

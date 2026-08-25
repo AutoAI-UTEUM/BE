@@ -115,6 +115,31 @@ class SessionPageRecordRepositoryTest {
 			);
 	}
 
+	@Test
+	void studentMaterialProgressBatchUsesDistinctPagesAndActiveSessionsOnly() {
+		insertSession(100L, 1L, 20L, "ACTIVE");
+		insertSession(101L, 1L, 20L, "COMPLETED");
+		insertSession(102L, 1L, 20L, "DELETED");
+		insertSession(103L, 1L, 30L, "ACTIVE");
+		insertSession(104L, 2L, 20L, "ACTIVE");
+		Instant now = Instant.parse("2026-08-04T03:00:00Z");
+		repository.upsertExplainedPage(100L, 1, now);
+		repository.upsertExplainedPage(100L, 2, now);
+		repository.upsertExplainedPage(101L, 2, now);
+		repository.upsertExplainedPage(101L, 3, now);
+		repository.upsertExplainedPage(102L, 4, now);
+		repository.upsertExplainedPage(103L, 1, now);
+		repository.upsertExplainedPage(104L, 5, now);
+
+		assertThat(repository.findStudentMaterialProgressCounts(
+			1L,
+			java.util.Set.of(20L, 30L)
+		)).containsExactlyInAnyOrder(
+			new SessionPageRecordRepository.MaterialProgressCount(20L, 3L),
+			new SessionPageRecordRepository.MaterialProgressCount(30L, 1L)
+		);
+	}
+
 	private void insertMember(Long classroomId, Long userId) {
 		jdbcTemplate.update(
 			"INSERT INTO classroom_members (classroom_id, user_id) VALUES (?, ?)",
