@@ -9,7 +9,7 @@
 
 `DEC-001` 같은 값은 이 문서 안에서 결정을 추적하기 위한 ID이며 GitHub 이슈 번호가 아닙니다. 기본적으로 관련 Epic의 `결정 필요` 체크박스로 관리합니다. 여러 팀의 합의가 필요하거나 실제 개발을 막는 항목만 별도 `[Decision]` 이슈로 만들고, 이 표에 GitHub 이슈 링크를 추가합니다.
 
-**현재 별도 Open 상태로 등록된 DEC는 없습니다.** DEC-001~034의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC-033의 잔여 TBD 목록에서 추적합니다. 새 결정이 필요해지면 이 표 형식으로 다시 등재합니다.
+**현재 별도 Open 상태로 등록된 DEC는 없습니다.** DEC-001~035의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC-033의 잔여 TBD 목록에서 추적합니다. 새 결정이 필요해지면 이 표 형식으로 다시 등재합니다.
 
 | ID | 결정 항목 | 현재 후보/질문 | 영향 | 소유자 | 목표 시점 |
 | --- | --- | --- | --- | --- | --- |
@@ -179,7 +179,7 @@
 - 상태: Accepted
 - 결정일: 2026-07-21
 - 결정자: 한승준 (Backend) + AI 담당 합의
-- 선택: **FastAPI가 추출을 실행하고 Spring이 저장·상태 전이를 소유**한다. 흐름: Spring이 업로드 저장(PROCESSING) → 백그라운드에서 내부 API `POST /internal/ai/extract`로 PDF를 멀티파트 전송 → FastAPI가 페이지별 텍스트를 추출해 배열로 반환 → Spring이 `material_pages` 저장 후 READY/FAILED 전이. LLM provider는 **Grok API(xAI)** 를 사용하며, 에이전트 문맥의 기본 근거는 이 추출 텍스트다(Grok 파일 첨부는 보조 수단으로 AI 담당이 실험 후 결정).
+- 선택: **FastAPI가 추출을 실행하고 Spring이 저장·상태 전이를 소유**한다. 흐름: Spring이 업로드 저장(PROCESSING) → 백그라운드에서 내부 API `POST /internal/ai/extract`로 PDF를 멀티파트 전송 → FastAPI가 페이지별 텍스트를 추출해 배열로 반환 → Spring이 `material_pages` 저장 후 READY/FAILED 전이. LLM provider는 **Grok API(xAI)** 를 사용하며, 에이전트 문맥의 기본 근거는 이 추출 텍스트다. xAI Files 원본 업로드·첨부 전환은 DEC-035가 단계적으로 확장한다.
 - 이유: Python 추출 생태계를 활용하면서 "FastAPI는 영속 데이터를 직접 만들지 않는다"는 아키텍처 원칙을 유지한다. 추출은 LLM 판단이 없는 결정적 전처리라 하이브리드 원칙(DEC-022)과 충돌하지 않는다. Grok 파일 첨부(attachment_search)는 페이지 단위 문맥 제어가 약해 자체 추출이 설계와 정합.
 - 대안과 trade-off: Spring 내 추출(PDFBox)은 경계가 단순하나 팀 결정(Python 측 추출)과 상이. FastAPI 직접 DB 저장은 원칙 위반으로 배제.
 - 후속 변경 문서: api-spec §8 내부 API 표, feature-spec §3, Epic3 이슈 구조([AI] 추출 이슈 필수)
@@ -466,6 +466,21 @@
 - 이유: 단일 wire 타입과 양쪽 상한 검증으로 계약 분기와 프롬프트 비대화를 막고, 이전 narrative의 자기복제 및 AI 추세 재계산을 차단합니다.
 - 대안과 trade-off: 숫자·문자열 union ID는 Spring 구현 선택을 노출해 소비자 검증을 복잡하게 합니다. AI가 trend를 생성하면 서술 유연성은 높지만 동일 이력의 재현성이 떨어지므로 채택하지 않습니다.
 - 후속 변경 문서: [리포트 설계](report-agent-design.md), [리포트 작업 분해](issues/13-report-agent.md). 실제 DTO·AI 계약 반영은 #121 및 후속 구현 이슈에서 수행합니다.
+
+### DEC-035 — PDF 원본의 xAI Files 단계 전환
+
+- 상태: Accepted — 설계자 승인, Phase 1 구현 이슈 [GitHub #303](https://github.com/AutoAI-UTEUM/BE/issues/303)
+- 결정일: 2026-08-25
+- 결정자: 프로젝트 설계자, AI Service 담당자
+- 선택:
+  - LLM이 PDF 원본을 직접 읽는 구조로 단계적으로 전환하되, 기존 페이지 텍스트 추출은 페이지 근거의 앵커·폴백으로 유지합니다.
+  - Phase 1은 `EDUPILOT_XAI_FILES_ENABLED` kill switch가 켜진 경우에만 추출 성공 원본을 xAI Files에 업로드합니다. 기본값은 `false`이며 응답의 nullable `xaiFileId`와 `warnings[{type,message}]`로 결과를 전달합니다.
+  - 업로드 실패나 xAI 파일 제한 48MiB 초과는 `FILE_UPLOAD_FAILED` warning으로 강등하고 텍스트 추출 성공 응답은 HTTP 200을 유지합니다.
+  - `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작합니다. 삭제 성공과 이미 없는 파일(404)은 204로 멱등 처리하고, 그 밖의 provider 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)로 반환합니다.
+  - Spring은 `xaiFileId`를 자료에 저장하고 자료 삭제 시 정리 훅을 호출합니다. 파일 ID를 실제 턴 요청에 첨부하는 경로는 Phase 3에서 별도 도입합니다.
+- 이유: 원본의 시각·레이아웃 정보를 이후 LLM 입력에서 활용할 수 있는 기반을 만들면서도, provider 업로드 장애 때문에 이미 성공한 결정적 텍스트 추출과 자료 등록이 실패하지 않도록 단계와 실패 경계를 분리합니다.
+- 대안과 trade-off: 즉시 원본 첨부만 사용하면 페이지 단위 근거 제어와 provider 장애 폴백을 잃습니다. 텍스트 추출만 유지하면 시각·레이아웃 정보 활용이 제한됩니다. 양쪽을 병행하면 저장·삭제 수명주기 관리가 추가되지만 kill switch와 멱등 삭제로 운영 위험을 제한합니다.
+- 후속 변경 문서: [AI 통합 계약](ai-integration-contract.md) §0·§2·§6.1·§7, [API 명세](api-spec.md) §8, [에러 코드](error-code.md), [에이전트 명세](agent-system-spec.md). 턴 첨부는 Phase 3 후속 이슈에서 계약·구현합니다.
 
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 

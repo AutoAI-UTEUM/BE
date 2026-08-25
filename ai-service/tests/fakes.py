@@ -16,6 +16,7 @@ from edupilot_ai.llm.bridge import (
     LlmUsage,
     ModelT,
 )
+from edupilot_ai.llm.files import XaiFileClientError
 from edupilot_ai.settings import AgentLlmProfile
 
 
@@ -133,3 +134,25 @@ class FakeLlm:
                 reasoning_tokens=None,
             )
         )
+
+
+class FakeXaiFileClient:
+    """In-memory xAI Files double that performs no network calls."""
+
+    def __init__(self) -> None:
+        self.upload_result = "file-test"
+        self.upload_error: XaiFileClientError | None = None
+        self.delete_error: XaiFileClientError | None = None
+        self.uploads: list[tuple[bytes, str]] = []
+        self.deletes: list[str] = []
+
+    async def upload(self, content: bytes, filename: str) -> str:
+        self.uploads.append((content, filename))
+        if self.upload_error is not None:
+            raise self.upload_error
+        return self.upload_result
+
+    async def delete(self, file_id: str) -> None:
+        self.deletes.append(file_id)
+        if self.delete_error is not None:
+            raise self.delete_error

@@ -7,19 +7,24 @@ import pytest
 from pydantic import TypeAdapter
 
 from edupilot_ai.core.errors import InternalErrorResponse
+from edupilot_ai.llm.files import XaiFileClientError
 from edupilot_ai.models.extract import ExtractResponse
 from edupilot_ai.settings import Settings
+from tests.fakes import FakeXaiFileClient
 from tests.pdf_factory import make_blank_pdf, make_pdf
 
 
 def test_extract_quality_threshold_defaults(settings: Settings) -> None:
     assert settings.edupilot_extract_min_chars_per_page == 50
     assert settings.edupilot_extract_min_meaningful_page_ratio == 0.05
+    assert settings.edupilot_xai_files_enabled is False
+    assert settings.edupilot_xai_file_upload_timeout_seconds == 60
 
 
 async def test_extract_returns_versioned_pages(
     client: httpx.AsyncClient,
     auth_headers: dict[str, str],
+    fake_file_client: FakeXaiFileClient,
 ) -> None:
     response = await client.post(
         "/internal/ai/extract",
@@ -47,8 +52,97 @@ async def test_extract_returns_versioned_pages(
             },
             {"pageNumber": 2, "text": ""},
         ],
+        "xaiFileId": None,
+        "warnings": [],
     }
     ExtractResponse.model_validate(response.json())
+    assert fake_file_client.uploads == []
+
+
+async def test_extract_uploads_original_pdf_when_xai_files_enabled(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    settings: Settings,
+    fake_file_client: FakeXaiFileClient,
+) -> None:
+    settings.edupilot_xai_files_enabled = True
+    fake_file_client.upload_result = "file-live-contract"
+    pdf = make_pdf("A readable PDF page with enough text for extraction and upload.")
+
+    response = await client.post(
+        "/internal/ai/extract",
+        headers=auth_headers,
+        files={"file": ("private-lesson.pdf", pdf, "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["xaiFileId"] == "file-live-contract"
+    assert response.json()["warnings"] == []
+    assert fake_file_client.uploads == [(pdf, "private-lesson.pdf")]
+
+
+async def test_extract_keeps_success_when_xai_file_upload_fails(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    settings: Settings,
+    fake_file_client: FakeXaiFileClient,
+) -> None:
+    settings.edupilot_xai_files_enabled = True
+    fake_file_client.upload_error = XaiFileClientError("FILE_UPLOAD_FAILED")
+    pdf = make_pdf("A readable PDF page whose extraction must still succeed after upload failure.")
+
+    response = await client.post(
+        "/internal/ai/extract",
+        headers=auth_headers,
+        files={"file": ("fallback.pdf", pdf, "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    body = ExtractResponse.model_validate(response.json())
+    assert body.page_count == 1
+    assert body.pages[0].text.startswith("A readable PDF page")
+    assert body.xai_file_id is None
+    assert [warning.model_dump() for warning in body.warnings] == [
+        {
+            "type": "FILE_UPLOAD_FAILED",
+            "message": "PDF extraction succeeded, but file upload failed.",
+        }
+    ]
+
+
+async def test_extract_upload_failure_log_excludes_filename_and_content(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    settings: Settings,
+    fake_file_client: FakeXaiFileClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    settings.edupilot_xai_files_enabled = True
+    fake_file_client.upload_error = XaiFileClientError("FILE_UPLOAD_FAILED")
+    private_filename = "PRIVATE-UPLOAD-NAME.pdf"
+    private_text = "PRIVATE-PDF-BODY with enough text to pass extraction checks."
+    pdf = make_pdf(private_text)
+    extract_logger = logging.getLogger("edupilot_ai.api.extract")
+    extract_logger.addHandler(caplog.handler)
+    try:
+        response = await client.post(
+            "/internal/ai/extract",
+            headers=auth_headers,
+            files={"file": (private_filename, pdf, "application/pdf")},
+        )
+    finally:
+        extract_logger.removeHandler(caplog.handler)
+
+    assert response.status_code == 200
+    record = next(
+        item
+        for item in caplog.records
+        if item.message == "xAI file upload unavailable after extraction"
+    )
+    assert record.__dict__["errorCode"] == "FILE_UPLOAD_FAILED"
+    assert record.__dict__["sizeBytes"] == len(pdf)
+    assert private_filename not in caplog.text
+    assert private_text not in caplog.text
 
 
 async def test_extract_requires_internal_token(

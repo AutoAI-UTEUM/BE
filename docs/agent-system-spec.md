@@ -3,8 +3,8 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 다른 팀원 구현을 위한 참고·계약 초안 |
-| 마지막 갱신 | 2026-08-17 |
-| 변경 이력 | 2026-07-23: Grok 전환·계약 v0.4 정합 용어 정리<br>2026-08-17: 계약 v0.6 정합화 |
+| 마지막 갱신 | 2026-08-25 |
+| 변경 이력 | 2026-07-23: Grok 전환·계약 v0.4 정합 용어 정리<br>2026-08-17: 계약 v0.6 정합화<br>2026-08-25: xAI Files 업로드·삭제 Phase 1 반영 |
 | 구현 소유 | FastAPI AI Server |
 | 연동 소유 | Spring Backend ↔ FastAPI AI Server |
 
@@ -136,7 +136,7 @@ Orchestrator Plan의 JSON 스키마와 교수 정책을 검증하고 허용되�
 
 ### LlmBridge
 
-Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출력, 스트리밍, timeout, provider 오류 변환을 담당하되 도메인 정책을 결정하지 않습니다. 페이지 근거는 파일 업로드가 아니라 Spring이 추출해 동봉하는 `pageContext` 텍스트로 전달받습니다(DEC-006).
+Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출력, 스트리밍, timeout, provider 오류 변환과 xAI Files 업로드·삭제를 담당하되 도메인 정책을 결정하지 않습니다. 페이지 근거의 앵커·폴백은 Spring이 추출해 동봉하는 `pageContext` 텍스트입니다. Phase 1은 추출 성공 원본을 선택적으로 업로드해 `xaiFileId`만 반환하며, 턴 첨부는 Phase 3 범위입니다(DEC-006·035).
 
 ## 3. 멀티 에이전트 턴 처리 단계
 
@@ -816,7 +816,7 @@ error
 - 각 agent JSON Schema와 `schemaVersion` 호환 정책
 - Orchestrator 허용 tool 목록과 args
 - Plan 보정과 완전 거부의 기준
-- 모델 선택과 페이지 근거(`pageContext` 텍스트 동봉 — DEC-006) 전달 방식
+- 모델 선택과 페이지 근거 전달 방식(`pageContext` 텍스트 앵커·폴백 유지, xAI Files 턴 첨부는 Phase 3 — DEC-006·035)
 - timeout, 재시도, rate limit, fallback 모델 정책
 - 평가 큐 크기와 메모리 승격 근거 기준
 - AI 결과 및 prompt/response의 로그·보관·마스킹 정책

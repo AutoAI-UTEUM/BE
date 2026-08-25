@@ -34,6 +34,8 @@ _OPTIONAL_FIELDS = (
     "generationId",
     "criterionCount",
     "evidenceCount",
+    "fileId",
+    "sizeBytes",
 )
 
 

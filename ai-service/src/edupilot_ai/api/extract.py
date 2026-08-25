@@ -6,9 +6,10 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Annotated
 
+from anyio import to_thread
 from fastapi import APIRouter, Depends, File, UploadFile
 
-from edupilot_ai.api.deps import get_settings
+from edupilot_ai.api.deps import get_settings, get_xai_file_client
 from edupilot_ai.core.errors import ErrorCategory, InternalApiError
 from edupilot_ai.extraction import (
     PdfExtractionError,
@@ -16,7 +17,12 @@ from edupilot_ai.extraction import (
     PdfPageLimitError,
     extract_pdf,
 )
-from edupilot_ai.models.extract import ExtractedPage, ExtractResponse
+from edupilot_ai.llm.files import (
+    XAI_FILE_MAX_BYTES,
+    XaiFileClientError,
+    XaiFileClientProtocol,
+)
+from edupilot_ai.models.extract import ExtractedPage, ExtractResponse, ExtractWarning
 from edupilot_ai.settings import Settings
 
 router = APIRouter(prefix="/internal/ai")
@@ -25,6 +31,7 @@ logger = logging.getLogger(__name__)
 _UPLOAD_CHUNK_BYTES = 64 * 1024
 _PDF_MAGIC = b"%PDF-"
 _PDF_CONTENT_TYPE = "application/pdf"
+_FILE_UPLOAD_WARNING_MESSAGE = "PDF extraction succeeded, but file upload failed."
 
 _FAILURE_MESSAGES = {
     PdfFailureReason.CORRUPTED: "PDF extraction failed because the file is invalid or corrupted.",
@@ -95,6 +102,39 @@ def _delete_temporary(path: Path) -> None:
     path.unlink(missing_ok=True)
 
 
+def _file_upload_warning(*, size_bytes: int) -> ExtractWarning:
+    logger.warning(
+        "xAI file upload unavailable after extraction",
+        extra={
+            "errorCode": "FILE_UPLOAD_FAILED",
+            "sizeBytes": size_bytes,
+        },
+    )
+    return ExtractWarning(
+        type="FILE_UPLOAD_FAILED",
+        message=_FILE_UPLOAD_WARNING_MESSAGE,
+    )
+
+
+async def _upload_original_pdf(
+    *,
+    path: Path,
+    filename: str,
+    size_bytes: int,
+    file_client: XaiFileClientProtocol,
+) -> tuple[str | None, list[ExtractWarning]]:
+    if size_bytes > XAI_FILE_MAX_BYTES:
+        return None, [_file_upload_warning(size_bytes=size_bytes)]
+    try:
+        content = await to_thread.run_sync(path.read_bytes)
+        file_id = await file_client.upload(content, filename or "document.pdf")
+        if not file_id.strip():
+            raise XaiFileClientError("FILE_UPLOAD_FAILED")
+    except OSError, XaiFileClientError:
+        return None, [_file_upload_warning(size_bytes=size_bytes)]
+    return file_id, []
+
+
 async def _stage_upload(upload: UploadFile, *, max_bytes: int) -> Path:
     """Copy one upload to a temporary path while enforcing an early size limit."""
     temporary = NamedTemporaryFile(prefix="edupilot-extract-", suffix=".pdf", delete=False)
@@ -142,6 +182,7 @@ async def _stage_upload(upload: UploadFile, *, max_bytes: int) -> Path:
 async def extract_document(
     file: Annotated[UploadFile, File(description="PDF document to extract")],
     settings: Annotated[Settings, Depends(get_settings)],
+    file_client: Annotated[XaiFileClientProtocol, Depends(get_xai_file_client)],
 ) -> ExtractResponse:
     """Return complete page text without persisting the PDF or extracted content."""
     temporary_path: Path | None = None
@@ -149,7 +190,7 @@ async def extract_document(
     try:
         _validate_metadata(file)
         temporary_path = await _stage_upload(file, max_bytes=settings.upload_max_bytes)
-        size_bytes = _upload_size(file)
+        size_bytes = temporary_path.stat().st_size
         try:
             document = extract_pdf(
                 temporary_path,
@@ -175,12 +216,24 @@ async def extract_document(
                 size_bytes=size_bytes,
             ) from exception
 
+        xai_file_id: str | None = None
+        warnings: list[ExtractWarning] = []
+        if settings.edupilot_xai_files_enabled:
+            xai_file_id, warnings = await _upload_original_pdf(
+                path=temporary_path,
+                filename=file.filename or "document.pdf",
+                size_bytes=size_bytes,
+                file_client=file_client,
+            )
+
         return ExtractResponse(
             page_count=document.page_count,
             pages=[
                 ExtractedPage(page_number=page.page_number, text=page.text)
                 for page in document.pages
             ],
+            xai_file_id=xai_file_id,
+            warnings=warnings,
         )
     finally:
         await file.close()
