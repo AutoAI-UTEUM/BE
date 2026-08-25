@@ -1,12 +1,15 @@
 package io.edupilot.classroom;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
+import java.util.Map;
 
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,6 +46,34 @@ import jakarta.validation.constraints.Min;
 @Tag(name = "Classroom Resources")
 @SecurityRequirement(name = "bearerAuth")
 public class ClassroomResourceController {
+
+	private static final String X_CONTENT_TYPE_OPTIONS =
+		"X-Content-Type-Options";
+	private static final Map<String, MediaType> DOWNLOAD_MEDIA_TYPES = Map.ofEntries(
+		Map.entry("jpg", MediaType.IMAGE_JPEG),
+		Map.entry("jpeg", MediaType.IMAGE_JPEG),
+		Map.entry("png", MediaType.IMAGE_PNG),
+		Map.entry("gif", MediaType.IMAGE_GIF),
+		Map.entry("webp", MediaType.valueOf("image/webp")),
+		Map.entry("pdf", MediaType.APPLICATION_PDF),
+		Map.entry("doc", MediaType.valueOf("application/msword")),
+		Map.entry("docx", MediaType.valueOf(
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+		)),
+		Map.entry("ppt", MediaType.valueOf("application/vnd.ms-powerpoint")),
+		Map.entry("pptx", MediaType.valueOf(
+			"application/vnd.openxmlformats-officedocument.presentationml.presentation"
+		)),
+		Map.entry("xls", MediaType.valueOf("application/vnd.ms-excel")),
+		Map.entry("xlsx", MediaType.valueOf(
+			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+		)),
+		Map.entry("hwp", MediaType.valueOf("application/x-hwp")),
+		Map.entry("hwpx", MediaType.valueOf("application/vnd.hancom.hwpx")),
+		Map.entry("txt", MediaType.TEXT_PLAIN),
+		Map.entry("csv", MediaType.valueOf("text/csv")),
+		Map.entry("zip", MediaType.valueOf("application/zip"))
+	);
 
 	private final ClassroomResourceService resourceService;
 
@@ -174,11 +205,12 @@ public class ClassroomResourceController {
 			.filename(file.fileName(), StandardCharsets.UTF_8)
 			.build();
 		return ResponseEntity.ok()
-			.contentType(contentType(file.contentType()))
+			.contentType(downloadContentType(file.fileName()))
 			.header(
 				HttpHeaders.CACHE_CONTROL,
 				"private, max-age=3600, immutable"
 			)
+			.header(X_CONTENT_TYPE_OPTIONS, "nosniff")
 			.header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
 			.body(file.resource());
 	}
@@ -193,14 +225,14 @@ public class ClassroomResourceController {
 		return ApiResponse.success(null);
 	}
 
-	private MediaType contentType(String value) {
-		if (value == null || value.isBlank()) {
+	private MediaType downloadContentType(String fileName) {
+		String extension = StringUtils.getFilenameExtension(fileName);
+		if (extension == null) {
 			return MediaType.APPLICATION_OCTET_STREAM;
 		}
-		try {
-			return MediaType.parseMediaType(value);
-		} catch (IllegalArgumentException exception) {
-			return MediaType.APPLICATION_OCTET_STREAM;
-		}
+		return DOWNLOAD_MEDIA_TYPES.getOrDefault(
+			extension.toLowerCase(Locale.ROOT),
+			MediaType.APPLICATION_OCTET_STREAM
+		);
 	}
 }

@@ -619,7 +619,7 @@ class ClassroomApiContractTest {
 			.thenReturn(new ClassroomResourceFile(
 				new ByteArrayResource("pdf".getBytes()),
 				"강의 자료.pdf",
-				MediaType.APPLICATION_PDF_VALUE,
+				MediaType.TEXT_HTML_VALUE,
 				true
 			));
 
@@ -629,6 +629,14 @@ class ClassroomApiContractTest {
 			.andExpect(header().string(
 				HttpHeaders.CACHE_CONTROL,
 				"private, max-age=3600, immutable"
+			))
+			.andExpect(header().string(
+				HttpHeaders.CONTENT_TYPE,
+				MediaType.APPLICATION_PDF_VALUE
+			))
+			.andExpect(header().string(
+				"X-Content-Type-Options",
+				"nosniff"
 			))
 			.andExpect(header().string(
 				HttpHeaders.CONTENT_DISPOSITION,
