@@ -56,6 +56,9 @@ public class LearningMaterial {
 	@Column(name = "xai_file_id", length = 255)
 	private String xaiFileId;
 
+	@Column(name = "xai_file_upload_attempted_at")
+	private Instant xaiFileUploadAttemptedAt;
+
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)
 	private MaterialStatus status;
@@ -129,6 +132,31 @@ public class LearningMaterial {
 			: null;
 	}
 
+	public boolean claimXaiFileUpload(Instant attemptedAt, Instant retryCutoff) {
+		if (!isEligibleForXaiFileUpload(retryCutoff)) {
+			return false;
+		}
+		this.xaiFileUploadAttemptedAt = attemptedAt;
+		return true;
+	}
+
+	public boolean attachXaiFileIfMissing(String newXaiFileId) {
+		if (!isActive() || !isReady() || xaiFileId != null
+			|| newXaiFileId == null || newXaiFileId.isBlank()) {
+			return false;
+		}
+		xaiFileId = newXaiFileId.trim();
+		return true;
+	}
+
+	private boolean isEligibleForXaiFileUpload(Instant retryCutoff) {
+		return isActive()
+			&& isReady()
+			&& xaiFileId == null
+			&& (xaiFileUploadAttemptedAt == null
+				|| !xaiFileUploadAttemptedAt.isAfter(retryCutoff));
+	}
+
 	public void rename(String title) {
 		this.title = title;
 	}
@@ -180,6 +208,10 @@ public class LearningMaterial {
 
 	public String getXaiFileId() {
 		return xaiFileId;
+	}
+
+	public Instant getXaiFileUploadAttemptedAt() {
+		return xaiFileUploadAttemptedAt;
 	}
 
 	public MaterialStatus getStatus() {

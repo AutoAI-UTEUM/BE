@@ -52,6 +52,7 @@
 | Method | URL | 목적 | 호출 시점 |
 | --- | --- | --- | --- |
 | POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (결정적 전처리) | 자료 업로드 후 비동기 |
+| POST | `/internal/ai/files` | 기존 PDF의 xAI Files 업로드(추출 없음) | bounded backfill worker |
 | DELETE | `/internal/ai/files/{fileId}` | xAI Files 원본 삭제 (404 포함 멱등) | 자료 삭제 후 정리 훅 |
 | POST | `/internal/ai/outline` | 자료 요약·목차 구조 생성 | 추출 완료 후 비동기 |
 | POST | `/internal/ai/captions` | PDF 페이지 이미지의 시각 정보 캡션 생성 | 추출 완료 후 비동기, 최대 10페이지/요청 |
@@ -365,6 +366,13 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 - `EDUPILOT_XAI_FILES_ENABLED=true`일 때만 추출 성공 후 원본 PDF를 xAI Files에 업로드합니다. 기본값은 `false`입니다. 업로드 실패 또는 xAI 제한인 48MiB 초과 시 `xaiFileId=null`, `warnings=[{"type":"FILE_UPLOAD_FAILED","message":"..."}]`로 반환하되 페이지 추출 응답은 HTTP 200을 유지합니다.
 - 파일 정리: `DELETE /internal/ai/files/{fileId}`. Spring은 자료 수명 종료 또는 file ID 교체 시 커밋 후 호출하며, 204 외 실패는 로그만 남기고 자료 상태를 되돌리지 않습니다.
 - 오류: `EXTRACTION_FAILED`(손상/암호화/텍스트 없음 — 하위 사유 코드 분류), `PAGE_LIMIT_EXCEEDED`(300p). 저장·상태 전이는 Spring.
+
+#### POST /internal/ai/files
+
+- 기존 ACTIVE·READY 자료의 소급 업로드를 위한 upload-only API입니다. multipart PDF(≤48MiB)를 받아 텍스트 추출이나 자료 상태 변경 없이 `{ "schemaVersion":"1.0", "xaiFileId":"file-..." }`를 반환합니다.
+- 명시적 내부 호출이므로 `/extract` 자동 업로드 kill switch와 독립적으로 동작합니다. 대량 작업 제어의 정본은 Spring의 기본 OFF `EDUPILOT_XAI_FILE_BACKFILL_ENABLED`입니다.
+- 비PDF·빈 파일·매직 불일치는 400 `UNSUPPORTED_FORMAT`, 48MiB 초과는 413 `FILE_TOO_LARGE`, provider 실패는 502 `FILE_UPLOAD_FAILED` 표준 봉투입니다. provider timeout·429·5xx는 retryable이며 영구 4xx·응답 스키마 실패는 retryable=false입니다.
+- Spring은 ACTIVE+READY+xaiFileId null 후보를 작은 batch로 claim한 뒤 트랜잭션 밖에서 호출하고, 저장 직전 row lock으로 상태와 ID-null을 재검증합니다. 실패해도 READY를 유지하고 재시도 backoff를 적용하며, 경합으로 저장하지 못한 새 ID는 베스트에포트로 삭제합니다.
 
 #### DELETE /internal/ai/files/{fileId}
 

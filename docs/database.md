@@ -15,7 +15,7 @@
 | --- | --- | --- |
 | `users` | id, email, password_hash, auth_provider, google_sub(nullable), name, affiliation, avatar_key, learning_email_opt_in, 약관 버전·동의 시각, notification preferences, ai_answer_style, role, status, timestamps | `UK(email)`, `UK(google_sub)`, `IDX(status)`, role·ai_answer_style CHECK |
 | `refresh_tokens` | id, user_id, token_hash, expires_at, revoked_at, created_at | `FK(user_id)`, `UK(token_hash)`, `IDX(user_id)` |
-| `learning_materials` | id, owner_id, title, storage_key, page_count, processing_status, failure_reason(nullable), failure_trace_id(nullable), captions_completed_at(nullable), xai_file_id(nullable), status, timestamps | `FK(owner_id)`, `UK(storage_key)`, `IDX(owner_id,status)`, 상태·실패 사유·page_count CHECK |
+| `learning_materials` | id, owner_id, title, storage_key, page_count, processing_status, failure_reason(nullable), failure_trace_id(nullable), captions_completed_at(nullable), xai_file_id(nullable), xai_file_upload_attempted_at(nullable), status, timestamps | `FK(owner_id)`, `UK(storage_key)`, `IDX(owner_id,status)`, `IDX(status,processing_status,xai_file_id,xai_file_upload_attempted_at,id)`, 상태·실패 사유·page_count CHECK |
 | `material_pages` | id, material_id, page_number, text_content, caption(nullable), created_at | `FK(material_id)`, `UK(material_id,page_number)`, `CHECK(page_number >= 1)` |
 | `material_overviews` | id, material_id, content(nullable), outline_json(nullable), status, timestamps | `FK(material_id)`, `UK(material_id)`, status CHECK |
 | `classrooms` | id, instructor_id, name, start_date, end_date, color, description(nullable), status, invite_code, timestamps | `FK(instructor_id)`, `UK(invite_code)`, `IDX(instructor_id,status,created_at)`, 날짜·색상·상태 CHECK |
@@ -56,6 +56,7 @@
 - `learning_materials.processing_status`는 `PROCESSING`, `READY`, `FAILED` 3값을 사용하고 `status`는 `ACTIVE`, `DELETED`를 사용합니다. `page_count`는 처리 전·실패 시 `NULL`, READY일 때 1 이상입니다. V23부터 신규 FAILED 전이는 `failure_reason`(`EXTRACTION_FAILED | PAGE_LIMIT_EXCEEDED | SCHEDULING_FAILED | UNSUPPORTED_FORMAT | ENCRYPTED_PDF | NO_TEXT_CONTENT | FILE_TOO_LARGE`)과 업로드 요청의 `failure_trace_id`를 함께 저장합니다. V27은 이 코드 목록을 7종으로 확장하며 기존 행 backfill은 수행하지 않습니다. 기존 FAILED 행은 복원할 수 없어 두 컬럼의 `NULL`을 유지하며, FAILED가 아닌 행은 두 컬럼이 `NULL`이어야 합니다.
 - V30은 `material_pages.caption`과 `learning_materials.captions_completed_at`을 nullable로 추가하며 기존 데이터 backfill은 하지 않습니다. `captions_completed_at`은 캡션 전량 성공이 아니라 모든 청크의 생성 시도가 끝났음을 뜻합니다. 캡션은 AI 입력 조립 시점에만 `text_content`와 병합하며 추출 원문은 수정하지 않습니다. ACTIVE·READY이면서 완료 시각이 없는 자료는 오래된 순으로 백필 대상이 됩니다.
 - V33은 `learning_materials.xai_file_id`를 nullable로 추가합니다. 추출 성공 응답의 non-blank xAI file ID만 내부 저장하며 외부 자료 응답에는 노출하지 않습니다. 자료 소프트 삭제와 계정 탈퇴 시 트랜잭션 커밋 후 내부 파일 삭제 API를 베스트에포트로 호출하고, 실패해도 자료 삭제 결과는 유지합니다.
+- V34는 기존 ACTIVE·READY 자료의 bounded xAI Files 백필을 위해 nullable `xai_file_upload_attempted_at`과 후보 인덱스를 추가합니다. claim 시각을 먼저 커밋해 중복 worker와 hot loop를 막고 기본 6시간 뒤 재시도하며, 업로드 실패는 READY 상태를 변경하지 않습니다.
 - V31은 기존 사용자를 `LOCAL`로 유지하는 `users.auth_provider`와 nullable `google_sub` 및 Google subject 유일 제약을 추가합니다.
 - `material_overviews`는 자료당 최대 1행이며 `PENDING | READY | FAILED` 상태를 사용합니다. `content`와 V29의 `outline_json`은 nullable입니다. READY는 결정적으로 렌더한 Markdown과 AI 구조화 개요를 함께 보존하고, FAILED는 둘 다 null로 유지합니다. 조회 응답에는 READY의 `content`만 노출하며 `outline_json`은 내부 저장용입니다. 행이 없는 자료는 API에서 PENDING으로 합성합니다. 자료 추출 완료 후 개요를 비동기로 생성하고, 기존 ACTIVE·READY 자료 중 개요 행이 없는 자료는 오래된 순으로 백필합니다. 개요 실패는 `learning_materials` 상태를 변경하지 않습니다.
 - `learning_sessions.conversation_summary`는 내부 AI 턴 스냅샷 전용이며 외부 세션 상세 응답에는 노출하지 않습니다. `last_ui_actions_json`, `active_quiz_id`, `pending_diagnosis_id`는 재진입 UI 복원용입니다. `active_quiz_id`와 `pending_diagnosis_id`에는 FK를 추가하지 않습니다. 세션이 하위 퀴즈·진단보다 먼저 생성되는 순환 참조 부담을 피하고 Spring이 생성·제출·진단 소유권과 상태를 검증합니다.
@@ -228,4 +229,3 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 
 - 보존 레코드·storage 파일의 물리 삭제·아카이빙 배치 정책 (DEC-028·DEC-011의 "이후 개선안" — 운영 전환 전 확정)
 - LearnerMemory 항목별 변경 이력 테이블 (DEC-012 이후 개선안 — 필요 시)
-

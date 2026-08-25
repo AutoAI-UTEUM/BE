@@ -53,6 +53,7 @@ edupilot:
     assessment-read-timeout: ${EDUPILOT_AI_ASSESSMENT_READ_TIMEOUT:55s}
     diagnosis-read-timeout: ${EDUPILOT_AI_DIAGNOSIS_READ_TIMEOUT:55s}
     extract-read-timeout: ${EDUPILOT_AI_EXTRACT_READ_TIMEOUT:200s}
+    xai-file-upload-timeout: ${EDUPILOT_AI_XAI_FILE_UPLOAD_TIMEOUT:75s}
     report-read-timeout: ${EDUPILOT_AI_REPORT_READ_TIMEOUT:220s}
     report-query-read-timeout: ${EDUPILOT_AI_REPORT_QUERY_READ_TIMEOUT:75s}
     criteria-read-timeout: ${EDUPILOT_AI_CRITERIA_READ_TIMEOUT:90s}
@@ -72,6 +73,11 @@ edupilot:
       backfill-batch: ${EDUPILOT_OUTLINE_BACKFILL_BATCH:3}
     captions:
       backfill-batch: ${EDUPILOT_CAPTION_BACKFILL_BATCH:1}
+    xai-files:
+      backfill:
+        enabled: ${EDUPILOT_XAI_FILE_BACKFILL_ENABLED:false}
+        batch-size: ${EDUPILOT_XAI_FILE_BACKFILL_BATCH:1}
+        retry-backoff: ${EDUPILOT_XAI_FILE_BACKFILL_RETRY_BACKOFF:PT6H}
     page-text-api-enabled: false
   exam:
     grading:

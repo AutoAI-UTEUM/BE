@@ -61,6 +61,19 @@ public interface LearningMaterialRepository
 		+ "order by material.createdAt, material.id")
 	List<Long> findMissingCaptionIds(Pageable pageable);
 
+	@Query("select material.id from LearningMaterial material "
+		+ "where material.status = io.edupilot.material.MaterialStatus.ACTIVE "
+		+ "and material.processingStatus = "
+		+ "io.edupilot.material.MaterialProcessingStatus.READY "
+		+ "and material.xaiFileId is null "
+		+ "and (material.xaiFileUploadAttemptedAt is null "
+		+ "or material.xaiFileUploadAttemptedAt <= :retryCutoff) "
+		+ "order by material.createdAt, material.id")
+	List<Long> findXaiFileBackfillIds(
+		@Param("retryCutoff") Instant retryCutoff,
+		Pageable pageable
+	);
+
 	@Modifying(clearAutomatically = true, flushAutomatically = true)
 	@Query("update LearningMaterial material "
 		+ "set material.pageCount = null, "
