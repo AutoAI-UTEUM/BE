@@ -40,7 +40,7 @@ async def _logged_turn_stream(
                 event = json.loads(chunk)
                 if event.get("type") == "error":
                     error_code = str(event.get("code", "AI_INTERNAL_ERROR"))
-            except (json.JSONDecodeError, AttributeError):
+            except json.JSONDecodeError, AttributeError:
                 pass
             yield chunk
         logger.log(

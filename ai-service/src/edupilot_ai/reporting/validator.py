@@ -60,8 +60,7 @@ def validate_generate_output(
     _validate_evidence_ids(evidence_groups, allowed_ids=allowed_ids)
 
     eligibility = {
-        item.criterion_key: item.eligible
-        for item in request.data_quality.criterion_eligibility
+        item.criterion_key: item.eligible for item in request.data_quality.criterion_eligibility
     }
     for result in output.criterion_results:
         if (result.status == "ASSESSED") != (result.score is not None):

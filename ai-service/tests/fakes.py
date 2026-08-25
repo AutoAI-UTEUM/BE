@@ -49,9 +49,7 @@ class FakeLlm:
         self._responses = list(responses)
         self.calls: list[tuple[Sequence[LlmMessage], AgentLlmProfile]] = []
         self.timeouts: list[float] = []
-        self.stream_calls: list[
-            tuple[Sequence[LlmMessage], AgentLlmProfile, float]
-        ] = []
+        self.stream_calls: list[tuple[Sequence[LlmMessage], AgentLlmProfile, float]] = []
 
     def queue(self, *responses: ScriptItem) -> None:
         self._responses.extend(responses)

@@ -110,9 +110,7 @@ async def test_xai_bridge_sends_strict_structured_output_wire_format(
     assert "PRIVATE-STUDENT-ANSWER" not in caplog.text
     assert "grounded" not in caplog.text
     call_log = next(
-        record
-        for record in caplog.records
-        if record.message == "xAI chat completion finished"
+        record for record in caplog.records if record.message == "xAI chat completion finished"
     )
     assert call_log.__dict__["model"] == "grok-4.5"
     assert call_log.__dict__["status"] == "SUCCESS"
@@ -196,9 +194,7 @@ async def test_xai_bridge_warns_when_provider_model_differs(
 async def test_xai_bridge_classifies_timeout(
     respx_mock: respx.MockRouter,
 ) -> None:
-    respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
-        side_effect=httpx.ReadTimeout("test timeout")
-    )
+    respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(side_effect=httpx.ReadTimeout("test timeout"))
     async with httpx.AsyncClient() as client:
         bridge = XaiLlmBridge(
             client=client,
@@ -272,9 +268,7 @@ async def test_xai_bridge_classifies_retryable_provider_failure(
     assert caught.value.category is ErrorCategory.INTERNAL
     assert caught.value.retryable is True
     call_log = next(
-        record
-        for record in caplog.records
-        if record.message == "xAI chat completion finished"
+        record for record in caplog.records if record.message == "xAI chat completion finished"
     )
     assert call_log.__dict__["failureKind"] == "provider"
     assert call_log.__dict__["errorCode"] == "INTERNAL"
@@ -306,9 +300,7 @@ async def test_xai_bridge_logs_rate_limit_without_provider_body(
                 )
 
     call_log = next(
-        record
-        for record in caplog.records
-        if record.message == "xAI chat completion finished"
+        record for record in caplog.records if record.message == "xAI chat completion finished"
     )
     assert call_log.__dict__["failureKind"] == "rate_limit"
     assert call_log.__dict__["attempt"] == 1
@@ -389,9 +381,10 @@ async def test_xai_bridge_streams_markdown_without_response_format(
     assert payload["stream"] is True
     assert payload["stream_options"] == {"include_usage": True}
     assert "response_format" not in payload
-    assert [
-        item.text for item in items if isinstance(item, LlmTextDelta)
-    ] == ["편차는 ", "평균과의 차이입니다."]
+    assert [item.text for item in items if isinstance(item, LlmTextDelta)] == [
+        "편차는 ",
+        "평균과의 차이입니다.",
+    ]
     terminal = items[-1]
     assert isinstance(terminal, LlmTextStreamCompleted)
     assert terminal.usage == LlmUsage(
@@ -403,9 +396,7 @@ async def test_xai_bridge_streams_markdown_without_response_format(
     assert "PRIVATE-STREAM-PROMPT" not in caplog.text
     assert "평균과의 차이입니다." not in caplog.text
     call_log = next(
-        record
-        for record in caplog.records
-        if record.message == "xAI chat completion finished"
+        record for record in caplog.records if record.message == "xAI chat completion finished"
     )
     assert call_log.__dict__["status"] == "SUCCESS"
 

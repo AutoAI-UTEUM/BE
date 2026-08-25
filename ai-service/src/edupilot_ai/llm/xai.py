@@ -192,9 +192,7 @@ class XaiLlmBridge:
                 started_at=started_at,
                 status="FAILED",
                 error_code=ErrorCategory.INTERNAL.value,
-                failure_kind=(
-                    "rate_limit" if response.status_code == 429 else "provider"
-                ),
+                failure_kind=("rate_limit" if response.status_code == 429 else "provider"),
             )
             raise LlmBridgeError(
                 category=ErrorCategory.INTERNAL,
@@ -298,16 +296,11 @@ class XaiLlmBridge:
                         started_at=started_at,
                         status="FAILED",
                         error_code=ErrorCategory.INTERNAL.value,
-                        failure_kind=(
-                            "rate_limit"
-                            if response.status_code == 429
-                            else "provider"
-                        ),
+                        failure_kind=("rate_limit" if response.status_code == 429 else "provider"),
                     )
                     raise LlmBridgeError(
                         category=ErrorCategory.INTERNAL,
-                        retryable=response.status_code == 429
-                        or response.status_code >= 500,
+                        retryable=response.status_code == 429 or response.status_code >= 500,
                     )
 
                 async for data in _sse_data(response):
