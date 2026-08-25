@@ -13,6 +13,7 @@ import io.edupilot.classroom.ClassroomStudentService;
 import io.edupilot.classroom.ClassroomWeekService;
 import io.edupilot.classroom.ClassroomWeekMaterialRepository;
 import io.edupilot.classroom.ClassroomNoticeService;
+import io.edupilot.classroom.ClassroomResourceService;
 import io.edupilot.exam.InstructorExamService;
 import io.edupilot.exam.ExamAiGradingService;
 import io.edupilot.exam.ExamDraftService;
@@ -53,6 +54,7 @@ import io.edupilot.schedule.PersonalScheduleService;
 	LearningProgressService.class,
 	ClassroomWeekMaterialRepository.class,
 	ClassroomNoticeService.class,
+	ClassroomResourceService.class,
 	ScheduleService.class,
 	PersonalScheduleService.class,
 	InstructorExamService.class,

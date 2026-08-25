@@ -33,6 +33,7 @@
 | 주차·자료 | 기존 자료 연결·해제 | `POST·DELETE /api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}` | 주차 자료 목록 갱신 | 자료 중복 연결, 자료·강의실 소유권 |
 | 강의실 자료 업로드 | PDF와 강의실·주차 part 제출 | `POST /api/materials` | 처리 중 자료를 해당 주차에 즉시 표시 | INSTRUCTOR 소유권, part 조합·파일 오류 |
 | 강의실 자료 학습 | 연결 자료 열기·통합학습 시작 | `GET /api/materials/{materialId}`, `GET .../file`, `POST /api/sessions` | 주차 상태와 관계없이 PDF 뷰어와 사용자×자료 공유 세션으로 이동 | 연결 해제·멤버십 |
+| 강의실 일반 자료 | 파일·링크 등록, 전체/주차별 목록, 제목·주차 수정, 파일 열기·다운로드, 삭제 | `GET·POST /api/classrooms/{id}/resources`, `PATCH·DELETE /api/resources/{resourceId}`, `GET .../file` | FILE과 LINK를 구분해 표시하고 이미지·PDF는 inline, 나머지는 attachment로 제공. 일반 자료에는 AI 추출·학습 시작을 연결하지 않음 | 생성·수정·삭제는 소유 강사와 ACTIVE 상태, 조회·다운로드는 승인 멤버, 형식·주차 범위 검증 |
 | 공지 | 목록·즉시/예약 게시·수정·삭제 | `GET·POST /api/classrooms/{id}/notices`, `PATCH·DELETE .../notices/{noticeId}` | 전체/주차 공지를 표시. 강사는 예약 포함 전체, 학습자는 게시 시각이 도래한 공지만 표시 | 강사 권한, 주차 범위, 완료 상태 |
 | 캘린더 | 기간·강의실 필터 조회, 개인 일정 생성·수정·삭제 | `GET·POST /api/users/me/schedule`, `PATCH·DELETE /api/users/me/schedule/{scheduleId}` | 주차 공개·공지·본인 개인 일정을 시간순 표시하고 개인 일정만 편집 | 날짜·시간 범위, 강의실 접근권, 개인 일정 소유권 |
 | 시험 관리 | 시험 생성·목록·상세·수정 | `POST·GET /api/classrooms/{classroomId}/exams`, `GET·PATCH /api/exams/{examId}` | DRAFT 편집기와 전체 상태 목록 표시. rubric 편집기는 기본 접힘·미입력 상태 | 강사 권한, 완료 강의실, DRAFT 편집 상태 |

@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | Identity | User | 인증 주체, 역할, 계정 상태 |
 | Material | LearningMaterial, MaterialPage, MaterialOverview | PDF 메타데이터, 페이지 문맥과 자료 개요 |
-| Classroom | Classroom, ClassroomMember, ClassroomJoinRequest, ClassroomWeek, ClassroomWeekMaterial, ClassroomNotice | 강의실 소유권, 참여, 주차 자료, 즉시·예약 공지 |
+| Classroom | Classroom, ClassroomMember, ClassroomJoinRequest, ClassroomWeek, ClassroomWeekMaterial, ClassroomNotice, ClassroomResource | 강의실 소유권, 참여, 주차 학습 자료, 일반 파일·링크 자료, 즉시·예약 공지 |
 | Notification | Notification | 사용자 귀속 인앱 알림, 읽음·보관 수명 |
 | Learning | LearningSession, ChatMessage | 현재 학습 상태와 대화 기록 |
 | QA | QaThread, QaMessage | 이어지는 질문 문맥 |
@@ -41,6 +41,7 @@ erDiagram
   CLASSROOM ||--o{ CLASSROOM_JOIN_REQUEST : receives
   CLASSROOM ||--o{ CLASSROOM_WEEK : schedules
   CLASSROOM ||--o{ CLASSROOM_NOTICE : publishes
+  CLASSROOM ||--o{ CLASSROOM_RESOURCE : provides
   CLASSROOM ||--o{ EXAM : holds
   CLASSROOM_WEEK ||--o{ CLASSROOM_WEEK_MATERIAL : links
   LEARNING_MATERIAL ||--o{ CLASSROOM_WEEK_MATERIAL : assigned_as
@@ -125,6 +126,13 @@ erDiagram
 - `weekNumber`는 nullable이며 null이면 전체 공지, 값이 있으면 강의실의 계산된 `weekCount` 범위 안이어야 합니다.
 - `publishAt`은 nullable UTC 시각이며 null 또는 과거이면 즉시 게시하고 미래이면 조회 시각이 도래한 뒤 학습자에게 노출합니다. 공지 API 노출 판정은 조회 시각에 파생하며 강사는 예약 공지를 포함한 전체를 조회합니다.
 - 기존 `publishedAt`은 공지 생성 시각과 목록 정렬·캘린더 `NOTICE_PUBLISH` 파생 기준을 유지합니다. `notificationSentAt`은 예약 공지 알림의 1회 생성 표식이며 공지 자체의 게시 상태가 아닙니다. 공지 삭제는 물리 삭제합니다.
+
+### ClassroomResource
+
+- 강의실에서 공유하는 일반 자료이며 `FILE | LINK` 두 유형입니다. PDF 학습 자료와 달리 AI 추출·학습 세션 대상이 아닙니다.
+- `weekNumber`는 nullable이며 null이면 전체 자료, 값이 있으면 강의실의 계산된 `weekCount` 범위 안이어야 합니다.
+- FILE은 원본 파일명·Content-Type·크기와 `classroom-resources/{UUID}` 저장 경로를 보관하고 URL은 비웁니다. LINK는 `http | https` URL만 보관하고 파일 메타데이터는 비웁니다.
+- 소유 강사만 ACTIVE 강의실에서 생성·수정·삭제할 수 있고 승인 멤버는 목록·파일 조회만 할 수 있습니다. 삭제는 행을 물리 삭제하고 FILE 저장 객체는 best-effort로 정리합니다.
 
 ### Notification
 

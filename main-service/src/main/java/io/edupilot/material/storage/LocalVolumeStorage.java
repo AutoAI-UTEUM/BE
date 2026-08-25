@@ -22,6 +22,8 @@ public class LocalVolumeStorage implements FileStorage {
 			+ "[0-9a-f]{4}-[0-9a-f]{12}\\.pdf|"
 			+ "avatars/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
 			+ "[0-9a-f]{4}-[0-9a-f]{12}\\.(?:jpg|png|webp)|"
+			+ "classroom-resources/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+			+ "[0-9a-f]{4}-[0-9a-f]{12}|"
 			+ "materials/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
 			+ "[0-9a-f]{4}-[0-9a-f]{12}-pages/[1-9][0-9]*\\.jpg)"
 	);
@@ -46,6 +48,11 @@ public class LocalVolumeStorage implements FileStorage {
 			throw new StorageException("지원하지 않는 아바타 확장자입니다.");
 		}
 		return store(inputStream, "avatars/" + UUID.randomUUID() + "." + extension);
+	}
+
+	@Override
+	public String storeClassroomResource(InputStream inputStream) {
+		return store(inputStream, "classroom-resources/" + UUID.randomUUID());
 	}
 
 	@Override
