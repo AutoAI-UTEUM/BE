@@ -95,6 +95,14 @@ class Settings(BaseSettings):
         default=120,
         validation_alias="EXTRACT_TIMEOUT_SECONDS",
     )
+    edupilot_xai_file_upload_timeout_seconds: PositiveInt = Field(
+        default=60,
+        validation_alias="EDUPILOT_XAI_FILE_UPLOAD_TIMEOUT_SECONDS",
+    )
+    edupilot_xai_files_enabled: bool = Field(
+        default=False,
+        validation_alias="EDUPILOT_XAI_FILES_ENABLED",
+    )
     report_timeout_seconds: PositiveInt = Field(
         default=180,
         validation_alias="REPORT_TIMEOUT_SECONDS",

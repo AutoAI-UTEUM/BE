@@ -10,6 +10,7 @@ from edupilot_ai.docchat.service import DocChatService
 from edupilot_ai.examdraft.service import ExamDraftService
 from edupilot_ai.grading.service import GraderAgent, GradeService
 from edupilot_ai.llm.bridge import LlmBridge
+from edupilot_ai.llm.files import XaiFileClientProtocol
 from edupilot_ai.orchestration.agents import (
     ExplainerAgent,
     NoteAgent,
@@ -43,6 +44,12 @@ def get_llm_bridge(request: Request) -> LlmBridge:
     if bridge is None:
         raise RuntimeError("LlmBridge is not configured")
     return bridge
+
+
+def get_xai_file_client(request: Request) -> XaiFileClientProtocol:
+    """Return the app-scoped xAI Files client."""
+
+    return cast(XaiFileClientProtocol, request.app.state.xai_file_client)
 
 
 def get_caption_service(

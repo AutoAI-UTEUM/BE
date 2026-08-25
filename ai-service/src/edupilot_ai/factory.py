@@ -12,6 +12,7 @@ from edupilot_ai.api.criteria import router as criteria_router
 from edupilot_ai.api.doc_chat import router as doc_chat_router
 from edupilot_ai.api.exams import router as exams_router
 from edupilot_ai.api.extract import router as extract_router
+from edupilot_ai.api.files import router as files_router
 from edupilot_ai.api.grade import router as grade_router
 from edupilot_ai.api.health import router as health_router
 from edupilot_ai.api.learning_support import router as learning_support_router
@@ -22,6 +23,7 @@ from edupilot_ai.core.errors import register_exception_handlers
 from edupilot_ai.core.logging import LoggingRuntime
 from edupilot_ai.core.middleware import InternalTokenMiddleware
 from edupilot_ai.llm.bridge import LlmBridge
+from edupilot_ai.llm.files import XaiFileClient, XaiFileClientProtocol
 from edupilot_ai.llm.xai import XaiLlmBridge
 from edupilot_ai.settings import Settings
 
@@ -31,6 +33,7 @@ class Dependencies:
     """Optional external dependencies owned by one app instance."""
 
     llm_bridge: LlmBridge | None = None
+    file_client: XaiFileClientProtocol | None = None
 
 
 def create_app(
@@ -46,14 +49,27 @@ def create_app(
         logging_runtime = LoggingRuntime(environment=resolved_settings.environment)
         owned_http_client: httpx.AsyncClient | None = None
         bridge = resolved_dependencies.llm_bridge
-        if bridge is None:
+        file_client = resolved_dependencies.file_client
+        if bridge is None or file_client is None:
             owned_http_client = httpx.AsyncClient()
+        if bridge is None:
+            if owned_http_client is None:
+                raise RuntimeError("owned HTTP client was not initialized")
             bridge = XaiLlmBridge(
                 client=owned_http_client,
                 api_key=resolved_settings.xai_api_key,
             )
+        if file_client is None:
+            if owned_http_client is None:
+                raise RuntimeError("owned HTTP client was not initialized")
+            file_client = XaiFileClient(
+                client=owned_http_client,
+                api_key=resolved_settings.xai_api_key,
+                timeout_seconds=resolved_settings.edupilot_xai_file_upload_timeout_seconds,
+            )
         app.state.settings = resolved_settings
         app.state.llm_bridge = bridge
+        app.state.xai_file_client = file_client
         try:
             yield
         finally:
@@ -61,6 +77,7 @@ def create_app(
                 await owned_http_client.aclose()
             logging_runtime.close()
             del app.state.llm_bridge
+            del app.state.xai_file_client
             del app.state.settings
 
     app = FastAPI(
@@ -79,6 +96,7 @@ def create_app(
     app.include_router(doc_chat_router)
     app.include_router(exams_router)
     app.include_router(extract_router)
+    app.include_router(files_router)
     app.include_router(grade_router)
     app.include_router(learning_support_router)
     app.include_router(outline_router)

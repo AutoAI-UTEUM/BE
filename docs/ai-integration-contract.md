@@ -5,13 +5,15 @@
 | 상태 | v0.6 확정 — #133 승인 반영, AI Service 구현·배포 검증 대기 |
 | 작성일 | 2026-08-02 |
 | 역할 | Epic5 ⓐ(#27 턴 계약)·Epic6 ⓐ(퀴즈 계약)·Epic7 ⓐ(평가·진단·메모리 계약)의 AI측 상위 기준 문서 |
-| 선행 결정 | DEC-002 v2(모델), DEC-006(추출 책임), DEC-013(SSE 기본, 세부 잔여), DEC-014(X-Internal-Token), DEC-022(하이브리드) |
+| 선행 결정 | DEC-002 v2(모델), DEC-006(추출 책임), DEC-013(SSE 기본, 세부 잔여), DEC-014(X-Internal-Token), DEC-022(하이브리드), DEC-035(xAI Files 단계 전환) |
 
 > v0.2 → v0.3 주요 변경: 이벤트명·스트림 이벤트를 팀 표준으로 개명, 내부 엔드포인트를 api-spec §8의 5종 체계로 재편, statePatch 허용목록을 api-spec 표와 통일, 오류를 category 5종 체계로 교체, RuleRouter 개념을 DEC-022 하이브리드(규칙은 Spring, 판단은 FastAPI Orchestrator)로 재배치.
 >
 > v0.4 → v0.5 주요 변경: `USER_QUESTION`의 선택 `includeCurrentPage`와 페이지 텍스트 3필드의 조건부 null 규칙을 추가하고, 새 대화 마커 이후의 대화 문맥 경계를 확정했다. 내부 `schemaVersion`은 `"1.0"`을 유지한다.
 >
 > v0.5 → v0.6 주요 변경: grade 요청의 전 필드에 required·nullable을 명시하고 시험이 숫자 `examId`를 `quizId`로 전달하는 규칙, 선택 문맥 없이 채점하는 규칙, 표준 `AI_REQUEST_INVALID` 오류 봉투를 확정했다. 이는 문서상 필수 필드를 선택으로 완화한 것이 아니라 기존에 없던 필드 강제력을 명문화하고 구현을 일치시키는 변경이다.
+>
+> 2026-08-25 추가 확정: PDF 원본 직접 참조 전환의 Phase 1로, 기존 텍스트 추출을 유지하면서 kill switch가 켜진 환경에서 추출 성공 원본을 xAI Files에 선택적으로 업로드하고 삭제할 수 있는 내부 계약을 추가했다. 턴 첨부는 Phase 3 범위다(DEC-035).
 
 ---
 
@@ -23,7 +25,7 @@
   - v0.2의 "RuleRouter" 개념은 이 구조로 흡수됨 — **결정 가능한 분기는 전부 Spring 측 규칙**(StateReducer·파이프라인 트리거·페이지 이동), FastAPI 내부에는 별도 규칙 라우터를 두지 않는다. Policy/Verifier는 LLM Plan의 스키마·허용 도구·교수 정책 검증만 담당한다(동일 판단 로직 이중화 금지).
   - 단, 이벤트로 결과가 유일하게 결정되는 턴의 Plan 합성과 결정적 안내 fast-path(페이지 이동 안내·빈 페이지)는 AI 내부 규칙으로 처리한다(설계 승인, 2026-08-17).
 - **상태 소유: Spring** — FastAPI는 무상태. 요청마다 스냅샷을 받고 statePatch를 제안하며, Spring이 허용목록으로 검증 후 반영. FastAPI는 자체 영속 저장소(Redis 포함)를 두지 않는다.
-- **PDF 접근** — 자료 업로드 시 `/internal/ai/extract`로 1회 추출 → Spring이 `material_pages`에 저장 → `/internal/ai/outline`에는 저장된 전 페이지 텍스트를 전달하고, 턴마다 현재±1 페이지 텍스트를 스냅샷에 동봉. fileRef/Files API 미사용.
+- **PDF 접근** — 자료 업로드 시 `/internal/ai/extract`로 1회 추출 → Spring이 `material_pages`에 저장 → `/internal/ai/outline`에는 저장된 전 페이지 텍스트를 전달하고, 턴마다 현재±1 페이지 텍스트를 스냅샷에 동봉한다. 추출 텍스트는 앵커·폴백으로 계속 유지한다. Phase 1에서는 kill switch가 켜진 경우 추출 성공 원본을 xAI Files에 선택적으로 업로드해 `xaiFileId`만 반환하며, 이를 턴에 첨부하는 경로는 Phase 3에서 도입한다(DEC-035).
 
 ## 1. 공통 규칙
 
@@ -50,6 +52,7 @@
 | Method | URL | 목적 | 호출 시점 |
 | --- | --- | --- | --- |
 | POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (결정적 전처리) | 자료 업로드 후 비동기 |
+| DELETE | `/internal/ai/files/{fileId}` | xAI Files 원본 삭제 (404 포함 멱등) | 자료 삭제 후 정리 훅 |
 | POST | `/internal/ai/outline` | 자료 요약·목차 구조 생성 | 추출 완료 후 비동기 |
 | POST | `/internal/ai/captions` | PDF 페이지 이미지의 시각 정보 캡션 생성 | 추출 완료 후 비동기, 최대 10페이지/요청 |
 | POST | `/internal/ai/doc-chat` | 자료·퀴즈 복습 문맥 기반 단일 질문 응답 | 외부 doc-chat 요청당 동기 1회 |
@@ -355,8 +358,14 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 ### 6.1 POST /internal/ai/extract
 
 - 요청: multipart PDF (≤45MB — DEC-016).
-- 응답: `{ "schemaVersion": "1.0", "pageCount": 42, "pages": [{ "pageNumber": 1, "text": "..." }] }`
+- 응답: `{ "schemaVersion": "1.0", "pageCount": 42, "pages": [{ "pageNumber": 1, "text": "..." }], "xaiFileId": "file-...", "warnings": [] }`. `xaiFileId`는 nullable이며 `warnings[]` 항목은 `{type,message}` 형식입니다.
+- `EDUPILOT_XAI_FILES_ENABLED=true`일 때만 추출 성공 후 원본 PDF를 xAI Files에 업로드합니다. 기본값은 `false`입니다. 업로드 실패 또는 xAI 제한인 48MiB 초과 시 `xaiFileId=null`, `warnings=[{"type":"FILE_UPLOAD_FAILED","message":"..."}]`로 반환하되 페이지 추출 응답은 HTTP 200을 유지합니다.
 - 오류: `EXTRACTION_FAILED`(손상/암호화/텍스트 없음 — 하위 사유 코드 분류), `PAGE_LIMIT_EXCEEDED`(300p). 저장·상태 전이는 Spring.
+
+#### DELETE /internal/ai/files/{fileId}
+
+- xAI Files의 원본을 정리합니다. 기능 kill switch가 꺼진 상태에서도 기존 파일 정리를 위해 동작합니다.
+- 삭제 성공과 xAI 404(이미 없음)는 모두 body 없는 HTTP 204입니다. 그 외 xAI 오류는 HTTP 502, `FILE_DELETE_FAILED`, category `INTERNAL`, `retryable=true` 표준 봉투로 반환합니다.
 
 ### 6.2 POST /internal/ai/grade
 
@@ -531,6 +540,8 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 | `QUIZ_ASSESSMENT_TIMEOUT_SECONDS` | `45` | quiz-assessment |
 | `DIAGNOSIS_TIMEOUT_SECONDS` | `45` | diagnosis |
 | `EXTRACT_TIMEOUT_SECONDS` | `120` | extract |
+| `EDUPILOT_XAI_FILES_ENABLED` | `false` | 추출 성공 PDF의 xAI Files 업로드 kill switch |
+| `EDUPILOT_XAI_FILE_UPLOAD_TIMEOUT_SECONDS` | `60` | xAI Files 업로드·삭제 HTTP timeout |
 | `AGENT_REASONING_EFFORT` | `medium` | 기본 Agent 프로필 |
 | `AGENT_MAX_TOKENS` | `16384` | 기본 최대 출력 토큰 |
 | `AGENT_TEMPERATURE` | `null` | 선택적 temperature |
