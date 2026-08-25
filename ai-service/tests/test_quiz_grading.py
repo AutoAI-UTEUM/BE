@@ -181,6 +181,7 @@ async def test_quiz_prompt_scopes_generation_to_current_page(
     assert isinstance(context_payload, dict)
     context_payload.update(
         {
+            "xaiFileId": "file-phase-five-only",
             "currentPageText": "현재 페이지 출제 근거",
             "previousPageText": "이전 페이지 참고 문맥",
             "nextPageText": "아직 배우지 않은 다음 페이지 원문",
@@ -198,6 +199,7 @@ async def test_quiz_prompt_scopes_generation_to_current_page(
     assert prompt_payload["referenceContext"] == [
         {"pageNumber": 2, "text": "이전 페이지 참고 문맥"}
     ]
+    assert fake_llm.file_attachments == [()]
 
 
 def test_quiz_prompt_has_no_reference_context_on_first_page(

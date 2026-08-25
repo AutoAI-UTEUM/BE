@@ -24,6 +24,13 @@ class LlmUsage:
 
 
 @dataclass(frozen=True, slots=True)
+class LlmFileAttachment:
+    """Provider-neutral reference to one previously uploaded private file."""
+
+    file_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class LlmCompletion[OutputT: BaseModel]:
     """Validated structured output and its provider metadata."""
 
@@ -74,6 +81,7 @@ class LlmBridge(Protocol):
         response_model: type[ModelT],
         profile: AgentLlmProfile,
         timeout_seconds: float,
+        attachments: Sequence[LlmFileAttachment] = (),
     ) -> LlmCompletion[ModelT]:
         """Return validated structured output plus provider usage."""
         ...
@@ -84,6 +92,7 @@ class LlmBridge(Protocol):
         messages: Sequence[LlmMessage],
         profile: AgentLlmProfile,
         timeout_seconds: float,
+        attachments: Sequence[LlmFileAttachment] = (),
     ) -> AsyncIterator[LlmTextStreamItem]:
         """Yield Markdown deltas followed by exactly one usage item."""
         ...

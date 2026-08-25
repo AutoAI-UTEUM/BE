@@ -469,7 +469,7 @@
 
 ### DEC-035 — PDF 원본의 xAI Files 단계 전환
 
-- 상태: Accepted — 설계자 승인, Phase 1 구현 이슈 [GitHub #303](https://github.com/AutoAI-UTEUM/BE/issues/303)
+- 상태: Accepted — 설계자 승인, Phase 1 [#303](https://github.com/AutoAI-UTEUM/BE/issues/303), Phase 3 [#311](https://github.com/AutoAI-UTEUM/BE/issues/311)
 - 결정일: 2026-08-25
 - 결정자: 프로젝트 설계자, AI Service 담당자
 - 선택:
@@ -477,10 +477,11 @@
   - Phase 1은 `EDUPILOT_XAI_FILES_ENABLED` kill switch가 켜진 경우에만 추출 성공 원본을 xAI Files에 업로드합니다. 기본값은 `false`이며 응답의 nullable `xaiFileId`와 `warnings[{type,message}]`로 결과를 전달합니다.
   - 업로드 실패나 xAI 파일 제한 48MiB 초과는 `FILE_UPLOAD_FAILED` warning으로 강등하고 텍스트 추출 성공 응답은 HTTP 200을 유지합니다.
   - `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작합니다. 삭제 성공과 이미 없는 파일(404)은 204로 멱등 처리하고, 그 밖의 provider 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)로 반환합니다.
-  - Spring은 `xaiFileId`를 자료에 저장하고 자료 삭제 시 정리 훅을 호출합니다. 파일 ID를 실제 턴 요청에 첨부하는 경로는 Phase 3에서 별도 도입합니다.
+  - Spring은 `xaiFileId`를 자료에 저장하고 자료 삭제 시 정리 훅을 호출합니다. Phase 3에서는 턴 context에 nullable `xaiFileId`를 전달하고 AI Service가 Explainer·QaAgent의 실제 LLM 호출에만 첨부합니다. Plan·결정적 안내·퀴즈·개요에는 첨부하지 않으며 `includeCurrentPage=false`이면 사용하지 않습니다.
+  - 첨부 호출은 xAI Responses API의 `input_file.file_id`를 사용하고 `store=false`를 강제합니다. 추출된 현재 페이지 텍스트와 질문은 범위 앵커이며 원본 PDF는 해당 범위의 세부 근거 확인용입니다.
 - 이유: 원본의 시각·레이아웃 정보를 이후 LLM 입력에서 활용할 수 있는 기반을 만들면서도, provider 업로드 장애 때문에 이미 성공한 결정적 텍스트 추출과 자료 등록이 실패하지 않도록 단계와 실패 경계를 분리합니다.
 - 대안과 trade-off: 즉시 원본 첨부만 사용하면 페이지 단위 근거 제어와 provider 장애 폴백을 잃습니다. 텍스트 추출만 유지하면 시각·레이아웃 정보 활용이 제한됩니다. 양쪽을 병행하면 저장·삭제 수명주기 관리가 추가되지만 kill switch와 멱등 삭제로 운영 위험을 제한합니다.
-- 후속 변경 문서: [AI 통합 계약](ai-integration-contract.md) §0·§2·§6.1·§7, [API 명세](api-spec.md) §8, [에러 코드](error-code.md), [에이전트 명세](agent-system-spec.md). 턴 첨부는 Phase 3 후속 이슈에서 계약·구현합니다.
+- 후속 변경 문서: [AI 통합 계약](ai-integration-contract.md) §0·§2·§3·§6.1·§7, [API 명세](api-spec.md) §8, [에러 코드](error-code.md), [에이전트 명세](agent-system-spec.md). 퀴즈·개요 첨부 확대와 기존 자료 백필은 Phase 5에서 별도 판단합니다.
 
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 

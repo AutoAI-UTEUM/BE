@@ -707,7 +707,7 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 
 교정 후 추가 질문은 별도 이벤트 없이 `USER_QUESTION`을 재사용합니다. 직전 교정(repair)이 존재하면 Spring이 내부 턴 스냅샷의 `latestRepair`에 교정 답변 원문(또는 원문을 보존한 요약)을 포함해 전달하고, Orchestrator가 교정 후속 여부를 판단해 QaAgent를 선택합니다([에이전트 시스템 명세](agent-system-spec.md) §9.9 참고).
 
-`USER_QUESTION.payload.includeCurrentPage`는 boolean만 허용합니다. 생략하거나 `true`이면 현재·이전·다음 페이지 텍스트를 기존처럼 내부 context에 포함합니다. `false`이면 Spring은 `currentPageText`, `previousPageText`, `nextPageText` 세 필드의 값을 모두 null로 전달하되 context 12키 구조를 유지합니다. 이때 QaAgent는 일반 학습 지식으로 답변할 수 있지만 업로드 자료 내용을 추측하지 않고 학습과 무관한 요청에는 기존 한계 안내를 적용합니다. QA thread와 `latestRepair` 문맥은 플래그와 무관하게 승계합니다. 다른 eventType에 `includeCurrentPage`를 보내거나 boolean 외 값을 보내면 `VALIDATION_FAILED`입니다.
+`USER_QUESTION.payload.includeCurrentPage`는 boolean만 허용합니다. 생략하거나 `true`이면 현재·이전·다음 페이지 텍스트와 nullable `xaiFileId`를 내부 context에 포함합니다. `false`이면 Spring은 `xaiFileId`, `currentPageText`, `previousPageText`, `nextPageText` 네 필드의 값을 모두 null로 전달하되 context 13키 구조를 유지합니다. 이때 QaAgent는 일반 학습 지식으로 답변할 수 있지만 업로드 자료 내용을 추측하지 않고 학습과 무관한 요청에는 기존 한계 안내를 적용합니다. QA thread와 `latestRepair` 문맥은 플래그와 무관하게 승계합니다. 다른 eventType에 `includeCurrentPage`를 보내거나 boolean 외 값을 보내면 `VALIDATION_FAILED`입니다.
 
 동일 `requestId` 재전송 처리(확정): 기존 사용자 메시지의 `status=FAILED`이면 해당 메시지를 `COMPLETED`로 복귀시켜 재사용하고 턴을 다시 수행합니다. 질문 행은 추가하지 않습니다. 기존 메시지가 성공 또는 진행 상태이면 **`TURN_ALREADY_PROCESSED`(409)**를 유지합니다. FE는 실패 턴의 통신 재시도에 새 ID를 만들지 않고 같은 `requestId`를 다시 사용합니다.
 
@@ -787,7 +787,7 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 }
 ```
 
-`conversationId`의 숫자는 세션별 새 대화 호출 횟수이며 첫 호출은 1부터 시작합니다. 호출 시각보다 **늦게 생성된** 메시지만 다음 내부 턴의 `recentMessages`에 포함하고, 마커 이전에 생성된 활성 QA thread의 `qaThreadDigest`와 교정 결과의 `latestRepair`는 null로 전달합니다. `pendingDiagnosis`, `memory.temporaryCandidates`, `quizAssessments`, `learnerMemoryDigest`는 유지하며 context 12키 구조도 바뀌지 않습니다. 이 마커는 AI 문맥에만 적용되므로 아래 메시지 조회 API는 새 대화 전후의 전체 이력을 계속 반환합니다.
+`conversationId`의 숫자는 세션별 새 대화 호출 횟수이며 첫 호출은 1부터 시작합니다. 호출 시각보다 **늦게 생성된** 메시지만 다음 내부 턴의 `recentMessages`에 포함하고, 마커 이전에 생성된 활성 QA thread의 `qaThreadDigest`와 교정 결과의 `latestRepair`는 null로 전달합니다. `pendingDiagnosis`, `memory.temporaryCandidates`, `quizAssessments`, `learnerMemoryDigest`, `xaiFileId`는 유지하며 context 13키 구조도 바뀌지 않습니다. 이 마커는 AI 문맥에만 적용되므로 아래 메시지 조회 API는 새 대화 전후의 전체 이력을 계속 반환합니다.
 
 ### GET `/api/sessions/{sessionId}/messages`
 
@@ -2226,7 +2226,7 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 | POST | `/internal/ai/diagnosis` | 진단 질문 생성 | 퀴즈 제출 파이프라인 3단계 (기준 점수 미달 시) |
 | POST | `/internal/ai/exams/draft` | 시험 문항 AI 초안 생성 | 소유 강사의 DRAFT 시험 초안 요청 시 동기 호출 |
 
-`extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)과 nullable `xaiFileId`, 기본 빈 배열 `warnings: [{type,message}]`를 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `EDUPILOT_XAI_FILES_ENABLED=true`일 때만 추출 성공 원본을 xAI Files에 업로드합니다. 업로드 실패 또는 48MiB 초과는 `xaiFileId=null`과 `FILE_UPLOAD_FAILED` warning으로 강등하며 추출 응답은 200을 유지합니다. `FILE_UPLOAD_FAILED` 및 알 수 없는 warning type은 경고로만 기록하고 추출이 성공했다면 자료는 기존대로 READY가 됩니다. Spring은 non-blank `xaiFileId`만 내부 DB에 저장하고 외부 자료 응답에는 노출하지 않습니다. 텍스트 추출은 앵커·폴백으로 유지하고 xAI 파일을 턴에 첨부하는 경로는 후속 Phase 3 범위입니다(DEC-035). `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작하며 삭제 성공·xAI 404는 모두 204, 그 밖의 xAI 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)입니다. 자료 삭제나 file ID 교체 시 Spring은 트랜잭션 커밋 후 DELETE를 호출하며 실패해도 자료 삭제·READY 결과를 유지합니다. `captions`는 `{schemaVersion:"1.0", pages:[{pageNumber,imageBase64,extractedText}]}`를 최대 10페이지씩 받고 페이지별 nullable 캡션을 반환합니다. Spring은 캡션이 있으면 모든 페이지 텍스트 기반 AI 입력에 `\n\n[그림 설명] {caption}`을 읽기 시점에 병합하며 `material_pages.text_content` 원문은 유지합니다. 일부 청크 실패는 자료·개요 상태에 영향을 주지 않고 다음 청크 처리를 계속합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
+`extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)과 nullable `xaiFileId`, 기본 빈 배열 `warnings: [{type,message}]`를 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `EDUPILOT_XAI_FILES_ENABLED=true`일 때만 추출 성공 원본을 xAI Files에 업로드합니다. 업로드 실패 또는 48MiB 초과는 `xaiFileId=null`과 `FILE_UPLOAD_FAILED` warning으로 강등하며 추출 응답은 200을 유지합니다. `FILE_UPLOAD_FAILED` 및 알 수 없는 warning type은 경고로만 기록하고 추출이 성공했다면 자료는 기존대로 READY가 됩니다. Spring은 non-blank `xaiFileId`만 내부 DB에 저장하고 외부 자료 응답에는 노출하지 않습니다. 자유 학습 턴 context에는 nullable `xaiFileId`를 포함하며 `includeCurrentPage=false`이면 null을 보냅니다. AI Service는 설명·QA의 실제 LLM 호출에만 파일을 첨부하고 Plan·결정적 안내·퀴즈·개요에는 첨부하지 않습니다. 현재 페이지 추출 텍스트는 범위 앵커·file ID 부재 시 폴백으로 유지합니다(DEC-035). `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작하며 삭제 성공·xAI 404는 모두 204, 그 밖의 xAI 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)입니다. 자료 삭제나 file ID 교체 시 Spring은 트랜잭션 커밋 후 DELETE를 호출하며 실패해도 자료 삭제·READY 결과를 유지합니다. `captions`는 `{schemaVersion:"1.0", pages:[{pageNumber,imageBase64,extractedText}]}`를 최대 10페이지씩 받고 페이지별 nullable 캡션을 반환합니다. Spring은 캡션이 있으면 모든 페이지 텍스트 기반 AI 입력에 `\n\n[그림 설명] {caption}`을 읽기 시점에 병합하며 `material_pages.text_content` 원문은 유지합니다. 일부 청크 실패는 자료·개요 상태에 영향을 주지 않고 다음 청크 처리를 계속합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
 
 별도 시험 grade는 숫자 `examId`를 `quizId`로 사용합니다. `pageContext`와 `learnerMemoryDigest`는 생략·null을 허용하고 나머지 grade 요청 필드는 필수·non-null입니다. 응답이 있는 SHORT와 ESSAY는 각각 묶어 호출하며 한 유형이 실패해도 나머지 유형은 계속 호출합니다. 실제 호출의 `items`와 `studentAnswers`는 비어 있지 않아야 합니다. 상세 필드 강제력과 표준 오류 봉투는 `ai-integration-contract.md` v0.6 §6.2를 따릅니다.
 
@@ -2255,6 +2255,7 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
     }
   },
   "context": {
+    "xaiFileId": "file-abc123",
     "currentPageText": "...",
     "previousPageText": "...",
     "nextPageText": "...",
@@ -2275,7 +2276,7 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 
 `learnerLevel`은 `learner_memories.target_difficulty`이며 데이터가 없으면 `null`입니다. `learnerConfidence`는 같은 사용자×자료의 최근 assessment 5개 통과 비율로 파생합니다. 비율이 0.4 미만이면 `LOW`, 0.4 이상 0.7 이하면 `MEDIUM`, 0.7 초과면 `HIGH`이며 평가가 없으면 `null`입니다. `conversationSummary`는 MVP에서 생성하지 않으며 내부 턴 스냅샷에 포함하지 않습니다(`ai-integration-contract.md` v0.6 §3.1).
 
-`currentPageText`는 `string | null`이며 null은 `USER_QUESTION`의 `includeCurrentPage=false`일 때만 허용합니다. 이 경우 `previousPageText`와 `nextPageText`도 null이고 context 12키는 그대로 유지합니다. `EXPLAIN_CURRENT_PAGE`와 `QUIZ_TYPE_SELECTED`에서는 `currentPageText`가 필수이며 AI Service가 eventType과 context를 교차 검증합니다. `includeCurrentPage=false`인데 페이지 텍스트가 전달되면 AI Service는 전달된 context를 사용하고 Spring이 정합 책임을 집니다.
+`xaiFileId`는 `string | null`이며 외부 응답에는 노출하지 않습니다. `currentPageText`는 `string | null`이며 null은 `USER_QUESTION`의 `includeCurrentPage=false`일 때만 허용합니다. 이 경우 `xaiFileId`, `previousPageText`, `nextPageText`도 null이고 context 13키는 그대로 유지합니다. `EXPLAIN_CURRENT_PAGE`와 `QUIZ_TYPE_SELECTED`에서는 `currentPageText`가 필수이며 AI Service가 eventType과 context를 교차 검증합니다. `includeCurrentPage=false`인데 페이지 텍스트가 전달되면 AI Service는 전달된 context를 사용하고 Spring이 정합 책임을 집니다. 같은 조건에서 file ID가 전달돼도 AI Service는 첨부하지 않습니다.
 
 `quizAssessments`는 현재 세션 기준 최근 5개의 평가 요약입니다(DEC-011 — DB는 전량 보존, 스냅샷은 세션 스코프 윈도우. 메모리 승격 판단용 user×material 교차 세션 최근 20개 조회는 별도 경로).
 

@@ -42,6 +42,9 @@ async def test_include_current_page_false_returns_qa_answer(
     turn_payload: dict[str, object],
 ) -> None:
     payload = deepcopy(turn_payload)
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["xaiFileId"] = "file-detached-json"
     _detach_page(payload)
     fake_llm.queue(
         _qa_plan(),
@@ -66,6 +69,7 @@ async def test_include_current_page_false_returns_qa_answer(
     qa_payload = json.loads(fake_llm.calls[1][0][1]["content"])
     assert qa_payload["includeCurrentPage"] is False
     assert qa_payload["currentPageText"] is None
+    assert fake_llm.file_attachments == [(), ()]
 
 
 async def test_explain_event_rejects_null_current_page_text(
@@ -123,6 +127,9 @@ async def test_include_current_page_false_streams_qa_answer(
     turn_payload: dict[str, object],
 ) -> None:
     payload = deepcopy(turn_payload)
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["xaiFileId"] = "file-detached-stream"
     _detach_page(payload)
     fake_llm.queue(_qa_plan())
     fake_llm.queue_text_stream("표준편차는 ", "자료의 퍼짐을 나타냅니다.")
@@ -140,3 +147,5 @@ async def test_include_current_page_false_streams_qa_answer(
     assert completed.messages[0].content == "표준편차는 자료의 퍼짐을 나타냅니다."
     assert "제공된 강의 자료만으로는" not in completed.messages[0].content
     assert len(fake_llm.stream_calls) == 1
+    assert fake_llm.file_attachments == [()]
+    assert fake_llm.stream_file_attachments == [()]
