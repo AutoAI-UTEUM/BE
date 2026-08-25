@@ -38,9 +38,7 @@ def plan_with_memory_action(
     )
     return plan.model_copy(
         update={
-            "pedagogy_policy": plan.pedagogy_policy.model_copy(
-                update={"intervention_budget": 2}
-            ),
+            "pedagogy_policy": plan.pedagogy_policy.model_copy(update={"intervention_budget": 2}),
             "actions": [
                 *plan.actions,
                 PlanAction(action_id="action-2", tool=tool, args=args),
@@ -221,8 +219,9 @@ async def test_diagnosis_endpoint_does_not_instruct_answer_disclosure(
     assert "관측값과 평균의 차이" not in body["diagnosticPrompt"]
     assert fake_llm.calls[0][1].reasoning_effort is ReasoningEffort.HIGH
     assert fake_llm.timeouts == [45]
-    assert "정답, modelAnswer 또는 전체 해설을 먼저 제공하지 마라" in (
-        fake_llm.calls[0][0][0]["content"]
+    assert (
+        "정답, modelAnswer 또는 전체 해설을 먼저 제공하지 마라"
+        in (fake_llm.calls[0][0][0]["content"])
     )
 
 
@@ -666,8 +665,7 @@ async def test_memory_promotion_returns_candidate_ids_contract(
     assert turn.memory_write == expected_memory_write
     planner_payload = json.loads(fake_llm.calls[0][0][1]["content"])
     assert [
-        candidate["candidateId"]
-        for candidate in planner_payload["memory"]["temporaryCandidates"]
+        candidate["candidateId"] for candidate in planner_payload["memory"]["temporaryCandidates"]
     ] == [101, 102]
 
 
@@ -682,9 +680,7 @@ def test_multiple_memory_promotions_are_rejected(
     )
     plan = plan.model_copy(
         update={
-            "pedagogy_policy": plan.pedagogy_policy.model_copy(
-                update={"intervention_budget": 3}
-            ),
+            "pedagogy_policy": plan.pedagogy_policy.model_copy(update={"intervention_budget": 3}),
             "actions": [
                 *plan.actions,
                 PlanAction(

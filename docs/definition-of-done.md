@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-07-21 |
+| 마지막 갱신 | 2026-08-25 |
 
 기능은 코드가 작성됐다는 이유만으로 완료되지 않습니다. 해당되는 항목을 모두 충족해야 합니다.
 
@@ -13,7 +13,7 @@
 - [ ] 정상 흐름과 주요 예외 흐름이 동작한다.
 - [ ] 관련 없는 변경이나 임시 디버그 코드가 없다.
 - [ ] 비밀값·개인정보·정답 데이터가 로그/응답에 노출되지 않는다.
-- [ ] 코드 리뷰와 필수 CI가 통과했다. 필수 CI(확정 — Epic 1 ④)는 Main Service의 `main-service-build`(Gradle build, 테스트 포함)와 AI Service의 `ai-service-build`(ruff + pytest)다. 각 job은 변경 경로를 감지해 해당 서비스의 빌드 단계만 실행하며, 비밀값이나 실서비스(DB·Grok·상대 서비스) 없이 통과해야 한다.
+- [ ] 코드 리뷰와 필수 CI가 통과했다. 필수 CI(확정 — Epic 1 ④)는 Main Service의 `main-service-build`(Gradle build, 테스트 포함)와 AI Service의 `ai-service-build`(`uv sync --locked`, Ruff format/lint, mypy, pytest)다. AI Service job은 모든 PR과 `main`·`develop` push에서 실제 검증 단계를 생략 없이 실행하며, 두 check를 저장소 브랜치 보호 규칙에도 required로 등록한다. CI는 비밀값이나 실서비스(DB·Grok·상대 서비스) 없이 통과해야 한다.
 
 ## API
 
@@ -60,4 +60,3 @@
 - [ ] 확정/초안/TBD가 구분되어 있다.
 - [ ] 기존 기준과 충돌하면 우선순위와 결정 이유가 기록되어 있다.
 - [ ] 구현되지 않은 내용을 구현 완료처럼 표현하지 않는다.
-

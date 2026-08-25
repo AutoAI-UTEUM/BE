@@ -520,9 +520,7 @@ async def test_report_validation_log_contains_only_safe_metadata(
 
     assert response.status_code == 502
     record = next(
-        item
-        for item in caplog.records
-        if item.message == "report output validation failed"
+        item for item in caplog.records if item.message == "report output validation failed"
     )
     assert record.__dict__["reportId"] == "report-1"
     assert record.__dict__["generationId"] == "generation-1"
