@@ -497,6 +497,7 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 
 - 요청: `{ "schemaVersion": "1.0", "xaiFileId": "file-...", "totalPages": 2, "pages": [{ "pageNumber": 1, "text": "..." }] }`. `xaiFileId`는 nullable이며 생략도 허용한다.
 - Spring은 `material_pages`에 저장된 전 페이지 텍스트와 자료의 nullable xAI file ID를 페이지 순서대로 전달하며 텍스트를 절단하지 않는다. 입력 길이 조절은 AI Service 책임이다. `pages[].pageNumber/text`는 범위·구조 앵커이고 첨부 PDF는 같은 범위의 제목·시각 세부 확인에만 사용한다.
+- `sections`는 일반 강의 자료에서 3~6개를 목표로 하고 최대 10개이며, 첫 페이지부터 `totalPages`까지 겹침·공백 없이 오름차순으로 정확히 한 번씩 포함해야 한다. AI Service와 Spring이 모두 이를 검증한다.
 - 응답: `{ "schemaVersion": "1.0", "materialSummary": "...", "sections": [{ "title": "...", "startPage": 1, "endPage": 2, "keywords": ["..."] }], "totalPages": 2 }`.
 - Spring은 응답을 결정적 마크다운으로 렌더링해 `material_overviews.content`에 저장하고, 원본 구조는 `outline_json`에 저장한다. 실패는 자료 자체 상태를 변경하지 않고 개요만 `FAILED`로 전이한다.
 - Main Service read timeout은 `EDUPILOT_AI_OUTLINE_TIMEOUT`(기본 `110s`)을 사용한다.

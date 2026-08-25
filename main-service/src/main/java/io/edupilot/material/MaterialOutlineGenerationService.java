@@ -72,13 +72,14 @@ public class MaterialOutlineGenerationService {
 			|| response.totalPages() != expectedTotalPages
 			|| !StringUtils.hasText(response.materialSummary())
 			|| response.sections() == null
-			|| response.sections().isEmpty()) {
+			|| response.sections().isEmpty()
+			|| response.sections().size() > 10) {
 			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
 		}
 		int previousEndPage = 0;
 		for (OutlineResponse.Section section : response.sections()) {
 			if (!StringUtils.hasText(section.title())
-				|| section.startPage() <= previousEndPage
+				|| section.startPage() != previousEndPage + 1
 				|| section.startPage() < 1
 				|| section.endPage() < section.startPage()
 				|| section.endPage() > expectedTotalPages
@@ -86,6 +87,9 @@ public class MaterialOutlineGenerationService {
 				throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
 			}
 			previousEndPage = section.endPage();
+		}
+		if (previousEndPage != expectedTotalPages) {
+			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
 		}
 	}
 

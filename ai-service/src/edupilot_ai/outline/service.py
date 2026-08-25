@@ -35,6 +35,11 @@ def validate_outline_output(request: OutlineRequest, output: OutlineOutput) -> N
         raise OutlineValidationError("EMPTY_MATERIAL_SUMMARY")
     if not output.sections:
         raise OutlineValidationError("EMPTY_SECTIONS")
+    if len(output.sections) > 10:
+        raise OutlineValidationError(
+            "TOO_MANY_SECTIONS",
+            f"section 수: {len(output.sections)}, 허용 최대: 10",
+        )
 
     previous_start = 0
     previous_end = 0
@@ -84,10 +89,24 @@ def validate_outline_output(request: OutlineRequest, output: OutlineOutput) -> N
                     f"p{section.start_page}-p{section.end_page}"
                 ),
             )
+        expected_start = previous_end + 1
+        if section.start_page != expected_start:
+            raise OutlineValidationError(
+                "SECTION_COVERAGE_GAP",
+                (
+                    f"빠진 페이지: p{expected_start}-p{section.start_page - 1}, "
+                    f"다음 구간: p{section.start_page}-p{section.end_page}"
+                ),
+            )
         if len(section.keywords) > 5:
             raise OutlineValidationError("TOO_MANY_KEYWORDS")
         previous_start = section.start_page
         previous_end = section.end_page
+    if previous_end != request.total_pages:
+        raise OutlineValidationError(
+            "SECTION_COVERAGE_INCOMPLETE",
+            f"마지막 구간 끝: p{previous_end}, 자료 마지막: p{request.total_pages}",
+        )
 
 
 def outline_messages(
@@ -102,7 +121,9 @@ def outline_messages(
         "materialSummary는 한국어 4~6문장으로 작성하라. 자료가 다루는 주제와 전체 "
         "흐름, 핵심 개념들, 이 자료로 무엇을 할 수 있게 되는지를 담아 학생이 학습 "
         "전에 전체 그림을 잡을 수 있게 하라. sections는 자료의 실제 단원과 주제 "
-        "구분으로 생성하고, 각 section에는 description을 1~2문장으로 반드시 "
+        "구분으로 생성하라. 일반 강의 자료는 3~6개를 기본 목표로 하고 긴 자료도 "
+        "10개를 넘기지 말며, 페이지나 슬라이드마다 section을 만들지 마라. 각 "
+        "section에는 description을 1~2문장으로 반드시 "
         "작성하라. description은 그 단원에서 무엇을 배우는지, 앞 단원과 어떻게 "
         "이어지는지를 학생에게 말하듯 쓰고 제목을 반복하거나 키워드를 나열하는 "
         "문장은 금지한다. section title은 자료에 나온 단원·주제명을 쓰고 startPage와 "

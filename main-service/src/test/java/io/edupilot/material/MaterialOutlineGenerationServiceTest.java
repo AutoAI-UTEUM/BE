@@ -87,6 +87,34 @@ class MaterialOutlineGenerationServiceTest {
 		verify(persistenceService, never()).markFailed(10L);
 	}
 
+	@Test
+	void nonContinuousOutlineMarksOverviewFailed() {
+		OutlineSnapshot snapshot = snapshot();
+		OutlineRequest request = request(snapshot);
+		OutlineResponse invalid = new OutlineResponse(
+			"1.0",
+			"자료 요약입니다.",
+			List.of(new OutlineResponse.Section(
+				"누락된 첫 페이지",
+				2,
+				2,
+				List.of("핵심")
+			)),
+			2
+		);
+		when(persistenceService.snapshot(10L)).thenReturn(Optional.of(snapshot));
+		when(aiClient.outline(request)).thenReturn(invalid);
+
+		generationService.generate(10L);
+
+		verify(persistenceService).markFailed(10L);
+		verify(persistenceService, never()).markReady(
+			org.mockito.ArgumentMatchers.anyLong(),
+			org.mockito.ArgumentMatchers.anyString(),
+			org.mockito.ArgumentMatchers.any()
+		);
+	}
+
 	private static List<RuntimeException> outlineFailures() {
 		return List.of(
 			new AiClientException(ErrorCode.AI_RESPONSE_INVALID),
