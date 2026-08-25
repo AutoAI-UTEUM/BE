@@ -35,6 +35,7 @@ import io.edupilot.report.ReportGenerationPersistenceService;
 import io.edupilot.report.ReportGenerationService;
 import io.edupilot.report.ReportSnapshotBuilder;
 import io.edupilot.session.LearningProgressService;
+import io.edupilot.session.QuizProposalPolicy;
 import io.edupilot.schedule.ScheduleService;
 import io.edupilot.schedule.PersonalScheduleService;
 
@@ -52,6 +53,7 @@ import io.edupilot.schedule.PersonalScheduleService;
 	NotificationTriggerService.class,
 	NotificationBulkRepository.class,
 	LearningProgressService.class,
+	QuizProposalPolicy.class,
 	ClassroomWeekMaterialRepository.class,
 	ClassroomNoticeService.class,
 	ClassroomResourceService.class,

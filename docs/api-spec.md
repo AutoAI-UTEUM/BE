@@ -606,7 +606,7 @@ Spring `moveNextPage` 정본으로 치환해 저장·응답합니다. 그 외 �
 | --- | --- | --- |
 | W1 | 세션 최초 생성 | `BINARY_DECISION("강의를 시작할까요?", EXPLAIN_CURRENT_PAGE, WAIT)` |
 | W2 | 페이지 이동 완료 | `BINARY_DECISION("현재 페이지를 설명할까요?", EXPLAIN_CURRENT_PAGE, WAIT)` |
-| W3 | 현재 페이지 설명 완료 + 추출된 페이지 텍스트 길이가 설정 임계값 이상 | `BINARY_DECISION("퀴즈를 진행할까요?", SHOW_QUIZ_TYPE_SELECT, MOVE_NEXT_PAGE)` |
+| W3 | 현재 페이지 설명 완료 + 텍스트 임계값 충족 + READY 완전 개요가 있으면 section 종료 페이지(그 외는 기존 규칙 fallback) | `BINARY_DECISION("퀴즈를 진행할까요?", SHOW_QUIZ_TYPE_SELECT, MOVE_NEXT_PAGE)` |
 | W4 | W3의 yes 선택 | FE가 로컬 `QUIZ_TYPE_SELECT`를 표시하고 선택값으로 `QUIZ_TYPE_SELECTED` 턴 호출 |
 | W5 | 퀴즈 제출 파이프라인 완료 후 다음 학습 가능 | 마지막 페이지가 아니면 `BINARY_DECISION("다음 페이지로 이동할까요?", MOVE_NEXT_PAGE, WAIT)`. 마지막 페이지면 `BINARY_DECISION("학습을 완료할까요?", COMPLETE_SESSION, WAIT)`이며 yes 선택 시 FE가 `POST /api/sessions/{sessionId}/complete` 호출 |
 | W6 | 기준 미달이고 진단 생성 성공 | `DIAGNOSIS_QUESTION(content, diagnosisId)` |
@@ -615,7 +615,12 @@ Spring `moveNextPage` 정본으로 치환해 저장·응답합니다. 그 외 �
 W3의 페이지 텍스트 길이 임계값은 `edupilot.quiz.proposal-min-page-text-length`
 (기본 200자)입니다. 임계값 미만이거나 추출 실패로 페이지 행이 없으면 퀴즈를
 제안하지 않고 W5의 다음 학습 제안을 반환합니다. 마지막 페이지라면 학습 완료를
-제안합니다.
+제안합니다. 임계값을 충족하고 자료 개요가 READY이며 section이 1페이지부터
+자료 마지막 페이지까지 겹침·누락 없이 완전히 덮으면 현재 페이지가 section의
+`endPage`일 때만 W3를 제안합니다. 개요 행이 없거나 PENDING/FAILED인 경우와
+구버전 READY 개요의 coverage가 불완전한 경우에는 기존 200자 규칙으로
+fallback합니다. 이는 퀴즈 제안 시점만 조정하며 QuizAgent의 출제 coverage는
+현재 페이지 단일을 유지합니다(DEC-036).
 
 한 응답에서 여러 상태가 연속으로 바뀌어도 위젯은 **마지막 상태 전이 1개에
 대해서만** 생성합니다. 재진입 복원 대상은 Spring이 발급·저장한 위젯만입니다.
