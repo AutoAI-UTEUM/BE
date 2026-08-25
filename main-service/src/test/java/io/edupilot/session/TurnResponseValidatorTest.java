@@ -188,7 +188,11 @@ class TurnResponseValidatorTest {
 					)),
 					Map.of()
 				),
-				"turn-1"
+				"turn-1",
+				null,
+				TurnEventType.USER_QUESTION,
+				null,
+				Set.of()
 			)).isInstanceOfSatisfying(
 				BusinessException.class,
 				exception -> {
@@ -203,7 +207,11 @@ class TurnResponseValidatorTest {
 					List.of(),
 					Map.of("pageStatus", sentinel)
 				),
-				"turn-1"
+				"turn-1",
+				null,
+				TurnEventType.USER_QUESTION,
+				null,
+				Set.of()
 			)).isInstanceOfSatisfying(
 				BusinessException.class,
 				exception -> {
@@ -221,13 +229,15 @@ class TurnResponseValidatorTest {
 
 		assertThat(appender.list)
 			.filteredOn(event -> event.getFormattedMessage().equals(
-				"AI response validation rejected"
+				"AI response validation failed"
 			))
 			.hasSize(2)
 			.allSatisfy(event -> {
 				assertThat(event.getLevel()).isEqualTo(Level.WARN);
 				assertThat(logFields(event))
 					.containsEntry("traceId", "trace-rejection")
+					.containsEntry("turnId", "turn-1")
+					.containsEntry("eventType", "USER_QUESTION")
 					.containsEntry(
 						"validator",
 						"TurnResponseValidator"
@@ -244,8 +254,13 @@ class TurnResponseValidatorTest {
 			.satisfies(event ->
 				assertThat(logFields(event))
 					.containsEntry(
-						"reason",
-						"messages[0].messageType is unsupported"
+						"validationItem",
+						"messages[0].messageType"
+					)
+					.containsKey("expected")
+					.containsEntry(
+						"actual",
+						"text length=%d".formatted(sentinel.length())
 					)
 			);
 		assertThat(appender.list)
@@ -255,8 +270,13 @@ class TurnResponseValidatorTest {
 			.satisfies(event ->
 				assertThat(logFields(event))
 					.containsEntry(
-						"reason",
-						"statePatch.pageStatus is unsupported"
+						"validationItem",
+						"statePatch.pageStatus"
+					)
+					.containsKey("expected")
+					.containsEntry(
+						"actual",
+						"text length=%d".formatted(sentinel.length())
 					)
 			);
 	}
