@@ -248,6 +248,8 @@ class MaterialOverviewJpaTest {
 	@Test
 	void snapshotAllowsFailedOverviewAndRetryCanBecomeReady() {
 		Fixture fixture = fixture();
+		fixture.material().replaceXaiFileId("file-outline-snapshot");
+		materialRepository.flush();
 		pageRepository.saveAndFlush(MaterialPage.create(
 			fixture.material(),
 			1,
@@ -262,12 +264,16 @@ class MaterialOverviewJpaTest {
 
 		assertThat(outlinePersistenceService.snapshot(fixture.material().getId()))
 			.get()
-			.satisfies(snapshot -> assertThat(snapshot.pages())
-				.singleElement()
-				.satisfies(page -> {
-					assertThat(page.pageNumber()).isEqualTo(1);
-					assertThat(page.text()).isEqualTo("retry page text");
-				}));
+			.satisfies(snapshot -> {
+				assertThat(snapshot.xaiFileId())
+					.isEqualTo("file-outline-snapshot");
+				assertThat(snapshot.pages())
+					.singleElement()
+					.satisfies(page -> {
+						assertThat(page.pageNumber()).isEqualTo(1);
+						assertThat(page.text()).isEqualTo("retry page text");
+					});
+			});
 
 		assertThat(outlinePersistenceService.markReady(
 			fixture.material().getId(),

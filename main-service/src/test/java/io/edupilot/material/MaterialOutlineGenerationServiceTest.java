@@ -97,6 +97,7 @@ class MaterialOutlineGenerationServiceTest {
 	private OutlineSnapshot snapshot() {
 		return new OutlineSnapshot(
 			2,
+			"file-outline-phase-five",
 			List.of(
 				new OutlineRequest.Page(1, "첫 페이지 전체 텍스트"),
 				new OutlineRequest.Page(2, "둘째 페이지 전체 텍스트")
@@ -105,7 +106,12 @@ class MaterialOutlineGenerationServiceTest {
 	}
 
 	private OutlineRequest request(OutlineSnapshot snapshot) {
-		return new OutlineRequest("1.0", snapshot.totalPages(), snapshot.pages());
+		return new OutlineRequest(
+			"1.0",
+			snapshot.xaiFileId(),
+			snapshot.totalPages(),
+			snapshot.pages()
+		);
 	}
 
 	private OutlineResponse response() {

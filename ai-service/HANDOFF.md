@@ -284,7 +284,7 @@ curl --fail --silent --show-error --no-buffer \
 {"type":"completed","result":{"schemaVersion":"1.0","turnId":"turn-stream-smoke-1","turnGoal":"ANSWER_USER_QUESTION","actionsExecuted":[{"actionId":"action-1","agent":"QaAgent","status":"SUCCESS"}],"messages":[{"messageType":"QA","content":"편차는 관측값이 평균에서 얼마나 떨어져 있는지를 나타냅니다."}],"statePatch":{"qaThread":{"mode":"START_NEW"}},"uiActions":[],"memoryCandidates":[],"usage":{"model":"grok-4.5","inputTokens":0,"outputTokens":0,"reasoningTokens":null}}}
 ```
 
-### xAI Files Phase 3 턴 스냅샷 인계 (#311)
+### xAI Files Phase 3·5 인계 (#311, #315)
 
 - Spring은 자료에 저장한 nullable file ID를 내부 turn의
   `context.xaiFileId`로 전달합니다. 기존 자료·업로드 실패 자료는 `null`이며,
@@ -292,9 +292,12 @@ curl --fail --silent --show-error --no-buffer \
 - `USER_QUESTION.payload.includeCurrentPage=false`이면 페이지 텍스트 3개와
   `xaiFileId`를 모두 `null`로 보냅니다. 방어적으로 ID가 전달돼도 AI Service는
   파일을 첨부하지 않습니다.
-- AI Service는 Explainer·QaAgent의 실제 LLM 호출에만 xAI file ID를 첨부합니다.
-  Planner, 페이지 이동·빈 페이지 고정 안내, Quiz·Repair·Note에는 첨부하지
-  않습니다. 퀴즈·개요 확대는 Phase 5 범위입니다.
+- AI Service는 Explainer·QaAgent·QuizAgent의 실제 LLM 호출에 xAI file ID를
+  첨부합니다. Planner, 페이지 이동·빈 페이지 고정 안내, Repair·Note에는 첨부하지
+  않습니다. QuizAgent는 현재 페이지 단일 범위를 유지합니다.
+- `/internal/ai/outline` 요청에는 저장된 nullable `xaiFileId`를 함께 보내며,
+  AI Service는 `pages`의 페이지 번호·텍스트를 범위·구조 앵커로 유지한 채 원본을
+  세부 확인에 사용합니다. 구자료의 null/필드 생략은 기존 텍스트 경로로 동작합니다.
 - 파일 첨부 호출은 xAI Responses API의 `input_file.file_id`를 사용하고
   `store=false`를 강제합니다. file ID가 `null`이면 기존 Chat Completions 경로가
   그대로 유지됩니다.

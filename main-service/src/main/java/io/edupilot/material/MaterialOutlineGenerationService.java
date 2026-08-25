@@ -46,6 +46,7 @@ public class MaterialOutlineGenerationService {
 			}
 			OutlineRequest request = new OutlineRequest(
 				SCHEMA_VERSION,
+				snapshot.get().xaiFileId(),
 				snapshot.get().totalPages(),
 				snapshot.get().pages()
 			);
