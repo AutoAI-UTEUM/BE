@@ -13,7 +13,7 @@
 >
 > v0.5 → v0.6 주요 변경: grade 요청의 전 필드에 required·nullable을 명시하고 시험이 숫자 `examId`를 `quizId`로 전달하는 규칙, 선택 문맥 없이 채점하는 규칙, 표준 `AI_REQUEST_INVALID` 오류 봉투를 확정했다. 이는 문서상 필수 필드를 선택으로 완화한 것이 아니라 기존에 없던 필드 강제력을 명문화하고 구현을 일치시키는 변경이다.
 >
-> 2026-08-25 추가 확정: PDF 원본 직접 참조 전환의 Phase 1로, 기존 텍스트 추출을 유지하면서 kill switch가 켜진 환경에서 추출 성공 원본을 xAI Files에 선택적으로 업로드하고 삭제할 수 있는 내부 계약을 추가했다. 턴 첨부는 Phase 3 범위다(DEC-035).
+> 2026-08-25 추가 확정: PDF 원본 직접 참조 전환의 Phase 1로, 기존 텍스트 추출을 유지하면서 kill switch가 켜진 환경에서 추출 성공 원본을 xAI Files에 선택적으로 업로드하고 삭제할 수 있는 내부 계약을 추가했다. Phase 3에서는 Spring이 턴 `context.xaiFileId`를 nullable로 전달하고 AI Service가 설명·QA 실행에만 원본을 첨부한다(DEC-035).
 
 ---
 
@@ -25,7 +25,7 @@
   - v0.2의 "RuleRouter" 개념은 이 구조로 흡수됨 — **결정 가능한 분기는 전부 Spring 측 규칙**(StateReducer·파이프라인 트리거·페이지 이동), FastAPI 내부에는 별도 규칙 라우터를 두지 않는다. Policy/Verifier는 LLM Plan의 스키마·허용 도구·교수 정책 검증만 담당한다(동일 판단 로직 이중화 금지).
   - 단, 이벤트로 결과가 유일하게 결정되는 턴의 Plan 합성과 결정적 안내 fast-path(페이지 이동 안내·빈 페이지)는 AI 내부 규칙으로 처리한다(설계 승인, 2026-08-17).
 - **상태 소유: Spring** — FastAPI는 무상태. 요청마다 스냅샷을 받고 statePatch를 제안하며, Spring이 허용목록으로 검증 후 반영. FastAPI는 자체 영속 저장소(Redis 포함)를 두지 않는다.
-- **PDF 접근** — 자료 업로드 시 `/internal/ai/extract`로 1회 추출 → Spring이 `material_pages`와 nullable xAI file ID를 저장 → `/internal/ai/outline`에는 저장된 전 페이지 텍스트를 전달하고, 턴마다 현재±1 페이지 텍스트를 스냅샷에 동봉한다. 추출 텍스트는 앵커·폴백으로 계속 유지한다. Phase 1에서는 kill switch가 켜진 경우 추출 성공 원본을 xAI Files에 선택적으로 업로드해 `xaiFileId`를 반환하며, Spring이 저장한 file ID는 수명주기 정리에만 사용한다. 이를 턴에 첨부하는 경로는 Phase 3에서 도입한다(DEC-035).
+- **PDF 접근** — 자료 업로드 시 `/internal/ai/extract`로 1회 추출 → Spring이 `material_pages`와 nullable xAI file ID를 저장 → `/internal/ai/outline`에는 저장된 전 페이지 텍스트를 전달하고, 턴마다 현재±1 페이지 텍스트와 nullable `xaiFileId`를 스냅샷에 동봉한다. 추출 텍스트는 범위 앵커·file ID 부재 시 폴백으로 계속 유지한다. AI Service는 file ID가 있으면 Explainer·QaAgent의 실제 LLM 호출에만 원본을 첨부하고, Plan·결정적 안내·퀴즈·개요에는 첨부하지 않는다. 첨부 호출도 현재 페이지 텍스트와 질문의 범위를 벗어나 다른 페이지 내용을 풀지 않는다(DEC-035).
 
 ## 1. 공통 규칙
 
@@ -77,6 +77,7 @@
   "session": { "sessionId": 100, "userId": 1, "materialId": 10, "currentPage": 3, "pageStatus": "NOT_EXPLAINED" },
   "event": { "eventType": "USER_QUESTION", "payload": { "message": "편차가 뭔지 모르겠어", "includeCurrentPage": true } },
   "context": {
+    "xaiFileId": "file-abc123",
     "currentPageText": "...", "previousPageText": "...", "nextPageText": "...",
     "recentMessages": [], "qaThreadDigest": null,
     "quizAssessments": [], "learnerMemoryDigest": null,
@@ -91,8 +92,10 @@
 - `learnerLevel`/`learnerConfidence`: Spring이 learner_memories·최근 평가에서 파생. null이면 기본 수준 동작.
 - `latestRepair`: 직전 교정 답변 원문 포함 — 교정 후 USER_QUESTION에서 QaAgent가 문맥 승계.
 - `currentPageText`의 타입은 `string | null`이다. null은 `USER_QUESTION`이면서 `includeCurrentPage=false`인 턴에서만 허용한다. `EXPLAIN_CURRENT_PAGE`와 `QUIZ_TYPE_SELECTED`에서는 계속 필수이며, AI Service는 eventType과 context를 교차 검증해 위반 요청을 category `SCHEMA`로 거부한다.
-- `includeCurrentPage=false`이면 Spring은 `currentPageText`, `previousPageText`, `nextPageText`를 모두 null로 전달한다. 세 필드 자체를 생략하지 않으므로 context의 12키 구조는 유지한다.
+- `xaiFileId`의 타입은 `string | null`이다. 구자료·업로드 실패 자료는 `null`이며 외부 API에는 노출하지 않는다. AI Service는 이 값을 Plan 입력이나 turn LLM 호출 로그에 넣지 않고 Explainer·QaAgent 호출에서만 xAI Responses API의 `input_file.file_id`로 사용하며 `store=false`를 강제한다.
+- `includeCurrentPage=false`이면 Spring은 `xaiFileId`, `currentPageText`, `previousPageText`, `nextPageText`를 모두 null로 전달한다. 필드 자체를 생략하지 않으므로 context의 13키 구조는 유지한다.
 - `includeCurrentPage=false`인데 페이지 텍스트가 전달된 경우 AI Service는 해당 context를 무시하지 않고 사용한다. 이 조합의 정합 책임은 Spring에 있다.
+- 방어적으로 `includeCurrentPage=false`인데 `xaiFileId`가 전달돼도 AI Service는 파일을 첨부하지 않는다. 페이지 이동 안내·빈 페이지 고정 안내는 file ID 유무와 무관하게 LLM을 호출하지 않는다.
 
 ### 3.2 이벤트 타입 (자유 턴 4종)
 
@@ -559,7 +562,7 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 
 **v0.5에서 확정된 사항** (근거: #108 합의):
 
-- `USER_QUESTION.payload.includeCurrentPage`는 선택 boolean이며 생략 시 `true`다. `false`이면 페이지 텍스트 3키를 null로 전달하되 context 12키 구조는 유지한다. `currentPageText`의 null은 `USER_QUESTION`+`false`에서만 허용하고 `EXPLAIN_CURRENT_PAGE`·`QUIZ_TYPE_SELECTED`에서는 AI Service가 교차 검증한다.
+- `USER_QUESTION.payload.includeCurrentPage`는 선택 boolean이며 생략 시 `true`다. `false`이면 `xaiFileId`와 페이지 텍스트 3키를 null로 전달하되 context 13키 구조는 유지한다. `currentPageText`의 null은 `USER_QUESTION`+`false`에서만 허용하고 `EXPLAIN_CURRENT_PAGE`·`QUIZ_TYPE_SELECTED`에서는 AI Service가 교차 검증한다.
 - `includeCurrentPage=false`인 QaAgent는 일반 학습 지식으로 답변할 수 있지만 업로드 자료 내용을 추측하지 않고 학습 도우미 범위를 유지한다. QA thread와 `latestRepair` 승계는 플래그와 무관하다.
 - 새 대화 마커 이후 스냅샷은 `recentMessages`를 마커 이후 메시지로 제한하고, 마커 이전 `qaThreadDigest`와 `latestRepair`를 null로 처리한다. `pendingDiagnosis`는 진단 회피를 막기 위해 유지하며 temporary memory candidates, quiz assessments, long-term learner memory도 유지한다. context 구조와 키는 변경하지 않는다.
 

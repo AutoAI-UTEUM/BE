@@ -1,7 +1,7 @@
 # AI Service Handoff
 
 대상: 한승준(Main Service 담당), 이슈 #7(Material 추출 연동), #10(AiClient 연동
-검증), #11(CI), #26(SSE 중계)
+검증), #11(CI), #26(SSE 중계), #311(xAI Files 턴 첨부)
 
 이 문서는 이슈 #9의 FastAPI 부트스트랩, 이슈 #5의 PDF 추출 API와 이슈 #23의
 현재 turn 상태를 함께 설명합니다. health/turn/error curl 응답은 2026-07-25에
@@ -9,7 +9,10 @@
 `127.0.0.1:8015`에서 실제로 실행해 확인했습니다. 현재 turn 요청의 전체 DTO는
 `README.md` 예시를 사용하며 정상 응답 내용은 LLM 결과에 따라 달라집니다.
 NDJSON turn 스트림은 2026-07-27에 FakeLlm을 주입한 격리 uvicorn 포트
-`127.0.0.1:8025`에서 실제로 확인했습니다.
+`127.0.0.1:8025`에서 실제로 확인했습니다. Phase 3 파일 첨부 스트림은
+2026-08-25 로컬 실키 환경에서 19페이지 PDF로 확인했습니다. 업로드 200,
+`grok-4.5` NDJSON 설명 턴 200·terminal `completed`, delta 누적 일치,
+파일 삭제 204였으며 최종 턴 소요는 17.10초였습니다.
 
 ## 1. 로컬 실행
 
@@ -250,6 +253,7 @@ curl --fail --silent --show-error --no-buffer \
       "payload": {"message": "편차가 무슨 뜻이야?"}
     },
     "context": {
+      "xaiFileId": null,
       "currentPageText": "편차는 관측값과 평균의 차이입니다.",
       "previousPageText": null,
       "nextPageText": null,
@@ -279,6 +283,26 @@ curl --fail --silent --show-error --no-buffer \
 {"type":"status","stage":"FINALIZING"}
 {"type":"completed","result":{"schemaVersion":"1.0","turnId":"turn-stream-smoke-1","turnGoal":"ANSWER_USER_QUESTION","actionsExecuted":[{"actionId":"action-1","agent":"QaAgent","status":"SUCCESS"}],"messages":[{"messageType":"QA","content":"편차는 관측값이 평균에서 얼마나 떨어져 있는지를 나타냅니다."}],"statePatch":{"qaThread":{"mode":"START_NEW"}},"uiActions":[],"memoryCandidates":[],"usage":{"model":"grok-4.5","inputTokens":0,"outputTokens":0,"reasoningTokens":null}}}
 ```
+
+### xAI Files Phase 3 턴 스냅샷 인계 (#311)
+
+- Spring은 자료에 저장한 nullable file ID를 내부 turn의
+  `context.xaiFileId`로 전달합니다. 기존 자료·업로드 실패 자료는 `null`이며,
+  외부 API·SSE에는 이 값을 노출하지 않습니다.
+- `USER_QUESTION.payload.includeCurrentPage=false`이면 페이지 텍스트 3개와
+  `xaiFileId`를 모두 `null`로 보냅니다. 방어적으로 ID가 전달돼도 AI Service는
+  파일을 첨부하지 않습니다.
+- AI Service는 Explainer·QaAgent의 실제 LLM 호출에만 xAI file ID를 첨부합니다.
+  Planner, 페이지 이동·빈 페이지 고정 안내, Quiz·Repair·Note에는 첨부하지
+  않습니다. 퀴즈·개요 확대는 Phase 5 범위입니다.
+- 파일 첨부 호출은 xAI Responses API의 `input_file.file_id`를 사용하고
+  `store=false`를 강제합니다. file ID가 `null`이면 기존 Chat Completions 경로가
+  그대로 유지됩니다.
+- 현재 페이지 추출 텍스트와 학생 질문이 범위 앵커입니다. 첨부 PDF는 그 범위의
+  세부 근거 확인에만 사용하며 다른 페이지 내용을 선행 설명하지 않습니다.
+- Spring 연동 게이트는 (1) 동일 material의 저장된 file ID가 내부 turn context에
+  들어가는지, (2) `includeCurrentPage=false`에서 null인지, (3) 구자료의 null로
+  기존 설명·QA가 정상인지 확인합니다.
 
 ### 이벤트 중계 규칙
 
