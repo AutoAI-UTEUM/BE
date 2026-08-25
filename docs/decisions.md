@@ -484,6 +484,16 @@
 - 대안과 trade-off: 즉시 원본 첨부만 사용하면 페이지 단위 근거 제어와 provider 장애 폴백을 잃습니다. 텍스트 추출만 유지하면 시각·레이아웃 정보 활용이 제한됩니다. 양쪽을 병행하면 저장·삭제 수명주기 관리가 추가되지만 kill switch와 멱등 삭제로 운영 위험을 제한합니다.
 - 후속 변경 문서: [AI 통합 계약](ai-integration-contract.md) §0·§2·§3·§6.1·§6.6·§7, [API 명세](api-spec.md) §8, [에러 코드](error-code.md), [에이전트 명세](agent-system-spec.md). 캡션 축소 여부는 원본 첨부가 적용되지 않는 폴백·채점·doc-chat 경로를 포함해 별도 운영 이슈에서 판단합니다.
 
+### DEC-036 — 개요 section 경계 기반 퀴즈 제안
+
+- 상태: Accepted — 설계자 승인, [#319](https://github.com/AutoAI-UTEUM/BE/issues/319)
+- 결정일: 2026-08-25
+- 결정자: 프로젝트 설계자, Backend 담당자, AI Service 담당자
+- 선택: Spring이 현재 페이지 설명 완료와 텍스트 200자 이상을 먼저 확인한 뒤, READY 개요가 1페이지부터 자료 마지막 페이지까지 연속 coverage이면 `sections[].endPage`에서만 퀴즈를 제안합니다. 개요 없음/PENDING/FAILED와 구버전 불완전 READY 개요는 기존 200자 규칙으로 fallback합니다. 조회 정책은 별도 `QuizProposalPolicy`가 소유하고 `UiActionResolver`는 결정된 boolean만 받아 순수 위젯 매핑을 유지합니다. 제안 시점과 무관하게 AI 퀴즈 출제 범위는 현재 페이지 단일입니다.
+- 이유: 매 페이지 퀴즈 제안으로 흐름이 자주 끊기는 문제를 줄이면서, #316 이전에 저장된 불완전 개요가 퀴즈 제안을 영구 차단하지 않도록 안전한 폴백을 보존합니다.
+- 대안과 trade-off: 모든 READY 개요를 무조건 신뢰하면 legacy gap 때문에 경계가 사라질 수 있고, section 전체를 출제 범위로 쓰면 아직 설명하지 않은 페이지가 섞일 수 있어 채택하지 않습니다. 경계 판정은 overview 단건 조회가 추가되지만 설명 완료·텍스트 임계 통과 시에만 발생합니다.
+- 후속 변경 문서: [API 명세](api-spec.md) §5 W3, [기능 명세](feature-spec.md) §7. wire 계약과 DB migration은 변경하지 않습니다.
+
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 
 - 상태: Accepted

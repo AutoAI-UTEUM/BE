@@ -122,10 +122,12 @@ refresh token 정책은 구현 전에 별도로 확정합니다.
 
 ## 7. 퀴즈 생성
 
-1. 설명 후 시스템이 퀴즈 진행 여부 또는 유형 선택 UI를 표시합니다.
+1. 설명 후 시스템은 READY 완전 개요가 있으면 section 종료 페이지에서 퀴즈 진행
+   여부를 표시합니다. 개요가 없거나 PENDING/FAILED 또는 구버전 불완전 coverage면
+   기존 현재 페이지 텍스트 200자 규칙으로 fallback합니다.
 2. 사용자가 `MCQ`, `OX`, `SHORT`, `ESSAY` 중 하나를 선택합니다.
 3. `QUIZ_TYPE_SELECTED` 이벤트로 FastAPI QuizAgent를 호출합니다.
-4. QuizAgent는 페이지 범위, 학습자 상태, 약점, 난이도를 반영한 구조화 JSON을 반환합니다.
+4. QuizAgent는 현재 페이지 단일 범위, 학습자 상태, 약점, 난이도를 반영한 구조화 JSON을 반환합니다.
 5. FastAPI와 Spring이 스키마를 검증합니다.
 6. Spring은 문제 원본과 서버 전용 정답/루브릭을 분리해 저장합니다.
 7. FE에는 풀이에 필요한 공개 필드만 반환합니다.
