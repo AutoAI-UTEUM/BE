@@ -111,6 +111,7 @@
 | GET | `/api/classrooms` | 내 강의실 목록 | Y | 소유 또는 승인 멤버 관계 |
 | GET | `/api/classrooms/{id}` | 강의실 상세 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
 | GET | `/api/classrooms/{id}/analytics` | 강의자 학습 현황 집계 | Y | 소유 INSTRUCTOR |
+| GET | `/api/classrooms/{classroomId}/students/{studentId}/learning-analytics` | 학습자별 상세 학습 현황 | Y | 소유 INSTRUCTOR |
 | PATCH | `/api/classrooms/{id}` | 강의실 수정 | Y | 소유 INSTRUCTOR |
 | DELETE | `/api/classrooms/{id}` | 강의실 COMPLETED 전환 | Y | 소유 INSTRUCTOR |
 | DELETE | `/api/classrooms/{id}/permanent` | 강의실과 소속 운영 데이터 영구 삭제 | Y | 소유 INSTRUCTOR |
@@ -1512,6 +1513,74 @@ Query:
 - `questionsByPage`는 QA 스레드 생성 시 저장된 `qa_threads.page_number`를 사용하며 현재 세션 페이지를 소급 추정하지 않습니다.
 - `lastUpdatedAt`은 캐시 시각이 아니라 이번 응답을 계산한 시각입니다.
 
+### GET `/api/classrooms/{classroomId}/students/{studentId}/learning-analytics`
+
+소유 `INSTRUCTOR`가 강의실 멤버 한 명의 자료별 학습 현황, 페이지별 질문 수, 통합학습 퀴즈 결과를 조회합니다. 비소유 강의실과 해당 강의실 멤버가 아닌 `studentId`는 모두 `CLASSROOM_NOT_FOUND`(404)로 은닉합니다.
+
+Query:
+
+| 파라미터 | 필수 | 설명 |
+| --- | :---: | --- |
+| `questionPeriod` | N | `LAST_7_DAYS`(기본) 또는 `ALL` |
+
+```json
+{
+  "materials": [
+    {
+      "materialId": 10,
+      "title": "선형회귀 기초",
+      "weekNumber": 2,
+      "progressRate": 30,
+      "viewed": true,
+      "lastViewedPage": 4,
+      "lastViewedAt": "2026-08-25T02:00:00Z"
+    },
+    {
+      "materialId": 11,
+      "title": "분류 기초",
+      "weekNumber": 3,
+      "progressRate": 0,
+      "viewed": false,
+      "lastViewedPage": null,
+      "lastViewedAt": null
+    }
+  ],
+  "questionsByPage": [
+    {
+      "materialId": 10,
+      "materialTitle": "선형회귀 기초",
+      "weekNumber": 2,
+      "pageNumber": 4,
+      "questionCount": 2
+    }
+  ],
+  "quizzes": [
+    {
+      "quizId": 700,
+      "materialId": 10,
+      "materialTitle": "선형회귀 기초",
+      "weekNumber": 2,
+      "title": "4페이지 확인 퀴즈",
+      "quizType": "MCQ",
+      "pageNumber": 4,
+      "submitted": true,
+      "score": 8.00,
+      "maxScore": 10.00,
+      "passed": true,
+      "submittedAt": "2026-08-25T02:10:00Z"
+    }
+  ],
+  "lastUpdatedAt": "2026-08-25T03:00:00Z"
+}
+```
+
+- `materials`는 주차 상태와 관계없이 강의실에 연결된 모든 고유 ACTIVE·READY PDF를 포함합니다. 한 자료가 여러 주차에 연결되면 가장 작은 `weekNumber`를 사용합니다.
+- `progressRate`는 기존 학습 진도와 동일하게 학생·자료의 ACTIVE·COMPLETED 세션에 기록된 고유 설명 완료 페이지 수를 자료 `pageCount`로 나눈 뒤 정수 반올림합니다.
+- `viewed`는 ACTIVE·COMPLETED 세션 존재 여부입니다. 최신 세션은 `updatedAt DESC, sessionId DESC`로 결정하며 미열람 자료는 `progressRate=0`, `lastViewedPage=null`, `lastViewedAt=null`입니다.
+- `questionsByPage`는 사용자 QA 메시지가 1개 이상인 페이지만 반환합니다. `LAST_7_DAYS`는 응답 계산 시각의 정확히 7일 전을 포함하며 `ALL`은 기간 제한이 없습니다.
+- `quizzes`는 학생의 강의실 자료 세션에서 생성된 전체 퀴즈를 포함합니다. 제출이 여러 번이면 가장 큰 `attemptNo`를 사용하고, 미제출은 `submitted=false`이며 점수·통과·제출 시각이 모두 `null`입니다. 비공개 정답 데이터는 포함하지 않습니다.
+- `lastUpdatedAt`은 이번 응답을 계산한 서버 UTC 시각입니다.
+
 ### PATCH `/api/classrooms/{id}`
 
 ```json
@@ -2146,6 +2215,7 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 | Method | URL | 목적 | 호출 시점 |
 | --- | --- | --- | --- |
 | POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (LLM 판단 없는 결정적 전처리 — DEC-006) | 자료 업로드 후 비동기 처리 |
+| DELETE | `/internal/ai/files/{fileId}` | 자료 수명 종료·file ID 교체 시 xAI Files 정리 | DB 커밋 후 베스트에포트 |
 | POST | `/internal/ai/outline` | 저장된 전 페이지 텍스트 기반 자료 요약·목차 생성 | 추출 저장 완료 후 비동기 처리 |
 | POST | `/internal/ai/captions` | PDF 페이지 이미지 기반 시각 정보 캡션 생성 | 추출 저장 완료 후 10페이지 단위 비동기 처리 |
 | POST | `/internal/ai/doc-chat` | 자료·퀴즈 복습 문맥 기반 단일 질문 응답 | 자료 뷰어 또는 퀴즈 복습 질문 시 동기 처리 |
@@ -2156,7 +2226,7 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 | POST | `/internal/ai/diagnosis` | 진단 질문 생성 | 퀴즈 제출 파이프라인 3단계 (기준 점수 미달 시) |
 | POST | `/internal/ai/exams/draft` | 시험 문항 AI 초안 생성 | 소유 강사의 DRAFT 시험 초안 요청 시 동기 호출 |
 
-`extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)을 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `captions`는 `{schemaVersion:"1.0", pages:[{pageNumber,imageBase64,extractedText}]}`를 최대 10페이지씩 받고 페이지별 nullable 캡션을 반환합니다. Spring은 캡션이 있으면 모든 페이지 텍스트 기반 AI 입력에 `\n\n[그림 설명] {caption}`을 읽기 시점에 병합하며 `material_pages.text_content` 원문은 유지합니다. 일부 청크 실패는 자료·개요 상태에 영향을 주지 않고 다음 청크 처리를 계속합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
+`extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`), nullable `xaiFileId`, 기본 빈 배열 `warnings[{type,message}]`를 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `FILE_UPLOAD_FAILED` 및 알 수 없는 warning type은 경고로만 기록하고 추출이 성공했다면 자료는 기존대로 READY가 됩니다. non-blank `xaiFileId`는 내부 DB에만 저장하고 외부 자료 응답에는 노출하지 않습니다. 자료 삭제나 file ID 교체 시 Spring은 트랜잭션 커밋 후 `DELETE /internal/ai/files/{fileId}`를 호출하며 실패해도 자료 삭제·READY 결과를 유지합니다. `captions`는 `{schemaVersion:"1.0", pages:[{pageNumber,imageBase64,extractedText}]}`를 최대 10페이지씩 받고 페이지별 nullable 캡션을 반환합니다. Spring은 캡션이 있으면 모든 페이지 텍스트 기반 AI 입력에 `\n\n[그림 설명] {caption}`을 읽기 시점에 병합하며 `material_pages.text_content` 원문은 유지합니다. 일부 청크 실패는 자료·개요 상태에 영향을 주지 않고 다음 청크 처리를 계속합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
 
 별도 시험 grade는 숫자 `examId`를 `quizId`로 사용합니다. `pageContext`와 `learnerMemoryDigest`는 생략·null을 허용하고 나머지 grade 요청 필드는 필수·non-null입니다. 응답이 있는 SHORT와 ESSAY는 각각 묶어 호출하며 한 유형이 실패해도 나머지 유형은 계속 호출합니다. 실제 호출의 `items`와 `studentAnswers`는 비어 있지 않아야 합니다. 상세 필드 강제력과 표준 오류 봉투는 `ai-integration-contract.md` v0.6 §6.2를 따릅니다.
 

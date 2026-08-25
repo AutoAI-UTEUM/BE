@@ -92,4 +92,13 @@ public interface LearningMaterialRepository
 		@Param("ownerId") Long ownerId,
 		@Param("updatedAt") Instant updatedAt
 	);
+
+	@Query("select material.xaiFileId as xaiFileId "
+		+ "from LearningMaterial material "
+		+ "where material.owner.id = :ownerId "
+		+ "and material.status = io.edupilot.material.MaterialStatus.ACTIVE "
+		+ "and material.xaiFileId is not null")
+	List<String> findActiveXaiFilesByOwnerId(
+		@Param("ownerId") Long ownerId
+	);
 }

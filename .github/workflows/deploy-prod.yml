@@ -103,13 +103,13 @@ jobs:
             cd "$PROD_DEPLOY_PATH"
             printf '%s' "$GHCR_TOKEN" |
               docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
-            TAG="$DEPLOY_TAG" docker compose --env-file .env \
+            ENVIRONMENT=prod TAG="$DEPLOY_TAG" docker compose --env-file .env \
               -f docker-compose.yml -f docker-compose.prod.yml pull
-            TAG="$DEPLOY_TAG" docker compose --env-file .env \
+            ENVIRONMENT=prod TAG="$DEPLOY_TAG" docker compose --env-file .env \
               -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
-            TAG="$DEPLOY_TAG" docker compose --env-file .env \
+            ENVIRONMENT=prod TAG="$DEPLOY_TAG" docker compose --env-file .env \
               -f docker-compose.yml -f docker-compose.prod.yml restart nginx
-            TAG="$DEPLOY_TAG" docker compose --env-file .env \
+            ENVIRONMENT=prod TAG="$DEPLOY_TAG" docker compose --env-file .env \
               -f docker-compose.yml -f docker-compose.prod.yml ps
 
       - name: Smoke test

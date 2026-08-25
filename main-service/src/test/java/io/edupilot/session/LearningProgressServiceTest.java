@@ -225,6 +225,36 @@ class LearningProgressServiceTest {
 		);
 	}
 
+	@Test
+	void studentMaterialRatesUseOneBatchAndExistingRoundingRule() {
+		LearningMaterial first = org.mockito.Mockito.mock(LearningMaterial.class);
+		LearningMaterial second = org.mockito.Mockito.mock(LearningMaterial.class);
+		when(first.getId()).thenReturn(10L);
+		when(first.getPageCount()).thenReturn(10);
+		when(second.getId()).thenReturn(20L);
+		when(second.getPageCount()).thenReturn(4);
+		when(pageRecordRepository.findStudentMaterialProgressCounts(
+			1L,
+			java.util.Set.of(10L, 20L)
+		)).thenReturn(List.of(
+			new SessionPageRecordRepository.MaterialProgressCount(10L, 3L)
+		));
+
+		Map<Long, Integer> rates = service().calculateStudentMaterialProgressRates(
+			1L,
+			List.of(first, second)
+		);
+
+		assertThat(rates).containsExactlyInAnyOrderEntriesOf(Map.of(
+			10L, 30,
+			20L, 0
+		));
+		verify(pageRecordRepository).findStudentMaterialProgressCounts(
+			1L,
+			java.util.Set.of(10L, 20L)
+		);
+	}
+
 	private LearningProgressService service() {
 		return new LearningProgressService(
 			sessionRepository,

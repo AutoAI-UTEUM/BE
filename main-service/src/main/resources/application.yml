@@ -52,7 +52,7 @@ edupilot:
     pipeline-read-timeout: ${EDUPILOT_AI_PIPELINE_READ_TIMEOUT:45s}
     assessment-read-timeout: ${EDUPILOT_AI_ASSESSMENT_READ_TIMEOUT:55s}
     diagnosis-read-timeout: ${EDUPILOT_AI_DIAGNOSIS_READ_TIMEOUT:55s}
-    extract-read-timeout: ${EDUPILOT_AI_EXTRACT_READ_TIMEOUT:120s}
+    extract-read-timeout: ${EDUPILOT_AI_EXTRACT_READ_TIMEOUT:200s}
     report-read-timeout: ${EDUPILOT_AI_REPORT_READ_TIMEOUT:220s}
     report-query-read-timeout: ${EDUPILOT_AI_REPORT_QUERY_READ_TIMEOUT:75s}
     criteria-read-timeout: ${EDUPILOT_AI_CRITERIA_READ_TIMEOUT:90s}

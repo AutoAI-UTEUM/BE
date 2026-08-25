@@ -93,6 +93,19 @@ public interface ClassroomWeekMaterialRepository
 		@Param("processingStatus") MaterialProcessingStatus processingStatus
 	);
 
+	@Query("""
+		select link.material.id as materialId,
+		       min(link.week.weekNumber) as weekNumber
+		from ClassroomWeekMaterial link
+		where link.week.classroom.id = :classroomId
+		  and link.material.id in :materialIds
+		group by link.material.id
+		""")
+	List<MaterialMinimumWeek> findMinimumWeekNumbers(
+		@Param("classroomId") Long classroomId,
+		@Param("materialIds") Collection<Long> materialIds
+	);
+
 @Query("""
 		select link.week.classroom.id as classroomId,
 		       count(distinct link.material.id) as materialCount
@@ -107,6 +120,11 @@ public interface ClassroomWeekMaterialRepository
 	interface ClassroomMaterialCount {
 		Long getClassroomId();
 		Long getMaterialCount();
+	}
+
+	interface MaterialMinimumWeek {
+		Long getMaterialId();
+		Integer getWeekNumber();
 	}
 
 	default boolean existsAccess(Long userId, Long materialId) {

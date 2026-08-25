@@ -1,7 +1,9 @@
 """Mocked wire-contract tests for the xAI LLM adapter."""
 
+import asyncio
 import json
 import logging
+from collections.abc import AsyncIterator
 
 import httpx
 import pytest
@@ -9,6 +11,7 @@ import respx
 from pydantic import BaseModel, SecretStr
 
 from edupilot_ai.core.errors import ErrorCategory
+from edupilot_ai.factory import _xai_http_limits
 from edupilot_ai.llm.bridge import (
     LlmBridgeError,
     LlmMessage,
@@ -22,6 +25,27 @@ from edupilot_ai.settings import AgentLlmProfile, ReasoningEffort
 
 class ExampleStructuredOutput(BaseModel):
     answer: str
+
+
+class FailingAsyncByteStream(httpx.AsyncByteStream):
+    def __init__(self, first_chunk: bytes, exception: httpx.RequestError) -> None:
+        self._first_chunk = first_chunk
+        self._exception = exception
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield self._first_chunk
+        raise self._exception
+
+
+class DelayedAsyncByteStream(httpx.AsyncByteStream):
+    def __init__(self, chunks: list[bytes], delay_seconds: float) -> None:
+        self._chunks = chunks
+        self._delay_seconds = delay_seconds
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self._chunks:
+            await asyncio.sleep(self._delay_seconds)
+            yield chunk
 
 
 def profile() -> AgentLlmProfile:
@@ -194,7 +218,9 @@ async def test_xai_bridge_warns_when_provider_model_differs(
 async def test_xai_bridge_classifies_timeout(
     respx_mock: respx.MockRouter,
 ) -> None:
-    respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(side_effect=httpx.ReadTimeout("test timeout"))
+    route = respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
+        side_effect=httpx.ReadTimeout("test timeout")
+    )
     async with httpx.AsyncClient() as client:
         bridge = XaiLlmBridge(
             client=client,
@@ -210,6 +236,161 @@ async def test_xai_bridge_classifies_timeout(
 
     assert caught.value.category is ErrorCategory.TIMEOUT
     assert caught.value.retryable is True
+    assert len(route.calls) == 1
+
+
+async def test_xai_bridge_enforces_total_structured_deadline_across_chunks(
+    respx_mock: respx.MockRouter,
+) -> None:
+    response_body = json.dumps(completion_response(content='{"answer":"too slow"}')).encode()
+    route = respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
+        return_value=httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            stream=DelayedAsyncByteStream(
+                [response_body[index : index + 1] for index in range(10)],
+                delay_seconds=0.01,
+            ),
+        )
+    )
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(
+            client=client,
+            api_key=SecretStr("xai-test-not-real"),
+        )
+        with pytest.raises(LlmBridgeError) as caught:
+            await bridge.complete_json(
+                messages=[{"role": "user", "content": "test"}],
+                response_model=ExampleStructuredOutput,
+                profile=profile(),
+                timeout_seconds=0.025,
+            )
+
+    assert caught.value.category is ErrorCategory.TIMEOUT
+    assert len(route.calls) == 1
+
+
+async def test_xai_bridge_retries_network_errors_twice_with_remaining_budget(
+    caplog: pytest.LogCaptureFixture,
+    respx_mock: respx.MockRouter,
+) -> None:
+    timeouts: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeout = request.extensions["timeout"]
+        assert isinstance(timeout, dict)
+        read_timeout = timeout["read"]
+        assert isinstance(read_timeout, float)
+        timeouts.append(read_timeout)
+        if len(timeouts) == 1:
+            raise httpx.ConnectError("PRIVATE-CONNECTION-DETAIL", request=request)
+        if len(timeouts) == 2:
+            raise httpx.RemoteProtocolError(
+                "PRIVATE-PROTOCOL-DETAIL",
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            json=completion_response(content='{"answer":"recovered"}'),
+        )
+
+    route = respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(side_effect=handler)
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(
+            client=client,
+            api_key=SecretStr("xai-test-not-real"),
+        )
+        with caplog.at_level(logging.INFO, logger="edupilot_ai.llm.xai"):
+            result = await bridge.complete_json(
+                messages=[{"role": "user", "content": "PRIVATE-PROMPT"}],
+                response_model=ExampleStructuredOutput,
+                profile=profile(),
+                timeout_seconds=10,
+            )
+
+    assert result.output.answer == "recovered"
+    assert len(route.calls) == 3
+    assert timeouts[0] > timeouts[1] > timeouts[2] > 0
+    call_logs = [
+        record for record in caplog.records if record.message == "xAI chat completion finished"
+    ]
+    assert [record.__dict__["attempt"] for record in call_logs] == [1, 2, 3]
+    assert [record.__dict__["status"] for record in call_logs] == [
+        "RETRYING",
+        "RETRYING",
+        "SUCCESS",
+    ]
+    assert [record.__dict__["exceptionType"] for record in call_logs[:2]] == [
+        "ConnectError",
+        "RemoteProtocolError",
+    ]
+    assert "PRIVATE-CONNECTION-DETAIL" not in caplog.text
+    assert "PRIVATE-PROTOCOL-DETAIL" not in caplog.text
+    assert "PRIVATE-PROMPT" not in caplog.text
+
+
+async def test_xai_bridge_stops_after_three_network_attempts(
+    caplog: pytest.LogCaptureFixture,
+    respx_mock: respx.MockRouter,
+) -> None:
+    def fail(request: httpx.Request) -> httpx.Response:
+        raise httpx.RemoteProtocolError("provider disconnected", request=request)
+
+    route = respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(side_effect=fail)
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(
+            client=client,
+            api_key=SecretStr("xai-test-not-real"),
+        )
+        with caplog.at_level(logging.WARNING, logger="edupilot_ai.llm.xai"):
+            with pytest.raises(LlmBridgeError) as caught:
+                await bridge.complete_json(
+                    messages=[{"role": "user", "content": "test"}],
+                    response_model=ExampleStructuredOutput,
+                    profile=profile(),
+                    timeout_seconds=10,
+                )
+
+    assert caught.value.category is ErrorCategory.INTERNAL
+    assert caught.value.retryable is True
+    assert len(route.calls) == 3
+    call_logs = [
+        record for record in caplog.records if record.message == "xAI chat completion finished"
+    ]
+    assert [record.__dict__["status"] for record in call_logs] == [
+        "RETRYING",
+        "RETRYING",
+        "FAILED",
+    ]
+
+
+async def test_xai_bridge_does_not_retry_after_structured_response_starts(
+    respx_mock: respx.MockRouter,
+) -> None:
+    route = respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
+        return_value=httpx.Response(
+            200,
+            stream=FailingAsyncByteStream(
+                b'{"id":"partial",',
+                httpx.ReadError("response interrupted"),
+            ),
+        )
+    )
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(
+            client=client,
+            api_key=SecretStr("xai-test-not-real"),
+        )
+        with pytest.raises(LlmBridgeError) as caught:
+            await bridge.complete_json(
+                messages=[{"role": "user", "content": "test"}],
+                response_model=ExampleStructuredOutput,
+                profile=profile(),
+                timeout_seconds=10,
+            )
+
+    assert caught.value.category is ErrorCategory.INTERNAL
+    assert len(route.calls) == 1
 
 
 async def test_xai_bridge_classifies_invalid_structured_output(
@@ -272,6 +453,7 @@ async def test_xai_bridge_classifies_retryable_provider_failure(
     )
     assert call_log.__dict__["failureKind"] == "provider"
     assert call_log.__dict__["errorCode"] == "INTERNAL"
+    assert len(respx_mock.calls) == 1
 
 
 async def test_xai_bridge_logs_rate_limit_without_provider_body(
@@ -399,6 +581,243 @@ async def test_xai_bridge_streams_markdown_without_response_format(
         record for record in caplog.records if record.message == "xAI chat completion finished"
     )
     assert call_log.__dict__["status"] == "SUCCESS"
+
+
+async def test_xai_bridge_retries_stream_before_response_starts(
+    caplog: pytest.LogCaptureFixture,
+    respx_mock: respx.MockRouter,
+) -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.RemoteProtocolError("stale connection", request=request)
+        return httpx.Response(
+            200,
+            text=stream_response(),
+            headers={"Content-Type": "text/event-stream"},
+        )
+
+    route = respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(side_effect=handler)
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(
+            client=client,
+            api_key=SecretStr("xai-test-not-real"),
+        )
+        with caplog.at_level(logging.INFO, logger="edupilot_ai.llm.xai"):
+            items = [
+                item
+                async for item in bridge.complete_text_stream(
+                    messages=[{"role": "user", "content": "test"}],
+                    profile=profile(),
+                    timeout_seconds=30,
+                )
+            ]
+
+    assert len(route.calls) == 2
+    assert [item.text for item in items if isinstance(item, LlmTextDelta)] == [
+        "편차는 ",
+        "평균과의 차이입니다.",
+    ]
+    call_logs = [
+        record for record in caplog.records if record.message == "xAI chat completion finished"
+    ]
+    assert [record.__dict__["attempt"] for record in call_logs] == [1, 2]
+    assert call_logs[0].__dict__["exceptionType"] == "RemoteProtocolError"
+
+
+async def test_xai_bridge_retries_stream_after_headers_before_body(
+    respx_mock: respx.MockRouter,
+) -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "text/event-stream"},
+                stream=FailingAsyncByteStream(
+                    b"",
+                    httpx.ReadError("closed before first body byte", request=request),
+                ),
+            )
+        return httpx.Response(
+            200,
+            text=stream_response(),
+            headers={"Content-Type": "text/event-stream"},
+        )
+
+    route = respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(side_effect=handler)
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(
+            client=client,
+            api_key=SecretStr("xai-test-not-real"),
+        )
+        items = [
+            item
+            async for item in bridge.complete_text_stream(
+                messages=[{"role": "user", "content": "test"}],
+                profile=profile(),
+                timeout_seconds=30,
+            )
+        ]
+
+    assert len(route.calls) == 2
+    assert [item.text for item in items if isinstance(item, LlmTextDelta)] == [
+        "편차는 ",
+        "평균과의 차이입니다.",
+    ]
+
+
+async def test_xai_bridge_does_not_retry_stream_after_compressed_raw_body_starts(
+    respx_mock: respx.MockRouter,
+) -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(
+            200,
+            headers={
+                "Content-Type": "text/event-stream",
+                "Content-Encoding": "gzip",
+            },
+            stream=FailingAsyncByteStream(
+                b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x02\xff",
+                httpx.ReadError("closed after raw gzip header", request=request),
+            ),
+        )
+
+    route = respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(side_effect=handler)
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(
+            client=client,
+            api_key=SecretStr("xai-test-not-real"),
+        )
+        with pytest.raises(LlmBridgeError) as caught:
+            _ = [
+                item
+                async for item in bridge.complete_text_stream(
+                    messages=[{"role": "user", "content": "test"}],
+                    profile=profile(),
+                    timeout_seconds=30,
+                )
+            ]
+
+    assert caught.value.category is ErrorCategory.INTERNAL
+    assert len(route.calls) == 1
+    assert attempts == 1
+
+
+async def test_xai_bridge_does_not_retry_stream_after_first_delta(
+    respx_mock: respx.MockRouter,
+) -> None:
+    first_chunk = {
+        "model": "grok-4.5",
+        "choices": [{"delta": {"content": "첫 청크"}}],
+    }
+    route = respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
+        return_value=httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            stream=FailingAsyncByteStream(
+                f"data: {json.dumps(first_chunk, ensure_ascii=False)}\n\n".encode(),
+                httpx.ReadError("stream interrupted"),
+            ),
+        )
+    )
+    items: list[LlmTextDelta | LlmTextStreamCompleted] = []
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(
+            client=client,
+            api_key=SecretStr("xai-test-not-real"),
+        )
+        with pytest.raises(LlmBridgeError) as caught:
+            async for item in bridge.complete_text_stream(
+                messages=[{"role": "user", "content": "test"}],
+                profile=profile(),
+                timeout_seconds=30,
+            ):
+                items.append(item)
+
+    assert caught.value.category is ErrorCategory.INTERNAL
+    assert [item.text for item in items if isinstance(item, LlmTextDelta)] == ["첫 청크"]
+    assert len(route.calls) == 1
+
+
+async def test_xai_bridge_enforces_total_stream_deadline_across_chunks(
+    respx_mock: respx.MockRouter,
+) -> None:
+    route = respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
+        return_value=httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            stream=DelayedAsyncByteStream(
+                [b": provider-heartbeat\n\n"] * 10,
+                delay_seconds=0.01,
+            ),
+        )
+    )
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(
+            client=client,
+            api_key=SecretStr("xai-test-not-real"),
+        )
+        with pytest.raises(LlmBridgeError) as caught:
+            _ = [
+                item
+                async for item in bridge.complete_text_stream(
+                    messages=[{"role": "user", "content": "test"}],
+                    profile=profile(),
+                    timeout_seconds=0.025,
+                )
+            ]
+
+    assert caught.value.category is ErrorCategory.TIMEOUT
+    assert len(route.calls) == 1
+
+
+async def test_xai_bridge_checks_deadline_after_slow_stream_consumer(
+    respx_mock: respx.MockRouter,
+) -> None:
+    route = respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
+        return_value=httpx.Response(
+            200,
+            text=stream_response(),
+            headers={"Content-Type": "text/event-stream"},
+        )
+    )
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(
+            client=client,
+            api_key=SecretStr("xai-test-not-real"),
+        )
+        stream = bridge.complete_text_stream(
+            messages=[{"role": "user", "content": "test"}],
+            profile=profile(),
+            timeout_seconds=0.025,
+        ).__aiter__()
+        first_item = await anext(stream)
+        await asyncio.sleep(0.03)
+        with pytest.raises(LlmBridgeError) as caught:
+            await anext(stream)
+
+    assert isinstance(first_item, LlmTextDelta)
+    assert caught.value.category is ErrorCategory.TIMEOUT
+    assert len(route.calls) == 1
+
+
+def test_xai_http_pool_shortens_expiry_without_removing_default_caps() -> None:
+    limits = _xai_http_limits()
+
+    assert limits.max_connections == 100
+    assert limits.max_keepalive_connections == 20
+    assert limits.keepalive_expiry == 3.0
 
 
 async def test_xai_bridge_classifies_malformed_stream_chunk(

@@ -27,6 +27,7 @@ def test_json_log_contains_correlation_and_action_fields() -> None:
                 "tool": "ANSWER_QUESTION",
                 "status": "SUCCESS",
                 "durationMs": 12.5,
+                "exceptionType": "RemoteProtocolError",
             },
         )
     finally:
@@ -43,6 +44,7 @@ def test_json_log_contains_correlation_and_action_fields() -> None:
     assert record["tool"] == "ANSWER_QUESTION"
     assert record["status"] == "SUCCESS"
     assert record["durationMs"] == 12.5
+    assert record["exceptionType"] == "RemoteProtocolError"
     assert record["timestamp"].endswith("+00:00")
 
 
