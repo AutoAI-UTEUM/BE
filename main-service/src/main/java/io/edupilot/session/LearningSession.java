@@ -225,6 +225,10 @@ public class LearningSession {
 		return material.getPageCount();
 	}
 
+	public String getMaterialXaiFileId() {
+		return material.getXaiFileId();
+	}
+
 	public int getCurrentPage() {
 		return currentPage;
 	}
