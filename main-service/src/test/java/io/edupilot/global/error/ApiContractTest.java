@@ -12,8 +12,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.util.Set;
 
+import org.apache.catalina.connector.ClientAbortException;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.servlet.MockMvc;
@@ -23,7 +26,12 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.global.response.ApiResponse;
 import io.edupilot.global.security.TraceIdFilter;
@@ -36,6 +44,9 @@ class ApiContractTest {
 	private static final String TRACE_ID = "contract-test-trace";
 
 	private MockMvc mockMvc;
+	private Logger handlerLogger;
+	private ListAppender<ILoggingEvent> logAppender;
+	private Level previousHandlerLevel;
 
 	@BeforeEach
 	void setUp() {
@@ -43,6 +54,21 @@ class ApiContractTest {
 			.setControllerAdvice(new GlobalExceptionHandler())
 			.addFilters(new TraceIdFilter())
 			.build();
+		handlerLogger = (Logger) LoggerFactory.getLogger(
+			GlobalExceptionHandler.class
+		);
+		previousHandlerLevel = handlerLogger.getLevel();
+		handlerLogger.setLevel(Level.DEBUG);
+		logAppender = new ListAppender<>();
+		logAppender.start();
+		handlerLogger.addAppender(logAppender);
+	}
+
+	@AfterEach
+	void tearDown() {
+		handlerLogger.detachAppender(logAppender);
+		handlerLogger.setLevel(previousHandlerLevel);
+		logAppender.stop();
 	}
 
 	@Test
@@ -127,6 +153,60 @@ class ApiContractTest {
 			.andExpect(jsonPath("$.error.details").isEmpty())
 			.andExpect(jsonPath("$.traceId").isNotEmpty())
 			.andExpect(content().string(not(containsString("internal-only-detail"))));
+	}
+
+	@Test
+	void clientDisconnectsAreDebugOnlyAndDoNotBuildErrorResponse() {
+		MockHttpServletRequest request = new MockHttpServletRequest();
+		request.setAttribute(TraceIdFilter.TRACE_ID_ATTRIBUTE, TRACE_ID);
+		GlobalExceptionHandler handler = new GlobalExceptionHandler();
+
+		assertThat(handler.handleAsyncRequestNotUsable(
+			new AsyncRequestNotUsableException("disconnected"),
+			request
+		)).isNull();
+		assertThat(handler.handleUnexpectedException(
+			new IllegalStateException(
+				"wrapper",
+				new RuntimeException(new ClientAbortException("disconnected"))
+			),
+			request
+		)).isNull();
+
+		assertThat(logAppender.list)
+			.hasSize(2)
+			.allSatisfy(event -> {
+				assertThat(event.getLevel()).isEqualTo(Level.DEBUG);
+				assertThat(event.getFormattedMessage())
+					.isEqualTo("Client disconnected during async response");
+				assertThat(event.getThrowableProxy()).isNull();
+				assertThat(event.getKeyValuePairs().toString())
+					.contains("traceId=\"%s\"".formatted(TRACE_ID));
+			});
+	}
+
+	@Test
+	void regularUnexpectedExceptionStillLogsErrorAndBuildsResponse() {
+		MockHttpServletRequest request = new MockHttpServletRequest();
+		request.setAttribute(TraceIdFilter.TRACE_ID_ATTRIBUTE, TRACE_ID);
+
+		var response = new GlobalExceptionHandler().handleUnexpectedException(
+			new IllegalStateException("unexpected"),
+			request
+		);
+
+		assertThat(response).isNotNull();
+		assertThat(response.getStatusCode().value()).isEqualTo(500);
+		assertThat(response.getBody()).isNotNull();
+		assertThat(response.getBody().error().code())
+			.isEqualTo("INTERNAL_SERVER_ERROR");
+		assertThat(logAppender.list)
+			.anySatisfy(event -> {
+				assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+				assertThat(event.getFormattedMessage())
+					.isEqualTo("Unhandled exception");
+				assertThat(event.getThrowableProxy()).isNotNull();
+			});
 	}
 
 	@Test

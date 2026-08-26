@@ -4,6 +4,7 @@ import java.util.Comparator;
 import java.util.List;
 
 import jakarta.validation.ConstraintViolationException;
+import org.apache.catalina.connector.ClientAbortException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import io.edupilot.global.response.ErrorDetail;
@@ -103,11 +105,24 @@ public class GlobalExceptionHandler {
 		return errorResponse(ErrorCode.RESOURCE_NOT_FOUND, List.of(), request);
 	}
 
+	@ExceptionHandler(AsyncRequestNotUsableException.class)
+	public ResponseEntity<ErrorResponse> handleAsyncRequestNotUsable(
+		AsyncRequestNotUsableException exception,
+		HttpServletRequest request
+	) {
+		logClientDisconnect(request);
+		return null;
+	}
+
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<ErrorResponse> handleUnexpectedException(
 		Exception exception,
 		HttpServletRequest request
 	) {
+		if (hasClientAbortCause(exception)) {
+			logClientDisconnect(request);
+			return null;
+		}
 		String traceId = traceId(request);
 		log.atError()
 			.addKeyValue(
@@ -157,6 +172,28 @@ public class GlobalExceptionHandler {
 			traceId
 		);
 		return ResponseEntity.status(errorCode.status()).body(response);
+	}
+
+	private boolean hasClientAbortCause(Throwable throwable) {
+		Throwable current = throwable;
+		while (current != null) {
+			if (current instanceof ClientAbortException) {
+				return true;
+			}
+			current = current.getCause();
+		}
+		return false;
+	}
+
+	private void logClientDisconnect(HttpServletRequest request) {
+		Object traceId = request.getAttribute(TraceIdFilter.TRACE_ID_ATTRIBUTE);
+		if (traceId == null) {
+			log.debug("Client disconnected during async response");
+			return;
+		}
+		log.atDebug()
+			.addKeyValue("traceId", traceId)
+			.log("Client disconnected during async response");
 	}
 
 	private String traceId(HttpServletRequest request) {
