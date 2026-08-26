@@ -25,7 +25,7 @@ from edupilot_ai.models.plan import (
     ToolName,
     TurnPlan,
 )
-from edupilot_ai.models.quiz import QuizType
+from edupilot_ai.models.quiz import QuizCoverage, QuizType
 from edupilot_ai.models.stream import (
     CompletedStreamEvent,
     ErrorStreamEvent,
@@ -410,7 +410,21 @@ async def test_quiz_tool_uses_terminal_event_without_provider_stream(
         "eventType": "QUIZ_TYPE_SELECTED",
         "payload": {"quizType": "MCQ"},
     }
-    fake_llm.queue(make_quiz(QuizType.MCQ))
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["quizContext"] = {
+        "coverage": {"startPage": 1, "endPage": 3},
+        "pages": [
+            {"pageNumber": 1, "text": "1페이지"},
+            {"pageNumber": 2, "text": "2페이지"},
+            {"pageNumber": 3, "text": "3페이지"},
+        ],
+    }
+    fake_llm.queue(
+        make_quiz(QuizType.MCQ).model_copy(
+            update={"coverage": QuizCoverage(start_page=1, end_page=3)}
+        )
+    )
 
     response = await client.post(
         "/internal/ai/turn",
@@ -429,6 +443,10 @@ async def test_quiz_tool_uses_terminal_event_without_provider_stream(
     completed = CompletedStreamEvent.model_validate(events[-1])
     assert completed.result.quiz is not None
     assert completed.result.quiz.quiz_type is QuizType.MCQ
+    assert completed.result.quiz.coverage == QuizCoverage(
+        start_page=1,
+        end_page=3,
+    )
     assert len(fake_llm.calls) == 1
     assert fake_llm.stream_calls == []
 
