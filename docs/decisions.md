@@ -469,7 +469,7 @@
 
 ### DEC-035 — PDF 원본의 xAI Files 단계 전환
 
-- 상태: Accepted — 설계자 승인, Phase 1 구현 이슈 [GitHub #303](https://github.com/AutoAI-UTEUM/BE/issues/303)
+- 상태: Accepted — 설계자 승인, Phase 1 [#303](https://github.com/AutoAI-UTEUM/BE/issues/303), Phase 3 [#311](https://github.com/AutoAI-UTEUM/BE/issues/311)
 - 결정일: 2026-08-25
 - 결정자: 프로젝트 설계자, AI Service 담당자
 - 선택:
@@ -477,10 +477,22 @@
   - Phase 1은 `EDUPILOT_XAI_FILES_ENABLED` kill switch가 켜진 경우에만 추출 성공 원본을 xAI Files에 업로드합니다. 기본값은 `false`이며 응답의 nullable `xaiFileId`와 `warnings[{type,message}]`로 결과를 전달합니다.
   - 업로드 실패나 xAI 파일 제한 48MiB 초과는 `FILE_UPLOAD_FAILED` warning으로 강등하고 텍스트 추출 성공 응답은 HTTP 200을 유지합니다.
   - `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작합니다. 삭제 성공과 이미 없는 파일(404)은 204로 멱등 처리하고, 그 밖의 provider 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)로 반환합니다.
-  - Spring은 `xaiFileId`를 자료에 저장하고 자료 삭제 시 정리 훅을 호출합니다. 파일 ID를 실제 턴 요청에 첨부하는 경로는 Phase 3에서 별도 도입합니다.
+  - Spring은 `xaiFileId`를 자료에 저장하고 자료 삭제 시 정리 훅을 호출합니다. Phase 3에서는 턴 context에 nullable `xaiFileId`를 전달하고 AI Service가 Explainer·QaAgent의 실제 LLM 호출에 첨부합니다. Phase 5에서는 QuizAgent와 개요 생성까지 첨부를 확대하되 퀴즈는 현재 페이지 단일, 개요는 전달된 pages 범위를 앵커로 유지합니다. Plan·결정적 안내·Repair·Note에는 첨부하지 않으며 `includeCurrentPage=false`이면 사용하지 않습니다.
+  - 첨부 호출은 xAI Responses API의 `input_file.file_id`를 사용하고 `store=false`를 강제합니다. 추출된 현재 페이지 텍스트와 질문은 범위 앵커이며 원본 PDF는 해당 범위의 세부 근거 확인용입니다.
+  - 기존 ACTIVE·READY 자료의 소급 업로드는 텍스트를 다시 추출하지 않는 `POST /internal/ai/files`로 수행합니다. 명시적 API는 `/extract` 자동 업로드 kill switch와 독립이며, Spring의 별도 기본 OFF bounded backfill이 작업량을 통제합니다. claim·저장을 짧은 row-lock 트랜잭션으로 분리하고 외부 호출 중에는 트랜잭션을 유지하지 않습니다. 실패 시 READY를 보존하고 backoff를 적용하며 경합으로 저장하지 못한 ID는 베스트에포트 삭제합니다.
 - 이유: 원본의 시각·레이아웃 정보를 이후 LLM 입력에서 활용할 수 있는 기반을 만들면서도, provider 업로드 장애 때문에 이미 성공한 결정적 텍스트 추출과 자료 등록이 실패하지 않도록 단계와 실패 경계를 분리합니다.
 - 대안과 trade-off: 즉시 원본 첨부만 사용하면 페이지 단위 근거 제어와 provider 장애 폴백을 잃습니다. 텍스트 추출만 유지하면 시각·레이아웃 정보 활용이 제한됩니다. 양쪽을 병행하면 저장·삭제 수명주기 관리가 추가되지만 kill switch와 멱등 삭제로 운영 위험을 제한합니다.
-- 후속 변경 문서: [AI 통합 계약](ai-integration-contract.md) §0·§2·§6.1·§7, [API 명세](api-spec.md) §8, [에러 코드](error-code.md), [에이전트 명세](agent-system-spec.md). 턴 첨부는 Phase 3 후속 이슈에서 계약·구현합니다.
+- 후속 변경 문서: [AI 통합 계약](ai-integration-contract.md) §0·§2·§3·§6.1·§6.6·§7, [API 명세](api-spec.md) §8, [에러 코드](error-code.md), [에이전트 명세](agent-system-spec.md). 캡션 축소 여부는 원본 첨부가 적용되지 않는 폴백·채점·doc-chat 경로를 포함해 별도 운영 이슈에서 판단합니다.
+
+### DEC-036 — 개요 section 경계 기반 퀴즈 제안
+
+- 상태: Accepted — 설계자 승인, [#319](https://github.com/AutoAI-UTEUM/BE/issues/319)
+- 결정일: 2026-08-25
+- 결정자: 프로젝트 설계자, Backend 담당자, AI Service 담당자
+- 선택: Spring이 현재 페이지 설명 완료와 텍스트 200자 이상을 먼저 확인한 뒤, READY 개요가 1페이지부터 자료 마지막 페이지까지 연속 coverage이면 `sections[].endPage`에서만 퀴즈를 제안합니다. 개요 없음/PENDING/FAILED와 구버전 불완전 READY 개요는 기존 200자 규칙으로 fallback합니다. 조회 정책은 별도 `QuizProposalPolicy`가 소유하고 `UiActionResolver`는 결정된 boolean만 받아 순수 위젯 매핑을 유지합니다. 제안 시점과 무관하게 AI 퀴즈 출제 범위는 현재 페이지 단일입니다.
+- 이유: 매 페이지 퀴즈 제안으로 흐름이 자주 끊기는 문제를 줄이면서, #316 이전에 저장된 불완전 개요가 퀴즈 제안을 영구 차단하지 않도록 안전한 폴백을 보존합니다.
+- 대안과 trade-off: 모든 READY 개요를 무조건 신뢰하면 legacy gap 때문에 경계가 사라질 수 있고, section 전체를 출제 범위로 쓰면 아직 설명하지 않은 페이지가 섞일 수 있어 채택하지 않습니다. 경계 판정은 overview 단건 조회가 추가되지만 설명 완료·텍스트 임계 통과 시에만 발생합니다.
+- 후속 변경 문서: [API 명세](api-spec.md) §5 W3, [기능 명세](feature-spec.md) §7. wire 계약과 DB migration은 변경하지 않습니다.
 
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 

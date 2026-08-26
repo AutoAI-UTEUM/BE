@@ -69,6 +69,7 @@ import io.edupilot.ai.dto.ReportGenerateRequest;
 import io.edupilot.ai.dto.ReportGenerateResponse;
 import io.edupilot.ai.dto.TurnRequest;
 import io.edupilot.ai.dto.TurnResponse;
+import io.edupilot.ai.dto.XaiFileUploadResponse;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
 import tools.jackson.databind.JsonNode;
@@ -81,6 +82,7 @@ public class HttpAiClient implements AiClient {
 	private static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
 	private static final String TURN_PATH = "/internal/ai/turn";
 	private static final String EXTRACT_PATH = "/internal/ai/extract";
+	private static final String FILE_UPLOAD_PATH = "/internal/ai/files";
 	private static final String FILE_DELETE_PATH = "/internal/ai/files/{fileId}";
 	private static final Duration FILE_DELETE_TIMEOUT = Duration.ofSeconds(10);
 	private static final String OUTLINE_PATH = "/internal/ai/outline";
@@ -109,6 +111,7 @@ public class HttpAiClient implements AiClient {
 	private final RestClient streamRestClient;
 	private final RestClient healthRestClient;
 	private final RestClient extractRestClient;
+	private final RestClient fileUploadRestClient;
 	private final RestClient fileDeleteRestClient;
 	private final RestClient outlineRestClient;
 	private final RestClient captionsRestClient;
@@ -143,6 +146,10 @@ public class HttpAiClient implements AiClient {
 		this.extractRestClient = buildRestClient(
 			properties,
 			properties.extractReadTimeout()
+		);
+		this.fileUploadRestClient = buildRestClient(
+			properties,
+			properties.xaiFileUploadTimeout()
 		);
 		this.fileDeleteRestClient = buildRestClient(
 			properties,
@@ -737,6 +744,38 @@ public class HttpAiClient implements AiClient {
 				.body(ExtractResponse.class);
 			validateExtractResponse(response);
 			return response;
+			}
+		);
+	}
+
+	@Override
+	public String uploadFile(Resource pdfResource) {
+		return executeAttempt(
+			new AiCallContext(FILE_UPLOAD_PATH, 1, false, null, null, null),
+			() -> {
+				HttpHeaders partHeaders = new HttpHeaders();
+				partHeaders.setContentType(MediaType.APPLICATION_PDF);
+				partHeaders.setContentDispositionFormData(
+					"file",
+					StringUtils.hasText(pdfResource.getFilename())
+						? pdfResource.getFilename()
+						: "material.pdf"
+				);
+				MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+				body.add("file", new HttpEntity<>(pdfResource, partHeaders));
+
+				XaiFileUploadResponse response = fileUploadRestClient.post()
+					.uri(FILE_UPLOAD_PATH)
+					.contentType(MediaType.MULTIPART_FORM_DATA)
+					.body(body)
+					.retrieve()
+					.body(XaiFileUploadResponse.class);
+				if (response == null
+					|| !SCHEMA_VERSION.equals(response.schemaVersion())
+					|| !StringUtils.hasText(response.xaiFileId())) {
+					throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+				}
+				return response.xaiFileId().trim();
 			}
 		);
 	}

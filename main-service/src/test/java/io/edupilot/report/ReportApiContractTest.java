@@ -297,6 +297,54 @@ class ReportApiContractTest {
 	}
 
 	@Test
+	void deletesCustomCriterionWithSuccessEnvelope() throws Exception {
+		mockMvc.perform(delete("/api/classrooms/30/report-criteria/10")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.success").value(true))
+			.andExpect(jsonPath("$.data").value(nullValue()));
+
+		verify(reportCriterionService).delete(
+			1L, UserRole.INSTRUCTOR, 30L, 10L
+		);
+	}
+
+	@Test
+	void criterionDeleteMapsOwnershipAndCriterionNotFoundTo404() throws Exception {
+		doThrow(new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND))
+			.when(reportCriterionService)
+			.delete(1L, UserRole.INSTRUCTOR, 30L, 10L);
+		doThrow(new BusinessException(ErrorCode.REPORT_NOT_FOUND))
+			.when(reportCriterionService)
+			.delete(1L, UserRole.INSTRUCTOR, 31L, 10L);
+
+		mockMvc.perform(delete("/api/classrooms/30/report-criteria/10")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("CLASSROOM_NOT_FOUND"));
+
+		mockMvc.perform(delete("/api/classrooms/31/report-criteria/10")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("REPORT_NOT_FOUND"));
+	}
+
+	@Test
+	void criterionDeleteOpenApiDeclaresStableOperationAndSnapshotSafety()
+		throws Exception {
+		mockMvc.perform(get("/v3/api-docs"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/report-criteria/{criterionId}']"
+					+ ".delete.operationId"
+			).value("deleteReportCriterion"))
+			.andExpect(jsonPath(
+				"$.paths['/api/classrooms/{classroomId}/report-criteria/{criterionId}']"
+					+ ".delete.description"
+			).value(containsString("기준 스냅샷")));
+	}
+
+	@Test
 	void criterionGenerationUses202AndPollingStatusBody() throws Exception {
 		when(reportCriterionGenerationService.start(
 			1L, UserRole.INSTRUCTOR, 30L
@@ -349,7 +397,8 @@ class ReportApiContractTest {
 				"ACTIVE",
 				null,
 				25,
-				4L
+				4L,
+				2L
 			)),
 			0,
 			20,
@@ -371,7 +420,8 @@ class ReportApiContractTest {
 			.andExpect(jsonPath("$.data.items[0].status").value("ACTIVE"))
 			.andExpect(jsonPath("$.data.items[0].lastActiveAt").value(nullValue()))
 			.andExpect(jsonPath("$.data.items[0].averageProgressRate").value(25))
-			.andExpect(jsonPath("$.data.items[0].aiQuestionCountLast7Days").value(4));
+			.andExpect(jsonPath("$.data.items[0].aiQuestionCountLast7Days").value(4))
+			.andExpect(jsonPath("$.data.items[0].quizSubmissionCount").value(2));
 		verify(classroomStudentService).list(
 			1L,
 			UserRole.INSTRUCTOR,

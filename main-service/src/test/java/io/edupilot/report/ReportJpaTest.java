@@ -34,6 +34,7 @@ import io.edupilot.ai.dto.ReportGenerateResponse;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.report.dto.CreateReportCriterionRequest;
+import io.edupilot.report.dto.UpdateReportCriterionRequest;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
@@ -151,6 +152,76 @@ class ReportJpaTest {
 				assertThat(criterion.getRubric())
 					.containsEntry("summary", "Generated rubric");
 			});
+	}
+
+	@Test
+	void deletingCriterionRemovesVersionsAllowsRecreationAndPreservesReports() {
+		var created = criterionService.create(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.getId(),
+			generatedCriterion("deletion_integrity", "Deletion integrity")
+		);
+		var latest = criterionService.update(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.getId(),
+			created.criterionId(),
+			new UpdateReportCriterionRequest(
+				"Deletion integrity v2", null, null, null, null, null, null
+			)
+		);
+		StudentReport historicalReport = reportRepository.saveAndFlush(report(
+			generation(student, "criterion-delete-history"), student, 1, null
+		));
+		ReportCriterionResult historicalResult = resultRepository.saveAndFlush(
+			ReportCriterionResult.create(
+				historicalReport,
+				"deletion_integrity",
+				1,
+				new BigDecimal("80.00"),
+				null,
+				ReportCriterionStatus.ASSESSED,
+				"Historical result",
+				List.of("evidence-1")
+			)
+		);
+
+		criterionService.delete(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.getId(),
+			latest.criterionId()
+		);
+
+		assertThat(criterionRepository
+			.findByClassroom_IdAndCriterionKeyOrderByVersionDesc(
+				classroom.getId(), "deletion_integrity"
+			)).isEmpty();
+		assertThat(criterionRepository.countByClassroom_IdAndActiveTrue(
+			classroom.getId()
+		)).isZero();
+		var itemsAfterDelete = criterionService.list(
+			instructor.getId(), UserRole.INSTRUCTOR, classroom.getId()
+		).items();
+		assertThat(itemsAfterDelete).noneMatch(item -> !item.builtin());
+		assertThat(itemsAfterDelete)
+			.filteredOn(item -> item.builtin())
+			.allSatisfy(item -> assertThat(item.criterionId()).isNull());
+		assertThat(resultRepository.findById(historicalResult.getId()))
+			.isPresent()
+			.get()
+			.extracting(ReportCriterionResult::getCriterionKey)
+			.isEqualTo("deletion_integrity");
+
+		var recreated = criterionService.create(
+			instructor.getId(),
+			UserRole.INSTRUCTOR,
+			classroom.getId(),
+			generatedCriterion("deletion_integrity", "Deletion integrity")
+		);
+		assertThat(recreated.version()).isEqualTo("1");
+		assertThat(recreated.active()).isTrue();
 	}
 
 	@Test

@@ -64,7 +64,11 @@ public class MaterialOutlinePersistenceService {
 				)
 			))
 			.toList();
-		return Optional.of(new OutlineSnapshot(material.getPageCount(), pages));
+		return Optional.of(new OutlineSnapshot(
+			material.getPageCount(),
+			material.getXaiFileId(),
+			pages
+		));
 	}
 
 	@Transactional
@@ -125,6 +129,7 @@ public class MaterialOutlinePersistenceService {
 
 	public record OutlineSnapshot(
 		int totalPages,
+		String xaiFileId,
 		List<OutlineRequest.Page> pages
 	) {
 	}

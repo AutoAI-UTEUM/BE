@@ -65,6 +65,7 @@ curl --fail \
       "payload": {"message": "편차가 뭔지 모르겠어"}
     },
     "context": {
+      "xaiFileId": null,
       "currentPageText": "편차는 관측값과 평균의 차이입니다.",
       "previousPageText": null,
       "nextPageText": null,

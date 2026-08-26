@@ -89,13 +89,23 @@ def _upload_size(upload: UploadFile) -> int | None:
     return size if isinstance(size, int) and size >= 0 else None
 
 
-def _validate_metadata(upload: UploadFile) -> None:
+def _validate_metadata(
+    upload: UploadFile,
+    *,
+    log_message: str = "PDF extraction failed",
+) -> None:
     filename = upload.filename or ""
     if Path(filename).suffix.lower() != ".pdf" or upload.content_type != _PDF_CONTENT_TYPE:
-        raise _logged_extraction_failure(
-            _unsupported_format_failure(),
-            size_bytes=_upload_size(upload),
+        error = _unsupported_format_failure()
+        logger.warning(
+            log_message,
+            extra={
+                "errorCode": error.code,
+                "status": int(error.status_code),
+                "sizeBytes": _upload_size(upload),
+            },
         )
+        raise error
 
 
 def _delete_temporary(path: Path) -> None:
@@ -135,7 +145,12 @@ async def _upload_original_pdf(
     return file_id, []
 
 
-async def _stage_upload(upload: UploadFile, *, max_bytes: int) -> Path:
+async def _stage_upload(
+    upload: UploadFile,
+    *,
+    max_bytes: int,
+    log_message: str = "PDF extraction failed",
+) -> Path:
     """Copy one upload to a temporary path while enforcing an early size limit."""
     temporary = NamedTemporaryFile(prefix="edupilot-extract-", suffix=".pdf", delete=False)
     path = Path(temporary.name)
@@ -148,22 +163,34 @@ async def _stage_upload(upload: UploadFile, *, max_bytes: int) -> Path:
                 if first_chunk:
                     first_chunk = False
                     if not chunk.startswith(_PDF_MAGIC):
-                        raise _logged_extraction_failure(
-                            _unsupported_format_failure(),
-                            size_bytes=_upload_size(upload),
+                        error = _unsupported_format_failure()
+                        logger.warning(
+                            log_message,
+                            extra={
+                                "errorCode": error.code,
+                                "status": int(error.status_code),
+                                "sizeBytes": _upload_size(upload),
+                            },
                         )
+                        raise error
                 total_bytes += len(chunk)
                 if total_bytes > max_bytes:
-                    raise _logged_extraction_failure(
-                        InternalApiError(
-                            status_code=HTTPStatus.CONTENT_TOO_LARGE,
-                            code="FILE_TOO_LARGE",
-                            category=ErrorCategory.SCHEMA,
-                            message="PDF exceeds the configured upload size limit.",
-                            retryable=False,
-                        ),
-                        size_bytes=_upload_size(upload) or total_bytes,
+                    error = InternalApiError(
+                        status_code=HTTPStatus.CONTENT_TOO_LARGE,
+                        code="FILE_TOO_LARGE",
+                        category=ErrorCategory.SCHEMA,
+                        message="PDF exceeds the configured upload size limit.",
+                        retryable=False,
                     )
+                    logger.warning(
+                        log_message,
+                        extra={
+                            "errorCode": error.code,
+                            "status": int(error.status_code),
+                            "sizeBytes": _upload_size(upload) or total_bytes,
+                        },
+                    )
+                    raise error
                 temporary.write(chunk)
     except Exception:
         _delete_temporary(path)
@@ -171,10 +198,16 @@ async def _stage_upload(upload: UploadFile, *, max_bytes: int) -> Path:
 
     if total_bytes == 0:
         _delete_temporary(path)
-        raise _logged_extraction_failure(
-            _unsupported_format_failure(),
-            size_bytes=0,
+        error = _unsupported_format_failure()
+        logger.warning(
+            log_message,
+            extra={
+                "errorCode": error.code,
+                "status": int(error.status_code),
+                "sizeBytes": 0,
+            },
         )
+        raise error
     return path
 
 

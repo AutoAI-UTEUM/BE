@@ -55,6 +55,7 @@ def test_plan_context_contains_only_bounded_planner_fields(
     context.update(
         {
             "currentPageText": "P" * 600,
+            "xaiFileId": "file-must-never-reach-planner",
             "previousPageText": "",
             "nextPageText": None,
             "recentMessages": [
@@ -134,6 +135,8 @@ def test_plan_context_contains_only_bounded_planner_fields(
     assert "플래너에 전달하면 안 되는 학생 답안" not in serialized_text
     assert "플래너에 전달하면 안 되는 교정 원문" not in serialized_text
     assert "최신 비공개 근거" not in serialized_text
+    assert "xaiFileId" not in serialized_text
+    assert "file-must-never-reach-planner" not in serialized_text
 
 
 def test_diagnosis_answer_is_not_serialized_into_plan_context(
