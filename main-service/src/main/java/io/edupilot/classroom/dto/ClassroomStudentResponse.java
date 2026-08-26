@@ -11,7 +11,8 @@ public record ClassroomStudentResponse(
 	String status,
 	Instant lastActiveAt,
 	int averageProgressRate,
-	long aiQuestionCountLast7Days
+	long aiQuestionCountLast7Days,
+	long quizSubmissionCount
 ) {
 	public ClassroomStudentResponse(
 		Long studentId,
@@ -30,6 +31,7 @@ public record ClassroomStudentResponse(
 			joinedAt,
 			status,
 			lastActiveAt,
+			0,
 			0,
 			0
 		);

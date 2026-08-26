@@ -397,7 +397,8 @@ class ReportApiContractTest {
 				"ACTIVE",
 				null,
 				25,
-				4L
+				4L,
+				2L
 			)),
 			0,
 			20,
@@ -419,7 +420,8 @@ class ReportApiContractTest {
 			.andExpect(jsonPath("$.data.items[0].status").value("ACTIVE"))
 			.andExpect(jsonPath("$.data.items[0].lastActiveAt").value(nullValue()))
 			.andExpect(jsonPath("$.data.items[0].averageProgressRate").value(25))
-			.andExpect(jsonPath("$.data.items[0].aiQuestionCountLast7Days").value(4));
+			.andExpect(jsonPath("$.data.items[0].aiQuestionCountLast7Days").value(4))
+			.andExpect(jsonPath("$.data.items[0].quizSubmissionCount").value(2));
 		verify(classroomStudentService).list(
 			1L,
 			UserRole.INSTRUCTOR,

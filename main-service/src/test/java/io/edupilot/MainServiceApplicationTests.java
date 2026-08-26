@@ -303,6 +303,9 @@ class MainServiceApplicationTests {
 			.andExpect(jsonPath(
 				"$.components.schemas.ClassroomStudentResponse.properties.aiQuestionCountLast7Days"
 			).exists())
+			.andExpect(jsonPath(
+				"$.components.schemas.ClassroomStudentResponse.properties.quizSubmissionCount"
+			).exists())
 			.andExpect(jsonPath("$.paths['/api/classroom-join-requests'].post").exists())
 			.andExpect(jsonPath(
 				"$.paths['/api/classrooms/{id}/weeks'].get"
