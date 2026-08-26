@@ -28,6 +28,7 @@ class AgentContext(BaseModel):
     session: SessionSnapshot
     event_type: EventType
     event_payload: EventPayload
+    xai_file_id: str | None
     current_page_text: str | None
     previous_page_text: str | None
     next_page_text: str | None
@@ -45,6 +46,11 @@ class AgentContext(BaseModel):
     def page_attached(self) -> bool:
         """Return false only when the learner explicitly detached the current page."""
         return self.event_payload.include_current_page is not False
+
+    @property
+    def attached_file_id(self) -> str | None:
+        """Honor explicit page detachment before exposing a material file to an agent."""
+        return self.xai_file_id if self.page_attached else None
 
     def qa_thread_ref(self) -> str | None:
         if isinstance(self.qa_thread_digest, dict):
@@ -180,6 +186,7 @@ class ContextBuilder:
             session=turn.session,
             event_type=turn.event.event_type,
             event_payload=turn.event.payload,
+            xai_file_id=context.xai_file_id,
             current_page_text=context.current_page_text,
             previous_page_text=context.previous_page_text,
             next_page_text=context.next_page_text,

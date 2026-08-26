@@ -2,7 +2,7 @@
 
 from typing import Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from edupilot_ai.models.base import ContractModel
 
@@ -14,8 +14,19 @@ class OutlinePage(ContractModel):
 
 class OutlineRequest(ContractModel):
     schema_version: Literal["1.0"]
+    xai_file_id: str | None = Field(default=None, min_length=1)
     total_pages: int = Field(ge=1)
     pages: list[OutlinePage] = Field(min_length=1)
+
+    @field_validator("xai_file_id")
+    @classmethod
+    def normalize_xai_file_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("xaiFileId must not be blank")
+        return normalized
 
     @model_validator(mode="after")
     def validate_pages(self) -> Self:

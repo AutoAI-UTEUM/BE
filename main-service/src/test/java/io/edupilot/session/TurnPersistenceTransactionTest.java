@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.material.MaterialOverviewRepository;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
 import io.edupilot.quiz.QuizProperties;
 import io.edupilot.quiz.QuizService;
@@ -42,6 +43,7 @@ import io.edupilot.user.UserRepository;
 @Import({
 	SessionPageRecordRepository.class,
 	TurnPersistenceService.class,
+	QuizProposalPolicy.class,
 	UiActionResolver.class,
 	TurnPersistenceTransactionTest.ClockConfig.class
 })
@@ -75,6 +77,8 @@ class TurnPersistenceTransactionTest {
 	private LearningMaterialRepository materialRepository;
 	@MockitoBean
 	private MaterialPageRepository materialPageRepository;
+	@MockitoBean
+	private MaterialOverviewRepository materialOverviewRepository;
 	@MockitoBean
 	private QuizService quizService;
 	@MockitoBean

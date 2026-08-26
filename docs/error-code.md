@@ -158,7 +158,7 @@
 
 | code | HTTP | 의미 |
 | --- | ---: | --- |
-| `REPORT_NOT_FOUND` | 404 | 리포트가 없거나 현재 사용자가 해당 리포트의 강의실을 관리하지 않음 |
+| `REPORT_NOT_FOUND` | 404 | 리포트·커스텀 평가 기준이 없거나 현재 사용자가 해당 리포트/기준의 강의실을 관리하지 않음. 기준 삭제·변경에서 과거 version ID도 동일하게 은닉 |
 | `REPORT_CRITERION_LIMIT_EXCEEDED` | 400 | 기본 9종을 포함한 강의실 활성 리포트 기준이 20개를 초과하거나 자동 생성 여유 슬롯이 3개 미만임 |
 | `REPORT_CRITERIA_GENERATION_NOT_READY` | 400 | 개요가 생성된 강의실 자료가 없어 평가 지표를 자동 생성할 수 없음 |
 | `REPORT_CRITERION_DUPLICATE` | 409 | 정규화한 key 또는 이름이 기존 리포트 기준과 중복됨 |
@@ -180,9 +180,10 @@ FastAPI 내부 API의 공통 요청·인증 오류와 xAI Files 삭제 오류는
 | `AI_INTERNAL_AUTH_FAILED` | 401 | `AUTH` | `X-Internal-Token` 누락 또는 불일치 |
 | `AI_REQUEST_INVALID` | 400 / 422 | `SCHEMA` | `422`: 내부 요청의 필수 필드·타입 등 body·DTO 검증 실패, `400`: `questionId` 집합 불일치 등 필드 간 의미 검증 실패 |
 | `AI_INTERNAL_ERROR` | 500 | `INTERNAL` | 분류되지 않은 AI Service 내부 오류 |
+| `FILE_UPLOAD_FAILED` | 502 | `INTERNAL` | upload-only xAI Files 업로드 실패. timeout·429·5xx는 `retryable=true`, 영구 4xx·응답 스키마 실패는 `false` |
 | `FILE_DELETE_FAILED` | 502 | `INTERNAL` | xAI Files 삭제 실패(404 제외), `retryable=true` |
 
-`FILE_UPLOAD_FAILED`는 오류 봉투 code가 아니라 `/internal/ai/extract`의 `warnings[].type`입니다. xAI Files 업로드 실패·48MiB 초과를 이 warning으로 알리며 텍스트 추출 성공 응답은 HTTP 200을 유지합니다.
+`FILE_UPLOAD_FAILED`는 `/internal/ai/extract`에서는 비치명적인 `warnings[].type`이고 upload-only `/internal/ai/files`에서는 표준 오류 봉투 code입니다. 추출 경로의 xAI Files 업로드 실패·48MiB 초과는 warning으로 알리며 텍스트 추출 성공 응답은 HTTP 200을 유지합니다.
 
 `AI_REQUEST_INVALID`의 두 HTTP 상태는 모두 `category=SCHEMA`, `retryable=false`인 동일한 표준 오류 봉투를 사용합니다. Spring 비동기 시험 채점 worker가 grade 호출에서 `AI_REQUEST_INVALID`을 받으면 HTTP 상태와 무관하게 재시도하지 않고 제출을 `GRADING_FAILED`로 종결합니다. 학생 입력 오류나 일반 AI 장애와 구분할 수 있도록 `submissionId`, `examId`, 오류 code를 ERROR 로그에 남기며, 이미 커밋된 제출을 보상 삭제하거나 원 POST에 500을 반환하지 않습니다(DEC-032).
 

@@ -13,7 +13,7 @@
 >
 > v0.5 → v0.6 주요 변경: grade 요청의 전 필드에 required·nullable을 명시하고 시험이 숫자 `examId`를 `quizId`로 전달하는 규칙, 선택 문맥 없이 채점하는 규칙, 표준 `AI_REQUEST_INVALID` 오류 봉투를 확정했다. 이는 문서상 필수 필드를 선택으로 완화한 것이 아니라 기존에 없던 필드 강제력을 명문화하고 구현을 일치시키는 변경이다.
 >
-> 2026-08-25 추가 확정: PDF 원본 직접 참조 전환의 Phase 1로, 기존 텍스트 추출을 유지하면서 kill switch가 켜진 환경에서 추출 성공 원본을 xAI Files에 선택적으로 업로드하고 삭제할 수 있는 내부 계약을 추가했다. 턴 첨부는 Phase 3 범위다(DEC-035).
+> 2026-08-25 추가 확정: PDF 원본 직접 참조 전환의 Phase 1로, 기존 텍스트 추출을 유지하면서 kill switch가 켜진 환경에서 추출 성공 원본을 xAI Files에 선택적으로 업로드하고 삭제할 수 있는 내부 계약을 추가했다. Phase 3에서는 Spring이 턴 `context.xaiFileId`를 nullable로 전달하고 AI Service가 설명·QA 실행에 원본을 첨부한다. Phase 5에서는 현재 페이지 단일 범위를 유지하는 QuizAgent와 nullable `xaiFileId`를 받는 개요 생성까지 첨부를 확대한다(DEC-035).
 
 ---
 
@@ -25,7 +25,7 @@
   - v0.2의 "RuleRouter" 개념은 이 구조로 흡수됨 — **결정 가능한 분기는 전부 Spring 측 규칙**(StateReducer·파이프라인 트리거·페이지 이동), FastAPI 내부에는 별도 규칙 라우터를 두지 않는다. Policy/Verifier는 LLM Plan의 스키마·허용 도구·교수 정책 검증만 담당한다(동일 판단 로직 이중화 금지).
   - 단, 이벤트로 결과가 유일하게 결정되는 턴의 Plan 합성과 결정적 안내 fast-path(페이지 이동 안내·빈 페이지)는 AI 내부 규칙으로 처리한다(설계 승인, 2026-08-17).
 - **상태 소유: Spring** — FastAPI는 무상태. 요청마다 스냅샷을 받고 statePatch를 제안하며, Spring이 허용목록으로 검증 후 반영. FastAPI는 자체 영속 저장소(Redis 포함)를 두지 않는다.
-- **PDF 접근** — 자료 업로드 시 `/internal/ai/extract`로 1회 추출 → Spring이 `material_pages`와 nullable xAI file ID를 저장 → `/internal/ai/outline`에는 저장된 전 페이지 텍스트를 전달하고, 턴마다 현재±1 페이지 텍스트를 스냅샷에 동봉한다. 추출 텍스트는 앵커·폴백으로 계속 유지한다. Phase 1에서는 kill switch가 켜진 경우 추출 성공 원본을 xAI Files에 선택적으로 업로드해 `xaiFileId`를 반환하며, Spring이 저장한 file ID는 수명주기 정리에만 사용한다. 이를 턴에 첨부하는 경로는 Phase 3에서 도입한다(DEC-035).
+- **PDF 접근** — 자료 업로드 시 `/internal/ai/extract`로 1회 추출 → Spring이 `material_pages`와 nullable xAI file ID를 저장 → `/internal/ai/outline`에는 저장된 전 페이지 텍스트와 nullable `xaiFileId`를 전달하고, 턴마다 현재±1 페이지 텍스트와 nullable `xaiFileId`를 스냅샷에 동봉한다. 추출 텍스트는 범위·구조 앵커이자 file ID 부재 시 폴백으로 계속 유지한다. AI Service는 file ID가 있으면 Explainer·QaAgent·QuizAgent와 개요 생성의 실제 LLM 호출에 원본을 첨부하고, Plan·결정적 안내·Repair·Note에는 첨부하지 않는다. 첨부 호출도 현재 페이지 텍스트·질문 또는 개요 pages의 범위를 벗어나지 않는다(DEC-035).
 
 ## 1. 공통 규칙
 
@@ -52,6 +52,7 @@
 | Method | URL | 목적 | 호출 시점 |
 | --- | --- | --- | --- |
 | POST | `/internal/ai/extract` | PDF 페이지 텍스트 추출 (결정적 전처리) | 자료 업로드 후 비동기 |
+| POST | `/internal/ai/files` | 기존 PDF의 xAI Files 업로드(추출 없음) | bounded backfill worker |
 | DELETE | `/internal/ai/files/{fileId}` | xAI Files 원본 삭제 (404 포함 멱등) | 자료 삭제 후 정리 훅 |
 | POST | `/internal/ai/outline` | 자료 요약·목차 구조 생성 | 추출 완료 후 비동기 |
 | POST | `/internal/ai/captions` | PDF 페이지 이미지의 시각 정보 캡션 생성 | 추출 완료 후 비동기, 최대 10페이지/요청 |
@@ -77,6 +78,7 @@
   "session": { "sessionId": 100, "userId": 1, "materialId": 10, "currentPage": 3, "pageStatus": "NOT_EXPLAINED" },
   "event": { "eventType": "USER_QUESTION", "payload": { "message": "편차가 뭔지 모르겠어", "includeCurrentPage": true } },
   "context": {
+    "xaiFileId": "file-abc123",
     "currentPageText": "...", "previousPageText": "...", "nextPageText": "...",
     "recentMessages": [], "qaThreadDigest": null,
     "quizAssessments": [], "learnerMemoryDigest": null,
@@ -91,8 +93,10 @@
 - `learnerLevel`/`learnerConfidence`: Spring이 learner_memories·최근 평가에서 파생. null이면 기본 수준 동작.
 - `latestRepair`: 직전 교정 답변 원문 포함 — 교정 후 USER_QUESTION에서 QaAgent가 문맥 승계.
 - `currentPageText`의 타입은 `string | null`이다. null은 `USER_QUESTION`이면서 `includeCurrentPage=false`인 턴에서만 허용한다. `EXPLAIN_CURRENT_PAGE`와 `QUIZ_TYPE_SELECTED`에서는 계속 필수이며, AI Service는 eventType과 context를 교차 검증해 위반 요청을 category `SCHEMA`로 거부한다.
-- `includeCurrentPage=false`이면 Spring은 `currentPageText`, `previousPageText`, `nextPageText`를 모두 null로 전달한다. 세 필드 자체를 생략하지 않으므로 context의 12키 구조는 유지한다.
+- `xaiFileId`의 타입은 `string | null`이다. 구자료·업로드 실패 자료는 `null`이며 외부 API에는 노출하지 않는다. AI Service는 이 값을 Plan 입력이나 turn LLM 호출 로그에 넣지 않고 Explainer·QaAgent·QuizAgent 호출에서 xAI Responses API의 `input_file.file_id`로 사용하며 `store=false`를 강제한다.
+- `includeCurrentPage=false`이면 Spring은 `xaiFileId`, `currentPageText`, `previousPageText`, `nextPageText`를 모두 null로 전달한다. 필드 자체를 생략하지 않으므로 context의 13키 구조는 유지한다.
 - `includeCurrentPage=false`인데 페이지 텍스트가 전달된 경우 AI Service는 해당 context를 무시하지 않고 사용한다. 이 조합의 정합 책임은 Spring에 있다.
+- 방어적으로 `includeCurrentPage=false`인데 `xaiFileId`가 전달돼도 AI Service는 파일을 첨부하지 않는다. 페이지 이동 안내·빈 페이지 고정 안내는 file ID 유무와 무관하게 LLM을 호출하지 않는다.
 
 ### 3.2 이벤트 타입 (자유 턴 4종)
 
@@ -363,6 +367,13 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 - 파일 정리: `DELETE /internal/ai/files/{fileId}`. Spring은 자료 수명 종료 또는 file ID 교체 시 커밋 후 호출하며, 204 외 실패는 로그만 남기고 자료 상태를 되돌리지 않습니다.
 - 오류: `EXTRACTION_FAILED`(손상/암호화/텍스트 없음 — 하위 사유 코드 분류), `PAGE_LIMIT_EXCEEDED`(300p). 저장·상태 전이는 Spring.
 
+#### POST /internal/ai/files
+
+- 기존 ACTIVE·READY 자료의 소급 업로드를 위한 upload-only API입니다. multipart PDF(≤48MiB)를 받아 텍스트 추출이나 자료 상태 변경 없이 `{ "schemaVersion":"1.0", "xaiFileId":"file-..." }`를 반환합니다.
+- 명시적 내부 호출이므로 `/extract` 자동 업로드 kill switch와 독립적으로 동작합니다. 대량 작업 제어의 정본은 Spring의 기본 OFF `EDUPILOT_XAI_FILE_BACKFILL_ENABLED`입니다.
+- 비PDF·빈 파일·매직 불일치는 400 `UNSUPPORTED_FORMAT`, 48MiB 초과는 413 `FILE_TOO_LARGE`, provider 실패는 502 `FILE_UPLOAD_FAILED` 표준 봉투입니다. provider timeout·429·5xx는 retryable이며 영구 4xx·응답 스키마 실패는 retryable=false입니다.
+- Spring은 ACTIVE+READY+xaiFileId null 후보를 작은 batch로 claim한 뒤 트랜잭션 밖에서 호출하고, 저장 직전 row lock으로 상태와 ID-null을 재검증합니다. 실패해도 READY를 유지하고 재시도 backoff를 적용하며, 경합으로 저장하지 못한 새 ID는 베스트에포트로 삭제합니다.
+
 #### DELETE /internal/ai/files/{fileId}
 
 - xAI Files의 원본을 정리합니다. 기능 kill switch가 꺼진 상태에서도 기존 파일 정리를 위해 동작합니다.
@@ -492,8 +503,9 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 
 ### 6.6 POST /internal/ai/outline
 
-- 요청: `{ "schemaVersion": "1.0", "totalPages": 2, "pages": [{ "pageNumber": 1, "text": "..." }] }`.
-- Spring은 `material_pages`에 저장된 전 페이지 텍스트를 페이지 순서대로 전달하며 텍스트를 절단하지 않는다. 입력 길이 조절은 AI Service 책임이다.
+- 요청: `{ "schemaVersion": "1.0", "xaiFileId": "file-...", "totalPages": 2, "pages": [{ "pageNumber": 1, "text": "..." }] }`. `xaiFileId`는 nullable이며 생략도 허용한다.
+- Spring은 `material_pages`에 저장된 전 페이지 텍스트와 자료의 nullable xAI file ID를 페이지 순서대로 전달하며 텍스트를 절단하지 않는다. 입력 길이 조절은 AI Service 책임이다. `pages[].pageNumber/text`는 범위·구조 앵커이고 첨부 PDF는 같은 범위의 제목·시각 세부 확인에만 사용한다.
+- `sections`는 일반 강의 자료에서 3~6개를 목표로 하고 최대 10개이며, 첫 페이지부터 `totalPages`까지 겹침·공백 없이 오름차순으로 정확히 한 번씩 포함해야 한다. AI Service와 Spring이 모두 이를 검증한다.
 - 응답: `{ "schemaVersion": "1.0", "materialSummary": "...", "sections": [{ "title": "...", "startPage": 1, "endPage": 2, "keywords": ["..."] }], "totalPages": 2 }`.
 - Spring은 응답을 결정적 마크다운으로 렌더링해 `material_overviews.content`에 저장하고, 원본 구조는 `outline_json`에 저장한다. 실패는 자료 자체 상태를 변경하지 않고 개요만 `FAILED`로 전이한다.
 - Main Service read timeout은 `EDUPILOT_AI_OUTLINE_TIMEOUT`(기본 `110s`)을 사용한다.
@@ -559,7 +571,7 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 
 **v0.5에서 확정된 사항** (근거: #108 합의):
 
-- `USER_QUESTION.payload.includeCurrentPage`는 선택 boolean이며 생략 시 `true`다. `false`이면 페이지 텍스트 3키를 null로 전달하되 context 12키 구조는 유지한다. `currentPageText`의 null은 `USER_QUESTION`+`false`에서만 허용하고 `EXPLAIN_CURRENT_PAGE`·`QUIZ_TYPE_SELECTED`에서는 AI Service가 교차 검증한다.
+- `USER_QUESTION.payload.includeCurrentPage`는 선택 boolean이며 생략 시 `true`다. `false`이면 `xaiFileId`와 페이지 텍스트 3키를 null로 전달하되 context 13키 구조는 유지한다. `currentPageText`의 null은 `USER_QUESTION`+`false`에서만 허용하고 `EXPLAIN_CURRENT_PAGE`·`QUIZ_TYPE_SELECTED`에서는 AI Service가 교차 검증한다.
 - `includeCurrentPage=false`인 QaAgent는 일반 학습 지식으로 답변할 수 있지만 업로드 자료 내용을 추측하지 않고 학습 도우미 범위를 유지한다. QA thread와 `latestRepair` 승계는 플래그와 무관하다.
 - 새 대화 마커 이후 스냅샷은 `recentMessages`를 마커 이후 메시지로 제한하고, 마커 이전 `qaThreadDigest`와 `latestRepair`를 null로 처리한다. `pendingDiagnosis`는 진단 회피를 막기 위해 유지하며 temporary memory candidates, quiz assessments, long-term learner memory도 유지한다. context 구조와 키는 변경하지 않는다.
 

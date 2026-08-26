@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from edupilot_ai.llm.bridge import (
     LlmBridgeError,
     LlmCompletion,
+    LlmFileAttachment,
     LlmMessage,
     LlmTextDelta,
     LlmTextStreamCompleted,
@@ -49,8 +50,10 @@ class FakeLlm:
     def __init__(self, responses: Sequence[ScriptItem] = ()) -> None:
         self._responses = list(responses)
         self.calls: list[tuple[Sequence[LlmMessage], AgentLlmProfile]] = []
+        self.file_attachments: list[tuple[LlmFileAttachment, ...]] = []
         self.timeouts: list[float] = []
         self.stream_calls: list[tuple[Sequence[LlmMessage], AgentLlmProfile, float]] = []
+        self.stream_file_attachments: list[tuple[LlmFileAttachment, ...]] = []
 
     def queue(self, *responses: ScriptItem) -> None:
         self._responses.extend(responses)
@@ -72,8 +75,10 @@ class FakeLlm:
         response_model: type[ModelT],
         profile: AgentLlmProfile,
         timeout_seconds: float,
+        attachments: Sequence[LlmFileAttachment] = (),
     ) -> LlmCompletion[ModelT]:
         self.calls.append((messages, profile))
+        self.file_attachments.append(tuple(attachments))
         self.timeouts.append(timeout_seconds)
         if not self._responses:
             raise AssertionError("Unexpected LLM call")
@@ -109,8 +114,10 @@ class FakeLlm:
         messages: Sequence[LlmMessage],
         profile: AgentLlmProfile,
         timeout_seconds: float,
+        attachments: Sequence[LlmFileAttachment] = (),
     ) -> AsyncIterator[LlmTextStreamItem]:
         self.stream_calls.append((messages, profile, timeout_seconds))
+        self.stream_file_attachments.append(tuple(attachments))
         if not self._responses:
             raise AssertionError("Unexpected LLM stream call")
         response = self._responses.pop(0)

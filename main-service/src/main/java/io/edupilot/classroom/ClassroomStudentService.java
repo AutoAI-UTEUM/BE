@@ -18,6 +18,7 @@ import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.MaterialProcessingStatus;
 import io.edupilot.material.MaterialStatus;
+import io.edupilot.quiz.QuizSubmissionRepository;
 import io.edupilot.session.LearningProgressService;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.session.QaMessageRepository;
@@ -38,6 +39,7 @@ public class ClassroomStudentService {
 	private final ClassroomWeekMaterialRepository weekMaterialRepository;
 	private final LearningSessionRepository sessionRepository;
 	private final QaMessageRepository qaMessageRepository;
+	private final QuizSubmissionRepository quizSubmissionRepository;
 	private final LearningProgressService progressService;
 	private final Clock clock;
 
@@ -47,6 +49,7 @@ public class ClassroomStudentService {
 		ClassroomWeekMaterialRepository weekMaterialRepository,
 		LearningSessionRepository sessionRepository,
 		QaMessageRepository qaMessageRepository,
+		QuizSubmissionRepository quizSubmissionRepository,
 		LearningProgressService progressService,
 		Clock clock
 	) {
@@ -55,6 +58,7 @@ public class ClassroomStudentService {
 		this.weekMaterialRepository = weekMaterialRepository;
 		this.sessionRepository = sessionRepository;
 		this.qaMessageRepository = qaMessageRepository;
+		this.quizSubmissionRepository = quizSubmissionRepository;
 		this.progressService = progressService;
 		this.clock = clock;
 	}
@@ -137,12 +141,22 @@ public class ClassroomStudentService {
 				QaMessageRepository.StudentQuestionCount::getStudentId,
 				QaMessageRepository.StudentQuestionCount::getQuestionCount
 			));
+		Map<Long, Long> quizCountByStudent = quizSubmissionRepository
+			.findSubmissionCountsByStudentIds(
+				classroomId,
+				studentIds,
+				PROGRESS_STATUSES
+			).stream().collect(Collectors.toMap(
+				QuizSubmissionRepository.StudentQuizSubmissionCount::getStudentId,
+				QuizSubmissionRepository.StudentQuizSubmissionCount::getSubmissionCount
+			));
 		List<ClassroomStudentResponse> items = members.stream()
 			.map(member -> response(
 				member,
 				lastActiveByStudent.get(member.getUserId()),
 				progressByStudent.getOrDefault(member.getUserId(), 0),
-				questionCountByStudent.getOrDefault(member.getUserId(), 0L)
+				questionCountByStudent.getOrDefault(member.getUserId(), 0L),
+				quizCountByStudent.getOrDefault(member.getUserId(), 0L)
 			))
 			.sorted(comparator(sort))
 			.toList();
@@ -176,7 +190,8 @@ public class ClassroomStudentService {
 		ClassroomMember member,
 		Instant lastActiveAt,
 		int averageProgressRate,
-		long aiQuestionCountLast7Days
+		long aiQuestionCountLast7Days,
+		long quizSubmissionCount
 	) {
 		return new ClassroomStudentResponse(
 			member.getUserId(),
@@ -187,7 +202,8 @@ public class ClassroomStudentService {
 			"ACTIVE",
 			lastActiveAt,
 			averageProgressRate,
-			aiQuestionCountLast7Days
+			aiQuestionCountLast7Days,
+			quizSubmissionCount
 		);
 	}
 

@@ -84,6 +84,7 @@ def turn_payload() -> dict[str, object]:
             "payload": {"message": "편차가 뭔지 모르겠어"},
         },
         "context": {
+            "xaiFileId": None,
             "currentPageText": "편차 설명",
             "previousPageText": None,
             "nextPageText": None,

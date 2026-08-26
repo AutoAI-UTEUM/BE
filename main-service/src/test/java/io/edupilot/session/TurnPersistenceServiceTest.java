@@ -35,6 +35,7 @@ import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialOverviewRepository;
 import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
 import io.edupilot.memory.LearnerMemoryCandidate;
@@ -68,6 +69,8 @@ class TurnPersistenceServiceTest {
 	private LearningMaterialRepository materialRepository;
 	@Mock
 	private MaterialPageRepository materialPageRepository;
+	@Mock
+	private MaterialOverviewRepository materialOverviewRepository;
 	@Mock
 	private QuizService quizService;
 	@Mock
@@ -1008,9 +1011,12 @@ class TurnPersistenceServiceTest {
 			candidateRepository,
 			userRepository,
 			materialRepository,
-			materialPageRepository,
 			quizService,
-			new QuizProperties(new BigDecimal("0.6"), 200),
+			new QuizProposalPolicy(
+				materialPageRepository,
+				materialOverviewRepository,
+				new QuizProperties(new BigDecimal("0.6"), 200)
+			),
 			diagnosisService,
 			new UiActionResolver(),
 			Clock.fixed(NOW, ZoneOffset.UTC)

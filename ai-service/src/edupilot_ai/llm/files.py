@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 class XaiFileClientError(Exception):
     """Safe provider failure that never carries a response body or file content."""
 
+    def __init__(self, code: str, *, retryable: bool = True) -> None:
+        super().__init__(code)
+        self.code = code
+        self.retryable = retryable
+
 
 class XaiFileClientProtocol(Protocol):
     """Provider-neutral surface used by extract and file cleanup endpoints."""
@@ -54,7 +59,7 @@ class XaiFileClient:
         size_bytes = len(content)
         if size_bytes > XAI_FILE_MAX_BYTES:
             self._log_upload_failure(started_at=started_at, size_bytes=size_bytes)
-            raise XaiFileClientError("FILE_UPLOAD_FAILED")
+            raise XaiFileClientError("FILE_UPLOAD_FAILED", retryable=False)
 
         try:
             response = await self._client.post(
@@ -70,7 +75,11 @@ class XaiFileClient:
 
         if not response.is_success:
             self._log_upload_failure(started_at=started_at, size_bytes=size_bytes)
-            raise XaiFileClientError("FILE_UPLOAD_FAILED")
+            raise XaiFileClientError(
+                "FILE_UPLOAD_FAILED",
+                retryable=response.status_code == httpx.codes.TOO_MANY_REQUESTS
+                or response.status_code >= 500,
+            )
 
         try:
             file_id = _XaiFileResponse.model_validate(response.json()).id.strip()
@@ -78,7 +87,10 @@ class XaiFileClient:
                 raise ValueError("provider returned an empty file id")
         except (ValueError, ValidationError) as exception:
             self._log_upload_failure(started_at=started_at, size_bytes=size_bytes)
-            raise XaiFileClientError("FILE_UPLOAD_FAILED") from exception
+            raise XaiFileClientError(
+                "FILE_UPLOAD_FAILED",
+                retryable=False,
+            ) from exception
 
         logger.info(
             "xAI file upload finished",
@@ -95,7 +107,7 @@ class XaiFileClient:
     async def delete(self, file_id: str) -> None:
         started_at = perf_counter()
         if not file_id.strip():
-            raise XaiFileClientError("FILE_DELETE_FAILED")
+            raise XaiFileClientError("FILE_DELETE_FAILED", retryable=False)
         encoded_file_id = quote(file_id, safe="")
         try:
             response = await self._client.delete(
@@ -120,7 +132,11 @@ class XaiFileClient:
             return
         if not response.is_success:
             self._log_delete_failure(started_at=started_at, file_id=file_id)
-            raise XaiFileClientError("FILE_DELETE_FAILED")
+            raise XaiFileClientError(
+                "FILE_DELETE_FAILED",
+                retryable=response.status_code == httpx.codes.TOO_MANY_REQUESTS
+                or response.status_code >= 500,
+            )
 
         logger.info(
             "xAI file delete finished",
