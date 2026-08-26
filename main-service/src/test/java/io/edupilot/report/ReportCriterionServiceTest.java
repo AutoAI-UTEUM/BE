@@ -3,7 +3,11 @@ package io.edupilot.report;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -196,6 +200,77 @@ class ReportCriterionServiceTest {
 		);
 		verify(criterionRepository).save(captor.capture());
 		assertThat(captor.getValue().getName()).isEqualTo("변경 기준");
+	}
+
+	@Test
+	void deletesEveryVersionWhenLatestCriterionIdIsRequested() {
+		ReportCriterion latest = criterion(11L, "custom_key", "최신 기준", 2, true);
+		ReportCriterion previous = criterion(10L, "custom_key", "이전 기준", 1, false);
+		when(criterionRepository.findByIdAndClassroom_Id(11L, 30L))
+			.thenReturn(java.util.Optional.of(latest));
+		when(criterionRepository
+			.findByClassroom_IdAndCriterionKeyOrderByVersionDesc(30L, "custom_key"))
+			.thenReturn(List.of(latest, previous));
+
+		service.delete(1L, UserRole.INSTRUCTOR, 30L, 11L);
+
+		verify(classroomService).requireStrictOwnerForUpdate(
+			1L, UserRole.INSTRUCTOR, 30L
+		);
+		verify(criterionRepository).deleteByClassroom_IdAndCriterionKey(
+			30L, "custom_key"
+		);
+	}
+
+	@Test
+	void hidesCriterionFromAnotherClassroom() {
+		when(criterionRepository.findByIdAndClassroom_Id(10L, 30L))
+			.thenReturn(java.util.Optional.empty());
+
+		assertThatThrownBy(() -> service.delete(
+			1L, UserRole.INSTRUCTOR, 30L, 10L
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode()).isEqualTo(ErrorCode.REPORT_NOT_FOUND)
+		);
+
+		verify(criterionRepository, never())
+			.deleteByClassroom_IdAndCriterionKey(any(), any());
+	}
+
+	@Test
+	void rejectsDeletingHistoricalCriterionVersion() {
+		ReportCriterion previous = criterion(10L, "custom_key", "이전 기준", 1, false);
+		ReportCriterion latest = criterion(11L, "custom_key", "최신 기준", 2, true);
+		when(criterionRepository.findByIdAndClassroom_Id(10L, 30L))
+			.thenReturn(java.util.Optional.of(previous));
+		when(criterionRepository
+			.findByClassroom_IdAndCriterionKeyOrderByVersionDesc(30L, "custom_key"))
+			.thenReturn(List.of(latest, previous));
+
+		assertThatThrownBy(() -> service.delete(
+			1L, UserRole.INSTRUCTOR, 30L, 10L
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode()).isEqualTo(ErrorCode.REPORT_NOT_FOUND)
+		);
+
+		verify(criterionRepository, never())
+			.deleteByClassroom_IdAndCriterionKey(any(), any());
+	}
+
+	@Test
+	void rejectsNonOwnerBeforeCriterionLookup() {
+		reset(classroomService);
+		doThrow(new BusinessException(ErrorCode.CLASSROOM_NOT_FOUND))
+			.when(classroomService)
+			.requireStrictOwnerForUpdate(9L, UserRole.INSTRUCTOR, 30L);
+
+		assertThatThrownBy(() -> service.delete(
+			9L, UserRole.INSTRUCTOR, 30L, 10L
+		)).isInstanceOfSatisfying(BusinessException.class, exception ->
+			assertThat(exception.errorCode()).isEqualTo(ErrorCode.CLASSROOM_NOT_FOUND)
+		);
+
+		verifyNoInteractions(criterionRepository);
 	}
 
 	private CreateReportCriterionRequest createRequest(String key, String name) {

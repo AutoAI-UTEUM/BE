@@ -178,16 +178,7 @@ public class ReportCriterionService {
 		Classroom classroom = classroomService.requireStrictOwnerForUpdate(
 			instructorId, role, classroomId
 		);
-		ReportCriterion current = criterionRepository
-			.findByIdAndClassroom_Id(criterionId, classroomId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.REPORT_NOT_FOUND));
-		List<ReportCriterion> versions = criterionRepository
-			.findByClassroom_IdAndCriterionKeyOrderByVersionDesc(
-				classroomId, current.getCriterionKey()
-			);
-		if (versions.isEmpty() || !versions.get(0).getId().equals(current.getId())) {
-			throw new BusinessException(ErrorCode.REPORT_NOT_FOUND);
-		}
+		ReportCriterion current = requireLatest(classroomId, criterionId);
 		if (!request.hasContentChanges()) {
 			return toggle(classroomId, current, request.active());
 		}
@@ -219,6 +210,36 @@ public class ReportCriterionService {
 			nextActive
 		));
 		return customResponse(next);
+	}
+
+	@Transactional
+	public void delete(
+		Long instructorId,
+		UserRole role,
+		Long classroomId,
+		Long criterionId
+	) {
+		classroomService.requireStrictOwnerForUpdate(
+			instructorId, role, classroomId
+		);
+		ReportCriterion current = requireLatest(classroomId, criterionId);
+		criterionRepository.deleteByClassroom_IdAndCriterionKey(
+			classroomId, current.getCriterionKey()
+		);
+	}
+
+	private ReportCriterion requireLatest(Long classroomId, Long criterionId) {
+		ReportCriterion current = criterionRepository
+			.findByIdAndClassroom_Id(criterionId, classroomId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.REPORT_NOT_FOUND));
+		List<ReportCriterion> versions = criterionRepository
+			.findByClassroom_IdAndCriterionKeyOrderByVersionDesc(
+				classroomId, current.getCriterionKey()
+			);
+		if (versions.isEmpty() || !versions.get(0).getId().equals(current.getId())) {
+			throw new BusinessException(ErrorCode.REPORT_NOT_FOUND);
+		}
+		return current;
 	}
 
 	private ReportCriterionResponse toggle(

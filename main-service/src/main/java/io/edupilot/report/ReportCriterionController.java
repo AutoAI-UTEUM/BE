@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -100,5 +101,23 @@ public class ReportCriterionController {
 		return ApiResponse.success(criterionService.update(
 			user.userId(), user.role(), classroomId, criterionId, request
 		));
+	}
+
+	@DeleteMapping("/{criterionId}")
+	@Operation(
+		operationId = "deleteReportCriterion",
+		summary = "강의실 커스텀 리포트 평가 기준 삭제",
+		description = "최신 버전 ID로 해당 커스텀 기준의 전 버전을 물리 삭제합니다. "
+			+ "진행 중 리포트 생성은 시작 시점에 동결한 기준 스냅샷을 사용하므로 영향을 받지 않습니다."
+	)
+	public ApiResponse<Void> delete(
+		@AuthenticationPrincipal AuthenticatedUser user,
+		@PathVariable Long classroomId,
+		@PathVariable Long criterionId
+	) {
+		criterionService.delete(
+			user.userId(), user.role(), classroomId, criterionId
+		);
+		return ApiResponse.success(null);
 	}
 }

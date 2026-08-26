@@ -2097,6 +2097,18 @@ key는 trim·소문자화하고 공백과 `-`를 `_`로 정규화한 뒤 기본 
 활성 20개 상한을 동일하게 검증합니다. 이미 생성된 generation의 기준 snapshot은 바뀌지
 않고 다음 생성부터 반영됩니다.
 
+### DELETE `/api/classrooms/{classroomId}/report-criteria/{criterionId}`
+
+소유 강사가 커스텀 기준을 물리 삭제합니다. 해당 key의 최신 version ID만 요청할 수 있으며,
+과거 version ID·다른 강의실의 기준·존재하지 않는 기준은 `REPORT_NOT_FOUND`(404)로
+은닉합니다. 성공하면 해당 `(classroomId, criterionKey)`의 전 version을 삭제하고
+`data:null`을 반환합니다. 삭제된 key·이름은 새 커스텀 기준으로 다시 사용할 수 있고 활성
+기준 상한에서도 즉시 제외됩니다.
+
+리포트 생성은 요청 시작 시점에 `criterion_catalog_json` 스냅샷을 동결해 worker가 이후
+live 기준 테이블을 다시 읽지 않으므로, 삭제는 진행 중 generation에 영향을 주지 않습니다.
+과거 `report_criterion_results`도 key·version 값을 독립적으로 보존하며 삭제되지 않습니다.
+
 ### POST `/api/classrooms/{classroomId}/report-criteria/generate`
 
 소유 강사가 강의실 자료 개요를 바탕으로 커스텀 평가 기준 자동 생성을 요청합니다.
