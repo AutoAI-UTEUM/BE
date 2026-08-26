@@ -24,6 +24,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.edupilot.material.LearningMaterial;
+import io.edupilot.quiz.QuizSubmissionRepository;
 import io.edupilot.session.LearningProgressService;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.session.QaMessageRepository;
@@ -41,6 +42,7 @@ class ClassroomStudentServiceTest {
 	@Mock private ClassroomWeekMaterialRepository weekMaterialRepository;
 	@Mock private LearningSessionRepository sessionRepository;
 	@Mock private QaMessageRepository qaMessageRepository;
+	@Mock private QuizSubmissionRepository quizSubmissionRepository;
 	@Mock private LearningProgressService progressService;
 
 	private ClassroomStudentService service;
@@ -54,6 +56,7 @@ class ClassroomStudentServiceTest {
 			weekMaterialRepository,
 			sessionRepository,
 			qaMessageRepository,
+			quizSubmissionRepository,
 			progressService,
 			Clock.fixed(NOW, ZoneOffset.UTC)
 		);
@@ -136,6 +139,7 @@ class ClassroomStudentServiceTest {
 		));
 		var firstCount = questionCount(40L, 2L);
 		var secondCount = questionCount(41L, 1L);
+		var quizCount = quizCount(40L, 3L);
 		when(qaMessageRepository.findRecentQuestionCountsByStudentIds(
 			eq(30L),
 			eq(List.of(40L, 41L, 42L)),
@@ -143,6 +147,11 @@ class ClassroomStudentServiceTest {
 			eq(List.of(SessionStatus.ACTIVE, SessionStatus.COMPLETED)),
 			eq(NOW.minus(Duration.ofDays(7)))
 		)).thenReturn(List.of(firstCount, secondCount));
+		when(quizSubmissionRepository.findSubmissionCountsByStudentIds(
+			30L,
+			List.of(40L, 41L, 42L),
+			List.of(SessionStatus.ACTIVE, SessionStatus.COMPLETED)
+		)).thenReturn(List.of(quizCount));
 
 		var response = service.list(
 			1L, UserRole.INSTRUCTOR, 30L, 0, 20, null, null
@@ -150,11 +159,12 @@ class ClassroomStudentServiceTest {
 
 		assertThat(response.items()).extracting(
 			item -> item.averageProgressRate(),
-			item -> item.aiQuestionCountLast7Days()
+			item -> item.aiQuestionCountLast7Days(),
+			item -> item.quizSubmissionCount()
 		).containsExactly(
-			org.assertj.core.groups.Tuple.tuple(60, 2L),
-			org.assertj.core.groups.Tuple.tuple(10, 1L),
-			org.assertj.core.groups.Tuple.tuple(0, 0L)
+			org.assertj.core.groups.Tuple.tuple(60, 2L, 3L),
+			org.assertj.core.groups.Tuple.tuple(10, 1L, 0L),
+			org.assertj.core.groups.Tuple.tuple(0, 0L, 0L)
 		);
 		verify(progressService).calculateStudentProgressRates(
 			30L, List.of(material), List.of(40L, 41L, 42L)
@@ -164,6 +174,11 @@ class ClassroomStudentServiceTest {
 		);
 		verify(qaMessageRepository).findRecentQuestionCountsByStudentIds(
 			eq(30L), any(), any(), any(), eq(NOW.minus(Duration.ofDays(7)))
+		);
+		verify(quizSubmissionRepository).findSubmissionCountsByStudentIds(
+			30L,
+			List.of(40L, 41L, 42L),
+			List.of(SessionStatus.ACTIVE, SessionStatus.COMPLETED)
 		);
 	}
 
@@ -273,6 +288,18 @@ class ClassroomStudentServiceTest {
 		var result = mock(QaMessageRepository.StudentQuestionCount.class);
 		when(result.getStudentId()).thenReturn(studentId);
 		when(result.getQuestionCount()).thenReturn(count);
+		return result;
+	}
+
+	private QuizSubmissionRepository.StudentQuizSubmissionCount quizCount(
+		Long studentId,
+		long count
+	) {
+		var result = mock(
+			QuizSubmissionRepository.StudentQuizSubmissionCount.class
+		);
+		when(result.getStudentId()).thenReturn(studentId);
+		when(result.getSubmissionCount()).thenReturn(count);
 		return result;
 	}
 }

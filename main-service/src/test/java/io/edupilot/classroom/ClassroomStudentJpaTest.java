@@ -3,6 +3,7 @@ package io.edupilot.classroom;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
@@ -21,12 +22,19 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.classroom.dto.ClassroomStudentResponse;
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.storage.FileStorage;
+import io.edupilot.quiz.GradingResult;
+import io.edupilot.quiz.Quiz;
+import io.edupilot.quiz.QuizRepository;
+import io.edupilot.quiz.QuizSubmission;
+import io.edupilot.quiz.QuizSubmissionRepository;
+import io.edupilot.quiz.QuizType;
 import io.edupilot.session.ChatMessage;
 import io.edupilot.session.ChatMessageRepository;
 import io.edupilot.session.LearningSession;
@@ -75,6 +83,8 @@ class ClassroomStudentJpaTest {
 	@Autowired private QaThreadRepository qaThreadRepository;
 	@Autowired private ChatMessageRepository chatMessageRepository;
 	@Autowired private QaMessageRepository qaMessageRepository;
+	@Autowired private QuizRepository quizRepository;
+	@Autowired private QuizSubmissionRepository quizSubmissionRepository;
 	@Autowired private SessionPageRecordRepository pageRecordRepository;
 	@Autowired private ClassroomStudentService studentService;
 	@Autowired private ClassroomAnalyticsService analyticsService;
@@ -161,6 +171,31 @@ class ClassroomStudentJpaTest {
 			"recent-request",
 			NOW.minus(Duration.ofDays(1))
 		);
+		Quiz submittedQuiz = quizRepository.saveAndFlush(Quiz.create(
+			charlieSession,
+			5,
+			"Submitted quiz",
+			5,
+			5,
+			QuizType.MCQ,
+			List.of(),
+			List.of(),
+			"1.0"
+		));
+		quizSubmissionRepository.saveAndFlush(quizSubmission(
+			submittedQuiz,
+			charlie,
+			"student-list-attempt-1",
+			1,
+			"40"
+		));
+		quizSubmissionRepository.saveAndFlush(quizSubmission(
+			submittedQuiz,
+			charlie,
+			"student-list-attempt-2",
+			2,
+			"80"
+		));
 		entityManager.flush();
 		entityManager.clear();
 
@@ -184,11 +219,14 @@ class ClassroomStudentJpaTest {
 		assertThat(response.items()).hasSize(3);
 		assertThat(byName.get("Charlie").averageProgressRate()).isEqualTo(50);
 		assertThat(byName.get("Charlie").aiQuestionCountLast7Days()).isEqualTo(1);
+		assertThat(byName.get("Charlie").quizSubmissionCount()).isEqualTo(1);
 		assertThat(byName.get("Alice").averageProgressRate()).isEqualTo(20);
 		assertThat(byName.get("Alice").aiQuestionCountLast7Days()).isEqualTo(1);
+		assertThat(byName.get("Alice").quizSubmissionCount()).isZero();
 		assertThat(byName.get("Bob").averageProgressRate()).isZero();
 		assertThat(byName.get("Bob").aiQuestionCountLast7Days()).isZero();
-		assertThat(queryCount).isLessThanOrEqualTo(5);
+		assertThat(byName.get("Bob").quizSubmissionCount()).isZero();
+		assertThat(queryCount).isLessThanOrEqualTo(6);
 
 		var analytics = analyticsService.getAnalytics(
 			instructor.getId(),
@@ -258,5 +296,29 @@ class ClassroomStudentJpaTest {
 			Timestamp.from(createdAt),
 			message.getId()
 		);
+	}
+
+	private QuizSubmission quizSubmission(
+		Quiz quiz,
+		User student,
+		String requestId,
+		int attemptNo,
+		String score
+	) {
+		QuizSubmission submission = QuizSubmission.create(
+			quiz,
+			student,
+			requestId,
+			List.of(),
+			new GradingResult(
+				"1.0",
+				new BigDecimal(score),
+				new BigDecimal("100"),
+				List.of()
+			),
+			new BigDecimal(score).compareTo(new BigDecimal("60")) >= 0
+		);
+		ReflectionTestUtils.setField(submission, "attemptNo", attemptNo);
+		return submission;
 	}
 }

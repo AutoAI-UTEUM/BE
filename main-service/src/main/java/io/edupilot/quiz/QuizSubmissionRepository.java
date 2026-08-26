@@ -10,6 +10,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import io.edupilot.session.SessionStatus;
+
 public interface QuizSubmissionRepository
 	extends JpaRepository<QuizSubmission, Long> {
 
@@ -121,11 +123,39 @@ public interface QuizSubmissionRepository
 		@Param("quizIds") Collection<Long> quizIds
 	);
 
+	@Query("""
+		select submission.user.id as studentId,
+		       count(distinct submission.quiz.id) as submissionCount
+		from QuizSubmission submission
+		join submission.quiz quiz
+		join quiz.session session
+		where submission.user.id in :studentIds
+		  and session.user.id = submission.user.id
+		  and session.status in :statuses
+		  and exists (
+		    select link.id
+		    from ClassroomWeekMaterial link
+		    where link.material = session.material
+		      and link.week.classroom.id = :classroomId
+		  )
+		group by submission.user.id
+		""")
+	List<StudentQuizSubmissionCount> findSubmissionCountsByStudentIds(
+		@Param("classroomId") Long classroomId,
+		@Param("studentIds") Collection<Long> studentIds,
+		@Param("statuses") Collection<SessionStatus> statuses
+	);
+
 	interface StudentLatestQuizSubmission {
 		Long getQuizId();
 		BigDecimal getScore();
 		BigDecimal getMaxScore();
 		Boolean getPassed();
 		Instant getSubmittedAt();
+	}
+
+	interface StudentQuizSubmissionCount {
+		Long getStudentId();
+		long getSubmissionCount();
 	}
 }
