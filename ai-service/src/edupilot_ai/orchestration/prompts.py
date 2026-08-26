@@ -176,18 +176,50 @@ def quiz_messages(
     quiz_type: QuizType,
 ) -> Sequence[Mapping[str, str]]:
     current_page = context.session.current_page
-    page_context = [
-        {"pageNumber": current_page, "text": context.current_page_text},
-    ]
-    reference_context = (
-        [{"pageNumber": current_page - 1, "text": context.previous_page_text}]
-        if context.previous_page_text is not None and current_page > 1
-        else []
-    )
+    quiz_context = context.quiz_context
+    if quiz_context is None:
+        coverage_start_page = current_page
+        coverage_end_page = current_page
+        page_context = [
+            {"pageNumber": current_page, "text": context.current_page_text},
+        ]
+        reference_context = (
+            [{"pageNumber": current_page - 1, "text": context.previous_page_text}]
+            if context.previous_page_text is not None and current_page > 1
+            else []
+        )
+        scope_instruction = (
+            "요청에 별도 출제 범위가 명시되지 않았으므로 문항은 "
+            "pageContext(현재 페이지)의 내용에서만 출제하라. referenceContext는 "
+            "용어·맥락 연결 참고용일 뿐 출제 근거로 쓰지 마라. coverage는 현재 "
+            "페이지 단일(startPage와 endPage 모두 현재 페이지)로 설정하라. PDF가 "
+            "첨부돼도 pageContext의 pageNumber와 현재 페이지 텍스트가 출제 범위 "
+            "앵커이며, 첨부 PDF는 그 페이지의 세부 근거 확인에만 사용하고 다른 "
+            "페이지에서는 출제하지 마라. "
+        )
+    else:
+        coverage_start_page = quiz_context.coverage.start_page
+        coverage_end_page = quiz_context.coverage.end_page
+        page_context = [
+            {"pageNumber": page.page_number, "text": page.text} for page in quiz_context.pages
+        ]
+        reference_context = []
+        scope_instruction = (
+            "문항은 pageContext에 제공된 section 전체 페이지의 내용에서만 출제하라. "
+            f"coverage는 정확히 startPage={coverage_start_page}, "
+            f"endPage={coverage_end_page}로 설정하고 범위를 줄이거나 넓히지 마라. "
+            "pageContext 밖의 이전·다음 페이지는 출제 근거로 쓰지 마라. PDF가 "
+            "첨부돼도 명시된 coverage 페이지의 세부 근거 확인에만 사용하고 다른 "
+            "페이지에서는 출제하지 마라. "
+        )
     payload = {
         "quizType": quiz_type.value,
         "pageContext": page_context,
         "referenceContext": reference_context,
+        "coverage": {
+            "startPage": coverage_start_page,
+            "endPage": coverage_end_page,
+        },
         "currentPage": current_page,
         "learnerLevel": context.learner_level,
         "learnerConfidence": context.learner_confidence,
@@ -199,14 +231,8 @@ def quiz_messages(
         {
             "role": "system",
             "content": (
-                "너는 EduPilot의 퀴즈 생성 에이전트다. 요청에 별도 출제 범위가 "
-                "명시되지 않았으므로 문항은 pageContext(현재 페이지)의 내용에서만 "
-                "출제하라. referenceContext는 용어·맥락 연결 참고용일 뿐 출제 "
-                "근거로 쓰지 마라. coverage는 현재 페이지 단일(startPage와 endPage "
-                "모두 현재 페이지)로 설정하라. PDF가 첨부돼도 pageContext의 pageNumber와 "
-                "현재 페이지 텍스트가 출제 범위 앵커이며, 첨부 PDF는 그 페이지의 세부 "
-                "근거 확인에만 사용하고 다른 페이지에서는 출제하지 마라. 선택된 유형의 "
-                "QuizGeneration JSON을 "
+                "너는 EduPilot의 퀴즈 생성 에이전트다. "
+                f"{scope_instruction}선택된 유형의 QuizGeneration JSON을 "
                 "생성하라. 문항은 5~10개이며 "
                 "questionCount와 questions 길이는 반드시 같아야 한다. 학생이 이미 "
                 "잘하는 내용만 반복 출제하지 말고 약점과 메모리를 반영하라. "

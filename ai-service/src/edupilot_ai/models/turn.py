@@ -107,6 +107,35 @@ class MemoryContext(ContractModel):
     )
 
 
+class QuizContextCoverage(ContractModel):
+    start_page: int = Field(gt=0)
+    end_page: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_order(self) -> QuizContextCoverage:
+        if self.end_page < self.start_page:
+            raise ValueError("quizContext coverage range is reversed")
+        return self
+
+
+class QuizContextPage(ContractModel):
+    page_number: int = Field(gt=0)
+    text: str
+
+
+class QuizContext(ContractModel):
+    coverage: QuizContextCoverage
+    pages: list[QuizContextPage] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_pages_cover_range(self) -> QuizContext:
+        expected_pages = list(range(self.coverage.start_page, self.coverage.end_page + 1))
+        actual_pages = [page.page_number for page in self.pages]
+        if actual_pages != expected_pages:
+            raise ValueError("quizContext pages must uniquely cover the ordered coverage range")
+        return self
+
+
 class ContextSnapshot(ContractModel):
     xai_file_id: str | None = Field(default=None, min_length=1)
     current_page_text: str | None
@@ -121,6 +150,7 @@ class ContextSnapshot(ContractModel):
     pending_diagnosis: dict[str, Any] | str | None
     latest_repair: dict[str, Any] | str | None
     memory: MemoryContext
+    quiz_context: QuizContext | None = None
 
     @field_validator("xai_file_id")
     @classmethod
@@ -149,6 +179,12 @@ class TurnRequest(ContractModel):
             raise ValueError(
                 "currentPageText may be null only for USER_QUESTION with includeCurrentPage=false"
             )
+        quiz_context = self.context.quiz_context
+        if quiz_context is not None:
+            if self.event.event_type is not EventType.QUIZ_TYPE_SELECTED:
+                raise ValueError("quizContext is allowed only for QUIZ_TYPE_SELECTED")
+            if quiz_context.coverage.end_page != self.session.current_page:
+                raise ValueError("quizContext coverage.endPage must equal session.currentPage")
         return self
 
 

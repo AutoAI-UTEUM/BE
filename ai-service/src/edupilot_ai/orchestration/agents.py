@@ -335,11 +335,17 @@ class QuizAgent:
             attachments=_material_attachments(context),
         )
         quiz = completion.output
-        current_page = context.session.current_page
+        quiz_context = context.quiz_context
+        if quiz_context is None:
+            expected_start_page = context.session.current_page
+            expected_end_page = context.session.current_page
+        else:
+            expected_start_page = quiz_context.coverage.start_page
+            expected_end_page = quiz_context.coverage.end_page
         if (
             quiz.quiz_type is not quiz_type
-            or quiz.coverage.start_page != current_page
-            or quiz.coverage.end_page != current_page
+            or quiz.coverage.start_page != expected_start_page
+            or quiz.coverage.end_page != expected_end_page
         ):
             raise LlmBridgeError(
                 category=ErrorCategory.SCHEMA,

@@ -10,6 +10,7 @@ from edupilot_ai.models.turn import (
     EventPayload,
     EventType,
     MemoryContext,
+    QuizContext,
     SessionSnapshot,
     TurnRequest,
 )
@@ -41,6 +42,7 @@ class AgentContext(BaseModel):
     pending_diagnosis: dict[str, Any] | str | None
     latest_repair: dict[str, Any] | str | None
     memory: MemoryContext
+    quiz_context: QuizContext | None
 
     @property
     def page_attached(self) -> bool:
@@ -199,4 +201,5 @@ class ContextBuilder:
             pending_diagnosis=context.pending_diagnosis,
             latest_repair=context.latest_repair,
             memory=context.memory,
+            quiz_context=context.quiz_context,
         )

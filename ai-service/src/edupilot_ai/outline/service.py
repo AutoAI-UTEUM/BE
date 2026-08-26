@@ -108,6 +108,68 @@ def validate_outline_output(request: OutlineRequest, output: OutlineOutput) -> N
             f"마지막 구간 끝: p{previous_end}, 자료 마지막: p{request.total_pages}",
         )
 
+    if not output.quiz_checkpoints:
+        raise OutlineValidationError("EMPTY_QUIZ_CHECKPOINTS")
+    if len(output.quiz_checkpoints) > 10:
+        raise OutlineValidationError(
+            "TOO_MANY_QUIZ_CHECKPOINTS",
+            f"quiz checkpoint 수: {len(output.quiz_checkpoints)}, 허용 최대: 10",
+        )
+
+    section_starts = {section.start_page for section in output.sections}
+    section_ends = {section.end_page for section in output.sections}
+    seen_trigger_pages: set[int] = set()
+    previous_trigger_page = 0
+    previous_coverage_end = 0
+    for checkpoint in output.quiz_checkpoints:
+        trigger_page = checkpoint.trigger_page
+        coverage_start = checkpoint.coverage.start_page
+        coverage_end = checkpoint.coverage.end_page
+        checkpoint_detail = f"trigger p{trigger_page}, coverage p{coverage_start}-p{coverage_end}"
+        if not 1 <= trigger_page <= request.total_pages or not (
+            1 <= coverage_start <= request.total_pages and 1 <= coverage_end <= request.total_pages
+        ):
+            raise OutlineValidationError(
+                "QUIZ_CHECKPOINT_RANGE_OUT_OF_BOUNDS",
+                f"허용 범위: p1-p{request.total_pages}, 잘못된 checkpoint: {checkpoint_detail}",
+            )
+        if coverage_start > coverage_end:
+            raise OutlineValidationError(
+                "QUIZ_CHECKPOINT_RANGE_INVALID",
+                f"시작과 끝이 뒤바뀐 checkpoint: {checkpoint_detail}",
+            )
+        if trigger_page != coverage_end:
+            raise OutlineValidationError(
+                "QUIZ_CHECKPOINT_TRIGGER_MISMATCH",
+                f"triggerPage는 coverage.endPage여야 함: {checkpoint_detail}",
+            )
+        if trigger_page in seen_trigger_pages:
+            raise OutlineValidationError(
+                "QUIZ_CHECKPOINT_TRIGGER_DUPLICATE",
+                f"중복 triggerPage: p{trigger_page}",
+            )
+        if trigger_page < previous_trigger_page:
+            raise OutlineValidationError(
+                "QUIZ_CHECKPOINT_ORDER_INVALID",
+                (f"triggerPage 순서가 뒤바뀜: 직전 p{previous_trigger_page}, 현재 p{trigger_page}"),
+            )
+        if coverage_start <= previous_coverage_end:
+            raise OutlineValidationError(
+                "QUIZ_CHECKPOINT_COVERAGE_OVERLAP",
+                (
+                    f"coverage가 겹침: 직전 끝 p{previous_coverage_end}, "
+                    f"현재 p{coverage_start}-p{coverage_end}"
+                ),
+            )
+        if coverage_start not in section_starts or coverage_end not in section_ends:
+            raise OutlineValidationError(
+                "QUIZ_CHECKPOINT_SECTION_BOUNDARY_MISMATCH",
+                (f"coverage 경계는 section 시작·끝 경계와 일치해야 함: {checkpoint_detail}"),
+            )
+        seen_trigger_pages.add(trigger_page)
+        previous_trigger_page = trigger_page
+        previous_coverage_end = coverage_end
+
 
 def outline_messages(
     *,
@@ -128,6 +190,15 @@ def outline_messages(
         "이어지는지를 학생에게 말하듯 쓰고 제목을 반복하거나 키워드를 나열하는 "
         "문장은 금지한다. section title은 자료에 나온 단원·주제명을 쓰고 startPage와 "
         "endPage는 제공된 페이지 범위 안에 두며 keywords는 최대 5개로 작성하라. "
+        "quizCheckpoints는 AI 오케스트레이터가 자료 전체의 학습 흐름을 읽고 퀴즈가 "
+        "의미 있는 지점을 명시적으로 선택한 계획이다. 모든 section 끝에 자동으로 "
+        "배치하지 말고, 서로 이어지는 개념 단위의 학습이 완결되어 복습이 유익한 "
+        "지점만 고르라. 1~5개를 권장하며 10개를 넘기지 마라. 표지, 목차, 또는 "
+        "전환 내용만 있는 페이지는 triggerPage로 선택하지 마라. triggerPage는 "
+        "coverage.endPage와 같아야 하고, coverage는 해당 시점까지 이미 학습한 연속 "
+        "범위여야 한다. coverage의 시작과 끝은 section 경계에 맞추되 여러 section을 "
+        "하나의 checkpoint로 묶을 수 있다. checkpoint는 triggerPage 오름차순이며 "
+        "coverage끼리 겹치면 안 된다. "
         "구간이 겹치거나 순서가 뒤바뀌면 안 된다. 논문이나 보고서처럼 단원 경계가 "
         "페이지와 정확히 일치하지 않는 자료에서는 확신이 없는 세부 구분을 만들지 "
         "말고 더 큰 단위로 묶어라. 각 페이지는 정확히 하나의 구간에만 속해야 하며, "
