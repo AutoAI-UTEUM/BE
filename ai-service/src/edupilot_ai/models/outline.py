@@ -46,9 +46,20 @@ class OutlineSection(ContractModel):
     keywords: list[str] = Field(max_length=5)
 
 
+class QuizCheckpointCoverage(ContractModel):
+    start_page: int = Field(ge=1)
+    end_page: int = Field(ge=1)
+
+
+class QuizCheckpoint(ContractModel):
+    trigger_page: int = Field(ge=1)
+    coverage: QuizCheckpointCoverage
+
+
 class OutlineOutput(ContractModel):
     material_summary: str = Field(min_length=1)
     sections: list[OutlineSection] = Field(min_length=1)
+    quiz_checkpoints: list[QuizCheckpoint] = Field(min_length=1, max_length=10)
 
 
 class OutlineResponse(OutlineOutput):

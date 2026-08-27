@@ -29,7 +29,7 @@ from edupilot_ai.models.quiz import (
     ShortQuestion,
 )
 from edupilot_ai.models.turn import TurnRequest
-from edupilot_ai.orchestration.context import ContextBuilder
+from edupilot_ai.orchestration.context import ContextBuilder, PlanContext
 from edupilot_ai.orchestration.prompts import quiz_messages
 from edupilot_ai.settings import ReasoningEffort, Settings
 from tests.fakes import FakeLlm
@@ -102,6 +102,23 @@ def make_quiz(quiz_type: QuizType) -> QuizGeneration:
         question_count=5,
         questions=make_questions(quiz_type),
     )
+
+
+def add_section_quiz_context(payload: dict[str, object]) -> None:
+    payload["event"] = {
+        "eventType": "QUIZ_TYPE_SELECTED",
+        "payload": {"quizType": "MCQ"},
+    }
+    context_payload = payload["context"]
+    assert isinstance(context_payload, dict)
+    context_payload["quizContext"] = {
+        "coverage": {"startPage": 1, "endPage": 3},
+        "pages": [
+            {"pageNumber": 1, "text": "1페이지 최적화 개념"},
+            {"pageNumber": 2, "text": "2페이지 목적 함수"},
+            {"pageNumber": 3, "text": "3페이지 수학적 표현"},
+        ],
+    }
 
 
 @pytest.mark.parametrize("quiz_type", list(QuizType))
@@ -202,6 +219,139 @@ async def test_quiz_prompt_scopes_generation_to_current_page(
     assert [item.file_id for item in fake_llm.file_attachments[0]] == ["file-phase-five-only"]
 
 
+async def test_quiz_prompt_uses_exact_section_context_and_coverage(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    add_section_quiz_context(payload)
+    context_payload = payload["context"]
+    assert isinstance(context_payload, dict)
+    context_payload.update(
+        {
+            "xaiFileId": "file-section-scope",
+            "currentPageText": "section 밖 fallback 현재 페이지 원문",
+            "previousPageText": "section 밖 이전 페이지 원문",
+            "nextPageText": "section 밖 다음 페이지 원문",
+        }
+    )
+    section_quiz = make_quiz(QuizType.MCQ).model_copy(
+        update={"coverage": QuizCoverage(start_page=1, end_page=3)}
+    )
+    fake_llm.queue(section_quiz)
+
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 200
+    quiz_user_message = fake_llm.calls[0][0][1]["content"]
+    prompt_payload = json.loads(quiz_user_message)
+    assert prompt_payload["pageContext"] == [
+        {"pageNumber": 1, "text": "1페이지 최적화 개념"},
+        {"pageNumber": 2, "text": "2페이지 목적 함수"},
+        {"pageNumber": 3, "text": "3페이지 수학적 표현"},
+    ]
+    assert prompt_payload["referenceContext"] == []
+    assert prompt_payload["coverage"] == {"startPage": 1, "endPage": 3}
+    assert "section 밖" not in quiz_user_message
+    system_prompt = fake_llm.calls[0][0][0]["content"]
+    assert "section 전체 페이지" in system_prompt
+    assert "startPage=1, endPage=3" in system_prompt
+    assert "범위를 줄이거나 넓히지 마라" in system_prompt
+    assert [item.file_id for item in fake_llm.file_attachments[0]] == ["file-section-scope"]
+
+
+def test_quiz_context_is_not_serialized_into_plan_context(
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    add_section_quiz_context(payload)
+    agent_context = ContextBuilder().build(TurnRequest.model_validate(payload))
+
+    plan_payload = PlanContext.from_agent_context(agent_context).model_dump(
+        mode="json",
+        by_alias=True,
+    )
+
+    assert agent_context.quiz_context is not None
+    assert "quizContext" not in plan_payload
+    assert "1페이지 최적화 개념" not in json.dumps(
+        plan_payload,
+        ensure_ascii=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "pages",
+    [
+        [
+            {"pageNumber": 1, "text": "1페이지"},
+            {"pageNumber": 3, "text": "3페이지"},
+        ],
+        [
+            {"pageNumber": 1, "text": "1페이지"},
+            {"pageNumber": 2, "text": "2페이지"},
+            {"pageNumber": 2, "text": "중복 2페이지"},
+            {"pageNumber": 3, "text": "3페이지"},
+        ],
+        [
+            {"pageNumber": 2, "text": "2페이지"},
+            {"pageNumber": 1, "text": "1페이지"},
+            {"pageNumber": 3, "text": "3페이지"},
+        ],
+    ],
+)
+def test_quiz_context_rejects_non_contiguous_duplicate_or_unordered_pages(
+    turn_payload: dict[str, object],
+    pages: list[dict[str, object]],
+) -> None:
+    payload = deepcopy(turn_payload)
+    add_section_quiz_context(payload)
+    context_payload = payload["context"]
+    assert isinstance(context_payload, dict)
+    quiz_context = context_payload["quizContext"]
+    assert isinstance(quiz_context, dict)
+    quiz_context["pages"] = pages
+
+    with pytest.raises(ValidationError, match="uniquely cover the ordered coverage range"):
+        TurnRequest.model_validate(payload)
+
+
+def test_quiz_context_is_rejected_for_non_quiz_event(
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    context_payload = payload["context"]
+    assert isinstance(context_payload, dict)
+    context_payload["quizContext"] = {
+        "coverage": {"startPage": 3, "endPage": 3},
+        "pages": [{"pageNumber": 3, "text": "현재 페이지"}],
+    }
+
+    with pytest.raises(ValidationError, match="allowed only for QUIZ_TYPE_SELECTED"):
+        TurnRequest.model_validate(payload)
+
+
+def test_quiz_context_end_page_must_equal_current_page(
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    add_section_quiz_context(payload)
+    context_payload = payload["context"]
+    assert isinstance(context_payload, dict)
+    quiz_context = context_payload["quizContext"]
+    assert isinstance(quiz_context, dict)
+    quiz_context["coverage"] = {"startPage": 1, "endPage": 2}
+    quiz_context["pages"] = [
+        {"pageNumber": 1, "text": "1페이지"},
+        {"pageNumber": 2, "text": "2페이지"},
+    ]
+
+    with pytest.raises(ValidationError, match="must equal session.currentPage"):
+        TurnRequest.model_validate(payload)
+
+
 def test_quiz_prompt_has_no_reference_context_on_first_page(
     turn_payload: dict[str, object],
 ) -> None:
@@ -292,6 +442,38 @@ async def test_quiz_rejects_attachment_output_covering_an_adjacent_page(
     error = InternalErrorResponse.model_validate(response.json())
     assert error.error.code == "AI_RESPONSE_INVALID"
     assert [item.file_id for item in fake_llm.file_attachments[0]] == ["file-current-page-only"]
+
+
+@pytest.mark.parametrize(
+    ("start_page", "end_page"),
+    [(2, 3), (1, 2), (1, 4)],
+)
+async def test_quiz_rejects_output_that_does_not_match_exact_section_coverage(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+    start_page: int,
+    end_page: int,
+) -> None:
+    payload = deepcopy(turn_payload)
+    add_section_quiz_context(payload)
+    invalid_quiz = make_quiz(QuizType.MCQ).model_copy(
+        update={
+            "coverage": QuizCoverage(
+                start_page=start_page,
+                end_page=end_page,
+            )
+        }
+    )
+    fake_llm.queue(invalid_quiz)
+
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 502
+    error = InternalErrorResponse.model_validate(response.json())
+    assert error.error.code == "AI_RESPONSE_INVALID"
+    assert len(fake_llm.calls) == 1
 
 
 def grade_payload() -> dict[str, object]:
