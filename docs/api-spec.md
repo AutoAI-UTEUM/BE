@@ -561,7 +561,7 @@ Spring이 인증된 PDF 스트림을 반환합니다. 자료 상세와 같은 �
 
 `uiActions`는 마지막 턴/페이지 이동/퀴즈 제출 응답에서 내려간 최신 UI 액션을 그대로 반환해, 새로고침·재진입 후에도 진행 중이던 선택 UI를 복원할 수 있게 합니다. `activeQuizId`가 있으면 FE는 `GET /api/quizzes/{quizId}`로 풀이 화면을 복원합니다.
 
-`conversationSummary`는 MVP에서 생성하거나 내부 AI 스냅샷으로 전송하지 않으며 세션 상세 응답에도 포함하지 않습니다. `learnerMemoryDigest`는 **내부 AI 스냅샷 전용이며 세션 상세 응답에 포함하지 않습니다**(확정 — DEC-025의 내부 텍스트 비노출 원칙, 메모리 API의 "공개 가능한 요약만" 원칙과 정합). 학습자에게 보여줄 개인화 요약은 `GET /api/users/me/memory`가 담당합니다.
+`conversationSummary`는 비동기로 생성하는 내부 AI 스냅샷 전용 보조 문맥이며 세션 상세 응답에는 포함하지 않습니다. 최근 원문 메시지는 별도로 유지하고, 요약 생성 실패가 사용자 턴을 실패시키지 않습니다. `learnerMemoryDigest`도 **내부 AI 스냅샷 전용이며 세션 상세 응답에 포함하지 않습니다**(확정 — DEC-025의 내부 텍스트 비노출 원칙, 메모리 API의 "공개 가능한 요약만" 원칙과 정합). 학습자에게 보여줄 개인화 요약은 `GET /api/users/me/memory`가 담당합니다.
 
 #### uiActions 위젯
 
@@ -712,7 +712,7 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 
 교정 후 추가 질문은 별도 이벤트 없이 `USER_QUESTION`을 재사용합니다. 직전 교정(repair)이 존재하면 Spring이 내부 턴 스냅샷의 `latestRepair`에 교정 답변 원문(또는 원문을 보존한 요약)을 포함해 전달하고, Orchestrator가 교정 후속 여부를 판단해 QaAgent를 선택합니다([에이전트 시스템 명세](agent-system-spec.md) §9.9 참고).
 
-`USER_QUESTION.payload.includeCurrentPage`는 boolean만 허용합니다. 생략하거나 `true`이면 현재·이전·다음 페이지 텍스트와 nullable `xaiFileId`를 내부 context에 포함합니다. `false`이면 Spring은 `xaiFileId`, `currentPageText`, `previousPageText`, `nextPageText` 네 필드의 값을 모두 null로 전달하되 context 13키 구조를 유지합니다. 이때 QaAgent는 일반 학습 지식으로 답변할 수 있지만 업로드 자료 내용을 추측하지 않고 학습과 무관한 요청에는 기존 한계 안내를 적용합니다. QA thread와 `latestRepair` 문맥은 플래그와 무관하게 승계합니다. 다른 eventType에 `includeCurrentPage`를 보내거나 boolean 외 값을 보내면 `VALIDATION_FAILED`입니다.
+`USER_QUESTION.payload.includeCurrentPage`는 boolean만 허용합니다. 생략하거나 `true`이면 현재·이전·다음 페이지 텍스트와 nullable `xaiFileId`를 내부 context에 포함합니다. `false`이면 Spring은 `xaiFileId`, `currentPageText`, `previousPageText`, `nextPageText` 네 필드의 값을 모두 null로 전달하되 그 외 context 필드는 유지합니다. 선택 필드인 `conversationSummary`도 페이지 첨부 여부와 독립적으로 전달할 수 있습니다. 이때 QaAgent는 일반 학습 지식으로 답변할 수 있지만 업로드 자료 내용을 추측하지 않고 학습과 무관한 요청에는 기존 한계 안내를 적용합니다. QA thread와 `latestRepair` 문맥은 플래그와 무관하게 승계합니다. 다른 eventType에 `includeCurrentPage`를 보내거나 boolean 외 값을 보내면 `VALIDATION_FAILED`입니다.
 
 동일 `requestId` 재전송 처리(확정): 기존 사용자 메시지의 `status=FAILED`이면 해당 메시지를 `COMPLETED`로 복귀시켜 재사용하고 턴을 다시 수행합니다. 질문 행은 추가하지 않습니다. 기존 메시지가 성공 또는 진행 상태이면 **`TURN_ALREADY_PROCESSED`(409)**를 유지합니다. FE는 실패 턴의 통신 재시도에 새 ID를 만들지 않고 같은 `requestId`를 다시 사용합니다.
 
@@ -792,7 +792,7 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 }
 ```
 
-`conversationId`의 숫자는 세션별 새 대화 호출 횟수이며 첫 호출은 1부터 시작합니다. 호출 시각보다 **늦게 생성된** 메시지만 다음 내부 턴의 `recentMessages`에 포함하고, 마커 이전에 생성된 활성 QA thread의 `qaThreadDigest`와 교정 결과의 `latestRepair`는 null로 전달합니다. `pendingDiagnosis`, `memory.temporaryCandidates`, `quizAssessments`, `learnerMemoryDigest`, `xaiFileId`는 유지하며 context 13키 구조도 바뀌지 않습니다. 이 마커는 AI 문맥에만 적용되므로 아래 메시지 조회 API는 새 대화 전후의 전체 이력을 계속 반환합니다.
+`conversationId`의 숫자는 세션별 새 대화 호출 횟수이며 첫 호출은 1부터 시작합니다. 호출 시각보다 **늦게 생성된** 메시지만 다음 내부 턴의 `recentMessages`에 포함하고, 마커 이전에 생성된 활성 QA thread의 `qaThreadDigest`와 교정 결과의 `latestRepair`는 null로 전달합니다. `pendingDiagnosis`, `memory.temporaryCandidates`, `quizAssessments`, `learnerMemoryDigest`, `xaiFileId`는 유지하고 `conversationSummary`는 null로 초기화합니다. 이 마커는 AI 문맥에만 적용되므로 아래 메시지 조회 API는 새 대화 전후의 전체 이력을 계속 반환합니다.
 
 ### GET `/api/sessions/{sessionId}/messages`
 
@@ -2274,6 +2274,7 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
   },
   "context": {
     "xaiFileId": "file-abc123",
+    "conversationSummary": null,
     "currentPageText": "...",
     "previousPageText": "...",
     "nextPageText": "...",
@@ -2292,9 +2293,9 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 }
 ```
 
-`learnerLevel`은 `learner_memories.target_difficulty`이며 데이터가 없으면 `null`입니다. `learnerConfidence`는 같은 사용자×자료의 최근 assessment 5개 통과 비율로 파생합니다. 비율이 0.4 미만이면 `LOW`, 0.4 이상 0.7 이하면 `MEDIUM`, 0.7 초과면 `HIGH`이며 평가가 없으면 `null`입니다. `conversationSummary`는 MVP에서 생성하지 않으며 내부 턴 스냅샷에 포함하지 않습니다(`ai-integration-contract.md` v0.6 §3.1).
+`learnerLevel`은 `learner_memories.target_difficulty`이며 데이터가 없으면 `null`입니다. `learnerConfidence`는 같은 사용자×자료의 최근 assessment 5개 통과 비율로 파생합니다. 비율이 0.4 미만이면 `LOW`, 0.4 이상 0.7 이하면 `MEDIUM`, 0.7 초과면 `HIGH`이며 평가가 없으면 `null`입니다. `conversationSummary`는 선택 nullable 내부 필드입니다. 이전 대화의 압축 보조 문맥으로 Plan과 QA에 전달하며 최근 대화와 모순되면 최근 대화를 우선합니다. 생략 또는 null이면 기존 동작과 같습니다(`ai-integration-contract.md` §3.1·§6.10).
 
-`xaiFileId`는 `string | null`이며 외부 응답에는 노출하지 않습니다. `currentPageText`는 `string | null`이며 null은 `USER_QUESTION`의 `includeCurrentPage=false`일 때만 허용합니다. 이 경우 `xaiFileId`, `previousPageText`, `nextPageText`도 null이고 context 13키는 그대로 유지합니다. `EXPLAIN_CURRENT_PAGE`와 `QUIZ_TYPE_SELECTED`에서는 `currentPageText`가 필수이며 AI Service가 eventType과 context를 교차 검증합니다. `includeCurrentPage=false`인데 페이지 텍스트가 전달되면 AI Service는 전달된 context를 사용하고 Spring이 정합 책임을 집니다. 같은 조건에서 file ID가 전달돼도 AI Service는 첨부하지 않습니다.
+`xaiFileId`는 `string | null`이며 외부 응답에는 노출하지 않습니다. `currentPageText`는 `string | null`이며 null은 `USER_QUESTION`의 `includeCurrentPage=false`일 때만 허용합니다. 이 경우 `xaiFileId`, `previousPageText`, `nextPageText`도 null이며 `conversationSummary`는 유지할 수 있습니다. `EXPLAIN_CURRENT_PAGE`와 `QUIZ_TYPE_SELECTED`에서는 `currentPageText`가 필수이며 AI Service가 eventType과 context를 교차 검증합니다. `includeCurrentPage=false`인데 페이지 텍스트가 전달되면 AI Service는 전달된 context를 사용하고 Spring이 정합 책임을 집니다. 같은 조건에서 file ID가 전달돼도 AI Service는 첨부하지 않습니다.
 
 `quizAssessments`는 현재 세션 기준 최근 5개의 평가 요약입니다(DEC-011 — DB는 전량 보존, 스냅샷은 세션 스코프 윈도우. 메모리 승격 판단용 user×material 교차 세션 최근 20개 조회는 별도 경로).
 

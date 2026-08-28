@@ -127,6 +127,10 @@ class Settings(BaseSettings):
         default=60,
         validation_alias="EDUPILOT_DOCCHAT_TIMEOUT_SECONDS",
     )
+    edupilot_summary_timeout_seconds: PositiveInt = Field(
+        default=30,
+        validation_alias="EDUPILOT_SUMMARY_TIMEOUT_SECONDS",
+    )
     edupilot_docchat_max_context_chars: PositiveInt = Field(
         default=60_000,
         validation_alias="EDUPILOT_DOCCHAT_MAX_CONTEXT_CHARS",
@@ -233,6 +237,10 @@ class Settings(BaseSettings):
         default=ReasoningEffort.LOW,
         validation_alias="DOCCHAT_REASONING_EFFORT",
     )
+    summary_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.LOW,
+        validation_alias="SUMMARY_REASONING_EFFORT",
+    )
     captions_model: str | None = Field(
         default=None,
         min_length=1,
@@ -334,6 +342,11 @@ class Settings(BaseSettings):
     def docchat_llm_profile(self) -> AgentLlmProfile:
         """Build the low-reasoning lightweight document chat profile."""
         return self._profile(self.docchat_reasoning_effort)
+
+    @property
+    def summary_llm_profile(self) -> AgentLlmProfile:
+        """Build the low-reasoning conversation summary profile."""
+        return self._profile(self.summary_reasoning_effort)
 
     @property
     def upload_max_bytes(self) -> int:

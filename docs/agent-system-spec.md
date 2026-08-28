@@ -3,8 +3,8 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 다른 팀원 구현을 위한 참고·계약 초안 |
-| 마지막 갱신 | 2026-08-25 |
-| 변경 이력 | 2026-07-23: Grok 전환·계약 v0.4 정합 용어 정리<br>2026-08-17: 계약 v0.6 정합화<br>2026-08-25: xAI Files 업로드·삭제 Phase 1, 설명·QA 턴 첨부 Phase 3, 퀴즈·개요 첨부 Phase 5 반영 |
+| 마지막 갱신 | 2026-08-28 |
+| 변경 이력 | 2026-07-23: Grok 전환·계약 v0.4 정합 용어 정리<br>2026-08-17: 계약 v0.6 정합화<br>2026-08-25: xAI Files 업로드·삭제 Phase 1, 설명·QA 턴 첨부 Phase 3, 퀴즈·개요 첨부 Phase 5 반영<br>2026-08-28: 비동기 대화 요약과 선택 `conversationSummary` 턴 문맥 반영 |
 | 구현 소유 | FastAPI AI Server |
 | 연동 소유 | Spring Backend ↔ FastAPI AI Server |
 
@@ -104,7 +104,7 @@ Orchestrator에 전달할 문맥을 만듭니다.
 
 - 최신 세션 상태
 - 현재 페이지와 필요한 이전/다음 페이지 내용
-- 최근 대화(MVP는 별도 대화 요약 필드를 전송하지 않음)
+- 최근 원문 대화와 선택 `conversationSummary` 보조 문맥
 - 활성 QA thread digest
 - 최근 QuizAssessment
 - 확정 LearnerMemory digest
@@ -150,7 +150,7 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
 7. **결과 수집**: 메시지, 퀴즈, 채점, 진단 등 결과를 표준 DTO로 수집합니다.
 8. **런타임 상태 패치**: 설명 완료, 진단 대기 등 허용된 `statePatch`를 만듭니다.
 9. **턴 결과 정리**: 사용자 입력, 에이전트 메시지, UI 액션, 실행 이력을 합칩니다.
-10. **요약/평가 handoff**: 대화 문맥은 최근 메시지와 QA thread digest로, 퀴즈 결과는 별도 QuizResultLog/Assessment로 정리합니다. 퀴즈 원본을 대화 문맥에 넣지 않습니다.
+10. **요약/평가 handoff**: 대화 문맥은 최근 메시지·QA thread digest와 비동기 `conversationSummary`로, 퀴즈 결과는 별도 QuizResultLog/Assessment로 정리합니다. 최근 원문은 유지하고 퀴즈 원본·점수·평가 상태는 대화 요약에 넣지 않습니다.
 11. **최종 저장**: Spring이 계약과 상태 전이를 검증한 뒤 MySQL에 트랜잭션으로 저장하고 FE에 반환합니다.
 
 ## 4. 에이전트 및 서비스 역할
@@ -162,7 +162,7 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
 입력:
 
 - 사용자 이벤트: 세션 입장, 질문, 페이지 이동, 퀴즈 선택/제출, 진단 답변
-- ContextBuilder 결과: 세션 상태, 페이지 문맥, 최근 메시지, QA thread, 퀴즈 평가, 메모리
+- ContextBuilder 결과: 세션 상태, 페이지 문맥, 최근 메시지, 선택 대화 요약, QA thread, 퀴즈 평가, 메모리
 - 사용 가능한 tool 목록과 현재 정책
 
 필수 제약:
