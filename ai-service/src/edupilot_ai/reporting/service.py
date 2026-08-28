@@ -18,6 +18,7 @@ from edupilot_ai.models.report import (
 from edupilot_ai.models.turn import Usage
 from edupilot_ai.reporting.validator import (
     ReportValidationError,
+    normalize_generate_output,
     validate_generate_output,
     validate_query_output,
 )
@@ -87,6 +88,11 @@ def _base_system_prompt() -> str:
 
 
 _GENERATE_NARRATIVE_INSTRUCTION = (
+    " status와 score는 반드시 함께 일치시켜라. status가 ASSESSED이면 score는 0부터 "
+    "100 사이의 정수여야 하고, score가 null이면 status는 INSUFFICIENT_DATA여야 한다. "
+    "status가 INSUFFICIENT_DATA이면 score는 반드시 null이다. misconceptionCandidates는 "
+    "서로 다른 evidenceId가 2개 이상인 주장만 포함하고, 2개 미만이면 해당 항목 자체를 "
+    "생략하라."
     " 각 criterion의 narrative는 해당 criterion의 rubric 관점에서 evidence가 보여주는 "
     "경향을 자연스러운 한국어로 서술하라. evidence에 없는 사건이나 행동을 서술하지 "
     "말고, 근거 연결은 evidenceIds 배열로만 하며 본문에서 근거를 하나하나 열거하지 "
@@ -214,8 +220,32 @@ class ReportGenerationService:
                     timeout_seconds=remaining_seconds,
                 )
                 usages.append(completion.usage)
+                normalized_output, corrections = normalize_generate_output(
+                    request,
+                    completion.output,
+                )
+                if corrections:
+                    logger.warning(
+                        "report output normalized",
+                        extra={
+                            "reportId": request.report_id,
+                            "generationId": request.generation_id,
+                            "criterionCount": len(request.criteria),
+                            "evidenceCount": len(request.evidence),
+                            "normalizedReasons": sorted(corrections),
+                            "correctedScoreStatusCount": corrections.get(
+                                "SCORE_STATUS_CONFLICT",
+                                0,
+                            ),
+                            "droppedMisconceptionCount": corrections.get(
+                                "MISCONCEPTION_SINGLE_EVIDENCE",
+                                0,
+                            ),
+                            "attempt": attempt + 1,
+                        },
+                    )
                 try:
-                    validate_generate_output(request, completion.output)
+                    validate_generate_output(request, normalized_output)
                 except ReportValidationError as error:
                     validation_reason = error.reason
                     logger.warning(
@@ -235,7 +265,7 @@ class ReportGenerationService:
                         "AI 리포트 결과가 계약 검증을 통과하지 못했습니다."
                     ) from error
                 return ReportGenerateResponse(
-                    **completion.output.model_dump(),
+                    **normalized_output.model_dump(),
                     report_id=request.report_id,
                     usage=_usage(usages, self._profile.model),
                 )
