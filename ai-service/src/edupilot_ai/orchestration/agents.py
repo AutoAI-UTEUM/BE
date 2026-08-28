@@ -28,6 +28,7 @@ from edupilot_ai.orchestration.prompts import (
     quiz_messages,
     repair_messages,
 )
+from edupilot_ai.orchestration.timing import TurnDeadline
 from edupilot_ai.settings import AgentLlmProfile
 
 _NEXT_PAGE_EXPLAIN = re.compile(
@@ -369,26 +370,42 @@ class RepairAgent:
         self,
         context: AgentContext,
         *,
-        timeout_seconds: float,
+        deadline: TurnDeadline,
     ) -> AgentResult:
-        completion = await self._llm.complete_json(
-            messages=repair_messages(context),
-            response_model=RepairOutput,
-            profile=self._profile,
-            timeout_seconds=timeout_seconds,
-        )
-        return AgentResult(
-            agent="RepairAgent",
-            message=Message(
-                message_type="REPAIR",
-                content=completion.output.markdown,
-            ),
-            state_patch={
-                "pageStatus": "REPAIR_COMPLETED",
-                "pendingDiagnosis": None,
-            },
-            usage=completion.usage,
-        )
+        usages: list[LlmUsage] = []
+        for attempt in range(2):
+            try:
+                completion = await self._llm.complete_json(
+                    messages=repair_messages(context, retry=attempt == 1),
+                    response_model=RepairOutput,
+                    profile=self._profile,
+                    timeout_seconds=deadline.remaining_seconds(),
+                )
+            except LlmBridgeError as error:
+                if error.usage is not None:
+                    usages.append(error.usage)
+                if error.category is ErrorCategory.SCHEMA and attempt == 0:
+                    logger.warning(
+                        "repair output validation failed",
+                        extra={"errorCode": "SCHEMA_INVALID", "attempt": attempt + 1},
+                    )
+                    continue
+                raise
+
+            usages.append(completion.usage)
+            return AgentResult(
+                agent="RepairAgent",
+                message=Message(
+                    message_type="REPAIR",
+                    content=completion.output.markdown,
+                ),
+                state_patch={
+                    "pageStatus": "REPAIR_COMPLETED",
+                    "pendingDiagnosis": None,
+                },
+                usage=_combined_usage(usages, self._profile.model),
+            )
+        raise AssertionError("unreachable")
 
 
 class NoteAgent:
