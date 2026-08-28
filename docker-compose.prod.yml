@@ -13,7 +13,7 @@ services:
     build: !reset null
     image: ghcr.io/autoai-uteum/main-service:${TAG}
     environment:
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: ${ENVIRONMENT:-prod}
       EDUPILOT_STORAGE_DIR: /var/lib/edupilot/storage
     ports: !reset []
     restart: unless-stopped
