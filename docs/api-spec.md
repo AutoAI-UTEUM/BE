@@ -606,21 +606,26 @@ Spring `moveNextPage` 정본으로 치환해 저장·응답합니다. 그 외 �
 | --- | --- | --- |
 | W1 | 세션 최초 생성 | `BINARY_DECISION("강의를 시작할까요?", EXPLAIN_CURRENT_PAGE, WAIT)` |
 | W2 | 페이지 이동 완료 | `BINARY_DECISION("현재 페이지를 설명할까요?", EXPLAIN_CURRENT_PAGE, WAIT)` |
-| W3 | 현재 페이지 설명 완료 + 텍스트 임계값 충족 + READY 완전 개요가 있으면 section 종료 페이지(그 외는 기존 규칙 fallback) | `BINARY_DECISION("퀴즈를 진행할까요?", SHOW_QUIZ_TYPE_SELECT, MOVE_NEXT_PAGE)` |
+| W3 | 현재 페이지 설명 완료 + READY 유효 checkpoint의 triggerPage 일치(200자 게이트 없음). checkpoint 계획이 없으면 기존 200자+section 종료 규칙 fallback | `BINARY_DECISION("퀴즈를 진행할까요?", SHOW_QUIZ_TYPE_SELECT, MOVE_NEXT_PAGE)` |
 | W4 | W3의 yes 선택 | FE가 로컬 `QUIZ_TYPE_SELECT`를 표시하고 선택값으로 `QUIZ_TYPE_SELECTED` 턴 호출 |
 | W5 | 퀴즈 제출 파이프라인 완료 후 다음 학습 가능 | 마지막 페이지가 아니면 `BINARY_DECISION("다음 페이지로 이동할까요?", MOVE_NEXT_PAGE, WAIT)`. 마지막 페이지면 `BINARY_DECISION("학습을 완료할까요?", COMPLETE_SESSION, WAIT)`이며 yes 선택 시 FE가 `POST /api/sessions/{sessionId}/complete` 호출 |
 | W6 | 기준 미달이고 진단 생성 성공 | `DIAGNOSIS_QUESTION(content, diagnosisId)` |
 | W7 | 진단 답변의 교정 완료 | W5와 같은 다음 페이지/마지막 페이지 완료 분기 |
 
-W3의 페이지 텍스트 길이 임계값은 `edupilot.quiz.proposal-min-page-text-length`
-(기본 200자)입니다. 임계값 미만이거나 추출 실패로 페이지 행이 없으면 퀴즈를
-제안하지 않고 W5의 다음 학습 제안을 반환합니다. 마지막 페이지라면 학습 완료를
-제안합니다. 임계값을 충족하고 자료 개요가 READY이며 section이 1페이지부터
-자료 마지막 페이지까지 겹침·누락 없이 완전히 덮으면 현재 페이지가 section의
-`endPage`일 때만 W3를 제안합니다. 개요 행이 없거나 PENDING/FAILED인 경우와
-구버전 READY 개요의 coverage가 불완전한 경우에는 기존 200자 규칙으로
-fallback합니다. 이는 퀴즈 제안 시점만 조정하며 QuizAgent의 출제 coverage는
-현재 페이지 단일을 유지합니다(DEC-036).
+W3은 READY 개요에 유효한 `quizCheckpoints`가 있으면 checkpoint 모드로 동작합니다.
+현재 페이지가 `triggerPage`인 경우에만 제안하며 이 모드에서는 단일 페이지 텍스트
+길이가 출제 범위를 대표하지 않으므로 200자 게이트를 적용하지 않습니다. 체크포인트가
+없거나 비어 있거나 검증에서 탈락한 경우, 개요가 없거나 PENDING/FAILED인 경우에는
+기존 규칙으로 fallback합니다. fallback의 페이지 텍스트 길이 임계값은
+`edupilot.quiz.proposal-min-page-text-length`(기본 200자)이며, READY 완전 개요는
+`sections[].endPage`에서만 제안하고 그 밖의 개요는 기존 200자 규칙을 사용합니다.
+
+checkpoint 제안에서 사용자가 퀴즈 유형을 선택하면 Spring은 해당 coverage의 모든
+페이지 캡션 병합 텍스트를 오름차순 `quizContext.pages`로 전달하고 전체 텍스트 합계를
+앞에서부터 12,000자로 제한합니다. AI가 반환하는 coverage는 checkpoint 범위와
+일치해야 하며, 저장되는 퀴즈의 `pageNumber`와 세션 `activeQuizId` 흐름은 기존처럼
+현재 triggerPage에 귀속됩니다. checkpoint가 아닌 페이지는 현재 페이지 단일 출제
+경로를 유지합니다(DEC-037).
 
 한 응답에서 여러 상태가 연속으로 바뀌어도 위젯은 **마지막 상태 전이 1개에
 대해서만** 생성합니다. 재진입 복원 대상은 Spring이 발급·저장한 위젯만입니다.
@@ -2244,7 +2249,7 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 | POST | `/internal/ai/diagnosis` | 진단 질문 생성 | 퀴즈 제출 파이프라인 3단계 (기준 점수 미달 시) |
 | POST | `/internal/ai/exams/draft` | 시험 문항 AI 초안 생성 | 소유 강사의 DRAFT 시험 초안 요청 시 동기 호출 |
 
-`extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)과 nullable `xaiFileId`, 기본 빈 배열 `warnings: [{type,message}]`를 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `EDUPILOT_XAI_FILES_ENABLED=true`일 때만 추출 성공 원본을 xAI Files에 업로드합니다. 업로드 실패 또는 48MiB 초과는 `xaiFileId=null`과 `FILE_UPLOAD_FAILED` warning으로 강등하며 추출 응답은 200을 유지합니다. `FILE_UPLOAD_FAILED` 및 알 수 없는 warning type은 경고로만 기록하고 추출이 성공했다면 자료는 기존대로 READY가 됩니다. Spring은 non-blank `xaiFileId`만 내부 DB에 저장하고 외부 자료 응답에는 노출하지 않습니다. 기존 ACTIVE·READY 자료는 기본 OFF인 Spring bounded backfill이 `POST /internal/ai/files`로 원본만 업로드하며, 이 명시적 API는 `/extract` 자동 업로드 kill switch와 독립적으로 동작합니다. backfill은 claim과 file ID 반영을 각각 짧은 row-lock 트랜잭션으로 처리하고 외부 호출 중에는 트랜잭션을 유지하지 않으며, 실패 시 READY 유지·6시간 기본 backoff·경합 file ID 베스트에포트 삭제를 적용합니다. 자유 학습 턴 context에는 nullable `xaiFileId`를 포함하며 `includeCurrentPage=false`이면 null을 보냅니다. AI Service는 설명·QA·퀴즈의 실제 LLM 호출과 개요 생성에 파일을 첨부하고 Plan·결정적 안내·Repair·Note에는 첨부하지 않습니다. 퀴즈는 현재 페이지 단일, 개요는 전달된 pages 범위를 앵커로 유지하며 file ID 부재 시 기존 텍스트 경로를 사용합니다(DEC-035). `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작하며 삭제 성공·xAI 404는 모두 204, 그 밖의 xAI 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)입니다. 자료 삭제나 file ID 교체 시 Spring은 트랜잭션 커밋 후 DELETE를 호출하며 실패해도 자료 삭제·READY 결과를 유지합니다. `captions`는 `{schemaVersion:"1.0", pages:[{pageNumber,imageBase64,extractedText}]}`를 최대 10페이지씩 받고 페이지별 nullable 캡션을 반환합니다. Spring은 캡션이 있으면 모든 페이지 텍스트 기반 AI 입력에 `\n\n[그림 설명] {caption}`을 읽기 시점에 병합하며 `material_pages.text_content` 원문은 유지합니다. 일부 청크 실패는 자료·개요 상태에 영향을 주지 않고 다음 청크 처리를 계속합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
+`extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)과 nullable `xaiFileId`, 기본 빈 배열 `warnings: [{type,message}]`를 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `EDUPILOT_XAI_FILES_ENABLED=true`일 때만 추출 성공 원본을 xAI Files에 업로드합니다. 업로드 실패 또는 48MiB 초과는 `xaiFileId=null`과 `FILE_UPLOAD_FAILED` warning으로 강등하며 추출 응답은 200을 유지합니다. `FILE_UPLOAD_FAILED` 및 알 수 없는 warning type은 경고로만 기록하고 추출이 성공했다면 자료는 기존대로 READY가 됩니다. Spring은 non-blank `xaiFileId`만 내부 DB에 저장하고 외부 자료 응답에는 노출하지 않습니다. 기존 ACTIVE·READY 자료는 기본 OFF인 Spring bounded backfill이 `POST /internal/ai/files`로 원본만 업로드하며, 이 명시적 API는 `/extract` 자동 업로드 kill switch와 독립적으로 동작합니다. backfill은 claim과 file ID 반영을 각각 짧은 row-lock 트랜잭션으로 처리하고 외부 호출 중에는 트랜잭션을 유지하지 않으며, 실패 시 READY 유지·6시간 기본 backoff·경합 file ID 베스트에포트 삭제를 적용합니다. 자유 학습 턴 context에는 nullable `xaiFileId`를 포함하며 `includeCurrentPage=false`이면 null을 보냅니다. AI Service는 설명·QA·퀴즈의 실제 LLM 호출과 개요 생성에 파일을 첨부하고 Plan·결정적 안내·Repair·Note에는 첨부하지 않습니다. 퀴즈는 checkpoint가 있으면 `quizContext`의 coverage 페이지 범위, 없으면 현재 페이지 단일을 앵커로 사용하며 개요는 전달된 pages 범위를 유지합니다. file ID가 없으면 기존 텍스트 경로를 사용합니다(DEC-035·037). `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작하며 삭제 성공·xAI 404는 모두 204, 그 밖의 xAI 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)입니다. 자료 삭제나 file ID 교체 시 Spring은 트랜잭션 커밋 후 DELETE를 호출하며 실패해도 자료 삭제·READY 결과를 유지합니다. `captions`는 `{schemaVersion:"1.0", pages:[{pageNumber,imageBase64,extractedText}]}`를 최대 10페이지씩 받고 페이지별 nullable 캡션을 반환합니다. Spring은 캡션이 있으면 모든 페이지 텍스트 기반 AI 입력에 `\n\n[그림 설명] {caption}`을 읽기 시점에 병합하며 `material_pages.text_content` 원문은 유지합니다. 일부 청크 실패는 자료·개요 상태에 영향을 주지 않고 다음 청크 처리를 계속합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
 
 별도 시험 grade는 숫자 `examId`를 `quizId`로 사용합니다. `pageContext`와 `learnerMemoryDigest`는 생략·null을 허용하고 나머지 grade 요청 필드는 필수·non-null입니다. 응답이 있는 SHORT와 ESSAY는 각각 묶어 호출하며 한 유형이 실패해도 나머지 유형은 계속 호출합니다. 실제 호출의 `items`와 `studentAnswers`는 비어 있지 않아야 합니다. 상세 필드 강제력과 표준 오류 봉투는 `ai-integration-contract.md` v0.6 §6.2를 따릅니다.
 

@@ -29,6 +29,20 @@ public interface MaterialOverviewRepository
 		Pageable pageable
 	);
 
+	@Query("select overview.material.id from MaterialOverview overview "
+		+ "where overview.material.status = "
+		+ "io.edupilot.material.MaterialStatus.ACTIVE "
+		+ "and overview.material.processingStatus = "
+		+ "io.edupilot.material.MaterialProcessingStatus.READY "
+		+ "and overview.status = "
+		+ "io.edupilot.material.MaterialOverviewStatus.READY "
+		+ "and (function('json_query', overview.outline, "
+		+ "'$.quizCheckpoints') is null "
+		+ "or cast(function('json_query', overview.outline, "
+		+ "'$.quizCheckpoints') as String) = 'null') "
+		+ "order by overview.updatedAt, overview.material.id")
+	List<Long> findReadyWithoutQuizCheckpointsMaterialIds(Pageable pageable);
+
 	@EntityGraph(attributePaths = "material")
 	@Query("""
 		select distinct overview

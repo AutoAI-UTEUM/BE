@@ -47,9 +47,7 @@ public class MaterialOutlinePersistenceService {
 		}
 		Optional<MaterialOverview> overview = overviewRepository
 			.findByMaterial_Id(materialId);
-		if (overview.isPresent()
-			&& overview.get().getStatus() != MaterialOverviewStatus.PENDING
-			&& overview.get().getStatus() != MaterialOverviewStatus.FAILED) {
+		if (overview.isPresent() && !canGenerate(overview.get())) {
 			return Optional.empty();
 		}
 
@@ -84,7 +82,8 @@ public class MaterialOutlinePersistenceService {
 		}
 		MaterialOverview overview = overviewRepository.findByMaterial_Id(materialId)
 			.orElseGet(() -> MaterialOverview.createPending(material));
-		if (overview.getStatus() == MaterialOverviewStatus.READY) {
+		if (overview.getStatus() == MaterialOverviewStatus.READY
+			&& !needsCheckpointBackfill(overview)) {
 			return false;
 		}
 		overview.markReady(content, outline);
@@ -124,7 +123,28 @@ public class MaterialOutlinePersistenceService {
 			clock.instant().minus(FAILED_RETRY_BACKOFF),
 			PageRequest.of(0, remainingSlots)
 		));
+		remainingSlots = batchSize - candidates.size();
+		if (remainingSlots == 0) {
+			return List.copyOf(candidates);
+		}
+		candidates.addAll(
+			overviewRepository.findReadyWithoutQuizCheckpointsMaterialIds(
+				PageRequest.of(0, remainingSlots)
+			)
+		);
 		return List.copyOf(candidates);
+	}
+
+	private boolean canGenerate(MaterialOverview overview) {
+		return overview.getStatus() == MaterialOverviewStatus.PENDING
+			|| overview.getStatus() == MaterialOverviewStatus.FAILED
+			|| needsCheckpointBackfill(overview);
+	}
+
+	private boolean needsCheckpointBackfill(MaterialOverview overview) {
+		OutlineResponse outline = overview.getOutline();
+		return overview.getStatus() == MaterialOverviewStatus.READY
+			&& (outline == null || outline.quizCheckpoints() == null);
 	}
 
 	public record OutlineSnapshot(

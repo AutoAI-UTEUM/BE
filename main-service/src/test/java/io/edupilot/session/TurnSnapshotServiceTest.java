@@ -21,12 +21,15 @@ import org.springframework.test.util.ReflectionTestUtils;
 import io.edupilot.assessment.QuizAssessment;
 import io.edupilot.assessment.QuizAssessmentData;
 import io.edupilot.assessment.QuizAssessmentRepository;
+import io.edupilot.ai.dto.OutlineResponse;
 import io.edupilot.diagnosis.Diagnosis;
 import io.edupilot.diagnosis.DiagnosisRepository;
 import io.edupilot.diagnosis.DiagnosisStatus;
 import io.edupilot.diagnosis.RepairResult;
 import io.edupilot.diagnosis.RepairResultRepository;
 import io.edupilot.material.LearningMaterial;
+import io.edupilot.material.MaterialOverview;
+import io.edupilot.material.MaterialOverviewRepository;
 import io.edupilot.material.MaterialPage;
 import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.memory.LearnerMemory;
@@ -44,6 +47,8 @@ class TurnSnapshotServiceTest {
 	private LearningSessionRepository sessionRepository;
 	@Mock
 	private MaterialPageRepository pageRepository;
+	@Mock
+	private MaterialOverviewRepository overviewRepository;
 	@Mock
 	private ChatMessageRepository messageRepository;
 	@Mock
@@ -448,10 +453,150 @@ class TurnSnapshotServiceTest {
 		assertThat(snapshot.context()).hasSize(13);
 	}
 
+	@Test
+	@SuppressWarnings("unchecked")
+	void quizSnapshotBuildsOrderedCaptionMergedCheckpointContext() {
+		LearningSession session = session();
+		ReflectionTestUtils.setField(session, "currentPage", 2);
+		LearningMaterial material = (LearningMaterial) ReflectionTestUtils
+			.getField(session, "material");
+		MaterialPage first = MaterialPage.create(material, 1, "first text");
+		first.updateCaption("first diagram");
+		MaterialPage second = MaterialPage.create(material, 2, "second text");
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(pageRepository.findByMaterial_IdAndPageNumber(10L, 1))
+			.thenReturn(Optional.of(first));
+		when(pageRepository.findByMaterial_IdAndPageNumber(10L, 2))
+			.thenReturn(Optional.of(second));
+		when(pageRepository
+			.findByMaterial_IdAndPageNumberBetweenOrderByPageNumberAsc(
+				10L,
+				1,
+				2
+			))
+			.thenReturn(List.of(first, second));
+		when(overviewRepository.findByMaterial_Id(10L))
+			.thenReturn(Optional.of(overview(
+				material,
+				2,
+				new OutlineResponse.QuizCheckpoint(
+					2,
+					new OutlineResponse.Coverage(1, 2)
+				)
+			)));
+
+		TurnSnapshot snapshot = service().buildQuiz(1L, 100L, 501L);
+
+		Map<String, Object> quizContext = (Map<String, Object>)
+			snapshot.context().get("quizContext");
+		assertThat((Map<String, Object>) quizContext.get("coverage"))
+			.containsEntry("startPage", 1)
+			.containsEntry("endPage", 2);
+		assertThat((List<Map<String, Object>>) quizContext.get("pages"))
+			.containsExactly(
+				Map.of(
+					"pageNumber", 1,
+					"text", "first text\n\n[그림 설명] first diagram"
+				),
+				Map.of("pageNumber", 2, "text", "second text")
+			);
+		assertThat(snapshot.context().get("currentPageText"))
+			.isEqualTo("second text");
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	void quizCheckpointContextDropsTextAfterTwelveThousandCharacters() {
+		LearningSession session = session();
+		ReflectionTestUtils.setField(session, "currentPage", 3);
+		ReflectionTestUtils.setField(
+			ReflectionTestUtils.getField(session, "material"),
+			"pageCount",
+			3
+		);
+		LearningMaterial material = (LearningMaterial) ReflectionTestUtils
+			.getField(session, "material");
+		MaterialPage first = MaterialPage.create(
+			material,
+			1,
+			"a".repeat(11_999)
+		);
+		MaterialPage second = MaterialPage.create(material, 2, "bc");
+		MaterialPage third = MaterialPage.create(material, 3, "tail");
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(pageRepository.findByMaterial_IdAndPageNumber(10L, 2))
+			.thenReturn(Optional.of(second));
+		when(pageRepository.findByMaterial_IdAndPageNumber(10L, 3))
+			.thenReturn(Optional.of(third));
+		when(pageRepository
+			.findByMaterial_IdAndPageNumberBetweenOrderByPageNumberAsc(
+				10L,
+				1,
+				3
+			))
+			.thenReturn(List.of(first, second, third));
+		when(overviewRepository.findByMaterial_Id(10L))
+			.thenReturn(Optional.of(overview(
+				material,
+				3,
+				new OutlineResponse.QuizCheckpoint(
+					3,
+					new OutlineResponse.Coverage(1, 3)
+				)
+			)));
+
+		TurnSnapshot snapshot = service().buildQuiz(1L, 100L, 501L);
+
+		Map<String, Object> quizContext = (Map<String, Object>)
+			snapshot.context().get("quizContext");
+		List<Map<String, Object>> pages = (List<Map<String, Object>>)
+			quizContext.get("pages");
+		assertThat(pages)
+			.extracting(page -> (String) page.get("text"))
+			.containsExactly("a".repeat(11_999), "b", "");
+		assertThat(pages.stream()
+			.mapToInt(page -> ((String) page.get("text")).length())
+			.sum()).isEqualTo(12_000);
+	}
+
+	@Test
+	void nonCheckpointQuizKeepsCurrentPageContextOnly() {
+		LearningSession session = session();
+		ReflectionTestUtils.setField(session, "currentPage", 2);
+		LearningMaterial material = (LearningMaterial) ReflectionTestUtils
+			.getField(session, "material");
+		MaterialPage first = MaterialPage.create(material, 1, "first");
+		MaterialPage second = MaterialPage.create(material, 2, "current");
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(pageRepository.findByMaterial_IdAndPageNumber(10L, 1))
+			.thenReturn(Optional.of(first));
+		when(pageRepository.findByMaterial_IdAndPageNumber(10L, 2))
+			.thenReturn(Optional.of(second));
+		when(overviewRepository.findByMaterial_Id(10L))
+			.thenReturn(Optional.of(overview(
+				material,
+				2,
+				new OutlineResponse.QuizCheckpoint(
+					1,
+					new OutlineResponse.Coverage(1, 1)
+				)
+			)));
+
+		TurnSnapshot snapshot = service().buildQuiz(1L, 100L, 501L);
+
+		assertThat(snapshot.context())
+			.containsEntry("currentPageText", "current")
+			.containsEntry("quizContext", null);
+	}
+
 	private TurnSnapshotService service() {
 		return new TurnSnapshotService(
 			sessionRepository,
 			pageRepository,
+			overviewRepository,
 			new io.edupilot.material.MaterialPageTextMerger(),
 			messageRepository,
 			qaThreadRepository,
@@ -462,6 +607,30 @@ class TurnSnapshotServiceTest {
 			diagnosisRepository,
 			repairRepository
 		);
+	}
+
+	private MaterialOverview overview(
+		LearningMaterial material,
+		int totalPages,
+		OutlineResponse.QuizCheckpoint checkpoint
+	) {
+		MaterialOverview overview = MaterialOverview.createPending(material);
+		overview.markReady(
+			"overview",
+			new OutlineResponse(
+				"1.0",
+				"summary",
+				List.of(new OutlineResponse.Section(
+					"section",
+					1,
+					totalPages,
+					List.of("keyword")
+				)),
+				List.of(checkpoint),
+				totalPages
+			)
+		);
+		return overview;
 	}
 
 	private LearningSession session() {
