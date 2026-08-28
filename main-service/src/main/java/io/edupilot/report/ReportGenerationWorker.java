@@ -7,11 +7,13 @@ import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.global.security.TraceIdFilter;
 
 @Component
 public class ReportGenerationWorker implements ReportGenerationTask {
@@ -39,55 +41,60 @@ public class ReportGenerationWorker implements ReportGenerationTask {
 
 	@Override
 	public void generate(Long generationId) {
-		Instant claimedAt = clock.instant();
-		String leaseToken = UUID.randomUUID().toString();
-		if (!persistenceService.claimGenerationLease(
-			generationId,
-			leaseToken,
-			claimedAt,
-			claimedAt.plus(properties.leaseDuration())
-		)) {
-			return;
-		}
-
-		long startedAt = System.nanoTime();
+		MDC.put(TraceIdFilter.TRACE_ID_MDC_KEY, UUID.randomUUID().toString());
 		try {
-			ReportAiGenerationService.GeneratedReport generated =
-				aiGenerationService.generate(generationId);
-			boolean applied = applyWithVersionRetry(
+			Instant claimedAt = clock.instant();
+			String leaseToken = UUID.randomUUID().toString();
+			if (!persistenceService.claimGenerationLease(
 				generationId,
 				leaseToken,
-				generated
-			);
-			log.atInfo()
-				.addKeyValue("generationId", generationId)
-				.addKeyValue("applied", applied)
-				.addKeyValue("durationMs", elapsedMillis(startedAt))
-				.log("Report generation worker completed");
-		} catch (ReportVersionConflictException exception) {
-			log.atWarn()
-				.addKeyValue("generationId", generationId)
-				.addKeyValue("scopeKey", exception.scopeKey())
-				.addKeyValue("conflictVersion", exception.version())
-				.addKeyValue("durationMs", elapsedMillis(startedAt))
-				.log("Report version conflict remained after one apply retry");
-		} catch (DataIntegrityViolationException exception) {
-			log.atWarn()
-				.addKeyValue("generationId", generationId)
-				.addKeyValue("durationMs", elapsedMillis(startedAt))
-				.log("Discarded concurrent report generation completion");
-		} catch (RuntimeException exception) {
-			String failureCode = failureCode(exception);
-			persistenceService.failClaimedGeneration(
-				generationId,
-				leaseToken,
-				failureCode
-			);
-			log.atWarn()
-				.addKeyValue("generationId", generationId)
-				.addKeyValue("failureCode", failureCode)
-				.addKeyValue("durationMs", elapsedMillis(startedAt))
-				.log("Report generation worker failed");
+				claimedAt,
+				claimedAt.plus(properties.leaseDuration())
+			)) {
+				return;
+			}
+
+			long startedAt = System.nanoTime();
+			try {
+				ReportAiGenerationService.GeneratedReport generated =
+					aiGenerationService.generate(generationId);
+				boolean applied = applyWithVersionRetry(
+					generationId,
+					leaseToken,
+					generated
+				);
+				log.atInfo()
+					.addKeyValue("generationId", generationId)
+					.addKeyValue("applied", applied)
+					.addKeyValue("durationMs", elapsedMillis(startedAt))
+					.log("Report generation worker completed");
+			} catch (ReportVersionConflictException exception) {
+				log.atWarn()
+					.addKeyValue("generationId", generationId)
+					.addKeyValue("scopeKey", exception.scopeKey())
+					.addKeyValue("conflictVersion", exception.version())
+					.addKeyValue("durationMs", elapsedMillis(startedAt))
+					.log("Report version conflict remained after one apply retry");
+			} catch (DataIntegrityViolationException exception) {
+				log.atWarn()
+					.addKeyValue("generationId", generationId)
+					.addKeyValue("durationMs", elapsedMillis(startedAt))
+					.log("Discarded concurrent report generation completion");
+			} catch (RuntimeException exception) {
+				String failureCode = failureCode(exception);
+				persistenceService.failClaimedGeneration(
+					generationId,
+					leaseToken,
+					failureCode
+				);
+				log.atWarn()
+					.addKeyValue("generationId", generationId)
+					.addKeyValue("failureCode", failureCode)
+					.addKeyValue("durationMs", elapsedMillis(startedAt))
+					.log("Report generation worker failed");
+			}
+		} finally {
+			MDC.remove(TraceIdFilter.TRACE_ID_MDC_KEY);
 		}
 	}
 
