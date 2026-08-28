@@ -10,6 +10,9 @@ from edupilot_ai.models.report import (
     ReportQueryRequest,
 )
 
+_SCORE_STATUS_CONFLICT = "SCORE_STATUS_CONFLICT"
+_MISCONCEPTION_SINGLE_EVIDENCE = "MISCONCEPTION_SINGLE_EVIDENCE"
+
 
 class ReportValidationError(ValueError):
     """Validation failure carrying only a safe machine reason code."""
@@ -41,6 +44,66 @@ def _summary_statements(output: ReportGenerateOutput) -> list[EvidencedStatement
     ]
 
 
+def normalize_generate_output(
+    request: ReportGenerateRequest,
+    output: ReportGenerateOutput,
+) -> tuple[ReportGenerateOutput, dict[str, int]]:
+    """Conservatively repair local invariant violations without another LLM call."""
+    criteria = {criterion.key: criterion for criterion in request.criteria}
+    normalized_results = []
+    corrected_score_status_count = 0
+    for result in output.criterion_results:
+        if (result.status == "ASSESSED") == (result.score is not None):
+            normalized_results.append(result)
+            continue
+
+        criterion = criteria.get(result.criterion_key)
+        criterion_name = criterion.name if criterion is not None else "해당 평가 기준"
+        normalized_results.append(
+            result.model_copy(
+                update={
+                    "status": "INSUFFICIENT_DATA",
+                    "score": None,
+                    "narrative": (
+                        f"현재 제공된 근거만으로는 {criterion_name} 기준의 점수를 "
+                        "확정하기 어렵습니다. 관련 학습 기록이 더 쌓이면 다시 평가할 "
+                        "수 있습니다."
+                    ),
+                }
+            )
+        )
+        corrected_score_status_count += 1
+
+    misconception_candidates = [
+        statement
+        for statement in output.summary.misconception_candidates
+        if len(set(statement.evidence_ids)) >= 2
+    ]
+    dropped_misconception_count = len(output.summary.misconception_candidates) - len(
+        misconception_candidates
+    )
+
+    corrections: dict[str, int] = {}
+    if corrected_score_status_count:
+        corrections[_SCORE_STATUS_CONFLICT] = corrected_score_status_count
+    if dropped_misconception_count:
+        corrections[_MISCONCEPTION_SINGLE_EVIDENCE] = dropped_misconception_count
+    if not corrections:
+        return output, corrections
+
+    return (
+        output.model_copy(
+            update={
+                "criterion_results": normalized_results,
+                "summary": output.summary.model_copy(
+                    update={"misconception_candidates": misconception_candidates}
+                ),
+            }
+        ),
+        corrections,
+    )
+
+
 def validate_generate_output(
     request: ReportGenerateRequest,
     output: ReportGenerateOutput,
@@ -64,7 +127,7 @@ def validate_generate_output(
     }
     for result in output.criterion_results:
         if (result.status == "ASSESSED") != (result.score is not None):
-            raise ReportValidationError("SCORE_STATUS_CONFLICT")
+            raise ReportValidationError(_SCORE_STATUS_CONFLICT)
         if result.status == "ASSESSED" and not result.evidence_ids:
             raise ReportValidationError("ASSESSED_WITHOUT_EVIDENCE")
         if result.status == "ASSESSED":
@@ -79,7 +142,7 @@ def validate_generate_output(
 
     for statement in output.summary.misconception_candidates:
         if len(set(statement.evidence_ids)) < 2:
-            raise ReportValidationError("MISCONCEPTION_SINGLE_EVIDENCE")
+            raise ReportValidationError(_MISCONCEPTION_SINGLE_EVIDENCE)
 
 
 def validate_query_output(
