@@ -353,7 +353,7 @@ class ToolDispatcher:
                 raise PolicyViolation("RepairAgent is not configured")
             return await self._repair.run(
                 context,
-                timeout_seconds=deadline.remaining_seconds(),
+                deadline=deadline,
             )
         if action.tool is ToolName.WRITE_NOTE:
             if self._note is None:

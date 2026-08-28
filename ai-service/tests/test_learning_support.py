@@ -18,8 +18,10 @@ from edupilot_ai.models.learning_support import (
 )
 from edupilot_ai.models.plan import AgentOutput, PlanAction, ToolName, TurnPlan
 from edupilot_ai.models.turn import TurnRequest, TurnResponse
+from edupilot_ai.orchestration.agents import RepairAgent
 from edupilot_ai.orchestration.context import ContextBuilder
 from edupilot_ai.orchestration.policy import PolicyVerifier, PolicyViolation
+from edupilot_ai.orchestration.timing import TurnDeadline
 from edupilot_ai.settings import ReasoningEffort, Settings
 from edupilot_ai.support.service import QuizAssessmentService, QuizDiagnosisService
 from tests.fakes import FakeLlm
@@ -437,6 +439,136 @@ async def test_repair_turn_replaces_stub_and_clears_pending_diagnosis(
     assert fake_llm.calls[1][1].reasoning_effort is ReasoningEffort.MEDIUM
     assert "현재 페이지 전체를 다시 설명하거나" in fake_llm.calls[1][0][0]["content"]
     assert "모든 학습자 대상 텍스트" in fake_llm.calls[1][0][0]["content"]
+
+
+async def test_repair_schema_failure_regenerates_once(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    fake_llm.queue(
+        make_plan(
+            ToolName.REPAIR_MISCONCEPTION,
+            {"diagnosisId": 30},
+            "REPAIR_MISCONCEPTION",
+        ),
+        LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False),
+        RepairOutput(
+            markdown="## 오개념 교정\n\n편차는 평균과 각 관측값 사이의 차이입니다.",
+        ),
+    )
+
+    response = await post_turn(
+        client,
+        auth_headers,
+        repair_turn_payload(turn_payload),
+    )
+
+    assert response.status_code == 200
+    assert len(fake_llm.calls) == 3  # Plan 1회 + Repair 2회
+    body = response.json()
+    assert body["messages"][0]["messageType"] == "REPAIR"
+    assert body["statePatch"] == {
+        "pageStatus": "REPAIR_COMPLETED",
+        "pendingDiagnosis": None,
+    }
+    first_repair_system = fake_llm.calls[1][0][0]["content"]
+    retry_repair_system = fake_llm.calls[2][0][0]["content"]
+    assert "이전 출력이 RepairOutput 계약 스키마를 충족하지 못했다" not in (first_repair_system)
+    assert "이전 출력이 RepairOutput 계약 스키마를 충족하지 못했다" in (retry_repair_system)
+    assert "SCHEMA_INVALID" in retry_repair_system
+    assert "편차가 평균값이라고 생각했습니다" not in caplog.text
+
+
+async def test_repair_schema_failure_twice_returns_502(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    fake_llm.queue(
+        make_plan(
+            ToolName.REPAIR_MISCONCEPTION,
+            {"diagnosisId": 30},
+            "REPAIR_MISCONCEPTION",
+        ),
+        LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False),
+        LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False),
+    )
+
+    response = await post_turn(
+        client,
+        auth_headers,
+        repair_turn_payload(turn_payload),
+    )
+
+    assert response.status_code == 502
+    error = InternalErrorResponse.model_validate(response.json())
+    assert error.error.code == "AI_RESPONSE_INVALID"
+    assert error.error.category == "SCHEMA"
+    assert len(fake_llm.calls) == 3  # Plan 1회 + Repair 2회
+
+
+async def test_repair_non_schema_failure_is_not_retried(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    fake_llm.queue(
+        make_plan(
+            ToolName.REPAIR_MISCONCEPTION,
+            {"diagnosisId": 30},
+            "REPAIR_MISCONCEPTION",
+        ),
+        LlmBridgeError(category=ErrorCategory.TIMEOUT, retryable=True),
+    )
+
+    response = await post_turn(
+        client,
+        auth_headers,
+        repair_turn_payload(turn_payload),
+    )
+
+    assert response.status_code == 504
+    error = InternalErrorResponse.model_validate(response.json())
+    assert error.error.code == "AI_SERVICE_TIMEOUT"
+    assert error.error.category == "TIMEOUT"
+    assert len(fake_llm.calls) == 2  # Plan 1회 + Repair 1회
+
+
+async def test_repair_schema_retry_uses_remaining_turn_deadline(
+    fake_llm: FakeLlm,
+    settings: Settings,
+    turn_payload: dict[str, object],
+) -> None:
+    context = ContextBuilder().build(TurnRequest.model_validate(repair_turn_payload(turn_payload)))
+    readings = iter([100.0, 130.0])
+    deadline = TurnDeadline(expires_at=145.0, clock=lambda: next(readings))
+    agent = RepairAgent(
+        llm=fake_llm,
+        profile=settings.repair_llm_profile,
+    )
+    fake_llm.queue(
+        LlmBridgeError(
+            category=ErrorCategory.SCHEMA,
+            retryable=False,
+            usage=LlmUsage("grok-4.5", 3, 2, 1),
+        )
+    )
+    fake_llm.queue_completion(
+        RepairOutput(
+            markdown="## 오개념 교정\n\n편차는 평균과 각 관측값 사이의 차이입니다.",
+        ),
+        LlmUsage("grok-4.5", 7, 4, 2),
+    )
+
+    result = await agent.run(context, deadline=deadline)
+
+    assert fake_llm.timeouts == [45, 15]
+    assert result.usage == LlmUsage("grok-4.5", 10, 6, 3)
 
 
 async def test_repair_without_pending_diagnosis_is_rejected(
