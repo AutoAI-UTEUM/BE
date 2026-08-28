@@ -67,6 +67,8 @@ def plan_messages(
         "NOTE_REQUESTED->WRITE_NOTE), plus memory tools only "
         "when justified. "
         "memoryWrite must be null. FOLLOW_UP requires qaThreadDigest."
+        " conversationSummary는 이전 대화의 압축 맥락이다. 최근 대화와 모순되면 "
+        "최근 대화를 우선하라."
     )
     if retry:
         system += " The previous output failed schema validation; regenerate exactly once."
@@ -129,6 +131,7 @@ def qa_messages(
         "nextPageText": context.next_page_text,
         "qaThreadMode": mode.value,
         "qaThreadDigest": context.qa_thread_digest if mode is QaThreadMode.FOLLOW_UP else None,
+        "conversationSummary": context.conversation_summary,
         "latestRepair": context.latest_repair,
         "learnerConfidence": context.learner_confidence,
         "learnerMemoryDigest": context.learner_memory_digest,
@@ -155,6 +158,8 @@ def qa_messages(
         "제공된 이전 페이지 텍스트를 근거로 정상적으로 답하라. 단, 이전 페이지 "
         "전체를 처음부터 다시 설명해 달라는 요청이면 해당 페이지로 이동해 "
         "설명받도록 안내하라. 페이지 간 관계·연결을 묻는 질문은 정상적으로 답하라."
+        " conversationSummary는 이전 대화의 압축 맥락이다. 최근 대화와 모순되면 "
+        "최근 대화를 우선하라."
     )
     if not context.page_attached:
         system += (
