@@ -181,7 +181,7 @@ class QuizServiceTest {
 		QuizGeneration outsideSnapshot = generation(QuizType.MCQ, 5, 5);
 		outsideSnapshot = copy(
 			outsideSnapshot,
-			new QuizGeneration.Coverage(1, 3),
+			new QuizGeneration.Coverage(1, 4),
 			outsideSnapshot.questions()
 		);
 		assertInvalid(outsideSnapshot);
@@ -215,6 +215,30 @@ class QuizServiceTest {
 			unknownAnswer.coverage(),
 			answerQuestions
 		));
+	}
+
+	@Test
+	void storesCheckpointCoverageWhileKeepingQuizOnCurrentPage() {
+		when(quizRepository.saveAndFlush(any(Quiz.class))).thenAnswer(invocation -> {
+			Quiz quiz = invocation.getArgument(0);
+			ReflectionTestUtils.setField(quiz, "id", 50L);
+			return quiz;
+		});
+		QuizGeneration generation = generation(QuizType.MCQ, 5, 5);
+		generation = copy(
+			generation,
+			new QuizGeneration.Coverage(1, 3),
+			generation.questions()
+		);
+
+		assertThat(quizService.createFromGeneration(100L, "1.0", generation))
+			.isEqualTo(50L);
+
+		ArgumentCaptor<Quiz> captor = ArgumentCaptor.forClass(Quiz.class);
+		org.mockito.Mockito.verify(quizRepository).saveAndFlush(captor.capture());
+		assertThat(captor.getValue().getPageNumber()).isEqualTo(3);
+		assertThat(captor.getValue().getCoverageStartPage()).isEqualTo(1);
+		assertThat(captor.getValue().getCoverageEndPage()).isEqualTo(3);
 	}
 
 	@Test
@@ -282,7 +306,7 @@ class QuizServiceTest {
 			"1.0",
 			"generation-1",
 			quizType.name(),
-			new QuizGeneration.Coverage(2, 4),
+			new QuizGeneration.Coverage(3, 3),
 			quizType + " 퀴즈",
 			questionCount,
 			questions

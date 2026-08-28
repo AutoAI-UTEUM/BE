@@ -654,6 +654,8 @@ class SessionTurnServiceTest {
 		);
 		when(snapshotService.build(1L, 100L, 501L, true))
 			.thenReturn(snapshot);
+		when(snapshotService.buildQuiz(1L, 100L, 501L))
+			.thenReturn(snapshot);
 		when(streamService.beginTurn(
 			eq(1L),
 			eq(100L),
@@ -968,7 +970,7 @@ class SessionTurnServiceTest {
 			"퀴즈 유형 선택: MCQ",
 			null
 		)).thenReturn(new PreparedTurn(501L));
-		when(snapshotService.build(1L, 100L, 501L, true))
+		when(snapshotService.buildQuiz(1L, 100L, 501L))
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L, "currentPage", 3),
 				Map.of(
@@ -1033,6 +1035,59 @@ class SessionTurnServiceTest {
 			eq(java.util.Set.of(3))
 		);
 		verify(streamService).complete(streamConnection, publicResponse);
+	}
+
+	@Test
+	void quizCheckpointContextMakesCoveragePagesAvailable() throws Exception {
+		stubQuizTurn(
+			new TurnSnapshot(
+				Map.of("sessionId", 100L, "currentPage", 3),
+				Map.of(
+					"currentPageText", "current",
+					"quizContext",
+					Map.of(
+						"coverage",
+						Map.of("startPage", 1, "endPage", 3),
+						"pages",
+						List.of(
+							Map.of("pageNumber", 1, "text", "first"),
+							Map.of("pageNumber", 2, "text", "second"),
+							Map.of("pageNumber", 3, "text", "third")
+						)
+					)
+				),
+				10L
+			),
+			new QuizGeneration.Coverage(1, 3)
+		);
+		TurnResponse publicResponse = new TurnResponse(
+			"successful-quiz-turn",
+			100L,
+			List.of(),
+			List.of(),
+			new TurnStateResponse(3, PageStatus.QUIZ_READY, 50L)
+		);
+		when(persistenceService.persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		)).thenReturn(persisted(publicResponse));
+
+		assertThat(service().execute(1L, 100L, quizRequest()))
+			.isEqualTo(publicResponse);
+
+		verify(responseValidator).validate(
+			any(),
+			anyString(),
+			eq((String) null),
+			eq(TurnEventType.QUIZ_TYPE_SELECTED),
+			eq("MCQ"),
+			eq(java.util.Set.of(1, 2, 3))
+		);
 	}
 
 	@Test
@@ -1488,7 +1543,7 @@ class SessionTurnServiceTest {
 			"퀴즈 유형 선택: MCQ",
 			null
 		)).thenReturn(new PreparedTurn(501L));
-		when(snapshotService.build(1L, 100L, 501L, true))
+		when(snapshotService.buildQuiz(1L, 100L, 501L))
 			.thenReturn(snapshot);
 		when(streamService.beginTurn(
 			eq(1L),

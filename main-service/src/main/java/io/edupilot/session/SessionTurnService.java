@@ -2,6 +2,8 @@ package io.edupilot.session;
 
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -167,12 +169,14 @@ public class SessionTurnService {
 				);
 			}
 			userMessageId = prepared.userMessageId();
-			TurnSnapshot snapshot = snapshotService.build(
-				userId,
-				sessionId,
-				userMessageId,
-				payload.includeCurrentPage()
-			);
+			TurnSnapshot snapshot = eventType == TurnEventType.QUIZ_TYPE_SELECTED
+				? snapshotService.buildQuiz(userId, sessionId, userMessageId)
+				: snapshotService.build(
+					userId,
+					sessionId,
+					userMessageId,
+					payload.includeCurrentPage()
+				);
 			AiStreamCancellation cancellation = new AiStreamCancellation();
 			Optional<SessionStreamConnection> activeStream =
 				streamService.beginTurn(
@@ -540,6 +544,23 @@ public class SessionTurnService {
 			throw new BusinessException(ErrorCode.AI_RESPONSE_INVALID);
 		}
 		int currentPage = number.intValue();
+		Object rawQuizContext = snapshot.context().get("quizContext");
+		if (rawQuizContext instanceof Map<?, ?> quizContext) {
+			Object rawPages = quizContext.get("pages");
+			if (!(rawPages instanceof List<?> pages)) {
+				throw new BusinessException(ErrorCode.AI_RESPONSE_INVALID);
+			}
+			Set<Integer> availablePages = new LinkedHashSet<>();
+			for (Object rawPage : pages) {
+				if (!(rawPage instanceof Map<?, ?> page)
+					|| !(page.get("pageNumber") instanceof Number pageNumber)
+					|| !(page.get("text") instanceof String)) {
+					throw new BusinessException(ErrorCode.AI_RESPONSE_INVALID);
+				}
+				availablePages.add(pageNumber.intValue());
+			}
+			return Set.copyOf(availablePages);
+		}
 		return snapshot.context().get("currentPageText") instanceof String
 			? Set.of(currentPage)
 			: Set.of();

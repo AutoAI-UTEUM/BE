@@ -30,7 +30,6 @@ import io.edupilot.global.config.ReadinessService;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
-import io.edupilot.material.MaterialOverviewRepository;
 import io.edupilot.note.NoteRepository;
 import io.edupilot.quiz.QuizRepository;
 import io.edupilot.quiz.QuizProperties;
@@ -68,9 +67,6 @@ class MainServiceApplicationTests {
 
 	@MockitoBean
 	private MaterialPageRepository materialPageRepository;
-
-	@MockitoBean
-	private MaterialOverviewRepository materialOverviewRepository;
 
 	@MockitoBean
 	private LearningSessionRepository learningSessionRepository;

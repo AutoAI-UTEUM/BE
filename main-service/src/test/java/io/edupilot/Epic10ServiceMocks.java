@@ -22,6 +22,7 @@ import io.edupilot.exam.ExamSubmissionPersistenceService;
 import io.edupilot.exam.StudentExamService;
 import io.edupilot.material.MaterialAccessService;
 import io.edupilot.material.MaterialOutlinePersistenceService;
+import io.edupilot.material.MaterialOverviewRepository;
 import io.edupilot.material.MaterialOverviewService;
 import io.edupilot.notification.NotificationBulkRepository;
 import io.edupilot.notification.NotificationService;
@@ -48,6 +49,7 @@ import io.edupilot.schedule.PersonalScheduleService;
 	ClassroomWeekService.class,
 	MaterialAccessService.class,
 	MaterialOutlinePersistenceService.class,
+	MaterialOverviewRepository.class,
 	MaterialOverviewService.class,
 	NotificationService.class,
 	NotificationTriggerService.class,

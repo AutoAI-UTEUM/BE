@@ -640,9 +640,16 @@ class HttpAiClientContractTest {
 			  "sections": [
 			    {
 			      "title": "핵심 단원",
+			      "description": "핵심 개념과 예제를 학습합니다.",
 			      "startPage": 1,
 			      "endPage": 2,
 			      "keywords": ["개념", "예제"]
+			    }
+			  ],
+			  "quizCheckpoints": [
+			    {
+			      "triggerPage": 2,
+			      "coverage": {"startPage": 1, "endPage": 2}
 			    }
 			  ],
 			  "totalPages": 2
@@ -664,8 +671,16 @@ class HttpAiClientContractTest {
 		assertThat(response.materialSummary()).isEqualTo("자료 요약입니다.");
 		assertThat(response.sections()).singleElement().satisfies(section -> {
 			assertThat(section.title()).isEqualTo("핵심 단원");
+			assertThat(section.description())
+				.isEqualTo("핵심 개념과 예제를 학습합니다.");
 			assertThat(section.keywords()).containsExactly("개념", "예제");
 		});
+		assertThat(response.quizCheckpoints()).singleElement()
+			.satisfies(checkpoint -> {
+				assertThat(checkpoint.triggerPage()).isEqualTo(2);
+				assertThat(checkpoint.coverage())
+					.isEqualTo(new OutlineResponse.Coverage(1, 2));
+			});
 		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
 		assertThat(request).isNotNull();
 		assertThat(request.getMethod()).isEqualTo("POST");

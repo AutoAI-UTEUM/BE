@@ -136,7 +136,7 @@ Orchestrator Plan의 JSON 스키마와 교수 정책을 검증하고 허용되�
 
 ### LlmBridge
 
-Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출력, 스트리밍, timeout, provider 오류 변환과 xAI Files 업로드·삭제·첨부를 담당하되 도메인 정책을 결정하지 않습니다. 파일이 없는 호출은 기존 Chat Completions를 유지하고, 파일이 있는 설명·QA·QuizAgent·개요 생성 호출은 Responses API의 `input_file.file_id`와 `store=false`를 사용합니다. 페이지 근거의 범위 앵커·폴백은 Spring이 추출해 동봉하는 `pageContext` 또는 outline `pages` 텍스트이며 PDF 원본은 앵커 범위의 세부 확인에만 사용합니다. 개요는 일반 자료 3~6개·최대 10개 구간으로 묶고 모든 페이지를 겹침·공백 없이 한 번씩 포함합니다. file ID는 Plan에 전달하지 않고 결정적 안내·Repair·Note에는 첨부하지 않습니다(DEC-006·035).
+Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출력, 스트리밍, timeout, provider 오류 변환과 xAI Files 업로드·삭제·첨부를 담당하되 도메인 정책을 결정하지 않습니다. 파일이 없는 호출은 기존 Chat Completions를 유지하고, 파일이 있는 설명·QA·QuizAgent·개요 생성 호출은 Responses API의 `input_file.file_id`와 `store=false`를 사용합니다. 페이지 근거의 범위 앵커·폴백은 Spring이 추출해 동봉하는 `pageContext` 또는 outline `pages` 텍스트이며 PDF 원본은 앵커 범위의 세부 확인에만 사용합니다. 개요는 일반 자료 3~6개·최대 10개 구간으로 묶고 모든 페이지를 겹침·공백 없이 한 번씩 포함하며, `quizCheckpoints`로 복습 시점과 이미 학습한 coverage를 계획합니다. Spring은 checkpoint 턴에만 해당 coverage의 캡션 병합 텍스트를 `quizContext`로 전달하고 퀴즈 귀속은 triggerPage로 유지합니다. file ID는 Plan에 전달하지 않고 결정적 안내·Repair·Note에는 첨부하지 않습니다(DEC-006·035·037).
 
 ## 3. 멀티 에이전트 턴 처리 단계
 

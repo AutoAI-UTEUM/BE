@@ -96,6 +96,7 @@
 - `learnerLevel`/`learnerConfidence`: Spring이 learner_memories·최근 평가에서 파생. null이면 기본 수준 동작.
 - `latestRepair`: 직전 교정 답변 원문 포함 — 교정 후 USER_QUESTION에서 QaAgent가 문맥 승계.
 - `currentPageText`의 타입은 `string | null`이다. null은 `USER_QUESTION`이면서 `includeCurrentPage=false`인 턴에서만 허용한다. `EXPLAIN_CURRENT_PAGE`와 `QUIZ_TYPE_SELECTED`에서는 계속 필수이며, AI Service는 eventType과 context를 교차 검증해 위반 요청을 category `SCHEMA`로 거부한다.
+- `QUIZ_TYPE_SELECTED`에서 현재 페이지가 READY 개요의 `quizCheckpoints[].triggerPage`이면 Spring은 기존 nullable `quizContext`에 `{coverage:{startPage,endPage},pages:[{pageNumber,text}]}`를 추가한다. `pages`는 coverage 전 범위를 오름차순으로 정확히 한 번 포함하며 캡션 병합 텍스트의 합계를 앞에서부터 12,000자로 제한한다. 체크포인트가 아니거나 계획이 없으면 `quizContext=null`로 현재 페이지 단일 출제 경로를 유지한다.
 - `xaiFileId`의 타입은 `string | null`이다. 구자료·업로드 실패 자료는 `null`이며 외부 API에는 노출하지 않는다. AI Service는 이 값을 Plan 입력이나 turn LLM 호출 로그에 넣지 않고 Explainer·QaAgent·QuizAgent 호출에서 xAI Responses API의 `input_file.file_id`로 사용하며 `store=false`를 강제한다.
 - `includeCurrentPage=false`이면 Spring은 `xaiFileId`, `currentPageText`, `previousPageText`, `nextPageText`를 모두 null로 전달하고 그 외 context 필드는 유지한다. 선택 필드인 `conversationSummary`는 페이지 첨부 여부와 독립적으로 전달할 수 있다.
 - `includeCurrentPage=false`인데 페이지 텍스트가 전달된 경우 AI Service는 해당 context를 무시하지 않고 사용한다. 이 조합의 정합 책임은 Spring에 있다.
@@ -508,9 +509,10 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 
 - 요청: `{ "schemaVersion": "1.0", "xaiFileId": "file-...", "totalPages": 2, "pages": [{ "pageNumber": 1, "text": "..." }] }`. `xaiFileId`는 nullable이며 생략도 허용한다.
 - Spring은 `material_pages`에 저장된 전 페이지 텍스트와 자료의 nullable xAI file ID를 페이지 순서대로 전달하며 텍스트를 절단하지 않는다. 입력 길이 조절은 AI Service 책임이다. `pages[].pageNumber/text`는 범위·구조 앵커이고 첨부 PDF는 같은 범위의 제목·시각 세부 확인에만 사용한다.
-- `sections`는 일반 강의 자료에서 3~6개를 목표로 하고 최대 10개이며, 첫 페이지부터 `totalPages`까지 겹침·공백 없이 오름차순으로 정확히 한 번씩 포함해야 한다. AI Service와 Spring이 모두 이를 검증한다.
-- 응답: `{ "schemaVersion": "1.0", "materialSummary": "...", "sections": [{ "title": "...", "startPage": 1, "endPage": 2, "keywords": ["..."] }], "totalPages": 2 }`.
-- Spring은 응답을 결정적 마크다운으로 렌더링해 `material_overviews.content`에 저장하고, 원본 구조는 `outline_json`에 저장한다. 실패는 자료 자체 상태를 변경하지 않고 개요만 `FAILED`로 전이한다.
+- `sections`는 일반 강의 자료에서 3~6개를 목표로 하고 최대 10개이며, 첫 페이지부터 `totalPages`까지 겹침·공백 없이 오름차순으로 정확히 한 번씩 포함해야 한다. 신규 응답의 `description`은 단원 설명이며 구버전 저장 JSON 호환을 위해 Spring에서는 nullable로 읽는다.
+- 응답: `{ "schemaVersion": "1.0", "materialSummary": "...", "sections": [{ "title": "...", "description": "...", "startPage": 1, "endPage": 2, "keywords": ["..."] }], "quizCheckpoints": [{ "triggerPage": 2, "coverage": { "startPage": 1, "endPage": 2 } }], "totalPages": 2 }`.
+- `quizCheckpoints`는 1~10개이며 trigger는 coverage 끝 페이지와 같고, 각 범위는 자료 안의 section 경계에 맞춰 오름차순·비중복으로 배치한다. Spring은 수신 응답과 저장 JSON을 다시 검증하며 위반 시 개요 전체를 실패시키지 않고 checkpoint 계획만 absent로 강등한 뒤 위반 유형만 WARN으로 남긴다.
+- Spring은 응답을 결정적 마크다운으로 렌더링해 `material_overviews.content`에 저장하고, 원본 구조는 `outline_json`에 저장한다. 실패는 자료 자체 상태를 변경하지 않고 개요만 `FAILED`로 전이한다. 기존 READY 개요 중 `quizCheckpoints`가 없는 행은 기존 개요 bounded backfill 배치에 포함해 순차 재생성한다.
 - Main Service read timeout은 `EDUPILOT_AI_OUTLINE_TIMEOUT`(기본 `110s`)을 사용한다.
 
 ### 6.7 POST /internal/ai/criteria/suggest
