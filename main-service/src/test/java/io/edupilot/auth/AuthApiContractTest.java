@@ -396,6 +396,9 @@ class AuthApiContractTest {
 			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
 				"Path=/api/auth"
 			)))
+			.andExpect(header().string(HttpHeaders.SET_COOKIE, not(containsString(
+				"Domain="
+			))))
 			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
 				"Max-Age=1209600"
 			)))
