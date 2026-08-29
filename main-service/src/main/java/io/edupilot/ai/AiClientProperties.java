@@ -31,6 +31,7 @@ public record AiClientProperties(
 	@NotNull Duration outlineTimeout,
 	@NotNull Duration captionsReadTimeout,
 	@NotNull Duration docChatReadTimeout,
+	@NotNull Duration summaryReadTimeout,
 	@NotNull Duration examDraftReadTimeout,
 	@NotBlank String healthPath
 ) {

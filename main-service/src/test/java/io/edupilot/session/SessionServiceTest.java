@@ -408,6 +408,7 @@ class SessionServiceTest {
 			"activeTurnStartedAt",
 			NOW.minusSeconds(301)
 		);
+		session.applyConversationSummary("이전 대화 요약", 90L);
 		when(sessionRepository.findOwnedForUpdate(100L, 1L))
 			.thenReturn(Optional.of(session));
 
@@ -418,6 +419,8 @@ class SessionServiceTest {
 		assertThat(session.getActiveTurnRequestId()).isNull();
 		assertThat(session.getConversationResetAt()).isEqualTo(NOW);
 		assertThat(session.getConversationResetCount()).isEqualTo(1);
+		assertThat(session.getConversationSummary()).isNull();
+		assertThat(session.getLastSummarizedMessageId()).isNull();
 
 		Instant nextStartedAt = NOW.plusSeconds(1);
 		SessionService nextService = new SessionService(

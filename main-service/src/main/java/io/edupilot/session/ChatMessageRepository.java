@@ -36,6 +36,51 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
 	);
 
 	@Query("""
+		select count(message)
+		from ChatMessage message
+		where message.session.id = :sessionId
+		  and message.status = io.edupilot.session.ChatMessageStatus.COMPLETED
+		  and message.senderType = io.edupilot.session.SenderType.USER
+		  and (
+		    (:lastMessageId is not null and message.id > :lastMessageId)
+		    or (:lastMessageId is null and :resetAt is null)
+		    or (
+		      :lastMessageId is null
+		      and :resetAt is not null
+		      and message.createdAt > :resetAt
+		    )
+		  )
+		""")
+	long countCompletedUserMessagesAfterBoundary(
+		@Param("sessionId") Long sessionId,
+		@Param("lastMessageId") Long lastMessageId,
+		@Param("resetAt") Instant resetAt
+	);
+
+	@Query("""
+		select message
+		from ChatMessage message
+		where message.session.id = :sessionId
+		  and message.status = io.edupilot.session.ChatMessageStatus.COMPLETED
+		  and (
+		    (:lastMessageId is not null and message.id > :lastMessageId)
+		    or (:lastMessageId is null and :resetAt is null)
+		    or (
+		      :lastMessageId is null
+		      and :resetAt is not null
+		      and message.createdAt > :resetAt
+		    )
+		  )
+		order by message.createdAt, message.id
+		""")
+	List<ChatMessage> findCompletedMessagesAfterBoundary(
+		@Param("sessionId") Long sessionId,
+		@Param("lastMessageId") Long lastMessageId,
+		@Param("resetAt") Instant resetAt,
+		Pageable pageable
+	);
+
+	@Query("""
 		select message
 		from ChatMessage message
 		where message.session.id = :sessionId
