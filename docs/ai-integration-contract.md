@@ -542,7 +542,7 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 
 ### 6.10 POST /internal/ai/conversation-summary
 
-- 요청: `{ "schemaVersion": "1.0", "previousSummary": null, "messages": [{"role":"USER|ASSISTANT","content":"..."}] }`. `messages`는 1~12개이며 content는 공백일 수 없습니다.
+- 요청: `{ "schemaVersion": "1.0", "previousSummary": null, "messages": [{"role":"USER|ASSISTANT","content":"..."}] }`. `messages`는 1~20개이며 content는 공백일 수 없습니다. Spring은 8턴마다 비동기 요약을 트리거하고 마지막 요약 경계 이후의 완료 메시지를 시간순으로 전달합니다.
 - 응답: `{ "schemaVersion": "1.0", "summary": "..." }`. 요약은 한국어 최대 1,000자이며 초과분은 AI Service가 결정적으로 절단합니다.
 - 공백 요약 또는 구조화 출력 SCHEMA 실패만 총예산 안에서 1회 재생성하고 최종 실패는 `AI_RESPONSE_INVALID`입니다. 점수·채점 결과·평가 상태는 요약에 포함하지 않습니다.
 - Spring은 최근 원문 메시지를 별도로 유지하고 이 엔드포인트를 턴 처리와 분리된 비동기 작업으로 호출합니다. 요약 실패는 사용자 턴을 실패시키지 않습니다.
