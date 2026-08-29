@@ -7,6 +7,9 @@ import java.lang.annotation.Target;
 
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import io.edupilot.admin.AdminAiUsageService;
+import io.edupilot.admin.AdminClassroomService;
+import io.edupilot.admin.AdminUserService;
 import io.edupilot.classroom.ClassroomService;
 import io.edupilot.aiusage.AiQuotaService;
 import io.edupilot.aiusage.AiUsageService;
@@ -45,6 +48,9 @@ import io.edupilot.schedule.PersonalScheduleService;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @MockitoBean(types = {
+	AdminAiUsageService.class,
+	AdminClassroomService.class,
+	AdminUserService.class,
 	AiUsageService.class,
 	AiQuotaService.class,
 	ClassroomService.class,

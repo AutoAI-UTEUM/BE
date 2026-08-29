@@ -1,5 +1,6 @@
 package io.edupilot.classroom;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -32,4 +33,20 @@ public interface ClassroomMemberRepository
 		Long classroomId,
 		Long userId
 	);
+
+	@Query("""
+		select member.classroom.id as classroomId,
+		       count(member.id) as memberCount
+		from ClassroomMember member
+		where member.classroom.id in :classroomIds
+		group by member.classroom.id
+		""")
+	List<ClassroomMemberCount> countByClassroomIds(
+		@Param("classroomIds") Collection<Long> classroomIds
+	);
+
+	interface ClassroomMemberCount {
+		Long getClassroomId();
+		Long getMemberCount();
+	}
 }

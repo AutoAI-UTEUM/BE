@@ -295,6 +295,10 @@ public class User {
 		return status;
 	}
 
+	public Instant getCreatedAt() {
+		return createdAt;
+	}
+
 	public boolean isActive() {
 		return status == UserStatus.ACTIVE;
 	}
