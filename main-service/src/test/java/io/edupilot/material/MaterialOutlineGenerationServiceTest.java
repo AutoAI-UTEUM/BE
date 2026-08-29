@@ -19,6 +19,7 @@ import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.OutlineRequest;
 import io.edupilot.ai.dto.OutlineResponse;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.MaterialOutlinePersistenceService.OutlineSnapshot;
 
@@ -28,6 +29,7 @@ class MaterialOutlineGenerationServiceTest {
 	@Mock private MaterialOutlinePersistenceService persistenceService;
 	@Mock private MaterialOutlineMarkdownRenderer renderer;
 	@Mock private AiClient aiClient;
+	@Mock private AiUsageService aiUsageService;
 
 	private MaterialOutlineGenerationService generationService;
 
@@ -36,7 +38,8 @@ class MaterialOutlineGenerationServiceTest {
 		generationService = new MaterialOutlineGenerationService(
 			persistenceService,
 			renderer,
-			aiClient
+			aiClient,
+			aiUsageService
 		);
 	}
 
@@ -124,6 +127,7 @@ class MaterialOutlineGenerationServiceTest {
 
 	private OutlineSnapshot snapshot() {
 		return new OutlineSnapshot(
+			1L,
 			2,
 			"file-outline-phase-five",
 			List.of(

@@ -450,6 +450,8 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 `CONTEXT_TRUNCATED` 경고는 그대로 전달하며 서버는 원문 없이 구조화된 INFO 로그만 남깁니다. 이 API는 스트리밍하지 않고 응답 완료까지 연결을 유지합니다.
 
+문서·퀴즈 복습 질문은 사용자 직결 AI 쿼터를 호출 직전에 검사합니다. KST 기준 당일 호출 횟수가 역할별 한도에 도달하면 AI를 호출하지 않고 `AI_QUOTA_EXCEEDED`(429)를 반환하며, `ADMIN`은 면제됩니다.
+
 ### PATCH `/api/materials/{materialId}`
 
 자료 소유자만 제목을 수정할 수 있습니다. 강의실 멤버의 열람 권한은 제목 수정 권한을 포함하지 않으며, 비소유자·삭제 자료·존재하지 않는 자료는 모두 `MATERIAL_NOT_FOUND`(404)로 은닉합니다. 제목은 앞뒤 공백을 제거한 뒤 비어 있지 않아야 하며 최대 255자입니다.
@@ -720,6 +722,8 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 `USER_QUESTION.payload.includeCurrentPage`는 boolean만 허용합니다. 생략하거나 `true`이면 현재·이전·다음 페이지 텍스트와 nullable `xaiFileId`를 내부 context에 포함합니다. `false`이면 Spring은 `xaiFileId`, `currentPageText`, `previousPageText`, `nextPageText` 네 필드의 값을 모두 null로 전달하되 그 외 context 필드는 유지합니다. 선택 필드인 `conversationSummary`도 페이지 첨부 여부와 독립적으로 전달할 수 있습니다. 이때 QaAgent는 일반 학습 지식으로 답변할 수 있지만 업로드 자료 내용을 추측하지 않고 학습과 무관한 요청에는 기존 한계 안내를 적용합니다. QA thread와 `latestRepair` 문맥은 플래그와 무관하게 승계합니다. 다른 eventType에 `includeCurrentPage`를 보내거나 boolean 외 값을 보내면 `VALIDATION_FAILED`입니다.
 
 동일 `requestId` 재전송 처리(확정): 기존 사용자 메시지의 `status=FAILED`이면 해당 메시지를 `COMPLETED`로 복귀시켜 재사용하고 턴을 다시 수행합니다. 질문 행은 추가하지 않습니다. 기존 메시지가 성공 또는 진행 상태이면 **`TURN_ALREADY_PROCESSED`(409)**를 유지합니다. FE는 실패 턴의 통신 재시도에 새 ID를 만들지 않고 같은 `requestId`를 다시 사용합니다.
+
+실제 AI turn 호출 직전에 사용자별 일일 쿼터를 검사합니다. KST 기준 당일 성공·실패 AI 호출을 모두 세며 역할별 한도에 도달하면 `AI_QUOTA_EXCEEDED`(429)를 반환하고 AI 요청은 전송하지 않습니다. `ADMIN`은 쿼터에서 면제됩니다.
 
 `data`:
 
@@ -1056,7 +1060,7 @@ Query:
 
 제출은 기존 세션 turn claim을 획득한 뒤 채점·평가·진단 파이프라인을 수행하고 성공·실패와 무관하게 마지막에 claim을 해제합니다. claim이 유지되는 동안 페이지 이동·turn·중복 제출은 `SESSION_STATE_CONFLICT`(409)로 차단되며, 동시 제출 중 claim을 획득한 한 요청만 AI 채점을 호출합니다.
 
-MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·채점·기본 UI 액션을 먼저 커밋한 다음, 같은 HTTP 요청 안에서 `quiz-assessment`를 항상 호출하고 기준 미달일 때만 `diagnosis`를 호출합니다. 외부 AI 호출 중에는 DB 트랜잭션을 유지하지 않습니다. 파이프라인 실패와 무관하게 저장된 제출·채점은 유지하고 HTTP 200과 기본 `MOVE_NEXT_PAGE` 액션을 반환합니다. assessment 실패 시 diagnosis는 호출하지 않으며, diagnosis 실패 시 이미 저장된 assessment는 유지합니다. 기준 미달이지만 assessment의 `wrongItems`가 비어 있으면 SCHEMA 422를 피하기 위해 diagnosis 호출을 생략하고 기본 UI 액션을 반환하며 서버에 warn 로그를 남깁니다. AI 호출 뒤 저장 시점에 세션이 `COMPLETED` 또는 `DELETED`로 전이되었다면 늦게 도착한 assessment·diagnosis와 pending 상태·UI 액션을 폐기합니다.
+MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·채점·기본 UI 액션을 먼저 커밋한 다음, 같은 HTTP 요청 안에서 `quiz-assessment`를 항상 호출하고 기준 미달일 때만 `diagnosis`를 호출합니다. 두 사용자 직결 AI 호출은 각각 호출 직전에 일일 쿼터를 검사하며 한도 도달 시 `AI_QUOTA_EXCEEDED`(429)를 반환합니다. 외부 AI 호출 중에는 DB 트랜잭션을 유지하지 않습니다. 쿼터 초과를 제외한 파이프라인 실패와 무관하게 저장된 제출·채점은 유지하고 HTTP 200과 기본 `MOVE_NEXT_PAGE` 액션을 반환합니다. assessment 실패 시 diagnosis는 호출하지 않으며, diagnosis 실패 시 이미 저장된 assessment는 유지합니다. 기준 미달이지만 assessment의 `wrongItems`가 비어 있으면 SCHEMA 422를 피하기 위해 diagnosis 호출을 생략하고 기본 UI 액션을 반환하며 서버에 warn 로그를 남깁니다. AI 호출 뒤 저장 시점에 세션이 `COMPLETED` 또는 `DELETED`로 전이되었다면 늦게 도착한 assessment·diagnosis와 pending 상태·UI 액션을 폐기합니다.
 
 `pageStatus=DIAGNOSIS_PENDING`인 세션은 새 `QUIZ_TYPE_SELECTED` turn을 `SESSION_STATE_CONFLICT`(409)로 거부합니다. 진단 답변은 진단이 생성된 퀴즈 페이지와 현재 페이지가 달라도 교정 결과 저장과 진단 완료 처리를 유지하지만, 현재 페이지의 `pageStatus`와 `uiActions`는 변경하지 않습니다.
 

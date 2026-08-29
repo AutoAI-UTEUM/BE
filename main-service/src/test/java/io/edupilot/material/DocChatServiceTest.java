@@ -7,8 +7,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.IntStream;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -18,21 +20,38 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.DocChatRequest.ContextDocument;
+import io.edupilot.aiusage.AiQuotaService;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.dto.DocChatRequest;
 import io.edupilot.quiz.QuizDocChatContextService;
+import io.edupilot.user.User;
+import io.edupilot.user.UserRepository;
 
 @ExtendWith(MockitoExtension.class)
 class DocChatServiceTest {
 
 	@Mock
 	private AiClient aiClient;
+	@Mock
+	private AiUsageService aiUsageService;
+	@Mock
+	private AiQuotaService aiQuotaService;
+	@Mock
+	private UserRepository userRepository;
 
 	@Mock
 	private MaterialDocChatContextService materialContextService;
 
 	@Mock
 	private QuizDocChatContextService quizContextService;
+
+	@BeforeEach
+	void setUpUser() {
+		when(userRepository.findById(1L)).thenReturn(Optional.of(
+			User.create("learner@example.com", "hash", "학습자")
+		));
+	}
 
 	@Test
 	void keepsOnlyLatestTenHistoryMessagesAndReturnsWarnings() {
@@ -104,6 +123,9 @@ class DocChatServiceTest {
 	private DocChatService service() {
 		return new DocChatService(
 			aiClient,
+			aiUsageService,
+			aiQuotaService,
+			userRepository,
 			materialContextService,
 			quizContextService
 		);

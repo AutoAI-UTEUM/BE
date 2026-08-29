@@ -63,6 +63,7 @@ public class MaterialOutlinePersistenceService {
 			))
 			.toList();
 		return Optional.of(new OutlineSnapshot(
+			material.getOwnerId(),
 			material.getPageCount(),
 			material.getXaiFileId(),
 			pages
@@ -148,6 +149,7 @@ public class MaterialOutlinePersistenceService {
 	}
 
 	public record OutlineSnapshot(
+		Long ownerId,
 		int totalPages,
 		String xaiFileId,
 		List<OutlineRequest.Page> pages

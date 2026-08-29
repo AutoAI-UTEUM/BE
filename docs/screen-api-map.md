@@ -76,14 +76,14 @@
 | 학습 세션 | 노트 삭제 | `DELETE /api/notes/{noteId}` | 목록에서 제거 | `NOTE_NOT_FOUND` |
 | PDF 뷰어 | 다음/이전/번호 입력 | `PATCH /api/sessions/{sessionId}/page` | 응답 페이지로 뷰어 동기화, 설명 여부 UI | 페이지 범위/상태 충돌 |
 | 채팅 | 스트림 선연결 | `GET /api/sessions/{sessionId}/stream` | fetch+Bearer로 SSE 연결 후 turns 호출 | 중복 연결/AI 스트림 중단 |
-| 채팅 | 설명 시작 선택 | `POST /api/sessions/{sessionId}/turns` | 설명 스트림/메시지 표시 | AI timeout/스키마 오류 |
+| 채팅 | 설명 시작 선택 | `POST /api/sessions/{sessionId}/turns` | 설명 스트림/메시지 표시 | AI timeout/스키마 오류/일일 AI 쿼터 429 |
 | 채팅 | 답변 생성 중지 | `POST /api/sessions/{sessionId}/turns/cancel` | 수신한 텍스트가 있으면 부분 답변을 저장하고 completed 처리, 없으면 `TURN_CANCELLED` 표시 | 인증, 실행 중 턴 없음은 `cancelled:false` 멱등 응답 |
-| 채팅 | 질문 전송 | 같은 turns API | QA 답변과 후속 질문 문맥 반영 | 빈 질문/AI 오류 |
+| 채팅 | 질문 전송 | 같은 turns API | QA 답변과 후속 질문 문맥 반영 | 빈 질문/AI 오류/일일 AI 쿼터 429 |
 | 채팅 | 노트 제안 수락 | 같은 turns API (`NOTE_REQUESTED`, `payload: {}`) | `noteDraft`를 편집 UI에 표시하고 확정 시 기존 노트 API로 저장 | 잘못된 초안/AI 오류 |
 | 채팅 | 진단 답변 제출 | 같은 turns API | 오개념 교정 답변 표시 | 진단 상태 충돌 |
 | 퀴즈 유형 선택 | MCQ/OX/SHORT/ESSAY 선택 | 같은 turns API | 응답의 `state.activeQuizId`로 퀴즈 문항 조회 후 UI 열기 | 지원하지 않는 타입 |
 | 퀴즈 풀이 | 문항 표시/새로고침 복원 | `GET /api/quizzes/{quizId}` | 공개 문항 렌더링 | 퀴즈 없음/세션 권한 |
-| 퀴즈 풀이 | 제출 | `POST /api/quizzes/{quizId}/submit` | 동기 채점·평가 결과, 기준 미달이면 `DIAGNOSIS_QUESTION` 표시 | 중복 제출/답안 오류. 제출 후 AI 파이프라인 실패는 기본 이동 액션으로 격리 |
+| 퀴즈 풀이 | 제출 | `POST /api/quizzes/{quizId}/submit` | 동기 채점·평가 결과, 기준 미달이면 `DIAGNOSIS_QUESTION` 표시 | 중복 제출/답안 오류/평가·진단 일일 AI 쿼터 429. 그 외 제출 후 AI 파이프라인 실패는 기본 이동 액션으로 격리 |
 | 퀴즈 결과 | 과거 제출 결과 진입 | `GET /api/quizzes/{quizId}/submission` | 제출 답안·문항별 판정·점수·피드백과 정답·해설 표시 | 미제출·비소유·없는 퀴즈는 `QUIZ_NOT_FOUND` 404로 은닉 |
 | 학습 기록 | 퀴즈 탭 진입 | `GET /api/sessions/{sessionId}/quizzes` | 퀴즈/점수 요약 | 세션 권한 |
 | 학습 분석 | 메모리 화면 진입 | `GET /api/users/me/memory?materialId={materialId}` | 해당 자료의 공개 가능한 개인화 요약 | 데이터 없음 |

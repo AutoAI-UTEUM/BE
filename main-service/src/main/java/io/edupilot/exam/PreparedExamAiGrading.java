@@ -8,6 +8,7 @@ import io.edupilot.ai.dto.GradeRequest;
 public record PreparedExamAiGrading(
 	Long submissionId,
 	Long examId,
+	Long userId,
 	List<Group> groups
 ) {
 	public record Group(

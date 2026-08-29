@@ -65,6 +65,7 @@
 | `ACCESS_DENIED` | 403 | 역할/권한 부족 |
 | `RESOURCE_NOT_FOUND` | 404 | 일반 리소스 없음 |
 | `RATE_LIMIT_EXCEEDED` | 429 | 호출 제한 초과 |
+| `AI_QUOTA_EXCEEDED` | 429 | 사용자별 일일 AI 호출 횟수 한도 초과 |
 | `INTERNAL_SERVER_ERROR` | 500 | 예상하지 못한 오류 |
 
 ### 사용자

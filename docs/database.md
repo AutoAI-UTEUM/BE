@@ -27,6 +27,7 @@
 | `classroom_resource` | id, classroom_id, type, title, week_number(nullable), file metadata(nullable), storage_path(nullable), url(nullable), timestamps | `FK(classroom_id)`, `IDX(classroom_id,week_number,created_at,id)`, 유형·주차·파일 크기·메타데이터 조합 CHECK |
 | `notifications` | id, user_id, type, title, body, link_json, read_at(nullable), created_at | `FK(user_id)`, `IDX(user_id,created_at)`, type CHECK |
 | `user_schedules` | id, user_id, title, starts_at, ends_at, has_time, timestamps | `FK(user_id)`, `IDX(user_id,starts_at)`, `CHECK(ends_at >= starts_at)` |
+| `ai_usage_log` | id, user_id, feature, model(nullable), input/output/reasoning tokens(nullable), success, created_at | FK 없음, `IDX(user_id,created_at)`, `IDX(feature,created_at)` |
 | `exams` | id, classroom_id, week_number(nullable), title, description(nullable), status, allow_retake, total_score, published_at(nullable), closed_at(nullable), timestamps | `FK(classroom_id)`, `IDX(classroom_id,status)`, 상태·총점 CHECK |
 | `exam_questions` | id, exam_id, question_no, question_type, points, public_question_json, private_answer_json, schema_version, timestamps | `FK(exam_id)`, `UK(exam_id,question_no)`, 유형·점수 CHECK |
 | `exam_submissions` | id, exam_id, user_id, attempt_no, request_id, status, submitted_at, graded_at(nullable), score(nullable), max_score, normalized_score(nullable), grading_lease_token(nullable), grading_lease_until, grading_retry_count, timestamps | `FK(exam_id)`, `FK(user_id)`, 시도·멱등 UK, 상태·점수·재시도 CHECK, 상태+lease·제출시각 인덱스 |
@@ -70,6 +71,7 @@
 - `classrooms.color`는 `BLUE | GREEN | PURPLE | ORANGE | RED | GRAY`, `status`는 `ACTIVE | COMPLETED`입니다. 완료는 날짜가 아니라 명시적 상태 전환으로만 발생합니다.
 - 강의실 컬럼 타입은 `name VARCHAR(100)`, `start_date/end_date DATE`, `color VARCHAR(20)`, `description VARCHAR(255) NULL`, `status VARCHAR(20)`, `invite_code VARCHAR(16)`입니다. 주차는 `week_number INT`, `title VARCHAR(100)`, `release_at DATETIME(6) NULL`, `status VARCHAR(20)`, `display_order INT`를 사용하고, 공지는 `week_number INT NULL`, `title VARCHAR(200)`, `content TEXT`, `published_at DATETIME(6)`, `publish_at DATETIME(6) NULL`을 사용합니다. 일반 자료는 `type FILE | LINK`, `title VARCHAR(200)`, `week_number INT NULL`, 원본 파일 메타데이터 또는 `url VARCHAR(2048)`을 유형별로 저장합니다. 공지·일반 자료의 `week_number` 상한은 애플리케이션에서 강의실 `weekCount`로 검증합니다. 참여·요청·연결 시각도 `DATETIME(6)` UTC입니다.
 - 강의실 관련 테이블은 모두 `BIGINT AUTO_INCREMENT` PK와 `created_at`, `updated_at`을 사용합니다. FK에는 자동 cascade를 두지 않고 주차·연결·공지 삭제 순서를 서비스 트랜잭션에서 명시적으로 처리합니다.
+- `ai_usage_log`는 탈퇴 사용자 기록 보존과 AI 호출 경로의 삽입 비용을 위해 `users` FK를 두지 않습니다. `AiFeature`로 정의한 xAI 모델 호출의 성공·실패를 사용자와 feature 기준으로 기록하며, usage가 아직 전파되지 않는 응답은 model·token 컬럼을 null로 남깁니다. 일일 쿼터는 별도 카운터 없이 KST 00:00 이후의 성공·실패 행을 모두 조회합니다.
 - 별도 시험은 강의실에 귀속하고 `week_number`는 nullable 표시·집계 라벨로만 사용합니다. 값이 있으면 `1 <= week_number <= classroom.week_count`를 애플리케이션에서 검증하되 `classroom_weeks` 행의 존재를 요구하지 않습니다. `exams.status`는 `DRAFT | PUBLISHED | CLOSED`, `allow_retake` 기본값은 false입니다.
 - DRAFT 시험은 문항 0개와 `total_score=0`을 허용하므로 DB 제약은 `total_score >= 0`입니다. 공개 시 애플리케이션이 문항 1개 이상과 `total_score > 0`을 검증하며, 문항 전체 교체 시 합계를 다시 계산합니다. 공개 이후 문항과 설정은 변경하지 않습니다.
 - `exam_questions`는 `question_no`를 1부터 부여하고 외부 `questionId`를 `q{question_no}`로 파생합니다. 공개 JSON과 정답·모범 답안·rubric이 담긴 비공개 JSON을 분리하며 학생 DTO에는 비공개 JSON을 매핑하지 않습니다. SHORT/ESSAY rubric 키가 없거나 빈 배열이면 grade 호출 시 서버 기본 rubric을 주입합니다.
@@ -212,6 +214,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V25__report_scope_chain.sql`은 generation의 scope를 `student_reports.scope_key`로 backfill하고 학생별 전역 version 유니크를 학생·scope 체인별 version 유니크로 교체합니다. backfill할 수 없는 행은 임의 기본값 없이 NOT NULL 전환에서 배포를 중단합니다.
 - `V26__in_app_notifications.sql`은 사용자 귀속 인앱 알림 테이블과 최신순 인덱스, 예약 공지 1회 생성 표식을 추가합니다. 기존 즉시 게시·이미 도래한 공지는 발송 완료로 backfill하고 미래 예약 공지만 스캔 대상으로 남깁니다.
 - `V32__classroom_resources.sql`은 AI 추출 대상이 아닌 강의실 일반 파일·링크 자료와 유형별 메타데이터 제약, 주차별 최신순 조회 인덱스를 추가합니다. 파일은 `classroom-resources/` storage 하위에 UUID 키로 저장합니다.
+- `V35__ai_usage_log.sql`은 사용자·기능별 AI 호출 감사 로그와 일일 쿼터 COUNT 조회 인덱스를 추가합니다. 탈퇴 후에도 비용 기록을 보존하기 위해 사용자 FK는 추가하지 않습니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.

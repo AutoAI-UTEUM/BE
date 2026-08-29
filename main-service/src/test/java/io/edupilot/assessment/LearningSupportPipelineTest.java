@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -22,6 +23,8 @@ import io.edupilot.ai.dto.DiagnosisResponse;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
 import io.edupilot.ai.dto.QuizAssessmentResponse;
+import io.edupilot.aiusage.AiQuotaService;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.diagnosis.DiagnosisPersistenceService;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.memory.LearnerMemoryRepository;
@@ -35,12 +38,20 @@ import io.edupilot.quiz.QuizOption;
 import io.edupilot.quiz.QuizType;
 import io.edupilot.quiz.SubmittedAnswer;
 import io.edupilot.session.UiAction;
+import io.edupilot.user.User;
+import io.edupilot.user.UserRepository;
 
 @ExtendWith(MockitoExtension.class)
 class LearningSupportPipelineTest {
 
 	@Mock
 	private AiClient aiClient;
+	@Mock
+	private AiUsageService aiUsageService;
+	@Mock
+	private AiQuotaService aiQuotaService;
+	@Mock
+	private UserRepository userRepository;
 
 	@Mock
 	private AssessmentPersistenceService assessmentPersistenceService;
@@ -50,6 +61,15 @@ class LearningSupportPipelineTest {
 
 	@Mock
 	private LearnerMemoryRepository memoryRepository;
+
+	@BeforeEach
+	void setUpUser() {
+		org.mockito.Mockito.lenient()
+			.when(userRepository.findById(1L))
+			.thenReturn(Optional.of(
+				User.create("learner@example.com", "hash", "학습자")
+			));
+	}
 
 	@Test
 	void passedSubmissionStoresAssessmentAndNeverCallsDiagnosis() {
@@ -305,6 +325,9 @@ class LearningSupportPipelineTest {
 	private LearningSupportPipeline pipeline() {
 		return new LearningSupportPipeline(
 			aiClient,
+			aiUsageService,
+			aiQuotaService,
+			userRepository,
 			assessmentPersistenceService,
 			diagnosisPersistenceService,
 			memoryRepository

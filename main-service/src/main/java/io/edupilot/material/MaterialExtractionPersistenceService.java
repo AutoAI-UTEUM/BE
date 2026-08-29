@@ -30,6 +30,7 @@ public class MaterialExtractionPersistenceService {
 			.filter(LearningMaterial::isActiveAndProcessing)
 			.map(material -> new ExtractionSnapshot(
 				material.getId(),
+				material.getOwnerId(),
 				material.getStorageKey()
 			));
 	}
@@ -97,6 +98,7 @@ public class MaterialExtractionPersistenceService {
 
 	public record ExtractionSnapshot(
 		Long materialId,
+		Long ownerId,
 		String storageKey
 	) {
 	}
