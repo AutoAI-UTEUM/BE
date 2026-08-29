@@ -23,6 +23,7 @@ import org.springframework.core.io.ByteArrayResource;
 import io.edupilot.ai.dto.TurnRequest;
 import io.edupilot.ai.dto.CaptionsRequest;
 import io.edupilot.ai.dto.CaptionsResponse;
+import io.edupilot.ai.dto.ConversationSummaryMessage;
 import io.edupilot.ai.dto.CriteriaSuggestRequest;
 import io.edupilot.ai.dto.DiagnosisRequest;
 import io.edupilot.ai.dto.DocChatRequest;
@@ -367,6 +368,40 @@ class HttpAiClientContractTest {
 				assertThat(exception.upstreamCode())
 					.isEqualTo("AI_REQUEST_INVALID");
 			});
+	}
+
+	@Test
+	void conversationSummaryUsesContractAndDefensivelyTruncatesResponse()
+		throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion": "1.0",
+			  "summary": "%s"
+			}
+			""".formatted("x".repeat(1_005))));
+
+		var response = client(Duration.ofSeconds(1)).summarizeConversation(
+			"이전 요약",
+			List.of(
+				new ConversationSummaryMessage("USER", "질문"),
+				new ConversationSummaryMessage("ASSISTANT", "답변")
+			)
+		);
+
+		assertThat(response.summary()).hasSize(1_000);
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request).isNotNull();
+		assertThat(request.getPath())
+			.isEqualTo("/internal/ai/conversation-summary");
+		assertThat(request.getHeader("X-Internal-Token"))
+			.isEqualTo(INTERNAL_TOKEN);
+		assertThat(request.getBody().readUtf8())
+			.contains(
+				"\"schemaVersion\":\"1.0\"",
+				"\"previousSummary\":\"이전 요약\"",
+				"\"role\":\"USER\"",
+				"\"role\":\"ASSISTANT\""
+			);
 	}
 
 	@Test
@@ -1092,6 +1127,7 @@ class HttpAiClientContractTest {
 			baseUrl,
 			INTERNAL_TOKEN,
 			Duration.ofMillis(300),
+			readTimeout,
 			readTimeout,
 			readTimeout,
 			readTimeout,
