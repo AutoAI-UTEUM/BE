@@ -252,6 +252,26 @@ GitHub `dev` Environment와 다음 Secrets를 등록합니다.
 
 워크플로는 Compose와 Nginx 설정만 전달하며 서버의 `.env`를 덮어쓰지 않습니다.
 
+### 6.1 운영 primary host 전환
+
+운영 primary host는 `https://www.uteum.com`입니다. 운영 서버 `.env`와 외부 콘솔은
+다음 계약을 함께 만족해야 합니다.
+
+- `EDUPILOT_DOMAIN="www.uteum.com uteum.com"`처럼 primary와 apex를 모두 Nginx
+  `server_name`에 포함합니다. apex 연결 자체가 차단되는 회선에서는 HTTP redirect가
+  실행될 수 없으므로 redirect를 복구 수단으로 사용하지 않습니다.
+- 인증서는 `www.uteum.com`과 `uteum.com`을 모두 SAN으로 발급·갱신합니다.
+- 운영 CORS는
+  `EDUPILOT_CORS_ALLOWED_ORIGINS=https://www.uteum.com,https://uteum.com`으로
+  제한합니다. 기존 DuckDNS host는 CORS, Nginx `server_name`, 인증서 SAN과 smoke
+  URL에서 모두 제외합니다.
+- refresh 쿠키는 같은 Nginx의 `/api`에 요청하는 host-only 쿠키를 유지합니다.
+  `Domain=.uteum.com`으로 범위를 넓히지 않습니다. apex에서 로그인했던 사용자는
+  www에서 한 번 다시 로그인해야 합니다.
+- GitHub prod Environment의 `PROD_DOMAIN`은 `www.uteum.com`으로 설정합니다. prod
+  workflow는 배포 전에 이 값을 검증하고 www 기준 health, CORS, HTTP 404 smoke를
+  수행합니다.
+
 ## 7. 롤백
 
 배포 전 정상 동작한 이전 git SHA를 기록합니다. 애플리케이션 롤백은 이전 이미지
@@ -325,7 +345,7 @@ AI Service Docker 이미지와 Compose·Deploy dev 계약의 저장소 반영은
 
 - 서버 `.env`에 실제 `XAI_API_KEY` 추가
 - develop 병합 후 Actions의 `Deploy dev` 실행
-- `https://edu-pilot.duckdns.org/api/health/ready`에서 전체 상태와 `aiService`가 `UP`인지 확인
+- `https://dev.uteum.com/api/health/ready`에서 전체 상태와 `aiService`가 `UP`인지 확인
 - EC2와 보안 그룹 생성
 - DNS 연결과 certbot 최초 발급
 - GitHub Secrets·Variables·dev Environment 등록
