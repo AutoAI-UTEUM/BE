@@ -58,14 +58,36 @@ class QuizProposalPolicyTest {
 	}
 
 	@Test
-	void textBelowThresholdIsIneligibleWithoutOverviewLookup() {
+	void textBelowThresholdIsIneligibleInFallbackMode() {
+		when(overviewRepository.findByMaterial_Id(10L))
+			.thenReturn(Optional.empty());
 		when(materialPageRepository.findTextLengthByMaterialIdAndPageNumber(
 			10L, 2
 		)).thenReturn(Optional.of(199));
 
 		assertThat(explainEligibility(2, 6)).isFalse();
+	}
 
-		verifyNoInteractions(overviewRepository);
+	@Test
+	void checkpointModeIgnoresTextGateAndOffersOnlyAtTriggerPages() {
+		MaterialOverview overview = readyOverviewWithCheckpoints(
+			6,
+			List.of(
+				checkpoint(2, 1, 2),
+				checkpoint(6, 3, 6)
+			),
+			section(1, 2),
+			section(3, 4),
+			section(5, 6)
+		);
+		when(overviewRepository.findByMaterial_Id(10L))
+			.thenReturn(Optional.of(overview));
+
+		assertThat(explainEligibility(2, 6)).isTrue();
+		assertThat(explainEligibility(3, 6)).isFalse();
+		assertThat(explainEligibility(6, 6)).isTrue();
+
+		verifyNoInteractions(materialPageRepository);
 	}
 
 	@Test
@@ -172,6 +194,18 @@ class QuizProposalPolicyTest {
 		int totalPages,
 		OutlineResponse.Section... sections
 	) {
+		return readyOverviewWithCheckpoints(
+			totalPages,
+			null,
+			sections
+		);
+	}
+
+	private MaterialOverview readyOverviewWithCheckpoints(
+		int totalPages,
+		List<OutlineResponse.QuizCheckpoint> checkpoints,
+		OutlineResponse.Section... sections
+	) {
 		MaterialOverview overview = pendingOverview();
 		overview.markReady(
 			"overview",
@@ -179,10 +213,23 @@ class QuizProposalPolicyTest {
 				"1.0",
 				"summary",
 				List.of(sections),
-				totalPages
+				checkpoints,
+				totalPages,
+				null
 			)
 		);
 		return overview;
+	}
+
+	private OutlineResponse.QuizCheckpoint checkpoint(
+		int triggerPage,
+		int startPage,
+		int endPage
+	) {
+		return new OutlineResponse.QuizCheckpoint(
+			triggerPage,
+			new OutlineResponse.Coverage(startPage, endPage)
+		);
 	}
 
 	private OutlineResponse.Section section(int startPage, int endPage) {

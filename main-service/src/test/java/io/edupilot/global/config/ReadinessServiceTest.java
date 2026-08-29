@@ -130,6 +130,7 @@ class ReadinessServiceTest {
 			timeout,
 			timeout,
 			timeout,
+			timeout,
 			"/health"
 		);
 	}

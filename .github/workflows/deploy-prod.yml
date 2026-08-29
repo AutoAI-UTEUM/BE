@@ -5,7 +5,7 @@
 # - GHCR_TOKEN (packages:write)
 #
 # Required GitHub Repository Variables:
-# - PROD_DOMAIN
+# - PROD_DOMAIN (must be www.uteum.com)
 # - PROD_DEPLOY_PATH
 # - GHCR_USERNAME
 
@@ -43,6 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$PROD_DOMAIN"
+          test "$PROD_DOMAIN" = "www.uteum.com"
           test -n "$PROD_DEPLOY_PATH"
           test -n "$GHCR_USERNAME"
 
@@ -137,9 +138,29 @@ jobs:
             if printf '%s' "$readiness_response" |
               grep --extended-regexp --quiet '"aiService"[[:space:]]*:[[:space:]]*"UP"'; then
               printf '%s\n' "$readiness_response"
-              exit 0
+              break
             fi
             echo "Readiness check attempt $attempt/12 failed"
+            if [ "$attempt" -eq 12 ]; then
+              exit 1
+            fi
             sleep 5
           done
-          exit 1
+
+          cors_headers="$(
+            curl --fail --silent --show-error --dump-header - --output /dev/null \
+              --request OPTIONS \
+              --header "Origin: https://${{ vars.PROD_DOMAIN }}" \
+              --header 'Access-Control-Request-Method: POST' \
+              --header 'Access-Control-Request-Headers: content-type' \
+              "https://${{ vars.PROD_DOMAIN }}/api/auth/refresh"
+          )"
+          printf '%s' "$cors_headers" | tr -d '\r' | \
+            grep --ignore-case --fixed-strings --quiet \
+              "Access-Control-Allow-Origin: https://${{ vars.PROD_DOMAIN }}"
+
+          not_found_status="$(
+            curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              "https://${{ vars.PROD_DOMAIN }}/__uteum_not_found_smoke__"
+          )"
+          test "$not_found_status" = "404"

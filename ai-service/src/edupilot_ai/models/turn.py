@@ -138,6 +138,7 @@ class QuizContext(ContractModel):
 
 class ContextSnapshot(ContractModel):
     xai_file_id: str | None = Field(default=None, min_length=1)
+    conversation_summary: str | None = None
     current_page_text: str | None
     previous_page_text: str | None
     next_page_text: str | None

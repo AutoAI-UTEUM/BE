@@ -22,6 +22,7 @@ from edupilot_ai.models.report import (
 from edupilot_ai.reporting.service import ReportGenerationService
 from edupilot_ai.reporting.validator import (
     ReportValidationError,
+    normalize_generate_output,
     validate_generate_output,
 )
 from edupilot_ai.settings import ReasoningEffort, Settings
@@ -333,6 +334,102 @@ def test_generate_validator_reason_codes(
     with pytest.raises(ReportValidationError) as captured:
         validate_generate_output(generation_request, output)
     assert captured.value.reason == expected_reason
+
+
+@pytest.mark.parametrize(
+    ("status", "score"),
+    [
+        ("ASSESSED", None),
+        ("INSUFFICIENT_DATA", 80),
+    ],
+)
+def test_generate_normalizer_conservatively_downgrades_score_status_conflicts(
+    status: str,
+    score: int | None,
+) -> None:
+    request = report_request()
+    output = report_output(status=status, score=score)
+
+    normalized, corrections = normalize_generate_output(request, output)
+
+    result = normalized.criterion_results[0]
+    assert result.status == "INSUFFICIENT_DATA"
+    assert result.score is None
+    assert "학습 기록이 더 쌓이면" in result.narrative
+    assert corrections == {"SCORE_STATUS_CONFLICT": 1}
+    assert output.criterion_results[0].status == status
+    assert output.criterion_results[0].score == score
+    validate_generate_output(request, normalized)
+
+
+def test_generate_normalizer_drops_only_single_evidence_misconceptions() -> None:
+    request = report_request()
+    unsupported = EvidencedStatement(
+        content="편차를 평균 자체로 오해할 가능성이 있습니다.",
+        evidence_ids=["ev-1"],
+    )
+    supported = EvidencedStatement(
+        content="편차와 평균을 반복해서 혼동할 가능성이 있습니다.",
+        evidence_ids=["ev-1", "ev-2"],
+    )
+    output = report_output()
+    output = output.model_copy(
+        update={
+            "summary": output.summary.model_copy(
+                update={"misconception_candidates": [unsupported, supported]}
+            )
+        }
+    )
+
+    normalized, corrections = normalize_generate_output(request, output)
+
+    assert normalized.summary.misconception_candidates == [supported]
+    assert corrections == {"MISCONCEPTION_SINGLE_EVIDENCE": 1}
+    assert output.summary.misconception_candidates == [unsupported, supported]
+    validate_generate_output(request, normalized)
+
+
+async def test_report_generate_normalizes_local_violations_without_regeneration(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    fake_llm.queue(
+        report_output(
+            score=None,
+            misconception_evidence=["ev-1"],
+        )
+    )
+    service_logger = logging.getLogger("edupilot_ai.reporting.service")
+    service_logger.addHandler(caplog.handler)
+    try:
+        response = await client.post(
+            "/internal/ai/reports/generate",
+            headers=auth_headers,
+            json=generate_payload(),
+        )
+    finally:
+        service_logger.removeHandler(caplog.handler)
+
+    assert response.status_code == 200
+    assert len(fake_llm.calls) == 1
+    body = response.json()
+    assert body["criterionResults"][0]["status"] == "INSUFFICIENT_DATA"
+    assert body["criterionResults"][0]["score"] is None
+    assert body["summary"]["misconceptionCandidates"] == []
+    system = fake_llm.calls[0][0][0]["content"]
+    assert "score가 null이면 status는 INSUFFICIENT_DATA" in system
+    assert "2개 미만이면 해당 항목 자체를 생략하라" in system
+    record = next(item for item in caplog.records if item.message == "report output normalized")
+    assert record.__dict__["correctedScoreStatusCount"] == 1
+    assert record.__dict__["droppedMisconceptionCount"] == 1
+    assert record.__dict__["normalizedReasons"] == [
+        "MISCONCEPTION_SINGLE_EVIDENCE",
+        "SCORE_STATUS_CONFLICT",
+    ]
+    assert "정답률 80%" not in caplog.text
+    assert "편차 정의를 구체적으로 질문함" not in caplog.text
 
 
 async def test_report_generate_regenerates_after_unknown_evidence(

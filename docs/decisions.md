@@ -494,6 +494,27 @@
 - 대안과 trade-off: 모든 READY 개요를 무조건 신뢰하면 legacy gap 때문에 경계가 사라질 수 있고, section 전체를 출제 범위로 쓰면 아직 설명하지 않은 페이지가 섞일 수 있어 채택하지 않습니다. 경계 판정은 overview 단건 조회가 추가되지만 설명 완료·텍스트 임계 통과 시에만 발생합니다.
 - 후속 변경 문서: [API 명세](api-spec.md) §5 W3, [기능 명세](feature-spec.md) §7. wire 계약과 DB migration은 변경하지 않습니다.
 
+### DEC-037 — AI checkpoint 기반 퀴즈 제안과 coverage 출제
+
+- 상태: Accepted — 설계자 승인, [#338](https://github.com/AutoAI-UTEUM/BE/issues/338)
+- 결정일: 2026-08-28
+- 결정자: Backend 담당자, AI Service 담당자
+- 선택: READY 개요의 유효한 `quizCheckpoints`를 section 종료 추론보다 우선합니다. Spring은 현재 페이지가 `triggerPage`일 때만 퀴즈를 제안하고 checkpoint 모드에서는 200자 게이트를 적용하지 않습니다. 유형 선택 턴은 기존 nullable `quizContext` 계약에 coverage 전 페이지의 캡션 병합 텍스트를 오름차순으로 넣고 전체 12,000자 뒤쪽을 결정적으로 절단합니다. AI 출력 coverage는 이 범위와 같아야 하며 퀴즈 엔티티의 `pageNumber`는 현재 triggerPage로 유지합니다. checkpoint가 없거나 저장 JSON 검증에서 탈락하면 DEC-036의 기존 200자·section 정책으로 fallback합니다.
+- 방어 경계: Spring은 수신·저장 `quizCheckpoints`의 개수, 범위, trigger 일치, 중복·순서·겹침, section 경계를 재검증합니다. 위반 시 원문을 로그에 남기지 않고 위반 유형만 WARN으로 기록하며 개요 전체가 아니라 checkpoint 계획만 absent로 강등합니다. 구버전 READY 개요 중 계획이 없는 행은 기존 개요 backfill batch에 포함해 점진적으로 재생성합니다.
+- 이유: 짧은 전환 페이지의 글자 수가 아니라 자료 전체 흐름을 읽은 AI 계획으로 학습 중단 시점을 정하고, 실제 출제 근거도 그 시점까지 학습한 연속 범위와 일치시키기 위해서입니다.
+- 대안과 trade-off: section 끝과 200자 게이트를 계속 사용하면 단순하지만 의미 있는 짧은 trigger를 놓칩니다. checkpoint를 무조건 신뢰하면 저장 JSON 변조·구버전 데이터가 출제 범위를 오염시킬 수 있어 Spring 정규화와 기존 정책 fallback을 함께 유지합니다.
+- 후속 변경 문서: [AI 통합 계약](ai-integration-contract.md) §3.1·§6.6, [API 명세](api-spec.md) §5 W3·§8, [기능 명세](feature-spec.md) §7, [DB 명세](database.md). API·DB 스키마와 환경 변수는 변경하지 않습니다.
+
+### DEC-038 — 비동기 대화 요약 경계와 원문 문맥 병행
+
+- 상태: Accepted — Backend·AI 계약 [#337](https://github.com/AutoAI-UTEUM/BE/issues/337)
+- 결정일: 2026-08-29
+- 결정자: Backend 담당자, AI Service 담당자
+- 선택: 최근 원문 `recentMessages` 10개는 그대로 유지하고, 완료된 USER 메시지 8개마다 `conversationSummary`를 턴 커밋 이후 비동기로 갱신합니다. 요약 대상은 마지막 요약 경계(없으면 새 대화 리셋 경계) 이후의 COMPLETED 메시지이며 FAILED는 제외합니다. 한 요청에는 오래된 순 최대 20개만 포함하고 실제 마지막 포함 메시지 ID까지만 경계를 전진시켜 초과분을 다음 주기로 이월합니다. AI 호출 실패 시 요약과 경계 ID를 모두 유지하고, 성공 시 두 값을 단일 트랜잭션으로 갱신합니다. 새 대화 시작은 두 값을 null로 초기화하며, null 요약은 AI context에서 키 자체를 생략합니다.
+- 이유: 최근 원문으로 즉시 문맥 정확도를 유지하면서 긴 세션의 초반 배경·학습 선호를 제한된 토큰의 보조 요약으로 이어갑니다. 요약을 사용자 턴과 분리하고 경계를 성공 시에만 전진시켜 외부 AI 장애가 턴 성공이나 재시도 가능성을 훼손하지 않게 합니다.
+- 대안과 trade-off: 턴 요청 안에서 동기 요약하면 최신성이 높지만 응답 지연과 실패 결합이 생깁니다. 최근 원문을 요약으로 대체하면 토큰은 줄지만 세부 발화가 손실되므로 병행 방식을 채택합니다. 단일 Main Service 인스턴스의 전용 순차 executor와 저장 시 경계 재검증으로 중복 결과를 방어하며, 다중 인스턴스 확장 시에는 DB lease 도입을 별도로 검토합니다.
+- 후속 변경 문서: [AI 통합 계약](ai-integration-contract.md) §3.1·§6.10, [DB 명세](database.md), [API 명세](api-spec.md) §5·§8.
+
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 
 - 상태: Accepted

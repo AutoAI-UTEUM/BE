@@ -54,6 +54,9 @@ public class LearningSession {
 	@Column(name = "conversation_summary", columnDefinition = "TEXT")
 	private String conversationSummary;
 
+	@Column(name = "last_summarized_message_id")
+	private Long lastSummarizedMessageId;
+
 	@JdbcTypeCode(SqlTypes.JSON)
 	@Column(name = "last_ui_actions_json", columnDefinition = "json")
 	private List<UiAction> lastUiActions;
@@ -202,7 +205,19 @@ public class LearningSession {
 	public int startNewConversation(Instant startedAt) {
 		this.conversationResetAt = Objects.requireNonNull(startedAt);
 		this.conversationResetCount += 1;
+		this.conversationSummary = null;
+		this.lastSummarizedMessageId = null;
 		return this.conversationResetCount;
+	}
+
+	public void applyConversationSummary(
+		String summary,
+		Long summarizedThroughMessageId
+	) {
+		this.conversationSummary = Objects.requireNonNull(summary);
+		this.lastSummarizedMessageId = Objects.requireNonNull(
+			summarizedThroughMessageId
+		);
 	}
 
 	public Long getId() {
@@ -259,6 +274,14 @@ public class LearningSession {
 
 	public Instant getConversationResetAt() {
 		return conversationResetAt;
+	}
+
+	public String getConversationSummary() {
+		return conversationSummary;
+	}
+
+	public Long getLastSummarizedMessageId() {
+		return lastSummarizedMessageId;
 	}
 
 	public int getConversationResetCount() {

@@ -1,5 +1,6 @@
 """POST /internal/ai/turn orchestration contract."""
 
+import json
 import logging
 from copy import deepcopy
 
@@ -330,12 +331,48 @@ async def test_user_question_start_new(
     assert turn.messages[0].message_type == "QA"
     assert turn.state_patch == {"qaThread": {"mode": "START_NEW"}}
     assert len(fake_llm.calls) == 2
+    planner_payload = json.loads(fake_llm.calls[0][0][1]["content"])
+    agent_payload = json.loads(fake_llm.calls[1][0][1]["content"])
+    assert planner_payload["conversationSummary"] is None
+    assert agent_payload["conversationSummary"] is None
+    assert "conversationSummary는 이전 대화의 압축 맥락이다" in (fake_llm.calls[0][0][0]["content"])
+    assert "conversationSummary는 이전 대화의 압축 맥락이다" in (fake_llm.calls[1][0][0]["content"])
     assert '"qaThreadDigest": null' in fake_llm.calls[1][0][1]["content"]
     assert '"learnerConfidence": "LOW"' in fake_llm.calls[1][0][1]["content"]
     assert "모든 학습자 대상 텍스트" in fake_llm.calls[1][0][0]["content"]
     assert "learner question remain the scope anchor" in fake_llm.calls[1][0][0]["content"]
     assert fake_llm.file_attachments[0] == ()
     assert [item.file_id for item in fake_llm.file_attachments[1]] == ["file-qa-json"]
+
+
+async def test_conversation_summary_reaches_planner_and_qa_payloads(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+    turn_payload: dict[str, object],
+) -> None:
+    payload = deepcopy(turn_payload)
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["conversationSummary"] = "학생은 그림 예시를 선호하며 편차를 복습 중입니다."
+    fake_llm.queue(
+        make_plan(
+            ToolName.ANSWER_QUESTION,
+            {"qaThreadMode": "START_NEW", "threadRef": None},
+            "ANSWER_USER_QUESTION",
+        ),
+        AgentOutput(markdown="편차를 그림 예시로 다시 설명하겠습니다."),
+    )
+
+    response = await post_turn(client, auth_headers, payload)
+
+    assert response.status_code == 200
+    assert len(fake_llm.calls) == 2
+    planner_payload = json.loads(fake_llm.calls[0][0][1]["content"])
+    qa_payload = json.loads(fake_llm.calls[1][0][1]["content"])
+    expected = "학생은 그림 예시를 선호하며 편차를 복습 중입니다."
+    assert planner_payload["conversationSummary"] == expected
+    assert qa_payload["conversationSummary"] == expected
 
 
 @pytest.mark.parametrize("mode_alias", ["NEW", "new"])

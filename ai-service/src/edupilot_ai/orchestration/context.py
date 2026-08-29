@@ -30,6 +30,7 @@ class AgentContext(BaseModel):
     event_type: EventType
     event_payload: EventPayload
     xai_file_id: str | None
+    conversation_summary: str | None
     current_page_text: str | None
     previous_page_text: str | None
     next_page_text: str | None
@@ -97,6 +98,7 @@ class PlanContext(PlanContextModel):
     quiz_assessments: list[dict[str, Any]]
     learner_level: str | None
     learner_confidence: Literal["LOW", "MEDIUM", "HIGH"] | None
+    conversation_summary: str | None
     has_pending_diagnosis: bool
     pending_diagnosis_id: int | None
     has_latest_repair: bool
@@ -173,6 +175,7 @@ class PlanContext(PlanContextModel):
             quiz_assessments=quiz_assessments,
             learner_level=context.learner_level,
             learner_confidence=context.learner_confidence,
+            conversation_summary=context.conversation_summary,
             has_pending_diagnosis=context.pending_diagnosis is not None,
             pending_diagnosis_id=pending_diagnosis_id,
             has_latest_repair=context.latest_repair is not None,
@@ -189,6 +192,7 @@ class ContextBuilder:
             event_type=turn.event.event_type,
             event_payload=turn.event.payload,
             xai_file_id=context.xai_file_id,
+            conversation_summary=context.conversation_summary,
             current_page_text=context.current_page_text,
             previous_page_text=context.previous_page_text,
             next_page_text=context.next_page_text,

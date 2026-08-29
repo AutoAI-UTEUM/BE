@@ -15,7 +15,12 @@ import io.edupilot.ai.dto.DiagnosisRequest;
 import io.edupilot.ai.dto.DiagnosisResponse;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
 import io.edupilot.ai.dto.QuizAssessmentResponse;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiQuotaService;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.diagnosis.DiagnosisPersistenceService;
+import io.edupilot.global.error.BusinessException;
+import io.edupilot.global.error.ErrorCode;
 import io.edupilot.memory.LearnerMemoryRepository;
 import io.edupilot.quiz.GradingItem;
 import io.edupilot.quiz.PrivateQuizQuestion;
@@ -24,6 +29,8 @@ import io.edupilot.quiz.QuizPostGradingContext;
 import io.edupilot.quiz.QuizPostGradingHook;
 import io.edupilot.quiz.QuizType;
 import io.edupilot.session.UiAction;
+import io.edupilot.user.User;
+import io.edupilot.user.UserRepository;
 
 @Component
 public class LearningSupportPipeline implements QuizPostGradingHook {
@@ -32,17 +39,26 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 		LoggerFactory.getLogger(LearningSupportPipeline.class);
 
 	private final AiClient aiClient;
+	private final AiUsageService aiUsageService;
+	private final AiQuotaService aiQuotaService;
+	private final UserRepository userRepository;
 	private final AssessmentPersistenceService assessmentPersistenceService;
 	private final DiagnosisPersistenceService diagnosisPersistenceService;
 	private final LearnerMemoryRepository memoryRepository;
 
 	public LearningSupportPipeline(
 		AiClient aiClient,
+		AiUsageService aiUsageService,
+		AiQuotaService aiQuotaService,
+		UserRepository userRepository,
 		AssessmentPersistenceService assessmentPersistenceService,
 		DiagnosisPersistenceService diagnosisPersistenceService,
 		LearnerMemoryRepository memoryRepository
 	) {
 		this.aiClient = aiClient;
+		this.aiUsageService = aiUsageService;
+		this.aiQuotaService = aiQuotaService;
+		this.userRepository = userRepository;
 		this.assessmentPersistenceService = assessmentPersistenceService;
 		this.diagnosisPersistenceService = diagnosisPersistenceService;
 		this.memoryRepository = memoryRepository;
@@ -62,7 +78,15 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 		);
 		QuizAssessmentResponse assessmentResponse;
 		try {
+			User user = activeUser(context.userId());
+			aiQuotaService.checkQuota(context.userId(), user.getRole());
 			assessmentResponse = aiClient.quizAssessment(assessmentRequest);
+			aiUsageService.record(
+				context.userId(),
+				AiFeature.QUIZ_ASSESSMENT,
+				assessmentResponse == null ? null : assessmentResponse.usage(),
+				true
+			);
 			AssessmentPersistenceService.AssessmentSaveResult result =
 				assessmentPersistenceService.save(
 					context,
@@ -78,6 +102,8 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 				return defaultActions(context);
 			}
 		} catch (RuntimeException exception) {
+			recordFailure(context.userId(), AiFeature.QUIZ_ASSESSMENT, exception);
+			rethrowQuotaExceeded(exception);
 			logFailure("assessment", context, exception);
 			return defaultActions(context);
 		}
@@ -100,13 +126,21 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 					.log("Diagnosis skipped because wrongItems is empty");
 				return defaultActions(context);
 			}
-			DiagnosisResponse response = aiClient.diagnosis(
-				request
+			User user = activeUser(context.userId());
+			aiQuotaService.checkQuota(context.userId(), user.getRole());
+			DiagnosisResponse response = aiClient.diagnosis(request);
+			aiUsageService.record(
+				context.userId(),
+				AiFeature.DIAGNOSIS,
+				response == null ? null : response.usage(),
+				true
 			);
 			return diagnosisPersistenceService.savePending(context, response)
 				.map(List::of)
 				.orElseGet(() -> defaultActions(context));
 		} catch (RuntimeException exception) {
+			recordFailure(context.userId(), AiFeature.DIAGNOSIS, exception);
+			rethrowQuotaExceeded(exception);
 			logFailure("diagnosis", context, exception);
 			return defaultActions(context);
 		}
@@ -280,5 +314,31 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 			.addKeyValue("sessionId", context.sessionId())
 			.addKeyValue("errorCode", errorCode)
 			.log("Quiz learning-support stage failed");
+	}
+
+	private User activeUser(Long userId) {
+		User user = userRepository.findById(userId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+		if (!user.isActive()) {
+			throw new BusinessException(ErrorCode.USER_INACTIVE);
+		}
+		return user;
+	}
+
+	private void recordFailure(
+		Long userId,
+		AiFeature feature,
+		RuntimeException exception
+	) {
+		if (exception instanceof AiClientException) {
+			aiUsageService.record(userId, feature, null, false);
+		}
+	}
+
+	private void rethrowQuotaExceeded(RuntimeException exception) {
+		if (exception instanceof BusinessException businessException
+			&& businessException.errorCode() == ErrorCode.AI_QUOTA_EXCEEDED) {
+			throw businessException;
+		}
 	}
 }

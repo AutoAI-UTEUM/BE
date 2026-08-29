@@ -451,6 +451,42 @@ class ReportJpaTest {
 	}
 
 	@Test
+	void persistsReportWithoutOptionalUsageUsingUnknownModel() {
+		ReportGeneration generation = frozenGeneration("missing-usage");
+		String leaseToken = "missing-usage-token";
+		Instant now = Instant.now();
+		assertThat(persistenceService.claimGenerationLease(
+			generation.getId(), leaseToken, now, now.plusSeconds(300)
+		)).isTrue();
+		ReportGenerateResponse response = validResponse(80);
+		ReportGenerateResponse withoutUsage = new ReportGenerateResponse(
+			response.schemaVersion(),
+			response.reportId(),
+			response.criterionResults(),
+			response.summary(),
+			response.warnings(),
+			null,
+			response.overallScore(),
+			response.overallStage()
+		);
+
+		assertThat(persistenceService.applyGeneratedReport(
+			generation.getId(),
+			leaseToken,
+			new ReportAiGenerationService.GeneratedReport(withoutUsage)
+		)).isTrue();
+
+		StudentReport saved = reportRepository
+			.findFirstByClassroom_IdAndStudent_IdAndScopeKeyOrderByVersionDesc(
+				classroom.getId(), student.getId(), "FULL"
+			)
+			.orElseThrow();
+		assertThat(saved.getModel()).isEqualTo("unknown");
+		assertThat(generationRepository.findById(generation.getId()).orElseThrow()
+			.getModel()).isEqualTo("unknown");
+	}
+
+	@Test
 	void versionsPreviousReportsAndTrendsWithinEachScopeChain() {
 		apply(frozenGeneration("scope-full-1", ReportScopeType.FULL, null), 60);
 		apply(frozenGeneration("scope-week-3-1", ReportScopeType.WEEK, 3), 20);

@@ -11,6 +11,8 @@ import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.OutlineRequest;
 import io.edupilot.ai.dto.OutlineResponse;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.MaterialOutlinePersistenceService.OutlineSnapshot;
 
@@ -25,15 +27,18 @@ public class MaterialOutlineGenerationService {
 	private final MaterialOutlinePersistenceService persistenceService;
 	private final MaterialOutlineMarkdownRenderer renderer;
 	private final AiClient aiClient;
+	private final AiUsageService aiUsageService;
 
 	public MaterialOutlineGenerationService(
 		MaterialOutlinePersistenceService persistenceService,
 		MaterialOutlineMarkdownRenderer renderer,
-		AiClient aiClient
+		AiClient aiClient,
+		AiUsageService aiUsageService
 	) {
 		this.persistenceService = persistenceService;
 		this.renderer = renderer;
 		this.aiClient = aiClient;
+		this.aiUsageService = aiUsageService;
 	}
 
 	public void generate(Long materialId) {
@@ -50,7 +55,24 @@ public class MaterialOutlineGenerationService {
 				snapshot.get().totalPages(),
 				snapshot.get().pages()
 			);
-			OutlineResponse response = aiClient.outline(request);
+			OutlineResponse response;
+			try {
+				response = aiClient.outline(request);
+				aiUsageService.record(
+					snapshot.get().ownerId(),
+					AiFeature.OUTLINE,
+					response == null ? null : response.usage(),
+					true
+				);
+			} catch (AiClientException exception) {
+				aiUsageService.record(
+					snapshot.get().ownerId(),
+					AiFeature.OUTLINE,
+					null,
+					false
+				);
+				throw exception;
+			}
 			validate(response, request.totalPages());
 			persistenceService.markReady(
 				materialId,

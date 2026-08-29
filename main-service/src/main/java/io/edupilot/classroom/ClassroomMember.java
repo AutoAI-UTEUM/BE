@@ -6,6 +6,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import io.edupilot.user.User;
+import io.edupilot.user.UserRole;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -68,5 +69,6 @@ public class ClassroomMember {
 	public String getUserName() { return user.getName(); }
 	public String getUserEmail() { return user.getEmail(); }
 	public String getUserAffiliation() { return user.getAffiliation(); }
+	public UserRole getUserRole() { return user.getRole(); }
 	public Instant getJoinedAt() { return joinedAt; }
 }

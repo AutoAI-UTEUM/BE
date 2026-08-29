@@ -246,6 +246,65 @@ class MaterialOverviewJpaTest {
 	}
 
 	@Test
+	void backfillIncludesReadyWithoutCheckpointsAndExcludesPlannedReady() {
+		Fixture legacy = fixture();
+		Fixture planned = fixture();
+		MaterialOverview legacyOverview = MaterialOverview.createPending(
+			legacy.material()
+		);
+		legacyOverview.markReady("legacy overview", outline());
+		overviewRepository.saveAndFlush(legacyOverview);
+		MaterialOverview plannedOverview = MaterialOverview.createPending(
+			planned.material()
+		);
+		plannedOverview.markReady(
+			"planned overview",
+			outlineWithCheckpoints()
+		);
+		overviewRepository.saveAndFlush(plannedOverview);
+		entityManager.clear();
+
+		assertThat(outlinePersistenceService.findBackfillCandidates(10))
+			.contains(legacy.material().getId())
+			.doesNotContain(planned.material().getId());
+	}
+
+	@Test
+	void readyWithoutCheckpointsCanBeRegeneratedInPlace() {
+		Fixture fixture = fixture();
+		pageRepository.saveAndFlush(MaterialPage.create(
+			fixture.material(),
+			1,
+			"legacy page text"
+		));
+		MaterialOverview overview = MaterialOverview.createPending(
+			fixture.material()
+		);
+		overview.markReady("legacy overview", outline());
+		overviewRepository.saveAndFlush(overview);
+		entityManager.clear();
+
+		assertThat(outlinePersistenceService.snapshot(fixture.material().getId()))
+			.isPresent();
+		assertThat(outlinePersistenceService.markReady(
+			fixture.material().getId(),
+			"planned overview",
+			outlineWithCheckpoints()
+		)).isTrue();
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(overviewRepository.findByMaterial_Id(fixture.material().getId()))
+			.get()
+			.satisfies(stored -> {
+				assertThat(stored.getStatus())
+					.isEqualTo(MaterialOverviewStatus.READY);
+				assertThat(stored.getContent()).isEqualTo("planned overview");
+				assertThat(stored.getOutline().quizCheckpoints()).hasSize(1);
+			});
+	}
+
+	@Test
 	void snapshotAllowsFailedOverviewAndRetryCanBecomeReady() {
 		Fixture fixture = fixture();
 		fixture.material().replaceXaiFileId("file-outline-snapshot");
@@ -369,7 +428,29 @@ class MaterialOverviewJpaTest {
 				3,
 				List.of("개념")
 			)),
-			3
+			null,
+			3,
+			null
+		);
+	}
+
+	private OutlineResponse outlineWithCheckpoints() {
+		return new OutlineResponse(
+			"1.0",
+			"자료의 핵심 요약입니다.",
+			List.of(new OutlineResponse.Section(
+				"첫 번째 단원",
+				"첫 번째 단원 설명입니다.",
+				1,
+				3,
+				List.of("개념")
+			)),
+			List.of(new OutlineResponse.QuizCheckpoint(
+				3,
+				new OutlineResponse.Coverage(1, 3)
+			)),
+			3,
+			null
 		);
 	}
 

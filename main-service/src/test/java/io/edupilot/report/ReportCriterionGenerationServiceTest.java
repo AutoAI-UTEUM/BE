@@ -20,9 +20,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.CriteriaSuggestRequest;
 import io.edupilot.ai.dto.CriteriaSuggestResponse;
 import io.edupilot.ai.dto.OutlineResponse;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.classroom.ClassroomService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -38,6 +41,7 @@ class ReportCriterionGenerationServiceTest {
 	@Mock private MaterialOverviewRepository overviewRepository;
 	@Mock private ReportCriterionService criterionService;
 	@Mock private AiClient aiClient;
+	@Mock private AiUsageService aiUsageService;
 	@Mock private MaterialOverview overview;
 
 	private ReportCriterionGenerationService service;
@@ -96,6 +100,12 @@ class ReportCriterionGenerationServiceTest {
 			.containsExactly(ReportSourceType.SESSION);
 		assertThat(first.weight()).isEqualByComparingTo("1.0");
 		assertThat(first.minEvidence()).isEqualTo(2);
+		verify(aiUsageService).record(
+			1L,
+			AiFeature.CRITERIA,
+			new AiUsage("grok-criteria", 25L, 10L, null),
+			true
+		);
 	}
 
 	@Test
@@ -219,6 +229,7 @@ class ReportCriterionGenerationServiceTest {
 			overviewRepository,
 			criterionService,
 			aiClient,
+			aiUsageService,
 			executor
 		);
 	}
@@ -230,7 +241,9 @@ class ReportCriterionGenerationServiceTest {
 			List.of(new OutlineResponse.Section(
 				"도입", 1, 2, List.of("핵심")
 			)),
-			2
+			null,
+			2,
+			null
 		);
 		when(overviewRepository.findReadyByClassroomId(30L))
 			.thenReturn(List.of(overview));
@@ -262,7 +275,8 @@ class ReportCriterionGenerationServiceTest {
 				? List.of(new CriteriaSuggestResponse.Warning(
 					"QUALITY_WARNING", "일부 개요가 짧습니다."
 				))
-				: List.of()
+				: List.of(),
+			new AiUsage("grok-criteria", 25L, 10L, null)
 		);
 	}
 }

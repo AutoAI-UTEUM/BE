@@ -10,8 +10,12 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.ai.AiClientException;
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.ExamDraftRequest;
 import io.edupilot.ai.dto.ExamDraftResponse;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.exam.ExamDraftPreparationService.PreparedExamDraft;
 import io.edupilot.exam.dto.ExamDraftQuestionsResponse;
 import io.edupilot.exam.dto.GenerateExamDraftRequest;
@@ -26,13 +30,16 @@ public class ExamDraftService {
 
 	private final ExamDraftPreparationService preparationService;
 	private final AiClient aiClient;
+	private final AiUsageService aiUsageService;
 
 	public ExamDraftService(
 		ExamDraftPreparationService preparationService,
-		AiClient aiClient
+		AiClient aiClient,
+		AiUsageService aiUsageService
 	) {
 		this.preparationService = preparationService;
 		this.aiClient = aiClient;
+		this.aiUsageService = aiUsageService;
 	}
 
 	public ExamDraftQuestionsResponse generate(
@@ -45,7 +52,19 @@ public class ExamDraftService {
 		PreparedExamDraft prepared = preparationService.prepare(
 			userId, role, classroomId, examId, request
 		);
-		ExamDraftResponse response = aiClient.generateExamDraft(prepared.aiRequest());
+		ExamDraftResponse response;
+		try {
+			response = aiClient.generateExamDraft(prepared.aiRequest());
+			aiUsageService.record(
+				userId,
+				AiFeature.EXAM_DRAFT,
+				response == null ? null : response.usage(),
+				true
+			);
+		} catch (AiClientException exception) {
+			aiUsageService.record(userId, AiFeature.EXAM_DRAFT, null, false);
+			throw exception;
+		}
 		validateResponse(prepared, response);
 		return ExamDraftQuestionsResponse.from(response, prepared.truncated());
 	}
@@ -151,14 +170,16 @@ public class ExamDraftService {
 		}
 	}
 
-	private boolean validUsage(ExamDraftResponse.Usage usage) {
-		return usage != null && hasText(usage.model())
-			&& nonNegative(usage.inputTokens())
-			&& nonNegative(usage.outputTokens())
-			&& (usage.reasoningTokens() == null || usage.reasoningTokens() >= 0);
+	private boolean validUsage(AiUsage usage) {
+		return usage == null || (
+			hasText(usage.model())
+				&& nonNegative(usage.inputTokens())
+				&& nonNegative(usage.outputTokens())
+				&& (usage.reasoningTokens() == null || usage.reasoningTokens() >= 0)
+		);
 	}
 
-	private boolean nonNegative(Integer value) {
+	private boolean nonNegative(Long value) {
 		return value != null && value >= 0;
 	}
 

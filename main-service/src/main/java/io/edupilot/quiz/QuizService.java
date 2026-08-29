@@ -58,8 +58,11 @@ public class QuizService {
 			generation,
 			schemaVersion,
 			null,
-			snapshotPages(page, materialPageCount)
+			learnedPages(page, materialPageCount)
 		);
+		if (!Integer.valueOf(page).equals(generation.coverage().endPage())) {
+			throw invalidGeneration();
+		}
 		QuizType quizType = QuizType.valueOf(generation.quizType());
 		List<PublicQuizQuestion> publicQuestions = generation.questions()
 			.stream()
@@ -206,14 +209,13 @@ public class QuizService {
 		};
 	}
 
-	private Set<Integer> snapshotPages(int currentPage, int pageCount) {
+	private Set<Integer> learnedPages(int currentPage, int pageCount) {
 		Set<Integer> pages = new java.util.LinkedHashSet<>();
-		if (currentPage > 1) {
-			pages.add(currentPage - 1);
+		if (currentPage < 1 || currentPage > pageCount) {
+			return Set.of();
 		}
-		pages.add(currentPage);
-		if (currentPage < pageCount) {
-			pages.add(currentPage + 1);
+		for (int page = 1; page <= currentPage; page++) {
+			pages.add(page);
 		}
 		return Set.copyOf(pages);
 	}

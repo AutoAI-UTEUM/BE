@@ -75,6 +75,8 @@ class TurnPersistenceServiceTest {
 	private QuizService quizService;
 	@Mock
 	private DiagnosisService diagnosisService;
+	@Mock
+	private ConversationSummaryDispatcher summaryDispatcher;
 
 	@Test
 	void discardsAiResultWhenSessionCompletedDuringCall() {
@@ -171,6 +173,7 @@ class TurnPersistenceServiceTest {
 		verify(quizService, never()).createFromGeneration(any(), any(), any());
 		verify(candidateRepository, never()).save(any());
 		verify(qaMessageRepository, never()).save(any());
+		verify(summaryDispatcher).dispatchAfterCommit(100L);
 	}
 
 	@Test
@@ -208,6 +211,7 @@ class TurnPersistenceServiceTest {
 			true
 		);
 		verify(pageRecordRepository).upsertExplainedPage(100L, 1, NOW);
+		verify(summaryDispatcher).dispatchAfterCommit(100L);
 	}
 
 	@Test
@@ -1019,6 +1023,7 @@ class TurnPersistenceServiceTest {
 			),
 			diagnosisService,
 			new UiActionResolver(),
+			summaryDispatcher,
 			Clock.fixed(NOW, ZoneOffset.UTC)
 		);
 	}

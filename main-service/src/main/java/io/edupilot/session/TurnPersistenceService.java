@@ -41,6 +41,7 @@ public class TurnPersistenceService {
 	private final QuizProposalPolicy quizProposalPolicy;
 	private final DiagnosisService diagnosisService;
 	private final UiActionResolver uiActionResolver;
+	private final ConversationSummaryDispatcher summaryDispatcher;
 	private final Clock clock;
 
 	public TurnPersistenceService(
@@ -56,6 +57,7 @@ public class TurnPersistenceService {
 		QuizProposalPolicy quizProposalPolicy,
 		DiagnosisService diagnosisService,
 		UiActionResolver uiActionResolver,
+		ConversationSummaryDispatcher summaryDispatcher,
 		Clock clock
 	) {
 		this.sessionRepository = sessionRepository;
@@ -70,6 +72,7 @@ public class TurnPersistenceService {
 		this.quizProposalPolicy = quizProposalPolicy;
 		this.diagnosisService = diagnosisService;
 		this.uiActionResolver = uiActionResolver;
+		this.summaryDispatcher = summaryDispatcher;
 		this.clock = clock;
 	}
 
@@ -210,7 +213,7 @@ public class TurnPersistenceService {
 		List<MessageResponse> messages = aiMessages.stream()
 			.map(MessageResponse::from)
 			.toList();
-		return new PersistedTurn(
+		PersistedTurn persisted = new PersistedTurn(
 			aiResponse.turnId(),
 			sessionId,
 			messages,
@@ -224,6 +227,8 @@ public class TurnPersistenceService {
 			parseMemoryWrite(aiResponse.memoryWrite()),
 			session.getMaterialId()
 		);
+		summaryDispatcher.dispatchAfterCommit(sessionId);
+		return persisted;
 	}
 
 	@Transactional
@@ -251,7 +256,7 @@ public class TurnPersistenceService {
 			ChatMessage.ai(session, content)
 		);
 		messageRepository.flush();
-		return new PersistedTurn(
+		PersistedTurn persisted = new PersistedTurn(
 			turnId,
 			sessionId,
 			List.of(MessageResponse.from(message)),
@@ -265,6 +270,8 @@ public class TurnPersistenceService {
 			null,
 			session.getMaterialId()
 		);
+		summaryDispatcher.dispatchAfterCommit(sessionId);
+		return persisted;
 	}
 
 	private List<UiAction> applyAllowedAiUiAction(

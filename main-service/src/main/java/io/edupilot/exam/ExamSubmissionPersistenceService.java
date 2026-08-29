@@ -205,7 +205,10 @@ public class ExamSubmissionPersistenceService {
 			}
 		}
 		return new PreparedExamAiGrading(
-			submissionId, submission.getExamId(), List.copyOf(groups)
+			submissionId,
+			submission.getExamId(),
+			submission.getUserId(),
+			List.copyOf(groups)
 		);
 	}
 

@@ -14,7 +14,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.GradeResponse;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 
@@ -23,11 +26,13 @@ class QuizGradingServiceTest {
 
 	@Mock
 	private AiClient aiClient;
+	@Mock
+	private AiUsageService aiUsageService;
 
 	@Test
 	void gradesMcqDeterministicallyWithoutAi() {
 		QuizGradingService service = new QuizGradingService(
-			aiClient, new DeterministicAnswerGrader()
+			aiClient, aiUsageService, new DeterministicAnswerGrader()
 		);
 		PreparedQuizSubmission prepared = prepared(
 			QuizType.MCQ,
@@ -41,7 +46,7 @@ class QuizGradingServiceTest {
 			)
 		);
 
-		GradingResult result = service.grade(prepared);
+		GradingResult result = service.grade(1L, prepared);
 
 		assertThat(result.score()).isEqualByComparingTo("10");
 		assertThat(result.maxScore()).isEqualByComparingTo("20");
@@ -53,7 +58,7 @@ class QuizGradingServiceTest {
 	@Test
 	void gradesOxDeterministicallyWithoutAi() {
 		QuizGradingService service = new QuizGradingService(
-			aiClient, new DeterministicAnswerGrader()
+			aiClient, aiUsageService, new DeterministicAnswerGrader()
 		);
 		PreparedQuizSubmission prepared = prepared(
 			QuizType.OX,
@@ -67,7 +72,7 @@ class QuizGradingServiceTest {
 			)
 		);
 
-		GradingResult result = service.grade(prepared);
+		GradingResult result = service.grade(1L, prepared);
 
 		assertThat(result.score()).isEqualByComparingTo("10");
 		assertThat(result.items()).extracting(GradingItem::verdict)
@@ -78,7 +83,7 @@ class QuizGradingServiceTest {
 	@Test
 	void acceptsValidAiResultAndRejectsMismatchedTotal() {
 		QuizGradingService service = new QuizGradingService(
-			aiClient, new DeterministicAnswerGrader()
+			aiClient, aiUsageService, new DeterministicAnswerGrader()
 		);
 		PreparedQuizSubmission prepared = prepared(
 			QuizType.SHORT,
@@ -93,22 +98,31 @@ class QuizGradingServiceTest {
 			gradeResponse(new BigDecimal("15.00"))
 		);
 
-		assertThatThrownBy(() -> service.grade(prepared))
+		assertThatThrownBy(() -> service.grade(1L, prepared))
 			.isInstanceOfSatisfying(BusinessException.class, exception ->
 				assertThat(exception.errorCode())
 					.isEqualTo(ErrorCode.GRADING_RESULT_INVALID)
 			);
 
-		GradingResult result = service.grade(prepared);
+		GradingResult result = service.grade(1L, prepared);
 		assertThat(result.score()).isEqualByComparingTo("15.00");
 		assertThat(result.items()).extracting(GradingItem::verdict)
 			.containsExactly(GradingVerdict.CORRECT, GradingVerdict.PARTIAL);
+		org.mockito.Mockito.verify(
+			aiUsageService,
+			org.mockito.Mockito.times(2)
+		).record(
+			1L,
+			AiFeature.GRADE,
+			new AiUsage("grok-grade", 18L, 8L, 1L),
+			true
+		);
 	}
 
 	@Test
 	void rejectsMissingDuplicateOutOfRangeAndUnknownVerdictAiItems() {
 		QuizGradingService service = new QuizGradingService(
-			aiClient, new DeterministicAnswerGrader()
+			aiClient, aiUsageService, new DeterministicAnswerGrader()
 		);
 		PreparedQuizSubmission prepared = prepared(
 			QuizType.SHORT,
@@ -135,7 +149,7 @@ class QuizGradingServiceTest {
 		);
 
 		for (int index = 0; index < 4; index++) {
-			assertThatThrownBy(() -> service.grade(prepared))
+			assertThatThrownBy(() -> service.grade(1L, prepared))
 				.isInstanceOfSatisfying(BusinessException.class, exception ->
 					assertThat(exception.errorCode())
 						.isEqualTo(ErrorCode.GRADING_RESULT_INVALID)
@@ -166,7 +180,7 @@ class QuizGradingServiceTest {
 					"일부가 부족합니다."
 				)
 			),
-			null
+			new AiUsage("grok-grade", 18L, 8L, 1L)
 		);
 	}
 

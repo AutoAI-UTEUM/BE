@@ -61,6 +61,13 @@ public interface ClassroomRepository extends JpaRepository<Classroom, Long> {
 	@EntityGraph(attributePaths = "instructor")
 	Optional<Classroom> findWithInstructorById(Long id);
 
+	@EntityGraph(attributePaths = "instructor")
+	@Query(
+		value = "select classroom from Classroom classroom",
+		countQuery = "select count(classroom) from Classroom classroom"
+	)
+	Page<Classroom> findAllForAdmin(Pageable pageable);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select classroom from Classroom classroom join fetch classroom.instructor where classroom.id = :id")
 	Optional<Classroom> findByIdForUpdate(@Param("id") Long id);

@@ -14,8 +14,11 @@ import org.springframework.util.StringUtils;
 
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.ReportGenerateRequest;
 import io.edupilot.ai.dto.ReportGenerateResponse;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.ErrorCode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -29,6 +32,7 @@ public class ReportAiGenerationService {
 	private final StudentReportRepository reportRepository;
 	private final ReportCriterionResultRepository resultRepository;
 	private final AiClient aiClient;
+	private final AiUsageService aiUsageService;
 	private final ObjectMapper objectMapper;
 
 	public ReportAiGenerationService(
@@ -37,6 +41,7 @@ public class ReportAiGenerationService {
 		StudentReportRepository reportRepository,
 		ReportCriterionResultRepository resultRepository,
 		AiClient aiClient,
+		AiUsageService aiUsageService,
 		ObjectMapper objectMapper
 	) {
 		this.generationRepository = generationRepository;
@@ -44,12 +49,30 @@ public class ReportAiGenerationService {
 		this.reportRepository = reportRepository;
 		this.resultRepository = resultRepository;
 		this.aiClient = aiClient;
+		this.aiUsageService = aiUsageService;
 		this.objectMapper = objectMapper;
 	}
 
 	public GeneratedReport generate(Long generationId) {
 		Prepared prepared = prepare(generationId);
-		ReportGenerateResponse response = aiClient.generateReport(prepared.request());
+		ReportGenerateResponse response;
+		try {
+			response = aiClient.generateReport(prepared.request());
+			aiUsageService.record(
+				prepared.userId(),
+				AiFeature.REPORT,
+				response == null ? null : response.usage(),
+				true
+			);
+		} catch (AiClientException exception) {
+			aiUsageService.record(
+				prepared.userId(),
+				AiFeature.REPORT,
+				null,
+				false
+			);
+			throw exception;
+		}
 		validate(prepared.request(), response);
 		return new GeneratedReport(response);
 	}
@@ -88,7 +111,7 @@ public class ReportAiGenerationService {
 			evidence,
 			previousReport(generation)
 		);
-		return new Prepared(request);
+		return new Prepared(request, generation.getRequestedById());
 	}
 
 	private ReportGenerateRequest.Scope scope(ReportGeneration generation) {
@@ -232,14 +255,7 @@ public class ReportAiGenerationService {
 		if (response == null || !SCHEMA_VERSION.equals(response.schemaVersion())
 			|| !request.reportId().equals(response.reportId())
 			|| response.criterionResults() == null || response.summary() == null
-			|| response.warnings() == null || response.usage() == null
-			|| !StringUtils.hasText(response.usage().model())
-			|| response.usage().inputTokens() == null
-			|| response.usage().inputTokens() < 0
-			|| response.usage().outputTokens() == null
-			|| response.usage().outputTokens() < 0
-			|| response.usage().reasoningTokens() != null
-			&& response.usage().reasoningTokens() < 0) {
+			|| response.warnings() == null || invalidUsage(response.usage())) {
 			throw invalid(null);
 		}
 		Map<String, ReportGenerateRequest.Criterion> criteria = new LinkedHashMap<>();
@@ -271,6 +287,18 @@ public class ReportAiGenerationService {
 			}
 			validateEvidenceIds(warning.evidenceIds(), evidence, false);
 		}
+	}
+
+	private boolean invalidUsage(AiUsage usage) {
+		return usage != null && (
+			!StringUtils.hasText(usage.model())
+				|| usage.inputTokens() == null
+				|| usage.inputTokens() < 0
+				|| usage.outputTokens() == null
+				|| usage.outputTokens() < 0
+				|| usage.reasoningTokens() != null
+				&& usage.reasoningTokens() < 0
+		);
 	}
 
 	private void validateCriterionResult(
@@ -387,7 +415,7 @@ public class ReportAiGenerationService {
 	public record GeneratedReport(ReportGenerateResponse response) {
 	}
 
-	private record Prepared(ReportGenerateRequest request) {
+	private record Prepared(ReportGenerateRequest request, Long userId) {
 	}
 
 	private record FrozenInput(

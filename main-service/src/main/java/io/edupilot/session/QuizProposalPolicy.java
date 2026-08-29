@@ -43,6 +43,19 @@ public class QuizProposalPolicy {
 			return true;
 		}
 
+		MaterialOverview overview = overviewRepository
+			.findByMaterial_Id(materialId)
+			.orElse(null);
+		List<OutlineResponse.QuizCheckpoint> checkpoints = quizCheckpoints(
+			overview,
+			totalPages
+		);
+		if (checkpoints != null) {
+			return checkpoints.stream()
+				.anyMatch(checkpoint ->
+					checkpoint.triggerPage() == currentPage);
+		}
+
 		int textLength = materialPageRepository
 			.findTextLengthByMaterialIdAndPageNumber(materialId, currentPage)
 			.orElse(0);
@@ -50,13 +63,31 @@ public class QuizProposalPolicy {
 			return false;
 		}
 
-		return overviewRepository.findByMaterial_Id(materialId)
-			.map(overview -> eligibleWithOverview(
-				overview,
-				currentPage,
-				totalPages
-			))
-			.orElse(true);
+		return overview == null || eligibleWithOverview(
+			overview,
+			currentPage,
+			totalPages
+		);
+	}
+
+	private List<OutlineResponse.QuizCheckpoint> quizCheckpoints(
+		MaterialOverview overview,
+		Integer totalPages
+	) {
+		if (overview == null
+			|| overview.getStatus() != MaterialOverviewStatus.READY
+			|| totalPages == null) {
+			return null;
+		}
+		OutlineResponse outline = overview.getOutline();
+		if (outline == null || outline.totalPages() != totalPages) {
+			return null;
+		}
+		List<OutlineResponse.QuizCheckpoint> checkpoints =
+			outline.quizCheckpoints();
+		return checkpoints == null || checkpoints.isEmpty()
+			? null
+			: checkpoints;
 	}
 
 	private boolean eligibleWithOverview(

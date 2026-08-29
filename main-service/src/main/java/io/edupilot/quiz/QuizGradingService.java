@@ -14,8 +14,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 
@@ -23,21 +26,36 @@ import io.edupilot.global.error.ErrorCode;
 public class QuizGradingService {
 
 	private final AiClient aiClient;
+	private final AiUsageService aiUsageService;
 	private final DeterministicAnswerGrader deterministicAnswerGrader;
 
 	public QuizGradingService(
 		AiClient aiClient,
+		AiUsageService aiUsageService,
 		DeterministicAnswerGrader deterministicAnswerGrader
 	) {
 		this.aiClient = aiClient;
+		this.aiUsageService = aiUsageService;
 		this.deterministicAnswerGrader = deterministicAnswerGrader;
 	}
 
-	public GradingResult grade(PreparedQuizSubmission prepared) {
+	public GradingResult grade(Long userId, PreparedQuizSubmission prepared) {
 		if (!prepared.quizType().usesAiGrading()) {
 			return gradeDeterministically(prepared);
 		}
-		GradeResponse response = aiClient.grade(toGradeRequest(prepared));
+		GradeResponse response;
+		try {
+			response = aiClient.grade(toGradeRequest(prepared));
+			aiUsageService.record(
+				userId,
+				AiFeature.GRADE,
+				response == null ? null : response.usage(),
+				true
+			);
+		} catch (AiClientException exception) {
+			aiUsageService.record(userId, AiFeature.GRADE, null, false);
+			throw exception;
+		}
 		return validateAiResult(prepared, response);
 	}
 

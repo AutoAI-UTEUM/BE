@@ -43,6 +43,10 @@ edupilot:
     allowed-origins: ${EDUPILOT_CORS_ALLOWED_ORIGINS}
   ai:
     internal-token: ${EDUPILOT_INTERNAL_TOKEN}
+    quota:
+      enabled: ${EDUPILOT_AI_QUOTA_ENABLED:true}
+      daily-default: ${EDUPILOT_AI_QUOTA_DAILY_DEFAULT:200}
+      daily-instructor: ${EDUPILOT_AI_QUOTA_DAILY_INSTRUCTOR:500}
     connect-timeout: 3s
     health-timeout: 2s
     read-timeout: 30s
@@ -60,11 +64,14 @@ edupilot:
     outline-timeout: ${EDUPILOT_AI_OUTLINE_TIMEOUT:110s}
     captions-read-timeout: ${EDUPILOT_AI_CAPTIONS_READ_TIMEOUT:75s}
     doc-chat-read-timeout: ${EDUPILOT_AI_DOCCHAT_READ_TIMEOUT:75s}
+    summary-read-timeout: ${EDUPILOT_AI_SUMMARY_READ_TIMEOUT:45s}
     exam-draft-read-timeout: ${EDUPILOT_AI_EXAM_DRAFT_READ_TIMEOUT:120s}
     health-path: /health
   quiz:
     pass-ratio: ${EDUPILOT_QUIZ_PASS_RATIO:0.6}
     proposal-min-page-text-length: ${EDUPILOT_QUIZ_PROPOSAL_MIN_PAGE_TEXT_LENGTH:200}
+  summary:
+    turn-interval: ${EDUPILOT_SUMMARY_TURN_INTERVAL:8}
   material:
     upload-max-mb: ${EDUPILOT_UPLOAD_MAX_MB:45}
     max-pages: 300

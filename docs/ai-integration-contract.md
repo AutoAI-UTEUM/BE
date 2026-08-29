@@ -57,6 +57,7 @@
 | POST | `/internal/ai/outline` | 자료 요약·목차 구조 생성 | 추출 완료 후 비동기 |
 | POST | `/internal/ai/captions` | PDF 페이지 이미지의 시각 정보 캡션 생성 | 추출 완료 후 비동기, 최대 10페이지/요청 |
 | POST | `/internal/ai/doc-chat` | 자료·퀴즈 복습 문맥 기반 단일 질문 응답 | 외부 doc-chat 요청당 동기 1회 |
+| POST | `/internal/ai/conversation-summary` | 기존 요약과 신규 대화를 합친 학습 문맥 요약 | Spring 비동기 요약 작업 |
 | POST | `/internal/ai/criteria/suggest` | 강의실 자료 개요 기반 평가 기준 제안 | 강사 자동 생성 요청 후 비동기 |
 | POST | `/internal/ai/turn` | 자유 턴 (설명·QA·퀴즈 생성·교정·메모리 도구 포함) | turns 이벤트 수신 시 |
 | POST | `/internal/ai/grade` | SHORT/ESSAY 채점 | 제출 파이프라인 1단계 |
@@ -79,6 +80,7 @@
   "event": { "eventType": "USER_QUESTION", "payload": { "message": "편차가 뭔지 모르겠어", "includeCurrentPage": true } },
   "context": {
     "xaiFileId": "file-abc123",
+    "conversationSummary": null,
     "currentPageText": "...", "previousPageText": "...", "nextPageText": "...",
     "recentMessages": [], "qaThreadDigest": null,
     "quizAssessments": [], "learnerMemoryDigest": null,
@@ -90,11 +92,13 @@
 ```
 
 - `quizAssessments`: 세션 스코프 최근 5개 (DEC-011). 승격 판단용 교차 조회는 Spring 별도 경로.
+- `conversationSummary`: 선택 nullable 필드이며 이전 대화의 압축 보조 문맥이다. Plan과 QaAgent가 사용하되 최근 대화와 모순되면 최근 대화를 우선한다. 필드가 없거나 null이면 기존 동작과 같다.
 - `learnerLevel`/`learnerConfidence`: Spring이 learner_memories·최근 평가에서 파생. null이면 기본 수준 동작.
 - `latestRepair`: 직전 교정 답변 원문 포함 — 교정 후 USER_QUESTION에서 QaAgent가 문맥 승계.
 - `currentPageText`의 타입은 `string | null`이다. null은 `USER_QUESTION`이면서 `includeCurrentPage=false`인 턴에서만 허용한다. `EXPLAIN_CURRENT_PAGE`와 `QUIZ_TYPE_SELECTED`에서는 계속 필수이며, AI Service는 eventType과 context를 교차 검증해 위반 요청을 category `SCHEMA`로 거부한다.
+- `QUIZ_TYPE_SELECTED`에서 현재 페이지가 READY 개요의 `quizCheckpoints[].triggerPage`이면 Spring은 기존 nullable `quizContext`에 `{coverage:{startPage,endPage},pages:[{pageNumber,text}]}`를 추가한다. `pages`는 coverage 전 범위를 오름차순으로 정확히 한 번 포함하며 캡션 병합 텍스트의 합계를 앞에서부터 12,000자로 제한한다. 체크포인트가 아니거나 계획이 없으면 `quizContext=null`로 현재 페이지 단일 출제 경로를 유지한다.
 - `xaiFileId`의 타입은 `string | null`이다. 구자료·업로드 실패 자료는 `null`이며 외부 API에는 노출하지 않는다. AI Service는 이 값을 Plan 입력이나 turn LLM 호출 로그에 넣지 않고 Explainer·QaAgent·QuizAgent 호출에서 xAI Responses API의 `input_file.file_id`로 사용하며 `store=false`를 강제한다.
-- `includeCurrentPage=false`이면 Spring은 `xaiFileId`, `currentPageText`, `previousPageText`, `nextPageText`를 모두 null로 전달한다. 필드 자체를 생략하지 않으므로 context의 13키 구조는 유지한다.
+- `includeCurrentPage=false`이면 Spring은 `xaiFileId`, `currentPageText`, `previousPageText`, `nextPageText`를 모두 null로 전달하고 그 외 context 필드는 유지한다. 선택 필드인 `conversationSummary`는 페이지 첨부 여부와 독립적으로 전달할 수 있다.
 - `includeCurrentPage=false`인데 페이지 텍스트가 전달된 경우 AI Service는 해당 context를 무시하지 않고 사용한다. 이 조합의 정합 책임은 Spring에 있다.
 - 방어적으로 `includeCurrentPage=false`인데 `xaiFileId`가 전달돼도 AI Service는 파일을 첨부하지 않는다. 페이지 이동 안내·빈 페이지 고정 안내는 file ID 유무와 무관하게 LLM을 호출하지 않는다.
 
@@ -141,7 +145,7 @@
   "noteDraft": null,
   "memoryCandidates": [],
   "memoryWrite": null,
-  "usage": { "model": "grok-4.5-<date>", "inputTokens": 0, "outputTokens": 0, "reasoningTokens": 0 }
+  "usage": { "model": "grok-4.5-<date>", "input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0 }
 }
 ```
 
@@ -151,7 +155,11 @@
   생략합니다. `reason`은 자유 문자열로 Spring이 enum 검증 없이 저장합니다.
   초기 reason 값은 `PAGE_MISMATCH_CORRECTED`,
   `EVENT_PAYLOAD_MISMATCH_CORRECTED`입니다.
-- `usage`: **채택 확정** — 모든 내부 응답의 표준 선택 필드 (reasoningTokens 포함, 미제공 시 null). Spring은 로그로만 수집(DB 저장 없음) — DEC-002 비용 트리거(월 $150) 판단 데이터.
+- `usage`: **채택 확정** — 모든 내부 응답의 표준 선택 필드이며 필드명은
+  `model`, `input_tokens`, `output_tokens`, `reasoning_tokens`이다. 응답에서 생략하거나
+  `null`로 보낼 수 있고 `reasoning_tokens`도 nullable이다. Spring은 순차 배포 호환을
+  위해 기존 camelCase 토큰 키도 수신하며, 외부 API에는 노출하지 않고
+  `ai_usage_log`에 기록한다.
 - 퀴즈 생성 턴에서는 turn 응답 최상위의 nullable `quiz` 필드에 전체 퀴즈
   JSON(§6.2 생성 스키마, 정답·비공개 필드 포함)을 반환합니다. 그 외 턴에서는
   `null`입니다. Spring이 이를 검증·분리 저장(비공개 필드는 학생 노출 DTO에서
@@ -489,9 +497,9 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
   ],
   "usage": {
     "model": "grok-4",
-    "inputTokens": 1200,
-    "outputTokens": 350,
-    "reasoningTokens": null
+    "input_tokens": 1200,
+    "output_tokens": 350,
+    "reasoning_tokens": null
   }
 }
 ```
@@ -505,9 +513,10 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 
 - 요청: `{ "schemaVersion": "1.0", "xaiFileId": "file-...", "totalPages": 2, "pages": [{ "pageNumber": 1, "text": "..." }] }`. `xaiFileId`는 nullable이며 생략도 허용한다.
 - Spring은 `material_pages`에 저장된 전 페이지 텍스트와 자료의 nullable xAI file ID를 페이지 순서대로 전달하며 텍스트를 절단하지 않는다. 입력 길이 조절은 AI Service 책임이다. `pages[].pageNumber/text`는 범위·구조 앵커이고 첨부 PDF는 같은 범위의 제목·시각 세부 확인에만 사용한다.
-- `sections`는 일반 강의 자료에서 3~6개를 목표로 하고 최대 10개이며, 첫 페이지부터 `totalPages`까지 겹침·공백 없이 오름차순으로 정확히 한 번씩 포함해야 한다. AI Service와 Spring이 모두 이를 검증한다.
-- 응답: `{ "schemaVersion": "1.0", "materialSummary": "...", "sections": [{ "title": "...", "startPage": 1, "endPage": 2, "keywords": ["..."] }], "totalPages": 2 }`.
-- Spring은 응답을 결정적 마크다운으로 렌더링해 `material_overviews.content`에 저장하고, 원본 구조는 `outline_json`에 저장한다. 실패는 자료 자체 상태를 변경하지 않고 개요만 `FAILED`로 전이한다.
+- `sections`는 일반 강의 자료에서 3~6개를 목표로 하고 최대 10개이며, 첫 페이지부터 `totalPages`까지 겹침·공백 없이 오름차순으로 정확히 한 번씩 포함해야 한다. 신규 응답의 `description`은 단원 설명이며 구버전 저장 JSON 호환을 위해 Spring에서는 nullable로 읽는다.
+- 응답: `{ "schemaVersion": "1.0", "materialSummary": "...", "sections": [{ "title": "...", "description": "...", "startPage": 1, "endPage": 2, "keywords": ["..."] }], "quizCheckpoints": [{ "triggerPage": 2, "coverage": { "startPage": 1, "endPage": 2 } }], "totalPages": 2 }`.
+- `quizCheckpoints`는 1~10개이며 trigger는 coverage 끝 페이지와 같고, 각 범위는 자료 안의 section 경계에 맞춰 오름차순·비중복으로 배치한다. Spring은 수신 응답과 저장 JSON을 다시 검증하며 위반 시 개요 전체를 실패시키지 않고 checkpoint 계획만 absent로 강등한 뒤 위반 유형만 WARN으로 남긴다.
+- Spring은 응답을 결정적 마크다운으로 렌더링해 `material_overviews.content`에 저장하고, 원본 구조는 `outline_json`에 저장한다. 실패는 자료 자체 상태를 변경하지 않고 개요만 `FAILED`로 전이한다. 기존 READY 개요 중 `quizCheckpoints`가 없는 행은 기존 개요 bounded backfill 배치에 포함해 순차 재생성한다.
 - Main Service read timeout은 `EDUPILOT_AI_OUTLINE_TIMEOUT`(기본 `110s`)을 사용한다.
 
 ### 6.7 POST /internal/ai/criteria/suggest
@@ -535,6 +544,14 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 - 응답: `{ "schemaVersion": "1.0", "answer": "...", "warnings": [{"type":"CONTEXT_TRUNCATED","message":"..."}] }`.
 - 한 요청당 LLM을 동기 1회 호출하며 스트리밍하지 않습니다. Main Service read timeout은 `EDUPILOT_AI_DOCCHAT_READ_TIMEOUT`(기본 `75s`)을 사용합니다.
 
+### 6.10 POST /internal/ai/conversation-summary
+
+- 요청: `{ "schemaVersion": "1.0", "previousSummary": null, "messages": [{"role":"USER|ASSISTANT","content":"..."}] }`. `messages`는 1~20개이며 content는 공백일 수 없습니다. Spring은 마지막 요약 경계(없으면 대화 리셋 경계) 이후 완료된 USER 메시지가 8개가 되면 턴 저장 커밋 후 비동기 요약을 트리거합니다. FAILED 메시지는 제외하고 경계 이후 완료 메시지를 오래된 순 최대 20개 전달하며, 초과분은 다음 주기로 이월합니다.
+- 응답: `{ "schemaVersion": "1.0", "summary": "..." }`. 요약은 한국어 최대 1,000자이며 초과분은 AI Service가 결정적으로 절단합니다.
+- 공백 요약 또는 구조화 출력 SCHEMA 실패만 총예산 안에서 1회 재생성하고 최종 실패는 `AI_RESPONSE_INVALID`입니다. 점수·채점 결과·평가 상태는 요약에 포함하지 않습니다.
+- Spring은 최근 원문 메시지 10개를 별도로 유지하고 이 엔드포인트를 턴 처리와 분리된 비동기 작업으로 호출합니다. 성공 시 요약과 마지막 포함 메시지 ID를 한 트랜잭션으로 저장하고, 실패 시 둘 다 갱신하지 않아 다음 주기에 재시도합니다. 새 대화를 시작하면 요약과 경계 ID를 함께 초기화합니다. 스냅샷의 `conversationSummary`는 저장값이 null이면 키 자체를 생략합니다. 요약 실패는 사용자 턴을 실패시키지 않습니다. Main Service read timeout은 `EDUPILOT_AI_SUMMARY_READ_TIMEOUT`(기본 `45s`), 트리거 간격은 `EDUPILOT_SUMMARY_TURN_INTERVAL`(기본 `8`)입니다.
+- AI Service를 먼저 배포해야 합니다. 기존 AI 모델은 알 수 없는 `conversationSummary` 턴 필드를 `extra=forbid`로 거부하므로 Spring의 스냅샷 전달은 AI 배포 뒤에 활성화합니다. Main Service read timeout 권장은 `45s`입니다.
+
 ## 7. Grok 연동 규칙 (DEC-002 v2 요약 — 구현 구속)
 
 - 전 에이전트 공통 grok-4.5 dated 버전 고정(`MODEL_NAME`), 미발행 시 alias + golden 표류 감지. 매 응답 `model` 필드 대조 assertion.
@@ -555,12 +572,14 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 | `EXTRACT_TIMEOUT_SECONDS` | `120` | extract |
 | `EDUPILOT_XAI_FILES_ENABLED` | `false` | 추출 성공 PDF의 xAI Files 업로드 kill switch |
 | `EDUPILOT_XAI_FILE_UPLOAD_TIMEOUT_SECONDS` | `60` | xAI Files 업로드·삭제 HTTP timeout |
+| `EDUPILOT_SUMMARY_TIMEOUT_SECONDS` | `30` | conversation-summary 총 시간 |
 | `AGENT_REASONING_EFFORT` | `medium` | 기본 Agent 프로필 |
 | `AGENT_MAX_TOKENS` | `16384` | 기본 최대 출력 토큰 |
 | `AGENT_TEMPERATURE` | `null` | 선택적 temperature |
 | `ORCHESTRATOR_REASONING_EFFORT` | `low` | Orchestrator 프로필 |
 | `EXPLAINER_REASONING_EFFORT` | `medium` | ExplainerAgent 프로필 |
 | `QA_REASONING_EFFORT` | `medium` | QaAgent 프로필 |
+| `SUMMARY_REASONING_EFFORT` | `low` | conversation-summary 프로필 |
 
 ## 8. 확정 로그 및 문서 반영 대기
 
@@ -571,9 +590,9 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 
 **v0.5에서 확정된 사항** (근거: #108 합의):
 
-- `USER_QUESTION.payload.includeCurrentPage`는 선택 boolean이며 생략 시 `true`다. `false`이면 `xaiFileId`와 페이지 텍스트 3키를 null로 전달하되 context 13키 구조는 유지한다. `currentPageText`의 null은 `USER_QUESTION`+`false`에서만 허용하고 `EXPLAIN_CURRENT_PAGE`·`QUIZ_TYPE_SELECTED`에서는 AI Service가 교차 검증한다.
+- `USER_QUESTION.payload.includeCurrentPage`는 선택 boolean이며 생략 시 `true`다. `false`이면 `xaiFileId`와 페이지 텍스트 3키를 null로 전달하고 그 외 context 필드는 유지한다. `currentPageText`의 null은 `USER_QUESTION`+`false`에서만 허용하고 `EXPLAIN_CURRENT_PAGE`·`QUIZ_TYPE_SELECTED`에서는 AI Service가 교차 검증한다.
 - `includeCurrentPage=false`인 QaAgent는 일반 학습 지식으로 답변할 수 있지만 업로드 자료 내용을 추측하지 않고 학습 도우미 범위를 유지한다. QA thread와 `latestRepair` 승계는 플래그와 무관하다.
-- 새 대화 마커 이후 스냅샷은 `recentMessages`를 마커 이후 메시지로 제한하고, 마커 이전 `qaThreadDigest`와 `latestRepair`를 null로 처리한다. `pendingDiagnosis`는 진단 회피를 막기 위해 유지하며 temporary memory candidates, quiz assessments, long-term learner memory도 유지한다. context 구조와 키는 변경하지 않는다.
+- 새 대화 마커 이후 스냅샷은 `recentMessages`를 마커 이후 메시지로 제한하고, 마커 이전 `qaThreadDigest`와 `latestRepair`를 null로 처리한다. `pendingDiagnosis`는 진단 회피를 막기 위해 유지하며 temporary memory candidates, quiz assessments, long-term learner memory도 유지한다. 대화 요약 기능 활성화 뒤에는 `conversationSummary`도 리셋한다.
 
 **v0.4에서 확정된 사항** (근거: DEC-011·012·024 정합 + MVP 단순화):
 

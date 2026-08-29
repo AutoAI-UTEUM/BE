@@ -12,6 +12,8 @@ import org.springframework.stereotype.Service;
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.ExtractResponse;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.MaterialExtractionPersistenceService.CompletionResult;
 import io.edupilot.material.MaterialExtractionPersistenceService.ExtractionSnapshot;
@@ -25,6 +27,7 @@ public class MaterialExtractionService {
 	private final MaterialExtractionPersistenceService persistenceService;
 	private final FileStorage fileStorage;
 	private final AiClient aiClient;
+	private final AiUsageService aiUsageService;
 	private final MaterialProperties properties;
 	private final MaterialOutlineTaskDispatcher outlineTaskDispatcher;
 	private final MaterialCaptionTaskDispatcher captionTaskDispatcher;
@@ -34,6 +37,7 @@ public class MaterialExtractionService {
 		MaterialExtractionPersistenceService persistenceService,
 		FileStorage fileStorage,
 		AiClient aiClient,
+		AiUsageService aiUsageService,
 		MaterialProperties properties,
 		MaterialOutlineTaskDispatcher outlineTaskDispatcher,
 		MaterialCaptionTaskDispatcher captionTaskDispatcher,
@@ -42,6 +46,7 @@ public class MaterialExtractionService {
 		this.persistenceService = persistenceService;
 		this.fileStorage = fileStorage;
 		this.aiClient = aiClient;
+		this.aiUsageService = aiUsageService;
 		this.properties = properties;
 		this.outlineTaskDispatcher = outlineTaskDispatcher;
 		this.captionTaskDispatcher = captionTaskDispatcher;
@@ -61,9 +66,26 @@ public class MaterialExtractionService {
 				return;
 			}
 
-			ExtractResponse response = aiClient.extract(
-				fileStorage.load(snapshot.get().storageKey())
-			);
+			ExtractResponse response;
+			try {
+				response = aiClient.extract(
+					fileStorage.load(snapshot.get().storageKey())
+				);
+				aiUsageService.record(
+					snapshot.get().ownerId(),
+					AiFeature.EXTRACT,
+					response == null ? null : response.usage(),
+					true
+				);
+			} catch (AiClientException exception) {
+				aiUsageService.record(
+					snapshot.get().ownerId(),
+					AiFeature.EXTRACT,
+					null,
+					false
+				);
+				throw exception;
+			}
 			logWarnings(materialId, traceId, response.warnings());
 			if (response.pageCount() > properties.maxPages()) {
 				deleteUnretainedFile(response.xaiFileId());

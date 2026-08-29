@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 계약 초안 |
-| 마지막 갱신 | 2026-08-02 |
+| 마지막 갱신 | 2026-08-29 |
 | 외부 호출자 | Frontend |
 | 내부 호출자 | Spring → FastAPI |
 
@@ -110,6 +110,12 @@
 | POST | `/api/classrooms` | 강의실 개설 | Y | INSTRUCTOR |
 | GET | `/api/classrooms` | 내 강의실 목록 | Y | 소유 또는 승인 멤버 관계 |
 | GET | `/api/classrooms/{id}` | 강의실 상세 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
+| GET | `/api/admin/users` | 관리자 회원 목록 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/users/{id}` | 관리자 회원 상세 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/classrooms` | 관리자 강의실 목록 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/classrooms/{id}` | 관리자 강의실 상세 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/ai-usage/summary` | 관리자 AI 사용량 일별·기능별 집계 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/ai-usage/users` | 관리자 사용자별 AI 사용량 상위 집계 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/classrooms/{id}/analytics` | 강의자 학습 현황 집계 | Y | 소유 INSTRUCTOR |
 | GET | `/api/classrooms/{classroomId}/students/{studentId}/learning-analytics` | 학습자별 상세 학습 현황 | Y | 소유 INSTRUCTOR |
 | PATCH | `/api/classrooms/{id}` | 강의실 수정 | Y | 소유 INSTRUCTOR |
@@ -229,7 +235,7 @@
 
 응답과 JWT `role` claim은 `LEARNER | INSTRUCTOR | ADMIN` 중 저장된 계정 역할을 반환합니다. `LEARNER`와 `INSTRUCTOR`는 현재 동일한 인증·소유권 규칙을 적용합니다.
 
-refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DEC-004 Accepted). 쿠키 계약(확정): 이름 `edupilot_refresh`, `HttpOnly`, `Secure`, `SameSite=Lax`, **`Path=/api/auth`**(refresh·logout 요청에만 전송되도록 최소화), Max-Age 14일. 서버는 refresh 해시를 DB에 저장하고 회전·재사용 감지·강제 폐기를 지원합니다. access token 만료는 1시간이며 FE는 메모리에 보관합니다(localStorage 금지). 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
+refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DEC-004 Accepted). 쿠키 계약(확정): 이름 `edupilot_refresh`, `HttpOnly`, `Secure`, `SameSite=Lax`, **`Path=/api/auth`**(refresh·logout 요청에만 전송되도록 최소화), `Domain` 미설정(host-only), Max-Age 14일. 서버는 refresh 해시를 DB에 저장하고 회전·재사용 감지·강제 폐기를 지원합니다. access token 만료는 1시간이며 FE는 메모리에 보관합니다(localStorage 금지). 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
 
 ### POST `/api/auth/google`
 
@@ -450,6 +456,8 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 `CONTEXT_TRUNCATED` 경고는 그대로 전달하며 서버는 원문 없이 구조화된 INFO 로그만 남깁니다. 이 API는 스트리밍하지 않고 응답 완료까지 연결을 유지합니다.
 
+문서·퀴즈 복습 질문은 사용자 직결 AI 쿼터를 호출 직전에 검사합니다. KST 기준 당일 호출 횟수가 역할별 한도에 도달하면 AI를 호출하지 않고 `AI_QUOTA_EXCEEDED`(429)를 반환하며, `ADMIN`은 면제됩니다.
+
 ### PATCH `/api/materials/{materialId}`
 
 자료 소유자만 제목을 수정할 수 있습니다. 강의실 멤버의 열람 권한은 제목 수정 권한을 포함하지 않으며, 비소유자·삭제 자료·존재하지 않는 자료는 모두 `MATERIAL_NOT_FOUND`(404)로 은닉합니다. 제목은 앞뒤 공백을 제거한 뒤 비어 있지 않아야 하며 최대 255자입니다.
@@ -561,7 +569,7 @@ Spring이 인증된 PDF 스트림을 반환합니다. 자료 상세와 같은 �
 
 `uiActions`는 마지막 턴/페이지 이동/퀴즈 제출 응답에서 내려간 최신 UI 액션을 그대로 반환해, 새로고침·재진입 후에도 진행 중이던 선택 UI를 복원할 수 있게 합니다. `activeQuizId`가 있으면 FE는 `GET /api/quizzes/{quizId}`로 풀이 화면을 복원합니다.
 
-`conversationSummary`는 MVP에서 생성하거나 내부 AI 스냅샷으로 전송하지 않으며 세션 상세 응답에도 포함하지 않습니다. `learnerMemoryDigest`는 **내부 AI 스냅샷 전용이며 세션 상세 응답에 포함하지 않습니다**(확정 — DEC-025의 내부 텍스트 비노출 원칙, 메모리 API의 "공개 가능한 요약만" 원칙과 정합). 학습자에게 보여줄 개인화 요약은 `GET /api/users/me/memory`가 담당합니다.
+`conversationSummary`는 비동기로 생성하는 내부 AI 스냅샷 전용 보조 문맥이며 세션 상세 응답에는 포함하지 않습니다. 최근 원문 메시지는 별도로 유지하고, 요약 생성 실패가 사용자 턴을 실패시키지 않습니다. `learnerMemoryDigest`도 **내부 AI 스냅샷 전용이며 세션 상세 응답에 포함하지 않습니다**(확정 — DEC-025의 내부 텍스트 비노출 원칙, 메모리 API의 "공개 가능한 요약만" 원칙과 정합). 학습자에게 보여줄 개인화 요약은 `GET /api/users/me/memory`가 담당합니다.
 
 #### uiActions 위젯
 
@@ -606,21 +614,26 @@ Spring `moveNextPage` 정본으로 치환해 저장·응답합니다. 그 외 �
 | --- | --- | --- |
 | W1 | 세션 최초 생성 | `BINARY_DECISION("강의를 시작할까요?", EXPLAIN_CURRENT_PAGE, WAIT)` |
 | W2 | 페이지 이동 완료 | `BINARY_DECISION("현재 페이지를 설명할까요?", EXPLAIN_CURRENT_PAGE, WAIT)` |
-| W3 | 현재 페이지 설명 완료 + 텍스트 임계값 충족 + READY 완전 개요가 있으면 section 종료 페이지(그 외는 기존 규칙 fallback) | `BINARY_DECISION("퀴즈를 진행할까요?", SHOW_QUIZ_TYPE_SELECT, MOVE_NEXT_PAGE)` |
+| W3 | 현재 페이지 설명 완료 + READY 유효 checkpoint의 triggerPage 일치(200자 게이트 없음). checkpoint 계획이 없으면 기존 200자+section 종료 규칙 fallback | `BINARY_DECISION("퀴즈를 진행할까요?", SHOW_QUIZ_TYPE_SELECT, MOVE_NEXT_PAGE)` |
 | W4 | W3의 yes 선택 | FE가 로컬 `QUIZ_TYPE_SELECT`를 표시하고 선택값으로 `QUIZ_TYPE_SELECTED` 턴 호출 |
 | W5 | 퀴즈 제출 파이프라인 완료 후 다음 학습 가능 | 마지막 페이지가 아니면 `BINARY_DECISION("다음 페이지로 이동할까요?", MOVE_NEXT_PAGE, WAIT)`. 마지막 페이지면 `BINARY_DECISION("학습을 완료할까요?", COMPLETE_SESSION, WAIT)`이며 yes 선택 시 FE가 `POST /api/sessions/{sessionId}/complete` 호출 |
 | W6 | 기준 미달이고 진단 생성 성공 | `DIAGNOSIS_QUESTION(content, diagnosisId)` |
 | W7 | 진단 답변의 교정 완료 | W5와 같은 다음 페이지/마지막 페이지 완료 분기 |
 
-W3의 페이지 텍스트 길이 임계값은 `edupilot.quiz.proposal-min-page-text-length`
-(기본 200자)입니다. 임계값 미만이거나 추출 실패로 페이지 행이 없으면 퀴즈를
-제안하지 않고 W5의 다음 학습 제안을 반환합니다. 마지막 페이지라면 학습 완료를
-제안합니다. 임계값을 충족하고 자료 개요가 READY이며 section이 1페이지부터
-자료 마지막 페이지까지 겹침·누락 없이 완전히 덮으면 현재 페이지가 section의
-`endPage`일 때만 W3를 제안합니다. 개요 행이 없거나 PENDING/FAILED인 경우와
-구버전 READY 개요의 coverage가 불완전한 경우에는 기존 200자 규칙으로
-fallback합니다. 이는 퀴즈 제안 시점만 조정하며 QuizAgent의 출제 coverage는
-현재 페이지 단일을 유지합니다(DEC-036).
+W3은 READY 개요에 유효한 `quizCheckpoints`가 있으면 checkpoint 모드로 동작합니다.
+현재 페이지가 `triggerPage`인 경우에만 제안하며 이 모드에서는 단일 페이지 텍스트
+길이가 출제 범위를 대표하지 않으므로 200자 게이트를 적용하지 않습니다. 체크포인트가
+없거나 비어 있거나 검증에서 탈락한 경우, 개요가 없거나 PENDING/FAILED인 경우에는
+기존 규칙으로 fallback합니다. fallback의 페이지 텍스트 길이 임계값은
+`edupilot.quiz.proposal-min-page-text-length`(기본 200자)이며, READY 완전 개요는
+`sections[].endPage`에서만 제안하고 그 밖의 개요는 기존 200자 규칙을 사용합니다.
+
+checkpoint 제안에서 사용자가 퀴즈 유형을 선택하면 Spring은 해당 coverage의 모든
+페이지 캡션 병합 텍스트를 오름차순 `quizContext.pages`로 전달하고 전체 텍스트 합계를
+앞에서부터 12,000자로 제한합니다. AI가 반환하는 coverage는 checkpoint 범위와
+일치해야 하며, 저장되는 퀴즈의 `pageNumber`와 세션 `activeQuizId` 흐름은 기존처럼
+현재 triggerPage에 귀속됩니다. checkpoint가 아닌 페이지는 현재 페이지 단일 출제
+경로를 유지합니다(DEC-037).
 
 한 응답에서 여러 상태가 연속으로 바뀌어도 위젯은 **마지막 상태 전이 1개에
 대해서만** 생성합니다. 재진입 복원 대상은 Spring이 발급·저장한 위젯만입니다.
@@ -712,9 +725,11 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 
 교정 후 추가 질문은 별도 이벤트 없이 `USER_QUESTION`을 재사용합니다. 직전 교정(repair)이 존재하면 Spring이 내부 턴 스냅샷의 `latestRepair`에 교정 답변 원문(또는 원문을 보존한 요약)을 포함해 전달하고, Orchestrator가 교정 후속 여부를 판단해 QaAgent를 선택합니다([에이전트 시스템 명세](agent-system-spec.md) §9.9 참고).
 
-`USER_QUESTION.payload.includeCurrentPage`는 boolean만 허용합니다. 생략하거나 `true`이면 현재·이전·다음 페이지 텍스트와 nullable `xaiFileId`를 내부 context에 포함합니다. `false`이면 Spring은 `xaiFileId`, `currentPageText`, `previousPageText`, `nextPageText` 네 필드의 값을 모두 null로 전달하되 context 13키 구조를 유지합니다. 이때 QaAgent는 일반 학습 지식으로 답변할 수 있지만 업로드 자료 내용을 추측하지 않고 학습과 무관한 요청에는 기존 한계 안내를 적용합니다. QA thread와 `latestRepair` 문맥은 플래그와 무관하게 승계합니다. 다른 eventType에 `includeCurrentPage`를 보내거나 boolean 외 값을 보내면 `VALIDATION_FAILED`입니다.
+`USER_QUESTION.payload.includeCurrentPage`는 boolean만 허용합니다. 생략하거나 `true`이면 현재·이전·다음 페이지 텍스트와 nullable `xaiFileId`를 내부 context에 포함합니다. `false`이면 Spring은 `xaiFileId`, `currentPageText`, `previousPageText`, `nextPageText` 네 필드의 값을 모두 null로 전달하되 그 외 context 필드는 유지합니다. 선택 필드인 `conversationSummary`도 페이지 첨부 여부와 독립적으로 전달할 수 있습니다. 이때 QaAgent는 일반 학습 지식으로 답변할 수 있지만 업로드 자료 내용을 추측하지 않고 학습과 무관한 요청에는 기존 한계 안내를 적용합니다. QA thread와 `latestRepair` 문맥은 플래그와 무관하게 승계합니다. 다른 eventType에 `includeCurrentPage`를 보내거나 boolean 외 값을 보내면 `VALIDATION_FAILED`입니다.
 
 동일 `requestId` 재전송 처리(확정): 기존 사용자 메시지의 `status=FAILED`이면 해당 메시지를 `COMPLETED`로 복귀시켜 재사용하고 턴을 다시 수행합니다. 질문 행은 추가하지 않습니다. 기존 메시지가 성공 또는 진행 상태이면 **`TURN_ALREADY_PROCESSED`(409)**를 유지합니다. FE는 실패 턴의 통신 재시도에 새 ID를 만들지 않고 같은 `requestId`를 다시 사용합니다.
+
+실제 AI turn 호출 직전에 사용자별 일일 쿼터를 검사합니다. KST 기준 당일 성공·실패 AI 호출을 모두 세며 역할별 한도에 도달하면 `AI_QUOTA_EXCEEDED`(429)를 반환하고 AI 요청은 전송하지 않습니다. `ADMIN`은 쿼터에서 면제됩니다.
 
 `data`:
 
@@ -792,7 +807,7 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 }
 ```
 
-`conversationId`의 숫자는 세션별 새 대화 호출 횟수이며 첫 호출은 1부터 시작합니다. 호출 시각보다 **늦게 생성된** 메시지만 다음 내부 턴의 `recentMessages`에 포함하고, 마커 이전에 생성된 활성 QA thread의 `qaThreadDigest`와 교정 결과의 `latestRepair`는 null로 전달합니다. `pendingDiagnosis`, `memory.temporaryCandidates`, `quizAssessments`, `learnerMemoryDigest`, `xaiFileId`는 유지하며 context 13키 구조도 바뀌지 않습니다. 이 마커는 AI 문맥에만 적용되므로 아래 메시지 조회 API는 새 대화 전후의 전체 이력을 계속 반환합니다.
+`conversationId`의 숫자는 세션별 새 대화 호출 횟수이며 첫 호출은 1부터 시작합니다. 호출 시각보다 **늦게 생성된** 메시지만 다음 내부 턴의 `recentMessages`에 포함하고, 마커 이전에 생성된 활성 QA thread의 `qaThreadDigest`와 교정 결과의 `latestRepair`는 null로 전달합니다. `pendingDiagnosis`, `memory.temporaryCandidates`, `quizAssessments`, `learnerMemoryDigest`, `xaiFileId`는 유지하고 `conversationSummary`는 null로 초기화합니다. 이 마커는 AI 문맥에만 적용되므로 아래 메시지 조회 API는 새 대화 전후의 전체 이력을 계속 반환합니다.
 
 ### GET `/api/sessions/{sessionId}/messages`
 
@@ -1051,7 +1066,7 @@ Query:
 
 제출은 기존 세션 turn claim을 획득한 뒤 채점·평가·진단 파이프라인을 수행하고 성공·실패와 무관하게 마지막에 claim을 해제합니다. claim이 유지되는 동안 페이지 이동·turn·중복 제출은 `SESSION_STATE_CONFLICT`(409)로 차단되며, 동시 제출 중 claim을 획득한 한 요청만 AI 채점을 호출합니다.
 
-MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·채점·기본 UI 액션을 먼저 커밋한 다음, 같은 HTTP 요청 안에서 `quiz-assessment`를 항상 호출하고 기준 미달일 때만 `diagnosis`를 호출합니다. 외부 AI 호출 중에는 DB 트랜잭션을 유지하지 않습니다. 파이프라인 실패와 무관하게 저장된 제출·채점은 유지하고 HTTP 200과 기본 `MOVE_NEXT_PAGE` 액션을 반환합니다. assessment 실패 시 diagnosis는 호출하지 않으며, diagnosis 실패 시 이미 저장된 assessment는 유지합니다. 기준 미달이지만 assessment의 `wrongItems`가 비어 있으면 SCHEMA 422를 피하기 위해 diagnosis 호출을 생략하고 기본 UI 액션을 반환하며 서버에 warn 로그를 남깁니다. AI 호출 뒤 저장 시점에 세션이 `COMPLETED` 또는 `DELETED`로 전이되었다면 늦게 도착한 assessment·diagnosis와 pending 상태·UI 액션을 폐기합니다.
+MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·채점·기본 UI 액션을 먼저 커밋한 다음, 같은 HTTP 요청 안에서 `quiz-assessment`를 항상 호출하고 기준 미달일 때만 `diagnosis`를 호출합니다. 두 사용자 직결 AI 호출은 각각 호출 직전에 일일 쿼터를 검사하며 한도 도달 시 `AI_QUOTA_EXCEEDED`(429)를 반환합니다. 외부 AI 호출 중에는 DB 트랜잭션을 유지하지 않습니다. 쿼터 초과를 제외한 파이프라인 실패와 무관하게 저장된 제출·채점은 유지하고 HTTP 200과 기본 `MOVE_NEXT_PAGE` 액션을 반환합니다. assessment 실패 시 diagnosis는 호출하지 않으며, diagnosis 실패 시 이미 저장된 assessment는 유지합니다. 기준 미달이지만 assessment의 `wrongItems`가 비어 있으면 SCHEMA 422를 피하기 위해 diagnosis 호출을 생략하고 기본 UI 액션을 반환하며 서버에 warn 로그를 남깁니다. AI 호출 뒤 저장 시점에 세션이 `COMPLETED` 또는 `DELETED`로 전이되었다면 늦게 도착한 assessment·diagnosis와 pending 상태·UI 액션을 폐기합니다.
 
 `pageStatus=DIAGNOSIS_PENDING`인 세션은 새 `QUIZ_TYPE_SELECTED` turn을 `SESSION_STATE_CONFLICT`(409)로 거부합니다. 진단 답변은 진단이 생성된 퀴즈 페이지와 현재 페이지가 달라도 교정 결과 저장과 진단 완료 처리를 유지하지만, 현재 페이지의 `pageStatus`와 `uiActions`는 변경하지 않습니다.
 
@@ -1161,18 +1176,13 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
         "explanation": "자료의 정의와 일치합니다."
       }
     ],
-    "usage": {
-      "model": "grok-4",
-      "inputTokens": 1200,
-      "outputTokens": 350,
-      "reasoningTokens": null
-    },
     "truncated": false
   },
   "error": null
 }
 ```
 
+AI 응답의 `usage`는 서버 비용 기록에만 사용하며 외부 API 응답에는 포함하지 않습니다.
 응답 문항은 `questionType` discriminator에 따라 기존 QuizAgent의 MCQ·OX·SHORT·ESSAY 정답/해설 스키마를 그대로 사용합니다. Spring은 계획별 개수, MCQ 정답 choice, ESSAY rubric 합 1.0, `sourcePageNumber` 범위를 재검증하며 위반 시 `AI_RESPONSE_INVALID`(502)입니다. 비소유 강사는 `CLASSROOM_NOT_FOUND`(404), DRAFT가 아닌 시험은 `EXAM_NOT_EDITABLE`(409), 역할 부족은 `ACCESS_DENIED`(403)입니다.
 
 #### 학생 API
@@ -1386,7 +1396,7 @@ Bearer 인증이 필요하며, 인증 사용자를 작성자로 기록하고 피
 
 ## 7.2 강의실 API
 
-강의실 계약은 DEC-030을 따릅니다. `INSTRUCTOR`는 본인 소유 강의실을 관리하고, `LEARNER`와 타 강의실에 참여한 `INSTRUCTOR`는 승인 멤버 권한으로 접근합니다. 강의실 존재·소유권·멤버십을 숨겨야 하는 경우 `CLASSROOM_NOT_FOUND`(404), 소유 강사 전용 API를 멤버가 호출하면 `ACCESS_DENIED`(403)를 반환합니다. `ADMIN` 강의실 기능은 MVP에서 구현하지 않습니다.
+강의실 계약은 DEC-030을 따릅니다. `INSTRUCTOR`는 본인 소유 강의실을 관리하고, `LEARNER`와 타 강의실에 참여한 `INSTRUCTOR`는 승인 멤버 권한으로 접근합니다. 강의실 존재·소유권·멤버십을 숨겨야 하는 경우 `CLASSROOM_NOT_FOUND`(404), 소유 강사 전용 API를 멤버가 호출하면 `ACCESS_DENIED`(403)를 반환합니다. `ADMIN`은 일반 강의실 관리 기능을 사용하지 않으며, 별도의 `/api/admin/classrooms` 읽기 전용 조회만 사용합니다.
 
 색상 enum과 FE 표시값:
 
@@ -2221,6 +2231,64 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 `minimalFact`, hash와 generation lease 정보는 외부 응답에 포함하지 않습니다. 없는 리포트는
 `REPORT_NOT_FOUND`(404)입니다.
 
+## 7.4 관리자 조회 API
+
+모든 `/api/admin/**` 요청은 JWT의 `ROLE_ADMIN` URL 규칙, 컨트롤러의
+`@PreAuthorize("hasRole('ADMIN')")`, 요청 시점 DB의 `ADMIN/ACTIVE` 재검증을 모두
+통과해야 합니다. 이 API 묶음은 읽기 전용이며 역할·상태 변경, 회원 탈퇴, 강의실 조작 같은
+쓰기 API는 제공하지 않습니다.
+
+### GET `/api/admin/users?q=&role=&status=&sort=&page=&size=`
+
+- `q`: 이메일 또는 이름 부분일치, 대소문자 무시
+- `role`: 선택 `ADMIN | INSTRUCTOR | LEARNER`
+- `status`: 선택 `ACTIVE | DELETED`; 생략하면 탈퇴 사용자를 포함한 전체
+- `sort`: `RECENT` 기본(`createdAt DESC, id DESC`) 또는 `NAME`
+- `page`/`size`: 기본 0/20, size 최대 100
+
+목록은 `items`, `page`, `size`, `totalElements`, `totalPages`를 반환합니다. 각 item은
+`id`, `email`, `name`, `role`, `status`, `authProvider`, `createdAt`만 포함합니다.
+`passwordHash`, `googleSub`, refresh token 등 크리덴셜 필드는 관리자 DTO에 정의하지 않아
+직렬화 경로 자체에서 차단합니다.
+
+### GET `/api/admin/users/{id}`
+
+목록 필드에 `affiliation`, `consentedAt`을 추가한 상세를 반환합니다. 없는 사용자는
+`USER_NOT_FOUND`(404)입니다.
+
+### GET `/api/admin/classrooms?sort=&page=&size=`
+
+`sort`는 `RECENT` 기본(`createdAt DESC, id DESC`) 또는 `NAME`이고, page/size 기본과
+상한은 회원 목록과 같습니다. 각 item은 `id`, `name`, `instructor:{id,name}`,
+`memberCount`, `status`, `createdAt`을 포함합니다. 멤버 수는 현재 페이지의 강의실 ID를
+한 번의 GROUP BY 쿼리로 집계하므로 페이지 크기에 비례하는 쿼리를 실행하지 않습니다.
+
+### GET `/api/admin/classrooms/{id}`
+
+목록 필드와 `members:[{userId,name,role,joinedAt}]`을 반환합니다. 없는 강의실은
+`CLASSROOM_NOT_FOUND`(404)입니다.
+
+### GET `/api/admin/ai-usage/summary?from=&to=`
+
+`from`, `to`는 KST `yyyy-MM-dd` 일자이며 양끝을 포함합니다. 둘 다 생략하면 오늘을
+포함한 최근 7일이고, `from > to` 또는 92일 초과 범위는 `VALIDATION_FAILED`(400)입니다.
+DB에서 `DATE(CONVERT_TZ(created_at, '+00:00', '+09:00'))`로 일자 버킷을 만들며 MySQL
+타임존 테이블에는 의존하지 않습니다.
+
+- `daily`: `date`, `callCount`, `successCount`, `failCount`, `inputTokens`,
+  `outputTokens`, `reasoningTokens`
+- `features`: `feature`, `callCount`, `inputTokens`, `outputTokens`, `reasoningTokens`
+
+집계는 DB의 GROUP BY로 수행합니다. 토큰 `SUM`은 SQL 의미를 유지해 개별 null 값을
+합계에서 제외하고, 그룹의 모든 값이 null이면 응답 합계도 null입니다.
+
+### GET `/api/admin/ai-usage/users?from=&to=&limit=`
+
+기간 규칙은 summary와 같고 `limit`은 기본 20, 최대 100입니다. `callCount DESC,
+userId ASC` 순으로 `items:[{userId,email,name,status,callCount,inputTokens,outputTokens,
+reasoningTokens}]`을 반환합니다. users 테이블과 DB에서 조인하며 `DELETED` 사용자의 로그도
+포함합니다.
+
 ## 8. Spring → FastAPI 내부 API
 
 ### 호출 주체 원칙 (하이브리드)
@@ -2244,13 +2312,13 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 | POST | `/internal/ai/diagnosis` | 진단 질문 생성 | 퀴즈 제출 파이프라인 3단계 (기준 점수 미달 시) |
 | POST | `/internal/ai/exams/draft` | 시험 문항 AI 초안 생성 | 소유 강사의 DRAFT 시험 초안 요청 시 동기 호출 |
 
-`extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)과 nullable `xaiFileId`, 기본 빈 배열 `warnings: [{type,message}]`를 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `EDUPILOT_XAI_FILES_ENABLED=true`일 때만 추출 성공 원본을 xAI Files에 업로드합니다. 업로드 실패 또는 48MiB 초과는 `xaiFileId=null`과 `FILE_UPLOAD_FAILED` warning으로 강등하며 추출 응답은 200을 유지합니다. `FILE_UPLOAD_FAILED` 및 알 수 없는 warning type은 경고로만 기록하고 추출이 성공했다면 자료는 기존대로 READY가 됩니다. Spring은 non-blank `xaiFileId`만 내부 DB에 저장하고 외부 자료 응답에는 노출하지 않습니다. 기존 ACTIVE·READY 자료는 기본 OFF인 Spring bounded backfill이 `POST /internal/ai/files`로 원본만 업로드하며, 이 명시적 API는 `/extract` 자동 업로드 kill switch와 독립적으로 동작합니다. backfill은 claim과 file ID 반영을 각각 짧은 row-lock 트랜잭션으로 처리하고 외부 호출 중에는 트랜잭션을 유지하지 않으며, 실패 시 READY 유지·6시간 기본 backoff·경합 file ID 베스트에포트 삭제를 적용합니다. 자유 학습 턴 context에는 nullable `xaiFileId`를 포함하며 `includeCurrentPage=false`이면 null을 보냅니다. AI Service는 설명·QA·퀴즈의 실제 LLM 호출과 개요 생성에 파일을 첨부하고 Plan·결정적 안내·Repair·Note에는 첨부하지 않습니다. 퀴즈는 현재 페이지 단일, 개요는 전달된 pages 범위를 앵커로 유지하며 file ID 부재 시 기존 텍스트 경로를 사용합니다(DEC-035). `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작하며 삭제 성공·xAI 404는 모두 204, 그 밖의 xAI 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)입니다. 자료 삭제나 file ID 교체 시 Spring은 트랜잭션 커밋 후 DELETE를 호출하며 실패해도 자료 삭제·READY 결과를 유지합니다. `captions`는 `{schemaVersion:"1.0", pages:[{pageNumber,imageBase64,extractedText}]}`를 최대 10페이지씩 받고 페이지별 nullable 캡션을 반환합니다. Spring은 캡션이 있으면 모든 페이지 텍스트 기반 AI 입력에 `\n\n[그림 설명] {caption}`을 읽기 시점에 병합하며 `material_pages.text_content` 원문은 유지합니다. 일부 청크 실패는 자료·개요 상태에 영향을 주지 않고 다음 청크 처리를 계속합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
+`extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)과 nullable `xaiFileId`, 기본 빈 배열 `warnings: [{type,message}]`를 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `EDUPILOT_XAI_FILES_ENABLED=true`일 때만 추출 성공 원본을 xAI Files에 업로드합니다. 업로드 실패 또는 48MiB 초과는 `xaiFileId=null`과 `FILE_UPLOAD_FAILED` warning으로 강등하며 추출 응답은 200을 유지합니다. `FILE_UPLOAD_FAILED` 및 알 수 없는 warning type은 경고로만 기록하고 추출이 성공했다면 자료는 기존대로 READY가 됩니다. Spring은 non-blank `xaiFileId`만 내부 DB에 저장하고 외부 자료 응답에는 노출하지 않습니다. 기존 ACTIVE·READY 자료는 기본 OFF인 Spring bounded backfill이 `POST /internal/ai/files`로 원본만 업로드하며, 이 명시적 API는 `/extract` 자동 업로드 kill switch와 독립적으로 동작합니다. backfill은 claim과 file ID 반영을 각각 짧은 row-lock 트랜잭션으로 처리하고 외부 호출 중에는 트랜잭션을 유지하지 않으며, 실패 시 READY 유지·6시간 기본 backoff·경합 file ID 베스트에포트 삭제를 적용합니다. 자유 학습 턴 context에는 nullable `xaiFileId`를 포함하며 `includeCurrentPage=false`이면 null을 보냅니다. AI Service는 설명·QA·퀴즈의 실제 LLM 호출과 개요 생성에 파일을 첨부하고 Plan·결정적 안내·Repair·Note에는 첨부하지 않습니다. 퀴즈는 checkpoint가 있으면 `quizContext`의 coverage 페이지 범위, 없으면 현재 페이지 단일을 앵커로 사용하며 개요는 전달된 pages 범위를 유지합니다. file ID가 없으면 기존 텍스트 경로를 사용합니다(DEC-035·037). `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작하며 삭제 성공·xAI 404는 모두 204, 그 밖의 xAI 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)입니다. 자료 삭제나 file ID 교체 시 Spring은 트랜잭션 커밋 후 DELETE를 호출하며 실패해도 자료 삭제·READY 결과를 유지합니다. `captions`는 `{schemaVersion:"1.0", pages:[{pageNumber,imageBase64,extractedText}]}`를 최대 10페이지씩 받고 페이지별 nullable 캡션을 반환합니다. Spring은 캡션이 있으면 모든 페이지 텍스트 기반 AI 입력에 `\n\n[그림 설명] {caption}`을 읽기 시점에 병합하며 `material_pages.text_content` 원문은 유지합니다. 일부 청크 실패는 자료·개요 상태에 영향을 주지 않고 다음 청크 처리를 계속합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
 
 별도 시험 grade는 숫자 `examId`를 `quizId`로 사용합니다. `pageContext`와 `learnerMemoryDigest`는 생략·null을 허용하고 나머지 grade 요청 필드는 필수·non-null입니다. 응답이 있는 SHORT와 ESSAY는 각각 묶어 호출하며 한 유형이 실패해도 나머지 유형은 계속 호출합니다. 실제 호출의 `items`와 `studentAnswers`는 비어 있지 않아야 합니다. 상세 필드 강제력과 표준 오류 봉투는 `ai-integration-contract.md` v0.6 §6.2를 따릅니다.
 
 별도 시험의 비동기 grade 호출에서 `AI_REQUEST_INVALID`을 받으면 Spring 요청 계약 결함으로 ERROR 로그를 남기고 재시도 없이 해당 제출을 `GRADING_FAILED`로 종결합니다. 이미 커밋된 제출을 보상 삭제하거나 원 POST에 500을 반환하지 않습니다(DEC-032). 통합 학습 퀴즈의 동기 파이프라인 오류 변환은 기존 계약을 유지합니다.
 
-시험 문항 초안 내부 계약은 `ai-integration-contract.md` v0.6 §6.5와 `docs/contracts/exam-draft.schema.json`을 따릅니다. Spring은 120초 전용 read timeout으로 동기 호출하며 초안과 usage를 저장하지 않습니다.
+시험 문항 초안 내부 계약은 `ai-integration-contract.md` v0.6 §6.5와 `docs/contracts/exam-draft.schema.json`을 따릅니다. Spring은 120초 전용 read timeout으로 동기 호출하며 초안 문항은 저장하지 않습니다. 내부 `usage`는 외부 응답에서 제외하고 `ai_usage_log`에만 기록합니다.
 
 일반 턴 요청 최소 구조:
 
@@ -2274,6 +2342,7 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
   },
   "context": {
     "xaiFileId": "file-abc123",
+    "conversationSummary": null,
     "currentPageText": "...",
     "previousPageText": "...",
     "nextPageText": "...",
@@ -2292,9 +2361,9 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 }
 ```
 
-`learnerLevel`은 `learner_memories.target_difficulty`이며 데이터가 없으면 `null`입니다. `learnerConfidence`는 같은 사용자×자료의 최근 assessment 5개 통과 비율로 파생합니다. 비율이 0.4 미만이면 `LOW`, 0.4 이상 0.7 이하면 `MEDIUM`, 0.7 초과면 `HIGH`이며 평가가 없으면 `null`입니다. `conversationSummary`는 MVP에서 생성하지 않으며 내부 턴 스냅샷에 포함하지 않습니다(`ai-integration-contract.md` v0.6 §3.1).
+`learnerLevel`은 `learner_memories.target_difficulty`이며 데이터가 없으면 `null`입니다. `learnerConfidence`는 같은 사용자×자료의 최근 assessment 5개 통과 비율로 파생합니다. 비율이 0.4 미만이면 `LOW`, 0.4 이상 0.7 이하면 `MEDIUM`, 0.7 초과면 `HIGH`이며 평가가 없으면 `null`입니다. `conversationSummary`는 선택 nullable 내부 필드입니다. 이전 대화의 압축 보조 문맥으로 Plan과 QA에 전달하며 최근 대화와 모순되면 최근 대화를 우선합니다. 생략 또는 null이면 기존 동작과 같습니다(`ai-integration-contract.md` §3.1·§6.10).
 
-`xaiFileId`는 `string | null`이며 외부 응답에는 노출하지 않습니다. `currentPageText`는 `string | null`이며 null은 `USER_QUESTION`의 `includeCurrentPage=false`일 때만 허용합니다. 이 경우 `xaiFileId`, `previousPageText`, `nextPageText`도 null이고 context 13키는 그대로 유지합니다. `EXPLAIN_CURRENT_PAGE`와 `QUIZ_TYPE_SELECTED`에서는 `currentPageText`가 필수이며 AI Service가 eventType과 context를 교차 검증합니다. `includeCurrentPage=false`인데 페이지 텍스트가 전달되면 AI Service는 전달된 context를 사용하고 Spring이 정합 책임을 집니다. 같은 조건에서 file ID가 전달돼도 AI Service는 첨부하지 않습니다.
+`xaiFileId`는 `string | null`이며 외부 응답에는 노출하지 않습니다. `currentPageText`는 `string | null`이며 null은 `USER_QUESTION`의 `includeCurrentPage=false`일 때만 허용합니다. 이 경우 `xaiFileId`, `previousPageText`, `nextPageText`도 null이며 `conversationSummary`는 유지할 수 있습니다. `EXPLAIN_CURRENT_PAGE`와 `QUIZ_TYPE_SELECTED`에서는 `currentPageText`가 필수이며 AI Service가 eventType과 context를 교차 검증합니다. `includeCurrentPage=false`인데 페이지 텍스트가 전달되면 AI Service는 전달된 context를 사용하고 Spring이 정합 책임을 집니다. 같은 조건에서 file ID가 전달돼도 AI Service는 첨부하지 않습니다.
 
 `quizAssessments`는 현재 세션 기준 최근 5개의 평가 요약입니다(DEC-011 — DB는 전량 보존, 스냅샷은 세션 스코프 윈도우. 메모리 승격 판단용 user×material 교차 세션 최근 20개 조회는 별도 경로).
 

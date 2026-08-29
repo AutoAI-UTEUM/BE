@@ -39,7 +39,11 @@ public class MaterialCaptionPersistenceService {
 				page.getTextContent()
 			))
 			.toList();
-		return Optional.of(new CaptionSnapshot(material.getStorageKey(), pages));
+		return Optional.of(new CaptionSnapshot(
+			material.getOwnerId(),
+			material.getStorageKey(),
+			pages
+		));
 	}
 
 	@Transactional
@@ -79,7 +83,11 @@ public class MaterialCaptionPersistenceService {
 		return materialRepository.findMissingCaptionIds(PageRequest.of(0, batchSize));
 	}
 
-	public record CaptionSnapshot(String storageKey, List<PageSnapshot> pages) {
+	public record CaptionSnapshot(
+		Long ownerId,
+		String storageKey,
+		List<PageSnapshot> pages
+	) {
 	}
 
 	public record PageSnapshot(int pageNumber, String text) {

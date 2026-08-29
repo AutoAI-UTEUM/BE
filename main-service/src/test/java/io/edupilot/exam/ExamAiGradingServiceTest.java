@@ -19,21 +19,29 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.AiFailureCategory;
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.ErrorCode;
 
 @ExtendWith(MockitoExtension.class)
 class ExamAiGradingServiceTest {
 
 	@Mock private AiClient aiClient;
+	@Mock private AiUsageService aiUsageService;
 	@Mock private ExamSubmissionPersistenceService persistenceService;
 
 	private ExamAiGradingService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new ExamAiGradingService(aiClient, persistenceService);
+		service = new ExamAiGradingService(
+			aiClient,
+			aiUsageService,
+			persistenceService
+		);
 	}
 
 	@Test
@@ -62,6 +70,13 @@ class ExamAiGradingServiceTest {
 		assertThat(outcome.failed()).isTrue();
 		assertThat(outcome.grades()).containsKey("q1");
 		assertThat(outcome.grades()).doesNotContainKey("q2");
+		verify(aiUsageService).record(
+			1L,
+			AiFeature.GRADE,
+			new AiUsage("grok-grade", 18L, 8L, 1L),
+			true
+		);
+		verify(aiUsageService).record(1L, AiFeature.GRADE, null, false);
 	}
 
 	@Test
@@ -91,6 +106,7 @@ class ExamAiGradingServiceTest {
 		return new PreparedExamAiGrading(
 			10L,
 			100L,
+			1L,
 			List.of(
 				new PreparedExamAiGrading.Group(
 					ExamQuestionType.SHORT,
@@ -124,7 +140,7 @@ class ExamAiGradingServiceTest {
 				"PARTIAL",
 				"Feedback"
 			)),
-			null
+			new AiUsage("grok-grade", 18L, 8L, 1L)
 		);
 	}
 }

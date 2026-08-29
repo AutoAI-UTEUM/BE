@@ -2,6 +2,8 @@ package io.edupilot.session;
 
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -21,6 +23,9 @@ import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.AiClientProperties;
 import io.edupilot.ai.AiStreamCancellation;
 import io.edupilot.ai.TurnStreamEvent;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiQuotaService;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
@@ -30,6 +35,7 @@ import io.edupilot.session.dto.TurnRequest;
 import io.edupilot.session.dto.TurnResponse;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
+import io.edupilot.user.UserRole;
 import tools.jackson.databind.JsonNode;
 
 @Service
@@ -63,6 +69,8 @@ public class SessionTurnService {
 	private final TurnPreparationService preparationService;
 	private final TurnSnapshotService snapshotService;
 	private final AiClient aiClient;
+	private final AiUsageService aiUsageService;
+	private final AiQuotaService aiQuotaService;
 	private final TurnResponseValidator responseValidator;
 	private final TurnPersistenceService persistenceService;
 	private final LearnerMemoryPromotionService memoryPromotionService;
@@ -78,6 +86,8 @@ public class SessionTurnService {
 		TurnPreparationService preparationService,
 		TurnSnapshotService snapshotService,
 		AiClient aiClient,
+		AiUsageService aiUsageService,
+		AiQuotaService aiQuotaService,
 		TurnResponseValidator responseValidator,
 		TurnPersistenceService persistenceService,
 		LearnerMemoryPromotionService memoryPromotionService,
@@ -91,6 +101,8 @@ public class SessionTurnService {
 			preparationService,
 			snapshotService,
 			aiClient,
+			aiUsageService,
+			aiQuotaService,
 			responseValidator,
 			persistenceService,
 			memoryPromotionService,
@@ -107,6 +119,8 @@ public class SessionTurnService {
 		TurnPreparationService preparationService,
 		TurnSnapshotService snapshotService,
 		AiClient aiClient,
+		AiUsageService aiUsageService,
+		AiQuotaService aiQuotaService,
 		TurnResponseValidator responseValidator,
 		TurnPersistenceService persistenceService,
 		LearnerMemoryPromotionService memoryPromotionService,
@@ -120,6 +134,8 @@ public class SessionTurnService {
 		this.preparationService = preparationService;
 		this.snapshotService = snapshotService;
 		this.aiClient = aiClient;
+		this.aiUsageService = aiUsageService;
+		this.aiQuotaService = aiQuotaService;
 		this.responseValidator = responseValidator;
 		this.persistenceService = persistenceService;
 		this.memoryPromotionService = memoryPromotionService;
@@ -167,12 +183,14 @@ public class SessionTurnService {
 				);
 			}
 			userMessageId = prepared.userMessageId();
-			TurnSnapshot snapshot = snapshotService.build(
-				userId,
-				sessionId,
-				userMessageId,
-				payload.includeCurrentPage()
-			);
+			TurnSnapshot snapshot = eventType == TurnEventType.QUIZ_TYPE_SELECTED
+				? snapshotService.buildQuiz(userId, sessionId, userMessageId)
+				: snapshotService.build(
+					userId,
+					sessionId,
+					userMessageId,
+					payload.includeCurrentPage()
+				);
 			AiStreamCancellation cancellation = new AiStreamCancellation();
 			Optional<SessionStreamConnection> activeStream =
 				streamService.beginTurn(
@@ -181,9 +199,12 @@ public class SessionTurnService {
 					cancellation
 				);
 			streamConnection = activeStream.orElse(null);
+			UserRole role = userRole(userId);
 			PersistedTurn persisted;
 			if (streamConnection == null) {
 				io.edupilot.ai.dto.TurnResponse aiResponse = executeAiTurn(
+						userId,
+						role,
 						request,
 						eventType,
 						payload.aiPayload(),
@@ -200,6 +221,8 @@ public class SessionTurnService {
 				);
 			} else {
 				StreamExecution execution = executeAiTurnStream(
+						userId,
+						role,
 						request,
 						eventType,
 						payload.aiPayload(),
@@ -295,6 +318,8 @@ public class SessionTurnService {
 	}
 
 	private StreamExecution executeAiTurnStream(
+		Long userId,
+		UserRole role,
 		TurnRequest request,
 		TurnEventType eventType,
 		Map<String, Object> payload,
@@ -314,6 +339,7 @@ public class SessionTurnService {
 				payload,
 				snapshot
 			);
+			boolean aiCallStarted = false;
 			try {
 				long remainingNanos = deadlineNanos - nanoTime.getAsLong();
 				if (remainingNanos <= 0) {
@@ -323,6 +349,8 @@ public class SessionTurnService {
 						null
 					);
 				}
+				aiQuotaService.checkQuota(userId, role);
+				aiCallStarted = true;
 				io.edupilot.ai.dto.TurnResponse response =
 					aiClient.executeTurnStream(
 						aiRequest,
@@ -337,6 +365,12 @@ public class SessionTurnService {
 						cancellation,
 						Duration.ofNanos(remainingNanos)
 					);
+				aiUsageService.record(
+					userId,
+					AiFeature.TURN,
+					response == null ? null : response.usage(),
+					true
+				);
 				responseValidator.validate(
 					response,
 					turnId,
@@ -347,6 +381,14 @@ public class SessionTurnService {
 				);
 				return StreamExecution.completed(response);
 			} catch (AiClientException exception) {
+				if (aiCallStarted) {
+					aiUsageService.record(
+						userId,
+						AiFeature.TURN,
+						null,
+						false
+					);
+				}
 				if (cancellation.isUserCancelled()) {
 					if (partialContent.isEmpty()) {
 						throw new BusinessException(
@@ -402,6 +444,8 @@ public class SessionTurnService {
 	}
 
 	private io.edupilot.ai.dto.TurnResponse executeAiTurn(
+		Long userId,
+		UserRole role,
 		TurnRequest request,
 		TurnEventType eventType,
 		Map<String, Object> payload,
@@ -417,6 +461,7 @@ public class SessionTurnService {
 				payload,
 				snapshot
 			);
+			boolean aiCallStarted = false;
 			try {
 				Duration remaining = remainingTurnBudget(deadlineNanos);
 				Duration readTimeout = remaining.compareTo(
@@ -424,8 +469,16 @@ public class SessionTurnService {
 				) < 0
 					? remaining
 					: aiClientProperties.turnReadTimeout();
+				aiQuotaService.checkQuota(userId, role);
+				aiCallStarted = true;
 				io.edupilot.ai.dto.TurnResponse response =
 					aiClient.executeTurn(aiRequest, readTimeout);
+				aiUsageService.record(
+					userId,
+					AiFeature.TURN,
+					response == null ? null : response.usage(),
+					true
+				);
 				responseValidator.validate(
 					response,
 					turnId,
@@ -436,6 +489,14 @@ public class SessionTurnService {
 				);
 				return response;
 			} catch (AiClientException exception) {
+				if (aiCallStarted) {
+					aiUsageService.record(
+						userId,
+						AiFeature.TURN,
+						null,
+						false
+					);
+				}
 				logAttemptFailure(
 					request.requestId(),
 					turnId,
@@ -540,6 +601,23 @@ public class SessionTurnService {
 			throw new BusinessException(ErrorCode.AI_RESPONSE_INVALID);
 		}
 		int currentPage = number.intValue();
+		Object rawQuizContext = snapshot.context().get("quizContext");
+		if (rawQuizContext instanceof Map<?, ?> quizContext) {
+			Object rawPages = quizContext.get("pages");
+			if (!(rawPages instanceof List<?> pages)) {
+				throw new BusinessException(ErrorCode.AI_RESPONSE_INVALID);
+			}
+			Set<Integer> availablePages = new LinkedHashSet<>();
+			for (Object rawPage : pages) {
+				if (!(rawPage instanceof Map<?, ?> page)
+					|| !(page.get("pageNumber") instanceof Number pageNumber)
+					|| !(page.get("text") instanceof String)) {
+					throw new BusinessException(ErrorCode.AI_RESPONSE_INVALID);
+				}
+				availablePages.add(pageNumber.intValue());
+			}
+			return Set.copyOf(availablePages);
+		}
 		return snapshot.context().get("currentPageText") instanceof String
 			? Set.of(currentPage)
 			: Set.of();
@@ -692,6 +770,15 @@ public class SessionTurnService {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}
 		return user.getAiAnswerStyle().detailLevel();
+	}
+
+	private UserRole userRole(Long userId) {
+		User user = userRepository.findById(userId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+		if (!user.isActive()) {
+			throw new BusinessException(ErrorCode.USER_INACTIVE);
+		}
+		return user.getRole();
 	}
 
 	private String requiredText(JsonNode payload, String field) {

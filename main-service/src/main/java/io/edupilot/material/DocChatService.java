@@ -7,10 +7,18 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.DocChatRequest.ContextDocument;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiQuotaService;
+import io.edupilot.aiusage.AiUsageService;
+import io.edupilot.global.error.BusinessException;
+import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.dto.DocChatRequest;
 import io.edupilot.material.dto.DocChatResponse;
 import io.edupilot.quiz.QuizDocChatContextService;
+import io.edupilot.user.User;
+import io.edupilot.user.UserRepository;
 
 @Service
 public class DocChatService {
@@ -20,15 +28,24 @@ public class DocChatService {
 	private static final int MAX_AI_HISTORY = 10;
 
 	private final AiClient aiClient;
+	private final AiUsageService aiUsageService;
+	private final AiQuotaService aiQuotaService;
+	private final UserRepository userRepository;
 	private final MaterialDocChatContextService materialContextService;
 	private final QuizDocChatContextService quizContextService;
 
 	public DocChatService(
 		AiClient aiClient,
+		AiUsageService aiUsageService,
+		AiQuotaService aiQuotaService,
+		UserRepository userRepository,
 		MaterialDocChatContextService materialContextService,
 		QuizDocChatContextService quizContextService
 	) {
 		this.aiClient = aiClient;
+		this.aiUsageService = aiUsageService;
+		this.aiQuotaService = aiQuotaService;
+		this.userRepository = userRepository;
 		this.materialContextService = materialContextService;
 		this.quizContextService = quizContextService;
 	}
@@ -39,6 +56,7 @@ public class DocChatService {
 		DocChatRequest request
 	) {
 		return ask(
+			userId,
 			materialId,
 			"material",
 			materialContextService.build(userId, materialId),
@@ -52,6 +70,7 @@ public class DocChatService {
 		DocChatRequest request
 	) {
 		return ask(
+			userId,
 			materialId,
 			"quiz",
 			quizContextService.build(userId, materialId),
@@ -60,6 +79,7 @@ public class DocChatService {
 	}
 
 	private DocChatResponse ask(
+		Long userId,
 		Long materialId,
 		String mode,
 		List<ContextDocument> contextDocuments,
@@ -68,14 +88,32 @@ public class DocChatService {
 		List<io.edupilot.ai.dto.DocChatRequest.HistoryMessage> history = history(
 			request.history()
 		);
-		io.edupilot.ai.dto.DocChatResponse response = aiClient.docChat(
+		io.edupilot.ai.dto.DocChatRequest aiRequest =
 			new io.edupilot.ai.dto.DocChatRequest(
 				SCHEMA_VERSION,
 				contextDocuments,
 				history,
 				request.question().trim()
-			)
-		);
+			);
+		User user = userRepository.findById(userId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+		if (!user.isActive()) {
+			throw new BusinessException(ErrorCode.USER_INACTIVE);
+		}
+		aiQuotaService.checkQuota(userId, user.getRole());
+		io.edupilot.ai.dto.DocChatResponse response;
+		try {
+			response = aiClient.docChat(aiRequest);
+			aiUsageService.record(
+				userId,
+				AiFeature.DOC_CHAT,
+				response == null ? null : response.usage(),
+				true
+			);
+		} catch (AiClientException exception) {
+			aiUsageService.record(userId, AiFeature.DOC_CHAT, null, false);
+			throw exception;
+		}
 		if (response.warnings().stream()
 			.anyMatch(warning -> "CONTEXT_TRUNCATED".equals(warning.type()))) {
 			log.info(

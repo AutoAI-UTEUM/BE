@@ -34,6 +34,8 @@ import io.edupilot.ai.AiStreamCancellation;
 import io.edupilot.ai.TurnStreamEvent;
 import io.edupilot.ai.dto.QuizGeneration;
 import io.edupilot.ai.dto.NoteDraft;
+import io.edupilot.aiusage.AiQuotaService;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.memory.LearnerMemoryPromotionService;
@@ -63,6 +65,10 @@ class SessionTurnServiceTest {
 	@Mock
 	private AiClient aiClient;
 	@Mock
+	private AiUsageService aiUsageService;
+	@Mock
+	private AiQuotaService aiQuotaService;
+	@Mock
 	private TurnResponseValidator responseValidator;
 	@Mock
 	private TurnPersistenceService persistenceService;
@@ -81,6 +87,10 @@ class SessionTurnServiceTest {
 
 	@BeforeEach
 	void configureTurnReadTimeout() {
+		User user = User.create("user@example.com", "hash", "학습자");
+		org.mockito.Mockito.lenient()
+			.when(userRepository.findById(1L))
+			.thenReturn(Optional.of(user));
 		org.mockito.Mockito.lenient()
 			.when(aiClientProperties.turnReadTimeout())
 			.thenReturn(Duration.ofSeconds(200));
@@ -654,6 +664,8 @@ class SessionTurnServiceTest {
 		);
 		when(snapshotService.build(1L, 100L, 501L, true))
 			.thenReturn(snapshot);
+		when(snapshotService.buildQuiz(1L, 100L, 501L))
+			.thenReturn(snapshot);
 		when(streamService.beginTurn(
 			eq(1L),
 			eq(100L),
@@ -968,7 +980,7 @@ class SessionTurnServiceTest {
 			"퀴즈 유형 선택: MCQ",
 			null
 		)).thenReturn(new PreparedTurn(501L));
-		when(snapshotService.build(1L, 100L, 501L, true))
+		when(snapshotService.buildQuiz(1L, 100L, 501L))
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L, "currentPage", 3),
 				Map.of(
@@ -1033,6 +1045,59 @@ class SessionTurnServiceTest {
 			eq(java.util.Set.of(3))
 		);
 		verify(streamService).complete(streamConnection, publicResponse);
+	}
+
+	@Test
+	void quizCheckpointContextMakesCoveragePagesAvailable() throws Exception {
+		stubQuizTurn(
+			new TurnSnapshot(
+				Map.of("sessionId", 100L, "currentPage", 3),
+				Map.of(
+					"currentPageText", "current",
+					"quizContext",
+					Map.of(
+						"coverage",
+						Map.of("startPage", 1, "endPage", 3),
+						"pages",
+						List.of(
+							Map.of("pageNumber", 1, "text", "first"),
+							Map.of("pageNumber", 2, "text", "second"),
+							Map.of("pageNumber", 3, "text", "third")
+						)
+					)
+				),
+				10L
+			),
+			new QuizGeneration.Coverage(1, 3)
+		);
+		TurnResponse publicResponse = new TurnResponse(
+			"successful-quiz-turn",
+			100L,
+			List.of(),
+			List.of(),
+			new TurnStateResponse(3, PageStatus.QUIZ_READY, 50L)
+		);
+		when(persistenceService.persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			any()
+		)).thenReturn(persisted(publicResponse));
+
+		assertThat(service().execute(1L, 100L, quizRequest()))
+			.isEqualTo(publicResponse);
+
+		verify(responseValidator).validate(
+			any(),
+			anyString(),
+			eq((String) null),
+			eq(TurnEventType.QUIZ_TYPE_SELECTED),
+			eq("MCQ"),
+			eq(java.util.Set.of(1, 2, 3))
+		);
 	}
 
 	@Test
@@ -1362,6 +1427,8 @@ class SessionTurnServiceTest {
 			preparationService,
 			snapshotService,
 			aiClient,
+			aiUsageService,
+			aiQuotaService,
 			responseValidator,
 			persistenceService,
 			memoryPromotionService,
@@ -1488,7 +1555,7 @@ class SessionTurnServiceTest {
 			"퀴즈 유형 선택: MCQ",
 			null
 		)).thenReturn(new PreparedTurn(501L));
-		when(snapshotService.build(1L, 100L, 501L, true))
+		when(snapshotService.buildQuiz(1L, 100L, 501L))
 			.thenReturn(snapshot);
 		when(streamService.beginTurn(
 			eq(1L),

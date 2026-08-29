@@ -24,8 +24,11 @@ import ch.qos.logback.core.read.ListAppender;
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.AiFailureCategory;
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.ExtractResponse;
 import io.edupilot.ai.dto.ExtractedPage;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.MaterialExtractionPersistenceService.CompletionResult;
 import io.edupilot.material.MaterialExtractionPersistenceService.ExtractionSnapshot;
@@ -42,6 +45,9 @@ class MaterialExtractionServiceTest {
 
 	@Mock
 	private AiClient aiClient;
+
+	@Mock
+	private AiUsageService aiUsageService;
 
 	@Mock
 	private MaterialOutlineTaskDispatcher outlineTaskDispatcher;
@@ -61,6 +67,7 @@ class MaterialExtractionServiceTest {
 			persistenceService,
 			fileStorage,
 			aiClient,
+			aiUsageService,
 			new MaterialProperties(45, 300, Duration.ofMinutes(30)),
 			outlineTaskDispatcher,
 			captionTaskDispatcher,
@@ -68,13 +75,14 @@ class MaterialExtractionServiceTest {
 		);
 		resource = new ByteArrayResource("%PDF-test".getBytes());
 		when(persistenceService.snapshot(10L)).thenReturn(Optional.of(
-			new ExtractionSnapshot(10L, "materials/key.pdf")
+			new ExtractionSnapshot(10L, 1L, "materials/key.pdf")
 		));
 		when(fileStorage.load("materials/key.pdf")).thenReturn(resource);
 	}
 
 	@Test
 	void successfulExtractionAppliesPages() {
+		AiUsage usage = new AiUsage("grok-extract", 21L, 9L, null);
 		List<ExtractedPage> pages = List.of(
 			new ExtractedPage(1, "first"),
 			new ExtractedPage(2, "second")
@@ -85,7 +93,8 @@ class MaterialExtractionServiceTest {
 				2,
 				pages,
 				"file-new",
-				List.of()
+				List.of(),
+				usage
 			));
 		when(persistenceService.complete(10L, pages, "file-new"))
 			.thenReturn(new CompletionResult(true, null));
@@ -95,6 +104,12 @@ class MaterialExtractionServiceTest {
 		verify(persistenceService).complete(10L, pages, "file-new");
 		verify(outlineTaskDispatcher).submit(10L);
 		verify(captionTaskDispatcher).submit(10L);
+		verify(aiUsageService).record(
+			1L,
+			AiFeature.EXTRACT,
+			usage,
+			true
+		);
 		verify(persistenceService, never()).fail(
 			org.mockito.ArgumentMatchers.anyLong(),
 			org.mockito.ArgumentMatchers.any(),
@@ -106,7 +121,9 @@ class MaterialExtractionServiceTest {
 	void missingXaiFileIdKeepsSuccessfulReadyFlow() {
 		List<ExtractedPage> pages = List.of(new ExtractedPage(1, "first"));
 		when(aiClient.extract(resource))
-			.thenReturn(new ExtractResponse("1.0", 1, pages));
+			.thenReturn(new ExtractResponse(
+				"1.0", 1, pages, null, List.of(), null
+			));
 		when(persistenceService.complete(10L, pages, null))
 			.thenReturn(new CompletionResult(true, null));
 
@@ -137,7 +154,8 @@ class MaterialExtractionServiceTest {
 					"FUTURE_WARNING",
 					"future PDF content"
 				)
-			)
+			),
+			null
 		));
 		when(persistenceService.complete(10L, pages, "file-new"))
 			.thenReturn(new CompletionResult(true, null));
@@ -175,7 +193,7 @@ class MaterialExtractionServiceTest {
 	void replacedXaiFileIsDeletedThroughLifecycleHook() {
 		List<ExtractedPage> pages = List.of(new ExtractedPage(1, "first"));
 		when(aiClient.extract(resource)).thenReturn(new ExtractResponse(
-			"1.0", 1, pages, "file-new", List.of()
+			"1.0", 1, pages, "file-new", List.of(), null
 		));
 		when(persistenceService.complete(10L, pages, "file-new"))
 			.thenReturn(new CompletionResult(true, "file-old"));
@@ -192,7 +210,7 @@ class MaterialExtractionServiceTest {
 			.toList();
 		when(aiClient.extract(resource))
 			.thenReturn(new ExtractResponse(
-				"1.0", 301, pages, "file-rejected", List.of()
+				"1.0", 301, pages, "file-rejected", List.of(), null
 			));
 
 		extractionService.extract(10L, "trace-1");
@@ -222,6 +240,12 @@ class MaterialExtractionServiceTest {
 			10L,
 			MaterialFailureReason.EXTRACTION_FAILED,
 			"trace-1"
+		);
+		verify(aiUsageService).record(
+			1L,
+			AiFeature.EXTRACT,
+			null,
+			false
 		);
 	}
 
@@ -287,7 +311,7 @@ class MaterialExtractionServiceTest {
 		List<ExtractedPage> pages = List.of(new ExtractedPage(1, "first"));
 		when(aiClient.extract(resource))
 			.thenReturn(new ExtractResponse(
-				"1.0", 1, pages, "file-discarded", List.of()
+				"1.0", 1, pages, "file-discarded", List.of(), null
 			));
 		when(persistenceService.complete(10L, pages, "file-discarded"))
 			.thenReturn(new CompletionResult(false, null));

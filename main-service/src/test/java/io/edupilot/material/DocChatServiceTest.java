@@ -7,8 +7,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.IntStream;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -17,16 +19,28 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.DocChatRequest.ContextDocument;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiQuotaService;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.dto.DocChatRequest;
 import io.edupilot.quiz.QuizDocChatContextService;
+import io.edupilot.user.User;
+import io.edupilot.user.UserRepository;
 
 @ExtendWith(MockitoExtension.class)
 class DocChatServiceTest {
 
 	@Mock
 	private AiClient aiClient;
+	@Mock
+	private AiUsageService aiUsageService;
+	@Mock
+	private AiQuotaService aiQuotaService;
+	@Mock
+	private UserRepository userRepository;
 
 	@Mock
 	private MaterialDocChatContextService materialContextService;
@@ -34,8 +48,16 @@ class DocChatServiceTest {
 	@Mock
 	private QuizDocChatContextService quizContextService;
 
+	@BeforeEach
+	void setUpUser() {
+		when(userRepository.findById(1L)).thenReturn(Optional.of(
+			User.create("learner@example.com", "hash", "학습자")
+		));
+	}
+
 	@Test
 	void keepsOnlyLatestTenHistoryMessagesAndReturnsWarnings() {
+		AiUsage usage = new AiUsage("grok-doc-chat", 11L, 7L, 2L);
 		List<ContextDocument> documents = List.of(
 			new ContextDocument("material p.1-1", "page text")
 		);
@@ -47,7 +69,8 @@ class DocChatServiceTest {
 				List.of(new io.edupilot.ai.dto.DocChatResponse.Warning(
 					"CONTEXT_TRUNCATED",
 					"context was truncated"
-				))
+				)),
+				usage
 			)
 		);
 		List<DocChatRequest.HistoryMessage> history = IntStream.range(0, 12)
@@ -80,6 +103,7 @@ class DocChatServiceTest {
 		assertThat(response.warnings()).singleElement()
 			.extracting(io.edupilot.material.dto.DocChatResponse.Warning::type)
 			.isEqualTo("CONTEXT_TRUNCATED");
+		verify(aiUsageService).record(1L, AiFeature.DOC_CHAT, usage, true);
 	}
 
 	@Test
@@ -99,11 +123,15 @@ class DocChatServiceTest {
 			assertThat(exception.errorCode())
 				.isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT)
 		);
+		verify(aiUsageService).record(1L, AiFeature.DOC_CHAT, null, false);
 	}
 
 	private DocChatService service() {
 		return new DocChatService(
 			aiClient,
+			aiUsageService,
+			aiQuotaService,
+			userRepository,
 			materialContextService,
 			quizContextService
 		);

@@ -11,6 +11,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.edupilot.ai.dto.OutlineResponse;
 import io.edupilot.assessment.QuizAssessment;
 import io.edupilot.assessment.QuizAssessmentRepository;
 import io.edupilot.diagnosis.Diagnosis;
@@ -19,6 +20,10 @@ import io.edupilot.diagnosis.RepairResult;
 import io.edupilot.diagnosis.RepairResultRepository;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.material.MaterialOverview;
+import io.edupilot.material.MaterialOverviewRepository;
+import io.edupilot.material.MaterialOverviewStatus;
+import io.edupilot.material.MaterialPage;
 import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.material.MaterialPageTextMerger;
 import io.edupilot.memory.LearnerMemory;
@@ -31,6 +36,7 @@ import io.edupilot.memory.MemoryCandidateStatus;
 public class TurnSnapshotService {
 
 	private static final int PAGE_TEXT_LIMIT = 8_000;
+	private static final int QUIZ_CONTEXT_TEXT_LIMIT = 12_000;
 	private static final int MESSAGE_LIMIT = 10;
 	private static final int QA_MESSAGE_LIMIT = 6;
 	private static final int QA_CONTENT_LIMIT = 500;
@@ -38,6 +44,7 @@ public class TurnSnapshotService {
 
 	private final LearningSessionRepository sessionRepository;
 	private final MaterialPageRepository pageRepository;
+	private final MaterialOverviewRepository overviewRepository;
 	private final MaterialPageTextMerger pageTextMerger;
 	private final ChatMessageRepository messageRepository;
 	private final QaThreadRepository qaThreadRepository;
@@ -51,6 +58,7 @@ public class TurnSnapshotService {
 	public TurnSnapshotService(
 		LearningSessionRepository sessionRepository,
 		MaterialPageRepository pageRepository,
+		MaterialOverviewRepository overviewRepository,
 		MaterialPageTextMerger pageTextMerger,
 		ChatMessageRepository messageRepository,
 		QaThreadRepository qaThreadRepository,
@@ -63,6 +71,7 @@ public class TurnSnapshotService {
 	) {
 		this.sessionRepository = sessionRepository;
 		this.pageRepository = pageRepository;
+		this.overviewRepository = overviewRepository;
 		this.pageTextMerger = pageTextMerger;
 		this.messageRepository = messageRepository;
 		this.qaThreadRepository = qaThreadRepository;
@@ -80,6 +89,31 @@ public class TurnSnapshotService {
 		Long sessionId,
 		Long currentRequestMessageId,
 		boolean includeCurrentPage
+	) {
+		return build(
+			userId,
+			sessionId,
+			currentRequestMessageId,
+			includeCurrentPage,
+			false
+		);
+	}
+
+	@Transactional(readOnly = true)
+	public TurnSnapshot buildQuiz(
+		Long userId,
+		Long sessionId,
+		Long currentRequestMessageId
+	) {
+		return build(userId, sessionId, currentRequestMessageId, true, true);
+	}
+
+	private TurnSnapshot build(
+		Long userId,
+		Long sessionId,
+		Long currentRequestMessageId,
+		boolean includeCurrentPage,
+		boolean includeQuizContext
 	) {
 		LearningSession session = sessionRepository
 			.findByIdAndUser_Id(sessionId, userId)
@@ -134,6 +168,12 @@ public class TurnSnapshotService {
 				session.getConversationResetAt()
 			)
 		);
+		if (session.getConversationSummary() != null) {
+			context.put(
+				"conversationSummary",
+				session.getConversationSummary()
+			);
+		}
 		context.put(
 			"qaThreadDigest",
 			qaThreadDigest(sessionId, session.getConversationResetAt())
@@ -169,7 +209,101 @@ public class TurnSnapshotService {
 				temporaryCandidates(userId, materialId, sessionId)
 			)
 		);
+		if (includeQuizContext) {
+			context.put(
+				"quizContext",
+				quizContext(
+					materialId,
+					session.getCurrentPage(),
+					session.getMaterialPageCount()
+				)
+			);
+		}
 		return new TurnSnapshot(sessionData, context, materialId);
+	}
+
+	private Map<String, Object> quizContext(
+		Long materialId,
+		int currentPage,
+		Integer totalPages
+	) {
+		if (totalPages == null) {
+			return null;
+		}
+		MaterialOverview overview = overviewRepository
+			.findByMaterial_Id(materialId)
+			.orElse(null);
+		if (overview == null
+			|| overview.getStatus() != MaterialOverviewStatus.READY) {
+			return null;
+		}
+		OutlineResponse outline = overview.getOutline();
+		if (outline == null
+			|| outline.totalPages() != totalPages
+			|| outline.quizCheckpoints() == null) {
+			return null;
+		}
+		OutlineResponse.QuizCheckpoint checkpoint = outline.quizCheckpoints()
+			.stream()
+			.filter(value -> value.triggerPage() == currentPage)
+			.findFirst()
+			.orElse(null);
+		if (checkpoint == null) {
+			return null;
+		}
+
+		OutlineResponse.Coverage coverage = checkpoint.coverage();
+		List<MaterialPage> pages = pageRepository
+			.findByMaterial_IdAndPageNumberBetweenOrderByPageNumberAsc(
+				materialId,
+				coverage.startPage(),
+				coverage.endPage()
+			);
+		if (!coversRange(pages, coverage)) {
+			return null;
+		}
+
+		int remaining = QUIZ_CONTEXT_TEXT_LIMIT;
+		List<Map<String, Object>> pageContext = new ArrayList<>();
+		for (MaterialPage page : pages) {
+			String mergedText = pageTextMerger.mergeCaption(
+				page.getTextContent(),
+				page.getCaption()
+			);
+			String boundedText = truncate(mergedText, remaining);
+			remaining -= boundedText.length();
+			Map<String, Object> value = new LinkedHashMap<>();
+			value.put("pageNumber", page.getPageNumber());
+			value.put("text", boundedText);
+			pageContext.add(value);
+		}
+
+		return Map.of(
+			"coverage",
+			Map.of(
+				"startPage", coverage.startPage(),
+				"endPage", coverage.endPage()
+			),
+			"pages",
+			List.copyOf(pageContext)
+		);
+	}
+
+	private boolean coversRange(
+		List<MaterialPage> pages,
+		OutlineResponse.Coverage coverage
+	) {
+		int expectedSize = coverage.endPage() - coverage.startPage() + 1;
+		if (pages.size() != expectedSize) {
+			return false;
+		}
+		for (int index = 0; index < pages.size(); index++) {
+			if (pages.get(index).getPageNumber()
+				!= coverage.startPage() + index) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private String pageText(Long materialId, int pageNumber) {

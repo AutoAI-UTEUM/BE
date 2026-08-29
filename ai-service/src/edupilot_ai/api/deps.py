@@ -26,6 +26,7 @@ from edupilot_ai.orchestration.service import TurnService
 from edupilot_ai.outline.service import OutlineService
 from edupilot_ai.reporting.service import ReportGenerationService, ReportQueryService
 from edupilot_ai.settings import Settings
+from edupilot_ai.summary.service import ConversationSummaryService
 from edupilot_ai.support.service import QuizAssessmentService, QuizDiagnosisService
 
 
@@ -194,4 +195,15 @@ def get_doc_chat_service(
         profile=settings.docchat_llm_profile,
         timeout_seconds=settings.edupilot_docchat_timeout_seconds,
         max_context_chars=settings.edupilot_docchat_max_context_chars,
+    )
+
+
+def get_conversation_summary_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    llm: Annotated[LlmBridge, Depends(get_llm_bridge)],
+) -> ConversationSummaryService:
+    return ConversationSummaryService(
+        llm=llm,
+        profile=settings.summary_llm_profile,
+        timeout_seconds=settings.edupilot_summary_timeout_seconds,
     )

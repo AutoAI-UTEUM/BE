@@ -15,6 +15,8 @@ import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 
@@ -25,13 +27,16 @@ public class ExamAiGradingService {
 	private static final String SCHEMA_VERSION = "1.0";
 
 	private final AiClient aiClient;
+	private final AiUsageService aiUsageService;
 	private final ExamSubmissionPersistenceService persistenceService;
 
 	public ExamAiGradingService(
 		AiClient aiClient,
+		AiUsageService aiUsageService,
 		ExamSubmissionPersistenceService persistenceService
 	) {
 		this.aiClient = aiClient;
+		this.aiUsageService = aiUsageService;
 		this.persistenceService = persistenceService;
 	}
 
@@ -43,8 +48,20 @@ public class ExamAiGradingService {
 		for (PreparedExamAiGrading.Group group : prepared.groups()) {
 			try {
 				GradeResponse response = aiClient.grade(toRequest(prepared.examId(), group));
+				aiUsageService.record(
+					prepared.userId(),
+					AiFeature.GRADE,
+					response == null ? null : response.usage(),
+					true
+				);
 				grades.putAll(validate(prepared.examId(), group, response));
 			} catch (AiClientException exception) {
+				aiUsageService.record(
+					prepared.userId(),
+					AiFeature.GRADE,
+					null,
+					false
+				);
 				if ("AI_REQUEST_INVALID".equals(exception.upstreamCode())) {
 					requestInvalid = true;
 				} else {

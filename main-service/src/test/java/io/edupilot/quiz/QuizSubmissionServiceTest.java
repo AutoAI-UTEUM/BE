@@ -69,7 +69,7 @@ class QuizSubmissionServiceTest {
 			List.of()
 		);
 		when(preparationService.prepare(1L, 50L, request)).thenReturn(prepared);
-		when(gradingService.grade(prepared)).thenReturn(sixty);
+		when(gradingService.grade(1L, prepared)).thenReturn(sixty);
 		when(persistenceService.persist(1L, prepared, sixty, true))
 			.thenReturn(new PersistedQuizSubmission(new QuizSubmitResponse(
 				200L,
@@ -120,7 +120,7 @@ class QuizSubmissionServiceTest {
 		QuizSubmitRequest request = new QuizSubmitRequest("request-1", List.of());
 		GradingResult valid = result("100.00");
 		when(preparationService.prepare(1L, 50L, request)).thenReturn(prepared);
-		when(gradingService.grade(prepared))
+		when(gradingService.grade(1L, prepared))
 			.thenThrow(new BusinessException(ErrorCode.GRADING_RESULT_INVALID))
 			.thenReturn(valid);
 		QuizSubmitResponse persisted = response(valid, true);
@@ -155,7 +155,7 @@ class QuizSubmissionServiceTest {
 		GradingResult result = result("40.00");
 		when(preparationService.prepare(1L, 50L, request))
 			.thenReturn(prepared);
-		when(gradingService.grade(prepared)).thenReturn(result);
+		when(gradingService.grade(1L, prepared)).thenReturn(result);
 		when(persistenceService.persist(1L, prepared, result, false))
 			.thenReturn(new PersistedQuizSubmission(
 				response(result, false),
@@ -186,7 +186,7 @@ class QuizSubmissionServiceTest {
 		QuizSubmitResponse response = response(result, true);
 		when(preparationService.prepare(1L, 50L, request))
 			.thenReturn(prepared);
-		when(gradingService.grade(prepared)).thenReturn(result);
+		when(gradingService.grade(1L, prepared)).thenReturn(result);
 		when(persistenceService.persist(1L, prepared, result, true))
 			.thenReturn(new PersistedQuizSubmission(response, false));
 
@@ -209,7 +209,7 @@ class QuizSubmissionServiceTest {
 			.isEqualTo(stored);
 		verify(preparationService, never()).prepare(any(), any(), any());
 		verify(claimService, never()).claim(any(), any(), any());
-		verify(gradingService, never()).grade(any());
+		verify(gradingService, never()).grade(any(), any());
 	}
 
 	@Test
@@ -223,7 +223,7 @@ class QuizSubmissionServiceTest {
 		QuizSubmitResponse response = response(result, true);
 		when(preparationService.prepare(1L, 50L, request))
 			.thenReturn(prepared);
-		when(gradingService.grade(prepared)).thenReturn(result);
+		when(gradingService.grade(1L, prepared)).thenReturn(result);
 		when(persistenceService.persist(1L, prepared, result, true))
 			.thenReturn(new PersistedQuizSubmission(response, true));
 		when(postGradingHook.onGraded(any()))
@@ -240,7 +240,7 @@ class QuizSubmissionServiceTest {
 					.isEqualTo(ErrorCode.SESSION_STATE_CONFLICT)
 			);
 
-		verify(gradingService, times(1)).grade(prepared);
+		verify(gradingService, times(1)).grade(1L, prepared);
 		verify(claimService, times(1)).release(eq(100L), any());
 	}
 
@@ -253,7 +253,7 @@ class QuizSubmissionServiceTest {
 		);
 		when(preparationService.prepare(1L, 50L, request))
 			.thenReturn(prepared);
-		when(gradingService.grade(prepared))
+		when(gradingService.grade(1L, prepared))
 			.thenThrow(new BusinessException(ErrorCode.GRADING_RESULT_INVALID));
 
 		assertThatThrownBy(() -> service("0.6").submit(1L, 50L, request))
@@ -274,7 +274,7 @@ class QuizSubmissionServiceTest {
 				assertThat(exception.errorCode())
 					.isEqualTo(ErrorCode.QUIZ_ALREADY_SUBMITTED)
 			);
-		verify(gradingService, never()).grade(any());
+		verify(gradingService, never()).grade(any(), any());
 		verify(preparationService, never()).prepare(any(), any(), any());
 		verify(claimService, never()).claim(any(), any(), any());
 	}
@@ -318,7 +318,7 @@ class QuizSubmissionServiceTest {
 		QuizSubmitRequest request = new QuizSubmitRequest("request-1", List.of());
 		GradingResult result = result(score);
 		when(preparationService.prepare(1L, 50L, request)).thenReturn(prepared);
-		when(gradingService.grade(prepared)).thenReturn(result);
+		when(gradingService.grade(1L, prepared)).thenReturn(result);
 		when(persistenceService.persist(1L, prepared, result, expected))
 			.thenReturn(new PersistedQuizSubmission(
 				response(result, expected),

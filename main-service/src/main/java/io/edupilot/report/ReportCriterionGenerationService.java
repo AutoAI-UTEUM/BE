@@ -14,8 +14,11 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.CriteriaSuggestRequest;
 import io.edupilot.ai.dto.CriteriaSuggestResponse;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.classroom.ClassroomService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -44,6 +47,7 @@ public class ReportCriterionGenerationService {
 	private final MaterialOverviewRepository overviewRepository;
 	private final ReportCriterionService criterionService;
 	private final AiClient aiClient;
+	private final AiUsageService aiUsageService;
 	private final Executor executor;
 	private final ConcurrentMap<Long, GenerationState> states =
 		new ConcurrentHashMap<>();
@@ -53,12 +57,14 @@ public class ReportCriterionGenerationService {
 		MaterialOverviewRepository overviewRepository,
 		ReportCriterionService criterionService,
 		AiClient aiClient,
+		AiUsageService aiUsageService,
 		@Qualifier("reportGenerationExecutor") Executor executor
 	) {
 		this.classroomService = classroomService;
 		this.overviewRepository = overviewRepository;
 		this.criterionService = criterionService;
 		this.aiClient = aiClient;
+		this.aiUsageService = aiUsageService;
 		this.executor = executor;
 	}
 
@@ -147,6 +153,12 @@ public class ReportCriterionGenerationService {
 			CriteriaSuggestResponse response = aiClient.suggestCriteria(
 				command.request()
 			);
+			aiUsageService.record(
+				command.instructorId(),
+				AiFeature.CRITERIA,
+				response == null ? null : response.usage(),
+				true
+			);
 			if (response.criteria().size() > command.availableSlots()) {
 				states.put(
 					command.classroomId(),
@@ -172,6 +184,14 @@ public class ReportCriterionGenerationService {
 				)
 			);
 		} catch (BusinessException exception) {
+			if (exception instanceof AiClientException) {
+				aiUsageService.record(
+					command.instructorId(),
+					AiFeature.CRITERIA,
+					null,
+					false
+				);
+			}
 			String message = exception.errorCode()
 				== ErrorCode.REPORT_CRITERION_DUPLICATE
 				? DUPLICATE_MESSAGE : SLOT_MESSAGE;
