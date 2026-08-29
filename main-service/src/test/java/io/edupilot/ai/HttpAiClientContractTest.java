@@ -326,7 +326,13 @@ class HttpAiClientContractTest {
 			{
 			  "schemaVersion":"1.0",
 			  "answer":"document answer",
-			  "warnings":[{"type":"CONTEXT_TRUNCATED","message":"trimmed"}]
+			  "warnings":[{"type":"CONTEXT_TRUNCATED","message":"trimmed"}],
+			  "usage": {
+			    "model": "grok-doc-chat",
+			    "input_tokens": 11,
+			    "output_tokens": 7,
+			    "reasoning_tokens": 2
+			  }
 			}
 			"""));
 		DocChatRequest request = new DocChatRequest(
@@ -342,6 +348,9 @@ class HttpAiClientContractTest {
 		assertThat(response.warnings()).singleElement()
 			.extracting(io.edupilot.ai.dto.DocChatResponse.Warning::type)
 			.isEqualTo("CONTEXT_TRUNCATED");
+		assertThat(response.usage()).isEqualTo(
+			new io.edupilot.ai.dto.AiUsage("grok-doc-chat", 11L, 7L, 2L)
+		);
 		RecordedRequest recorded = server.takeRequest(1, TimeUnit.SECONDS);
 		assertThat(recorded.getPath()).isEqualTo("/internal/ai/doc-chat");
 		assertThat(recorded.getHeader("X-Internal-Token"))
@@ -376,7 +385,13 @@ class HttpAiClientContractTest {
 		server.enqueue(jsonResponse(200, """
 			{
 			  "schemaVersion": "1.0",
-			  "summary": "%s"
+			  "summary": "%s",
+			  "usage": {
+			    "model": "grok-summary",
+			    "input_tokens": 15,
+			    "output_tokens": 5,
+			    "reasoning_tokens": null
+			  }
 			}
 			""".formatted("x".repeat(1_005))));
 
@@ -389,6 +404,9 @@ class HttpAiClientContractTest {
 		);
 
 		assertThat(response.summary()).hasSize(1_000);
+		assertThat(response.usage()).isEqualTo(
+			new io.edupilot.ai.dto.AiUsage("grok-summary", 15L, 5L, null)
+		);
 		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
 		assertThat(request).isNotNull();
 		assertThat(request.getPath())
@@ -533,7 +551,13 @@ class HttpAiClientContractTest {
 			  "xaiFileId": "file-123",
 			  "warnings": [
 			    {"type": "FUTURE_WARNING", "message": "ignored"}
-			  ]
+			  ],
+			  "usage": {
+			    "model": "grok-extract",
+			    "input_tokens": 21,
+			    "output_tokens": 9,
+			    "reasoning_tokens": null
+			  }
 			}
 			"""));
 
@@ -552,6 +576,9 @@ class HttpAiClientContractTest {
 			assertThat(warning.type()).isEqualTo("FUTURE_WARNING");
 			assertThat(warning.message()).isEqualTo("ignored");
 		});
+		assertThat(response.usage()).isEqualTo(
+			new io.edupilot.ai.dto.AiUsage("grok-extract", 21L, 9L, null)
+		);
 		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
 		assertThat(request).isNotNull();
 		assertThat(request.getPath()).isEqualTo("/internal/ai/extract");
@@ -579,6 +606,7 @@ class HttpAiClientContractTest {
 
 		assertThat(response.xaiFileId()).isNull();
 		assertThat(response.warnings()).isEmpty();
+		assertThat(response.usage()).isNull();
 	}
 
 	@Test
@@ -687,7 +715,13 @@ class HttpAiClientContractTest {
 			      "coverage": {"startPage": 1, "endPage": 2}
 			    }
 			  ],
-			  "totalPages": 2
+			  "totalPages": 2,
+			  "usage": {
+			    "model": "grok-outline",
+			    "inputTokens": 30,
+			    "outputTokens": 12,
+			    "reasoningTokens": 4
+			  }
 			}
 			"""));
 		OutlineRequest outlineRequest = new OutlineRequest(
@@ -716,6 +750,9 @@ class HttpAiClientContractTest {
 				assertThat(checkpoint.coverage())
 					.isEqualTo(new OutlineResponse.Coverage(1, 2));
 			});
+		assertThat(response.usage()).isEqualTo(
+			new io.edupilot.ai.dto.AiUsage("grok-outline", 30L, 12L, 4L)
+		);
 		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
 		assertThat(request).isNotNull();
 		assertThat(request.getMethod()).isEqualTo("POST");
@@ -757,6 +794,7 @@ class HttpAiClientContractTest {
 
 		assertThat(response.captions()).extracting(CaptionsResponse.PageCaption::caption)
 			.containsExactly("diagram", null);
+		assertThat(response.usage()).isNull();
 		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
 		assertThat(request).isNotNull();
 		assertThat(request.getPath()).isEqualTo("/internal/ai/captions");
@@ -1031,6 +1069,46 @@ class HttpAiClientContractTest {
 			.satisfies(exception -> assertThat(
 				((AiClientException)exception).errorCode()
 			).isEqualTo(ErrorCode.AI_RESPONSE_INVALID));
+	}
+
+	@Test
+	void reportAcceptsMissingOptionalUsage() {
+		String withoutUsage = reportSuccessBody().replace(
+			"""
+			  "warnings": [],
+			  "usage": {
+			    "model": "test-model",
+			    "inputTokens": 10,
+			    "outputTokens": 20,
+			    "reasoningTokens": null
+			  }
+			""",
+			"""
+			  "warnings": []
+			"""
+		);
+		server.enqueue(jsonResponse(200, withoutUsage));
+
+		var response = client(Duration.ofSeconds(1))
+			.generateReport(reportRequest());
+
+		assertThat(response.usage()).isNull();
+	}
+
+	@Test
+	void reportAcceptsSnakeCaseUsage() {
+		String snakeCaseUsage = reportSuccessBody()
+			.replace("inputTokens", "input_tokens")
+			.replace("outputTokens", "output_tokens")
+			.replace("reasoningTokens", "reasoning_tokens");
+		server.enqueue(jsonResponse(200, snakeCaseUsage));
+
+		var response = client(Duration.ofSeconds(1))
+			.generateReport(reportRequest());
+
+		assertThat(response.usage()).isEqualTo(
+			new io.edupilot.ai.dto.AiUsage("test-model", 10L, 20L, null)
+		);
 	}
 
 	@Test

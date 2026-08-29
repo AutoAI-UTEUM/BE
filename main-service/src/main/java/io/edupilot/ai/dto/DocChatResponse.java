@@ -5,9 +5,9 @@ import java.util.List;
 public record DocChatResponse(
 	String schemaVersion,
 	String answer,
-	List<Warning> warnings
+	List<Warning> warnings,
+	AiUsage usage
 ) {
-
 	public record Warning(String type, String message) {
 	}
 }

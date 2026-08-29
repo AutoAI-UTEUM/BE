@@ -24,6 +24,7 @@ import ch.qos.logback.core.read.ListAppender;
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.AiFailureCategory;
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.ExtractResponse;
 import io.edupilot.ai.dto.ExtractedPage;
 import io.edupilot.aiusage.AiFeature;
@@ -81,6 +82,7 @@ class MaterialExtractionServiceTest {
 
 	@Test
 	void successfulExtractionAppliesPages() {
+		AiUsage usage = new AiUsage("grok-extract", 21L, 9L, null);
 		List<ExtractedPage> pages = List.of(
 			new ExtractedPage(1, "first"),
 			new ExtractedPage(2, "second")
@@ -91,7 +93,8 @@ class MaterialExtractionServiceTest {
 				2,
 				pages,
 				"file-new",
-				List.of()
+				List.of(),
+				usage
 			));
 		when(persistenceService.complete(10L, pages, "file-new"))
 			.thenReturn(new CompletionResult(true, null));
@@ -104,7 +107,7 @@ class MaterialExtractionServiceTest {
 		verify(aiUsageService).record(
 			1L,
 			AiFeature.EXTRACT,
-			null,
+			usage,
 			true
 		);
 		verify(persistenceService, never()).fail(
@@ -118,7 +121,9 @@ class MaterialExtractionServiceTest {
 	void missingXaiFileIdKeepsSuccessfulReadyFlow() {
 		List<ExtractedPage> pages = List.of(new ExtractedPage(1, "first"));
 		when(aiClient.extract(resource))
-			.thenReturn(new ExtractResponse("1.0", 1, pages));
+			.thenReturn(new ExtractResponse(
+				"1.0", 1, pages, null, List.of(), null
+			));
 		when(persistenceService.complete(10L, pages, null))
 			.thenReturn(new CompletionResult(true, null));
 
@@ -149,7 +154,8 @@ class MaterialExtractionServiceTest {
 					"FUTURE_WARNING",
 					"future PDF content"
 				)
-			)
+			),
+			null
 		));
 		when(persistenceService.complete(10L, pages, "file-new"))
 			.thenReturn(new CompletionResult(true, null));
@@ -187,7 +193,7 @@ class MaterialExtractionServiceTest {
 	void replacedXaiFileIsDeletedThroughLifecycleHook() {
 		List<ExtractedPage> pages = List.of(new ExtractedPage(1, "first"));
 		when(aiClient.extract(resource)).thenReturn(new ExtractResponse(
-			"1.0", 1, pages, "file-new", List.of()
+			"1.0", 1, pages, "file-new", List.of(), null
 		));
 		when(persistenceService.complete(10L, pages, "file-new"))
 			.thenReturn(new CompletionResult(true, "file-old"));
@@ -204,7 +210,7 @@ class MaterialExtractionServiceTest {
 			.toList();
 		when(aiClient.extract(resource))
 			.thenReturn(new ExtractResponse(
-				"1.0", 301, pages, "file-rejected", List.of()
+				"1.0", 301, pages, "file-rejected", List.of(), null
 			));
 
 		extractionService.extract(10L, "trace-1");
@@ -305,7 +311,7 @@ class MaterialExtractionServiceTest {
 		List<ExtractedPage> pages = List.of(new ExtractedPage(1, "first"));
 		when(aiClient.extract(resource))
 			.thenReturn(new ExtractResponse(
-				"1.0", 1, pages, "file-discarded", List.of()
+				"1.0", 1, pages, "file-discarded", List.of(), null
 			));
 		when(persistenceService.complete(10L, pages, "file-discarded"))
 			.thenReturn(new CompletionResult(false, null));

@@ -237,7 +237,8 @@ class TurnAiUsageIntegrationTest {
 			1,
 			pages,
 			"file-new",
-			List.of()
+			List.of(),
+			new AiUsage("grok-extract", 21L, 9L, 2L)
 		));
 		when(extractionPersistenceService.complete(10L, pages, "file-new"))
 			.thenReturn(new CompletionResult(true, null));
@@ -251,8 +252,45 @@ class TurnAiUsageIntegrationTest {
 			.satisfies(log -> {
 				assertThat(log.getUserId()).isEqualTo(1L);
 				assertThat(log.isSuccess()).isTrue();
+				assertThat(log.getModel()).isEqualTo("grok-extract");
+				assertThat(log.getInputTokens()).isEqualTo(21L);
+				assertThat(log.getOutputTokens()).isEqualTo(9L);
+				assertThat(log.getReasoningTokens()).isEqualTo(2L);
 			});
 		assertThat(usageRepository.count()).isEqualTo(201L);
+	}
+
+	@Test
+	void extractWithoutUsageStillPersistsSuccessfulCallWithNullTokens() {
+		ByteArrayResource resource = new ByteArrayResource(
+			"%PDF-test".getBytes()
+		);
+		List<ExtractedPage> pages = List.of(new ExtractedPage(1, "page"));
+		when(extractionPersistenceService.snapshot(10L)).thenReturn(Optional.of(
+			new ExtractionSnapshot(10L, 1L, "materials/key.pdf")
+		));
+		when(fileStorage.load("materials/key.pdf")).thenReturn(resource);
+		when(aiClient.extract(resource)).thenReturn(new ExtractResponse(
+			"1.0",
+			1,
+			pages,
+			"file-new",
+			List.of(),
+			null
+		));
+		when(extractionPersistenceService.complete(10L, pages, "file-new"))
+			.thenReturn(new CompletionResult(true, null));
+
+		extractionService.extract(10L, "trace-1");
+
+		assertThat(usageRepository.findAll()).singleElement().satisfies(log -> {
+			assertThat(log.getFeature()).isEqualTo(AiFeature.EXTRACT);
+			assertThat(log.isSuccess()).isTrue();
+			assertThat(log.getModel()).isNull();
+			assertThat(log.getInputTokens()).isNull();
+			assertThat(log.getOutputTokens()).isNull();
+			assertThat(log.getReasoningTokens()).isNull();
+		});
 	}
 
 	private TurnRequest request() {

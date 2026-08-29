@@ -7,18 +7,11 @@ public record ExtractResponse(
 	int pageCount,
 	List<ExtractedPage> pages,
 	String xaiFileId,
-	List<Warning> warnings
+	List<Warning> warnings,
+	AiUsage usage
 ) {
 	public ExtractResponse {
 		warnings = warnings == null ? List.of() : warnings;
-	}
-
-	public ExtractResponse(
-		String schemaVersion,
-		int pageCount,
-		List<ExtractedPage> pages
-	) {
-		this(schemaVersion, pageCount, pages, null, List.of());
 	}
 
 	public record Warning(String type, String message) {

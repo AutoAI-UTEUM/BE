@@ -428,7 +428,9 @@ class MaterialOverviewJpaTest {
 				3,
 				List.of("개념")
 			)),
-			3
+			null,
+			3,
+			null
 		);
 	}
 
@@ -447,7 +449,8 @@ class MaterialOverviewJpaTest {
 				3,
 				new OutlineResponse.Coverage(1, 3)
 			)),
-			3
+			3,
+			null
 		);
 	}
 

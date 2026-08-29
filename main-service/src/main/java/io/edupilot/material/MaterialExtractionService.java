@@ -74,7 +74,7 @@ public class MaterialExtractionService {
 				aiUsageService.record(
 					snapshot.get().ownerId(),
 					AiFeature.EXTRACT,
-					null,
+					response == null ? null : response.usage(),
 					true
 				);
 			} catch (AiClientException exception) {

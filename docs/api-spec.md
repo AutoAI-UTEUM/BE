@@ -1176,18 +1176,13 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
         "explanation": "자료의 정의와 일치합니다."
       }
     ],
-    "usage": {
-      "model": "grok-4",
-      "inputTokens": 1200,
-      "outputTokens": 350,
-      "reasoningTokens": null
-    },
     "truncated": false
   },
   "error": null
 }
 ```
 
+AI 응답의 `usage`는 서버 비용 기록에만 사용하며 외부 API 응답에는 포함하지 않습니다.
 응답 문항은 `questionType` discriminator에 따라 기존 QuizAgent의 MCQ·OX·SHORT·ESSAY 정답/해설 스키마를 그대로 사용합니다. Spring은 계획별 개수, MCQ 정답 choice, ESSAY rubric 합 1.0, `sourcePageNumber` 범위를 재검증하며 위반 시 `AI_RESPONSE_INVALID`(502)입니다. 비소유 강사는 `CLASSROOM_NOT_FOUND`(404), DRAFT가 아닌 시험은 `EXAM_NOT_EDITABLE`(409), 역할 부족은 `ACCESS_DENIED`(403)입니다.
 
 #### 학생 API
@@ -2323,7 +2318,7 @@ reasoningTokens}]`을 반환합니다. users 테이블과 DB에서 조인하며 
 
 별도 시험의 비동기 grade 호출에서 `AI_REQUEST_INVALID`을 받으면 Spring 요청 계약 결함으로 ERROR 로그를 남기고 재시도 없이 해당 제출을 `GRADING_FAILED`로 종결합니다. 이미 커밋된 제출을 보상 삭제하거나 원 POST에 500을 반환하지 않습니다(DEC-032). 통합 학습 퀴즈의 동기 파이프라인 오류 변환은 기존 계약을 유지합니다.
 
-시험 문항 초안 내부 계약은 `ai-integration-contract.md` v0.6 §6.5와 `docs/contracts/exam-draft.schema.json`을 따릅니다. Spring은 120초 전용 read timeout으로 동기 호출하며 초안과 usage를 저장하지 않습니다.
+시험 문항 초안 내부 계약은 `ai-integration-contract.md` v0.6 §6.5와 `docs/contracts/exam-draft.schema.json`을 따릅니다. Spring은 120초 전용 read timeout으로 동기 호출하며 초안 문항은 저장하지 않습니다. 내부 `usage`는 외부 응답에서 제외하고 `ai_usage_log`에만 기록합니다.
 
 일반 턴 요청 최소 구조:
 

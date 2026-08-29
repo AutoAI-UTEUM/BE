@@ -10,7 +10,7 @@ public record GradeResponse(
 	BigDecimal score,
 	BigDecimal maxScore,
 	List<Item> items,
-	Usage usage
+	AiUsage usage
 ) {
 
 	public record Item(
@@ -19,14 +19,6 @@ public record GradeResponse(
 		BigDecimal maxScore,
 		String verdict,
 		String feedback
-	) {
-	}
-
-	public record Usage(
-		String model,
-		Long inputTokens,
-		Long outputTokens,
-		Long reasoningTokens
 	) {
 	}
 }

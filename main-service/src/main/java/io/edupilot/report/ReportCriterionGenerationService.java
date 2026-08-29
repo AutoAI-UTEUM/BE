@@ -156,7 +156,7 @@ public class ReportCriterionGenerationService {
 			aiUsageService.record(
 				command.instructorId(),
 				AiFeature.CRITERIA,
-				null,
+				response == null ? null : response.usage(),
 				true
 			);
 			if (response.criteria().size() > command.availableSlots()) {
