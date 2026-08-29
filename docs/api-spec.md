@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 계약 초안 |
-| 마지막 갱신 | 2026-08-02 |
+| 마지막 갱신 | 2026-08-29 |
 | 외부 호출자 | Frontend |
 | 내부 호출자 | Spring → FastAPI |
 
@@ -110,6 +110,12 @@
 | POST | `/api/classrooms` | 강의실 개설 | Y | INSTRUCTOR |
 | GET | `/api/classrooms` | 내 강의실 목록 | Y | 소유 또는 승인 멤버 관계 |
 | GET | `/api/classrooms/{id}` | 강의실 상세 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
+| GET | `/api/admin/users` | 관리자 회원 목록 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/users/{id}` | 관리자 회원 상세 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/classrooms` | 관리자 강의실 목록 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/classrooms/{id}` | 관리자 강의실 상세 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/ai-usage/summary` | 관리자 AI 사용량 일별·기능별 집계 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/ai-usage/users` | 관리자 사용자별 AI 사용량 상위 집계 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/classrooms/{id}/analytics` | 강의자 학습 현황 집계 | Y | 소유 INSTRUCTOR |
 | GET | `/api/classrooms/{classroomId}/students/{studentId}/learning-analytics` | 학습자별 상세 학습 현황 | Y | 소유 INSTRUCTOR |
 | PATCH | `/api/classrooms/{id}` | 강의실 수정 | Y | 소유 INSTRUCTOR |
@@ -1395,7 +1401,7 @@ Bearer 인증이 필요하며, 인증 사용자를 작성자로 기록하고 피
 
 ## 7.2 강의실 API
 
-강의실 계약은 DEC-030을 따릅니다. `INSTRUCTOR`는 본인 소유 강의실을 관리하고, `LEARNER`와 타 강의실에 참여한 `INSTRUCTOR`는 승인 멤버 권한으로 접근합니다. 강의실 존재·소유권·멤버십을 숨겨야 하는 경우 `CLASSROOM_NOT_FOUND`(404), 소유 강사 전용 API를 멤버가 호출하면 `ACCESS_DENIED`(403)를 반환합니다. `ADMIN` 강의실 기능은 MVP에서 구현하지 않습니다.
+강의실 계약은 DEC-030을 따릅니다. `INSTRUCTOR`는 본인 소유 강의실을 관리하고, `LEARNER`와 타 강의실에 참여한 `INSTRUCTOR`는 승인 멤버 권한으로 접근합니다. 강의실 존재·소유권·멤버십을 숨겨야 하는 경우 `CLASSROOM_NOT_FOUND`(404), 소유 강사 전용 API를 멤버가 호출하면 `ACCESS_DENIED`(403)를 반환합니다. `ADMIN`은 일반 강의실 관리 기능을 사용하지 않으며, 별도의 `/api/admin/classrooms` 읽기 전용 조회만 사용합니다.
 
 색상 enum과 FE 표시값:
 
@@ -2229,6 +2235,64 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 스냅샷은 소급 변경하지 않으므로 보유한 문항 수 계열만 노출될 수 있습니다. `sourceRef`,
 `minimalFact`, hash와 generation lease 정보는 외부 응답에 포함하지 않습니다. 없는 리포트는
 `REPORT_NOT_FOUND`(404)입니다.
+
+## 7.4 관리자 조회 API
+
+모든 `/api/admin/**` 요청은 JWT의 `ROLE_ADMIN` URL 규칙, 컨트롤러의
+`@PreAuthorize("hasRole('ADMIN')")`, 요청 시점 DB의 `ADMIN/ACTIVE` 재검증을 모두
+통과해야 합니다. 이 API 묶음은 읽기 전용이며 역할·상태 변경, 회원 탈퇴, 강의실 조작 같은
+쓰기 API는 제공하지 않습니다.
+
+### GET `/api/admin/users?q=&role=&status=&sort=&page=&size=`
+
+- `q`: 이메일 또는 이름 부분일치, 대소문자 무시
+- `role`: 선택 `ADMIN | INSTRUCTOR | LEARNER`
+- `status`: 선택 `ACTIVE | DELETED`; 생략하면 탈퇴 사용자를 포함한 전체
+- `sort`: `RECENT` 기본(`createdAt DESC, id DESC`) 또는 `NAME`
+- `page`/`size`: 기본 0/20, size 최대 100
+
+목록은 `items`, `page`, `size`, `totalElements`, `totalPages`를 반환합니다. 각 item은
+`id`, `email`, `name`, `role`, `status`, `authProvider`, `createdAt`만 포함합니다.
+`passwordHash`, `googleSub`, refresh token 등 크리덴셜 필드는 관리자 DTO에 정의하지 않아
+직렬화 경로 자체에서 차단합니다.
+
+### GET `/api/admin/users/{id}`
+
+목록 필드에 `affiliation`, `consentedAt`을 추가한 상세를 반환합니다. 없는 사용자는
+`USER_NOT_FOUND`(404)입니다.
+
+### GET `/api/admin/classrooms?sort=&page=&size=`
+
+`sort`는 `RECENT` 기본(`createdAt DESC, id DESC`) 또는 `NAME`이고, page/size 기본과
+상한은 회원 목록과 같습니다. 각 item은 `id`, `name`, `instructor:{id,name}`,
+`memberCount`, `status`, `createdAt`을 포함합니다. 멤버 수는 현재 페이지의 강의실 ID를
+한 번의 GROUP BY 쿼리로 집계하므로 페이지 크기에 비례하는 쿼리를 실행하지 않습니다.
+
+### GET `/api/admin/classrooms/{id}`
+
+목록 필드와 `members:[{userId,name,role,joinedAt}]`을 반환합니다. 없는 강의실은
+`CLASSROOM_NOT_FOUND`(404)입니다.
+
+### GET `/api/admin/ai-usage/summary?from=&to=`
+
+`from`, `to`는 KST `yyyy-MM-dd` 일자이며 양끝을 포함합니다. 둘 다 생략하면 오늘을
+포함한 최근 7일이고, `from > to` 또는 92일 초과 범위는 `VALIDATION_FAILED`(400)입니다.
+DB에서 `DATE(CONVERT_TZ(created_at, '+00:00', '+09:00'))`로 일자 버킷을 만들며 MySQL
+타임존 테이블에는 의존하지 않습니다.
+
+- `daily`: `date`, `callCount`, `successCount`, `failCount`, `inputTokens`,
+  `outputTokens`, `reasoningTokens`
+- `features`: `feature`, `callCount`, `inputTokens`, `outputTokens`, `reasoningTokens`
+
+집계는 DB의 GROUP BY로 수행합니다. 토큰 `SUM`은 SQL 의미를 유지해 개별 null 값을
+합계에서 제외하고, 그룹의 모든 값이 null이면 응답 합계도 null입니다.
+
+### GET `/api/admin/ai-usage/users?from=&to=&limit=`
+
+기간 규칙은 summary와 같고 `limit`은 기본 20, 최대 100입니다. `callCount DESC,
+userId ASC` 순으로 `items:[{userId,email,name,status,callCount,inputTokens,outputTokens,
+reasoningTokens}]`을 반환합니다. users 테이블과 DB에서 조인하며 `DELETED` 사용자의 로그도
+포함합니다.
 
 ## 8. Spring → FastAPI 내부 API
 
