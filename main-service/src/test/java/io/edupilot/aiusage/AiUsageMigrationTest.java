@@ -20,7 +20,7 @@ import io.edupilot.MainServiceApplication;
 })
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ContextConfiguration(classes = MainServiceApplication.class)
-@Sql(scripts = "classpath:db/migration/V35__ai_usage_log.sql")
+@Sql(scripts = "classpath:db/migration/V36__ai_usage_log.sql")
 class AiUsageMigrationTest {
 
 	@Autowired
