@@ -43,6 +43,10 @@ edupilot:
     allowed-origins: ${EDUPILOT_CORS_ALLOWED_ORIGINS}
   ai:
     internal-token: ${EDUPILOT_INTERNAL_TOKEN}
+    quota:
+      enabled: ${EDUPILOT_AI_QUOTA_ENABLED:true}
+      daily-default: ${EDUPILOT_AI_QUOTA_DAILY_DEFAULT:200}
+      daily-instructor: ${EDUPILOT_AI_QUOTA_DAILY_INSTRUCTOR:500}
     connect-timeout: 3s
     health-timeout: 2s
     read-timeout: 30s

@@ -27,6 +27,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.dto.CaptionsRequest;
 import io.edupilot.ai.dto.CaptionsResponse;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.material.MaterialCaptionPersistenceService.CaptionSnapshot;
 import io.edupilot.material.MaterialCaptionPersistenceService.PageSnapshot;
 import io.edupilot.material.PageImageRenderer.RenderedPage;
@@ -39,6 +40,7 @@ class MaterialCaptionGenerationServiceTest {
 	@Mock private MaterialCaptionPersistenceService persistenceService;
 	@Mock private PageImageRenderer imageRenderer;
 	@Mock private AiClient aiClient;
+	@Mock private AiUsageService aiUsageService;
 
 	private MaterialCaptionGenerationService service;
 
@@ -48,6 +50,7 @@ class MaterialCaptionGenerationServiceTest {
 			persistenceService,
 			imageRenderer,
 			aiClient,
+			aiUsageService,
 			Clock.fixed(NOW, ZoneOffset.UTC)
 		);
 	}
@@ -58,7 +61,11 @@ class MaterialCaptionGenerationServiceTest {
 			.mapToObj(number -> new PageSnapshot(number, "text-" + number))
 			.toList();
 		when(persistenceService.snapshot(10L)).thenReturn(Optional.of(
-			new CaptionSnapshot("materials/00000000-0000-0000-0000-000000000001.pdf", pages)
+			new CaptionSnapshot(
+				1L,
+				"materials/00000000-0000-0000-0000-000000000001.pdf",
+				pages
+			)
 		));
 		doAnswer(invocation -> {
 			@SuppressWarnings("unchecked")

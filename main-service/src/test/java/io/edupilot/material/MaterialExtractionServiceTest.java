@@ -26,6 +26,8 @@ import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.AiFailureCategory;
 import io.edupilot.ai.dto.ExtractResponse;
 import io.edupilot.ai.dto.ExtractedPage;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.MaterialExtractionPersistenceService.CompletionResult;
 import io.edupilot.material.MaterialExtractionPersistenceService.ExtractionSnapshot;
@@ -42,6 +44,9 @@ class MaterialExtractionServiceTest {
 
 	@Mock
 	private AiClient aiClient;
+
+	@Mock
+	private AiUsageService aiUsageService;
 
 	@Mock
 	private MaterialOutlineTaskDispatcher outlineTaskDispatcher;
@@ -61,6 +66,7 @@ class MaterialExtractionServiceTest {
 			persistenceService,
 			fileStorage,
 			aiClient,
+			aiUsageService,
 			new MaterialProperties(45, 300, Duration.ofMinutes(30)),
 			outlineTaskDispatcher,
 			captionTaskDispatcher,
@@ -68,7 +74,7 @@ class MaterialExtractionServiceTest {
 		);
 		resource = new ByteArrayResource("%PDF-test".getBytes());
 		when(persistenceService.snapshot(10L)).thenReturn(Optional.of(
-			new ExtractionSnapshot(10L, "materials/key.pdf")
+			new ExtractionSnapshot(10L, 1L, "materials/key.pdf")
 		));
 		when(fileStorage.load("materials/key.pdf")).thenReturn(resource);
 	}
@@ -95,6 +101,12 @@ class MaterialExtractionServiceTest {
 		verify(persistenceService).complete(10L, pages, "file-new");
 		verify(outlineTaskDispatcher).submit(10L);
 		verify(captionTaskDispatcher).submit(10L);
+		verify(aiUsageService).record(
+			1L,
+			AiFeature.EXTRACT,
+			null,
+			true
+		);
 		verify(persistenceService, never()).fail(
 			org.mockito.ArgumentMatchers.anyLong(),
 			org.mockito.ArgumentMatchers.any(),
@@ -222,6 +234,12 @@ class MaterialExtractionServiceTest {
 			10L,
 			MaterialFailureReason.EXTRACTION_FAILED,
 			"trace-1"
+		);
+		verify(aiUsageService).record(
+			1L,
+			AiFeature.EXTRACT,
+			null,
+			false
 		);
 	}
 

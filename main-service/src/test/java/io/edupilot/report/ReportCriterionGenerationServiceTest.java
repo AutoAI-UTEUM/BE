@@ -23,6 +23,7 @@ import io.edupilot.ai.AiClient;
 import io.edupilot.ai.dto.CriteriaSuggestRequest;
 import io.edupilot.ai.dto.CriteriaSuggestResponse;
 import io.edupilot.ai.dto.OutlineResponse;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.classroom.ClassroomService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -38,6 +39,7 @@ class ReportCriterionGenerationServiceTest {
 	@Mock private MaterialOverviewRepository overviewRepository;
 	@Mock private ReportCriterionService criterionService;
 	@Mock private AiClient aiClient;
+	@Mock private AiUsageService aiUsageService;
 	@Mock private MaterialOverview overview;
 
 	private ReportCriterionGenerationService service;
@@ -219,6 +221,7 @@ class ReportCriterionGenerationServiceTest {
 			overviewRepository,
 			criterionService,
 			aiClient,
+			aiUsageService,
 			executor
 		);
 	}

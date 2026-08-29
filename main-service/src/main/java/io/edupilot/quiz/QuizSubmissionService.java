@@ -92,7 +92,7 @@ public class QuizSubmissionService {
 			if (persistenceService.exists(userId, quizId)) {
 				throw new BusinessException(ErrorCode.QUIZ_ALREADY_SUBMITTED);
 			}
-			GradingResult gradingResult = gradingService.grade(prepared);
+			GradingResult gradingResult = gradingService.grade(userId, prepared);
 			boolean passed = gradingResult.score().compareTo(
 				gradingResult.maxScore().multiply(properties.passRatio())
 			) >= 0;
@@ -127,6 +127,11 @@ public class QuizSubmissionService {
 					)
 				);
 			} catch (RuntimeException exception) {
+				if (exception instanceof BusinessException businessException
+					&& businessException.errorCode()
+						== ErrorCode.AI_QUOTA_EXCEEDED) {
+					throw businessException;
+				}
 				log.atWarn()
 					.addKeyValue(
 						"submissionId",

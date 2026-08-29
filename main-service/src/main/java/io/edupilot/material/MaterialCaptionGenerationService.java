@@ -12,8 +12,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.CaptionsRequest;
 import io.edupilot.ai.dto.CaptionsResponse;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.material.MaterialCaptionPersistenceService.CaptionSnapshot;
 import io.edupilot.material.MaterialCaptionPersistenceService.PageSnapshot;
 import io.edupilot.material.PageImageRenderer.RenderedPage;
@@ -30,17 +33,20 @@ public class MaterialCaptionGenerationService {
 	private final MaterialCaptionPersistenceService persistenceService;
 	private final PageImageRenderer imageRenderer;
 	private final AiClient aiClient;
+	private final AiUsageService aiUsageService;
 	private final Clock clock;
 
 	public MaterialCaptionGenerationService(
 		MaterialCaptionPersistenceService persistenceService,
 		PageImageRenderer imageRenderer,
 		AiClient aiClient,
+		AiUsageService aiUsageService,
 		Clock clock
 	) {
 		this.persistenceService = persistenceService;
 		this.imageRenderer = imageRenderer;
 		this.aiClient = aiClient;
+		this.aiUsageService = aiUsageService;
 		this.clock = clock;
 	}
 
@@ -64,13 +70,13 @@ public class MaterialCaptionGenerationService {
 				rendered -> {
 					chunk.add(toRequestPage(rendered, textByPage));
 					if (chunk.size() == CHUNK_SIZE) {
-						processChunk(materialId, chunk);
+						processChunk(materialId, snapshot.ownerId(), chunk);
 						chunk.clear();
 					}
 				}
 			);
 			if (!chunk.isEmpty()) {
-				processChunk(materialId, chunk);
+				processChunk(materialId, snapshot.ownerId(), chunk);
 			}
 		} catch (RuntimeException exception) {
 			log.atWarn()
@@ -95,12 +101,19 @@ public class MaterialCaptionGenerationService {
 
 	private void processChunk(
 		Long materialId,
+		Long ownerId,
 		List<CaptionsRequest.Page> pages
 	) {
 		List<CaptionsRequest.Page> requestPages = List.copyOf(pages);
 		try {
 			CaptionsResponse response = aiClient.captions(
 				new CaptionsRequest(SCHEMA_VERSION, requestPages)
+			);
+			aiUsageService.record(
+				ownerId,
+				AiFeature.CAPTIONS,
+				null,
+				true
 			);
 			Map<Integer, String> captions = new HashMap<>();
 			for (CaptionsResponse.PageCaption caption : response.captions()) {
@@ -110,6 +123,14 @@ public class MaterialCaptionGenerationService {
 			}
 			persistenceService.applyCaptions(materialId, captions);
 		} catch (RuntimeException exception) {
+			if (exception instanceof AiClientException) {
+				aiUsageService.record(
+					ownerId,
+					AiFeature.CAPTIONS,
+					null,
+					false
+				);
+			}
 			log.atWarn()
 				.addKeyValue("materialId", materialId)
 				.addKeyValue("firstPage", requestPages.getFirst().pageNumber())

@@ -262,6 +262,11 @@ public enum ErrorCode {
 		HttpStatus.TOO_MANY_REQUESTS,
 		"요청 한도를 초과했습니다."
 	),
+	AI_QUOTA_EXCEEDED(
+		"AI_QUOTA_EXCEEDED",
+		HttpStatus.TOO_MANY_REQUESTS,
+		"일일 AI 사용 한도를 초과했습니다."
+	),
 	AI_SERVICE_UNAVAILABLE(
 		"AI_SERVICE_UNAVAILABLE",
 		HttpStatus.SERVICE_UNAVAILABLE,

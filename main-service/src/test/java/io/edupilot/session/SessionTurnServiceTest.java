@@ -34,6 +34,8 @@ import io.edupilot.ai.AiStreamCancellation;
 import io.edupilot.ai.TurnStreamEvent;
 import io.edupilot.ai.dto.QuizGeneration;
 import io.edupilot.ai.dto.NoteDraft;
+import io.edupilot.aiusage.AiQuotaService;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.memory.LearnerMemoryPromotionService;
@@ -63,6 +65,10 @@ class SessionTurnServiceTest {
 	@Mock
 	private AiClient aiClient;
 	@Mock
+	private AiUsageService aiUsageService;
+	@Mock
+	private AiQuotaService aiQuotaService;
+	@Mock
 	private TurnResponseValidator responseValidator;
 	@Mock
 	private TurnPersistenceService persistenceService;
@@ -81,6 +87,10 @@ class SessionTurnServiceTest {
 
 	@BeforeEach
 	void configureTurnReadTimeout() {
+		User user = User.create("user@example.com", "hash", "학습자");
+		org.mockito.Mockito.lenient()
+			.when(userRepository.findById(1L))
+			.thenReturn(Optional.of(user));
 		org.mockito.Mockito.lenient()
 			.when(aiClientProperties.turnReadTimeout())
 			.thenReturn(Duration.ofSeconds(200));
@@ -1417,6 +1427,8 @@ class SessionTurnServiceTest {
 			preparationService,
 			snapshotService,
 			aiClient,
+			aiUsageService,
+			aiQuotaService,
 			responseValidator,
 			persistenceService,
 			memoryPromotionService,

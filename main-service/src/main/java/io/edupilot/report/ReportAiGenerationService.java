@@ -16,6 +16,8 @@ import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.ReportGenerateRequest;
 import io.edupilot.ai.dto.ReportGenerateResponse;
+import io.edupilot.aiusage.AiFeature;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.ErrorCode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -29,6 +31,7 @@ public class ReportAiGenerationService {
 	private final StudentReportRepository reportRepository;
 	private final ReportCriterionResultRepository resultRepository;
 	private final AiClient aiClient;
+	private final AiUsageService aiUsageService;
 	private final ObjectMapper objectMapper;
 
 	public ReportAiGenerationService(
@@ -37,6 +40,7 @@ public class ReportAiGenerationService {
 		StudentReportRepository reportRepository,
 		ReportCriterionResultRepository resultRepository,
 		AiClient aiClient,
+		AiUsageService aiUsageService,
 		ObjectMapper objectMapper
 	) {
 		this.generationRepository = generationRepository;
@@ -44,12 +48,30 @@ public class ReportAiGenerationService {
 		this.reportRepository = reportRepository;
 		this.resultRepository = resultRepository;
 		this.aiClient = aiClient;
+		this.aiUsageService = aiUsageService;
 		this.objectMapper = objectMapper;
 	}
 
 	public GeneratedReport generate(Long generationId) {
 		Prepared prepared = prepare(generationId);
-		ReportGenerateResponse response = aiClient.generateReport(prepared.request());
+		ReportGenerateResponse response;
+		try {
+			response = aiClient.generateReport(prepared.request());
+			aiUsageService.record(
+				prepared.userId(),
+				AiFeature.REPORT,
+				response == null ? null : response.usage(),
+				true
+			);
+		} catch (AiClientException exception) {
+			aiUsageService.record(
+				prepared.userId(),
+				AiFeature.REPORT,
+				null,
+				false
+			);
+			throw exception;
+		}
 		validate(prepared.request(), response);
 		return new GeneratedReport(response);
 	}
@@ -88,7 +110,7 @@ public class ReportAiGenerationService {
 			evidence,
 			previousReport(generation)
 		);
-		return new Prepared(request);
+		return new Prepared(request, generation.getRequestedById());
 	}
 
 	private ReportGenerateRequest.Scope scope(ReportGeneration generation) {
@@ -387,7 +409,7 @@ public class ReportAiGenerationService {
 	public record GeneratedReport(ReportGenerateResponse response) {
 	}
 
-	private record Prepared(ReportGenerateRequest request) {
+	private record Prepared(ReportGenerateRequest request, Long userId) {
 	}
 
 	private record FrozenInput(

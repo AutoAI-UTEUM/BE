@@ -26,6 +26,7 @@ import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.ReportGenerateRequest;
 import io.edupilot.ai.dto.ReportGenerateResponse;
+import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.classroom.Classroom;
 import io.edupilot.classroom.ClassroomColor;
 import io.edupilot.user.User;
@@ -40,6 +41,7 @@ class ReportAiGenerationServiceTest {
 	@Mock private StudentReportRepository reportRepository;
 	@Mock private ReportCriterionResultRepository resultRepository;
 	@Mock private AiClient aiClient;
+	@Mock private AiUsageService aiUsageService;
 
 	private ObjectMapper objectMapper;
 	private ReportAiGenerationService service;
@@ -58,6 +60,7 @@ class ReportAiGenerationServiceTest {
 			reportRepository,
 			resultRepository,
 			aiClient,
+			aiUsageService,
 			objectMapper
 		);
 		instructor = User.create(
