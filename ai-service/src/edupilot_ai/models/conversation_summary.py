@@ -22,7 +22,7 @@ class ConversationSummaryMessage(ContractModel):
 class ConversationSummaryRequest(ContractModel):
     schema_version: Literal["1.0"]
     previous_summary: str | None = None
-    messages: list[ConversationSummaryMessage] = Field(min_length=1, max_length=12)
+    messages: list[ConversationSummaryMessage] = Field(min_length=1, max_length=20)
 
 
 class ConversationSummaryCompletion(ContractModel):

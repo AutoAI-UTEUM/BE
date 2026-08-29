@@ -95,17 +95,39 @@ async def test_conversation_summary_truncation_is_deterministic(
     assert len(fake_llm.calls) == 2
 
 
+async def test_conversation_summary_accepts_twenty_messages(
+    client: httpx.AsyncClient,
+    fake_llm: FakeLlm,
+    auth_headers: dict[str, str],
+) -> None:
+    payload = conversation_summary_payload()
+    payload["messages"] = [
+        {"role": "USER" if index % 2 == 0 else "ASSISTANT", "content": f"메시지 {index}"}
+        for index in range(20)
+    ]
+    fake_llm.queue(ConversationSummaryCompletion(summary="20개 메시지의 학습 흐름 요약"))
+
+    response = await client.post(
+        "/internal/ai/conversation-summary",
+        headers=auth_headers,
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    assert len(fake_llm.calls) == 1
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
         lambda payload: payload.update(messages=[]),
         lambda payload: payload.update(
-            messages=[{"role": "USER", "content": f"질문 {index}"} for index in range(13)]
+            messages=[{"role": "USER", "content": f"질문 {index}"} for index in range(21)]
         ),
         lambda payload: payload.update(messages=[{"role": "USER", "content": "   "}]),
         lambda payload: payload.update(messages=[{"role": "SYSTEM", "content": "금지"}]),
     ],
-    ids=["zero-messages", "thirteen-messages", "blank-content", "invalid-role"],
+    ids=["zero-messages", "twenty-one-messages", "blank-content", "invalid-role"],
 )
 async def test_conversation_summary_rejects_invalid_requests(
     mutate: Callable[[dict[str, Any]], None],
