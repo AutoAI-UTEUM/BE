@@ -216,6 +216,20 @@ class TurnSnapshotServiceTest {
 	}
 
 	@Test
+	void includesConversationSummaryOnlyWhenStored() {
+		LearningSession session = session();
+		session.applyConversationSummary("초반 대화 요약", 42L);
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+
+		TurnSnapshot snapshot = service().build(1L, 100L, 501L, false);
+
+		assertThat(snapshot.context())
+			.containsEntry("conversationSummary", "초반 대화 요약")
+			.hasSize(14);
+	}
+
+	@Test
 	void excludesAllPageTextsWithoutLoadingPages() {
 		LearningSession session = session();
 		when(sessionRepository.findByIdAndUser_Id(100L, 1L))

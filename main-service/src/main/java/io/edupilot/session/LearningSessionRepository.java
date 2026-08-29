@@ -131,6 +131,12 @@ public interface LearningSessionRepository
 		@Param("userId") Long userId
 	);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select session from LearningSession session where session.id = :sessionId")
+	Optional<LearningSession> findForConversationSummaryUpdate(
+		@Param("sessionId") Long sessionId
+	);
+
 	boolean existsByMaterial_IdAndStatus(Long materialId, SessionStatus status);
 
 	@Modifying(clearAutomatically = true, flushAutomatically = true)

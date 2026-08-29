@@ -1,11 +1,14 @@
 package io.edupilot.ai;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.function.Consumer;
 
 import io.edupilot.ai.dto.AiHealthResponse;
 import io.edupilot.ai.dto.CaptionsRequest;
 import io.edupilot.ai.dto.CaptionsResponse;
+import io.edupilot.ai.dto.ConversationSummaryMessage;
+import io.edupilot.ai.dto.ConversationSummaryResponse;
 import io.edupilot.ai.dto.CriteriaSuggestRequest;
 import io.edupilot.ai.dto.CriteriaSuggestResponse;
 import io.edupilot.ai.dto.DiagnosisRequest;
@@ -53,6 +56,11 @@ public interface AiClient {
 	CaptionsResponse captions(CaptionsRequest request);
 
 	DocChatResponse docChat(DocChatRequest request);
+
+	ConversationSummaryResponse summarizeConversation(
+		String previousSummary,
+		List<ConversationSummaryMessage> messages
+	);
 
 	CriteriaSuggestResponse suggestCriteria(CriteriaSuggestRequest request);
 

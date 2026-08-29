@@ -542,10 +542,10 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 
 ### 6.10 POST /internal/ai/conversation-summary
 
-- 요청: `{ "schemaVersion": "1.0", "previousSummary": null, "messages": [{"role":"USER|ASSISTANT","content":"..."}] }`. `messages`는 1~20개이며 content는 공백일 수 없습니다. Spring은 8턴마다 비동기 요약을 트리거하고 마지막 요약 경계 이후의 완료 메시지를 시간순으로 전달합니다.
+- 요청: `{ "schemaVersion": "1.0", "previousSummary": null, "messages": [{"role":"USER|ASSISTANT","content":"..."}] }`. `messages`는 1~20개이며 content는 공백일 수 없습니다. Spring은 마지막 요약 경계(없으면 대화 리셋 경계) 이후 완료된 USER 메시지가 8개가 되면 턴 저장 커밋 후 비동기 요약을 트리거합니다. FAILED 메시지는 제외하고 경계 이후 완료 메시지를 오래된 순 최대 20개 전달하며, 초과분은 다음 주기로 이월합니다.
 - 응답: `{ "schemaVersion": "1.0", "summary": "..." }`. 요약은 한국어 최대 1,000자이며 초과분은 AI Service가 결정적으로 절단합니다.
 - 공백 요약 또는 구조화 출력 SCHEMA 실패만 총예산 안에서 1회 재생성하고 최종 실패는 `AI_RESPONSE_INVALID`입니다. 점수·채점 결과·평가 상태는 요약에 포함하지 않습니다.
-- Spring은 최근 원문 메시지를 별도로 유지하고 이 엔드포인트를 턴 처리와 분리된 비동기 작업으로 호출합니다. 요약 실패는 사용자 턴을 실패시키지 않습니다.
+- Spring은 최근 원문 메시지 10개를 별도로 유지하고 이 엔드포인트를 턴 처리와 분리된 비동기 작업으로 호출합니다. 성공 시 요약과 마지막 포함 메시지 ID를 한 트랜잭션으로 저장하고, 실패 시 둘 다 갱신하지 않아 다음 주기에 재시도합니다. 새 대화를 시작하면 요약과 경계 ID를 함께 초기화합니다. 스냅샷의 `conversationSummary`는 저장값이 null이면 키 자체를 생략합니다. 요약 실패는 사용자 턴을 실패시키지 않습니다. Main Service read timeout은 `EDUPILOT_AI_SUMMARY_READ_TIMEOUT`(기본 `45s`), 트리거 간격은 `EDUPILOT_SUMMARY_TURN_INTERVAL`(기본 `8`)입니다.
 - AI Service를 먼저 배포해야 합니다. 기존 AI 모델은 알 수 없는 `conversationSummary` 턴 필드를 `extra=forbid`로 거부하므로 Spring의 스냅샷 전달은 AI 배포 뒤에 활성화합니다. Main Service read timeout 권장은 `45s`입니다.
 
 ## 7. Grok 연동 규칙 (DEC-002 v2 요약 — 구현 구속)

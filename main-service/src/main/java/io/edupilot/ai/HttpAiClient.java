@@ -47,6 +47,9 @@ import io.edupilot.ai.dto.AiErrorResponse;
 import io.edupilot.ai.dto.AiHealthResponse;
 import io.edupilot.ai.dto.CaptionsRequest;
 import io.edupilot.ai.dto.CaptionsResponse;
+import io.edupilot.ai.dto.ConversationSummaryMessage;
+import io.edupilot.ai.dto.ConversationSummaryRequest;
+import io.edupilot.ai.dto.ConversationSummaryResponse;
 import io.edupilot.ai.dto.CriteriaSuggestRequest;
 import io.edupilot.ai.dto.CriteriaSuggestResponse;
 import io.edupilot.ai.dto.ActionExecuted;
@@ -88,6 +91,8 @@ public class HttpAiClient implements AiClient {
 	private static final String OUTLINE_PATH = "/internal/ai/outline";
 	private static final String CAPTIONS_PATH = "/internal/ai/captions";
 	private static final String DOC_CHAT_PATH = "/internal/ai/doc-chat";
+	private static final String CONVERSATION_SUMMARY_PATH =
+		"/internal/ai/conversation-summary";
 	private static final String CRITERIA_SUGGEST_PATH =
 		"/internal/ai/criteria/suggest";
 	private static final String GRADE_PATH = "/internal/ai/grade";
@@ -116,6 +121,7 @@ public class HttpAiClient implements AiClient {
 	private final RestClient outlineRestClient;
 	private final RestClient captionsRestClient;
 	private final RestClient docChatRestClient;
+	private final RestClient conversationSummaryRestClient;
 	private final RestClient criteriaRestClient;
 	private final RestClient gradeRestClient;
 	private final RestClient assessmentRestClient;
@@ -166,6 +172,10 @@ public class HttpAiClient implements AiClient {
 		this.docChatRestClient = buildRestClient(
 			properties,
 			properties.docChatReadTimeout()
+		);
+		this.conversationSummaryRestClient = buildRestClient(
+			properties,
+			properties.summaryReadTimeout()
 		);
 		this.criteriaRestClient = buildRestClient(
 			properties,
@@ -839,6 +849,45 @@ public class HttpAiClient implements AiClient {
 	}
 
 	@Override
+	public ConversationSummaryResponse summarizeConversation(
+		String previousSummary,
+		List<ConversationSummaryMessage> messages
+	) {
+		ConversationSummaryRequest request = new ConversationSummaryRequest(
+			SCHEMA_VERSION,
+			previousSummary,
+			List.copyOf(messages)
+		);
+		return executeAttempt(
+			new AiCallContext(
+				CONVERSATION_SUMMARY_PATH,
+				1,
+				false,
+				null,
+				null,
+				null
+			),
+			() -> {
+				ConversationSummaryResponse response =
+					conversationSummaryRestClient.post()
+						.uri(CONVERSATION_SUMMARY_PATH)
+						.contentType(MediaType.APPLICATION_JSON)
+						.body(request)
+						.retrieve()
+						.body(ConversationSummaryResponse.class);
+				validateConversationSummaryResponse(response);
+				String summary = response.summary().length() <= 1_000
+					? response.summary()
+					: response.summary().substring(0, 1_000);
+				return new ConversationSummaryResponse(
+					response.schemaVersion(),
+					summary
+				);
+			}
+		);
+	}
+
+	@Override
 	public CriteriaSuggestResponse suggestCriteria(CriteriaSuggestRequest request) {
 		return executeAttempt(
 			new AiCallContext(
@@ -1403,6 +1452,16 @@ public class HttpAiClient implements AiClient {
 			|| response.warnings().stream().anyMatch(warning -> warning == null
 				|| !StringUtils.hasText(warning.type())
 				|| !StringUtils.hasText(warning.message()))) {
+			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
+		}
+	}
+
+	private void validateConversationSummaryResponse(
+		ConversationSummaryResponse response
+	) {
+		if (response == null
+			|| !SCHEMA_VERSION.equals(response.schemaVersion())
+			|| !StringUtils.hasText(response.summary())) {
 			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID);
 		}
 	}

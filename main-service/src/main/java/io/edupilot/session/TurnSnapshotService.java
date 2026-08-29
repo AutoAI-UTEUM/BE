@@ -168,6 +168,12 @@ public class TurnSnapshotService {
 				session.getConversationResetAt()
 			)
 		);
+		if (session.getConversationSummary() != null) {
+			context.put(
+				"conversationSummary",
+				session.getConversationSummary()
+			);
+		}
 		context.put(
 			"qaThreadDigest",
 			qaThreadDigest(sessionId, session.getConversationResetAt())
