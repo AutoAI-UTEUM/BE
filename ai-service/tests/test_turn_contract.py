@@ -515,13 +515,23 @@ async def test_plan_schema_failure_regenerates_once(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue(
-        LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False),
+        LlmBridgeError(
+            category=ErrorCategory.SCHEMA,
+            retryable=False,
+            usage=LlmUsage("grok-4.5", 10, 2, 1),
+        ),
+    )
+    fake_llm.queue_completion(
         make_plan(
             ToolName.ANSWER_QUESTION,
             {"qaThreadMode": "START_NEW", "threadRef": None},
             "ANSWER_USER_QUESTION",
         ),
+        LlmUsage("grok-4.5", 20, 3, 2),
+    )
+    fake_llm.queue_completion(
         AgentOutput(markdown="재생성 후 답변"),
+        LlmUsage("grok-4.5", 30, 4, 3),
     )
 
     response = await post_turn(client, auth_headers, turn_payload)
@@ -529,6 +539,12 @@ async def test_plan_schema_failure_regenerates_once(
     assert response.status_code == 200
     assert len(fake_llm.calls) == 3
     assert "regenerate exactly once" in fake_llm.calls[1][0][0]["content"]
+    assert response.json()["usage"] == {
+        "model": "grok-4.5",
+        "inputTokens": 60,
+        "outputTokens": 9,
+        "reasoningTokens": 6,
+    }
 
 
 async def test_plan_schema_failure_twice_returns_schema_envelope(

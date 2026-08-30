@@ -155,7 +155,7 @@
   생략합니다. `reason`은 자유 문자열로 Spring이 enum 검증 없이 저장합니다.
   초기 reason 값은 `PAGE_MISMATCH_CORRECTED`,
   `EVENT_PAYLOAD_MISMATCH_CORRECTED`입니다.
-- `usage`: **채택 확정** — 모든 내부 응답의 표준 선택 필드 (reasoningTokens 포함, 미제공 시 null). Spring은 로그로만 수집(DB 저장 없음) — DEC-002 비용 트리거(월 $150) 판단 데이터.
+- `usage`: **채택 확정** — body 없는 204 응답을 제외한 모든 내부 성공 응답의 표준 선택 필드입니다. wire 키는 기존 turn과 동일한 `model`, `inputTokens`, `outputTokens`, `reasoningTokens`이며 `usage`와 각 하위 값은 모두 nullable입니다. provider usage가 없거나 안전하게 합산할 수 없으면 `null`이고, Spring은 사용자별 `ai_usage_log`에 기록해 비용·쿼터 판단에 사용합니다.
 - 퀴즈 생성 턴에서는 turn 응답 최상위의 nullable `quiz` 필드에 전체 퀴즈
   JSON(§6.2 생성 스키마, 정답·비공개 필드 포함)을 반환합니다. 그 외 턴에서는
   `null`입니다. Spring이 이를 검증·분리 저장(비공개 필드는 학생 노출 DTO에서
@@ -362,6 +362,8 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
   저장하며, `error` 또는 연결 중단 시 저장하지 않습니다.
 
 ## 6. 파이프라인 엔드포인트 DTO (api-spec §8 기준 + usage 추가)
+
+모든 JSON 성공 응답은 최상위 선택 `usage`를 가집니다. 한 요청에서 LLM을 여러 번 호출하면 확인 가능한 모든 호출(재생성 포함)을 합산합니다. 한 호출이라도 토큰 수를 확인할 수 없어 합산이 불완전하면 `usage=null`로 반환하며 본 기능 결과는 유지합니다. LLM 토큰 호출이 없는 extract·xAI Files upload는 항상 `usage=null`이고, DELETE의 204 응답에는 body가 없습니다. QuizGeneration은 독립 endpoint가 아니라 turn 산물이므로 turn 최상위 `usage`만 사용합니다.
 
 ### 6.1 POST /internal/ai/extract
 

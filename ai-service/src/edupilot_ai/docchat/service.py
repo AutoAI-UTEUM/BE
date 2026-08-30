@@ -15,6 +15,7 @@ from edupilot_ai.models.doc_chat import (
     DocChatWarning,
 )
 from edupilot_ai.settings import AgentLlmProfile
+from edupilot_ai.usage import response_usage
 
 logger = logging.getLogger(__name__)
 _INJECTION_DEFENSE_INSTRUCTION = (
@@ -153,4 +154,5 @@ class DocChatService:
         return DocChatResponse(
             answer=completion.output.answer,
             warnings=warnings,
+            usage=response_usage([completion.usage]),
         )

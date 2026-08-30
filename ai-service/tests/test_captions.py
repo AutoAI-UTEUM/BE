@@ -10,7 +10,7 @@ from pydantic import SecretStr
 
 from edupilot_ai.captions.service import CaptionService, caption_messages
 from edupilot_ai.core.errors import ErrorCategory, InternalErrorResponse
-from edupilot_ai.llm.bridge import LlmBridgeError
+from edupilot_ai.llm.bridge import LlmBridgeError, LlmUsage
 from edupilot_ai.models.captions import CaptionOutput, CaptionPageRequest, CaptionsRequest
 from edupilot_ai.settings import ReasoningEffort, Settings
 from tests.fakes import FakeLlm
@@ -56,10 +56,17 @@ async def test_captions_returns_independent_camel_case_results(
     fake_llm: FakeLlm,
     auth_headers: dict[str, str],
 ) -> None:
-    fake_llm.queue(
+    fake_llm.queue_completion(
         caption_output("경사하강 경로가 최솟값으로 이동하는 그래프입니다."),
+        LlmUsage("grok-vision", 10, 4, 1),
+    )
+    fake_llm.queue_completion(
         caption_output(None),
+        LlmUsage("grok-vision", 20, 5, 2),
+    )
+    fake_llm.queue_completion(
         caption_output("두 최적화 방법의 수렴 속도를 비교하는 표입니다."),
+        LlmUsage("grok-vision", 30, 6, 3),
     )
 
     response = await client.post(
@@ -83,6 +90,12 @@ async def test_captions_returns_independent_camel_case_results(
             },
         ],
         "warnings": [],
+        "usage": {
+            "model": "grok-vision",
+            "inputTokens": 60,
+            "outputTokens": 15,
+            "reasoningTokens": 6,
+        },
     }
     assert len(fake_llm.calls) == 3
     assert fake_llm.calls[0][1].reasoning_effort is ReasoningEffort.LOW
@@ -118,6 +131,7 @@ async def test_captions_absorbs_one_page_failure(
     assert response.json()["warnings"] == [
         {"type": "PAGE_CAPTION_FAILED", "message": "pageNumber 2"}
     ]
+    assert response.json()["usage"] is None
     assert len(fake_llm.calls) == 3
 
 

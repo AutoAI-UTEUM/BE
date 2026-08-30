@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from edupilot_ai.models.base import ContractModel
+from edupilot_ai.models.base import ContractModel, Usage
 
 
 class XaiFileUploadResponse(ContractModel):
@@ -12,6 +12,7 @@ class XaiFileUploadResponse(ContractModel):
 
     schema_version: Literal["1.0"] = "1.0"
     xai_file_id: str = Field(min_length=1)
+    usage: Usage | None = None
 
     @field_validator("xai_file_id")
     @classmethod

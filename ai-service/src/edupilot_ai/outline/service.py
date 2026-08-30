@@ -7,7 +7,7 @@ from http import HTTPStatus
 from time import monotonic
 
 from edupilot_ai.core.errors import ErrorCategory, InternalApiError
-from edupilot_ai.llm.bridge import LlmBridge, LlmBridgeError, LlmFileAttachment
+from edupilot_ai.llm.bridge import LlmBridge, LlmBridgeError, LlmFileAttachment, LlmUsage
 from edupilot_ai.models.outline import (
     OutlineOutput,
     OutlinePage,
@@ -15,6 +15,7 @@ from edupilot_ai.models.outline import (
     OutlineResponse,
 )
 from edupilot_ai.settings import AgentLlmProfile
+from edupilot_ai.usage import response_usage, unknown_llm_usage
 
 logger = logging.getLogger(__name__)
 _MIN_RETRY_TIMEOUT_SECONDS = 10.0
@@ -304,6 +305,7 @@ class OutlineService:
             for page in request.pages
         ]
         validation_reason: str | None = None
+        usages: list[LlmUsage] = []
         deadline = self._clock() + self._timeout_seconds
         attachments = (
             (LlmFileAttachment(file_id=request.xai_file_id),)
@@ -332,6 +334,7 @@ class OutlineService:
                     timeout_seconds=remaining_seconds,
                     attachments=attachments,
                 )
+                usages.append(completion.usage)
                 try:
                     validate_outline_output(request, completion.output)
                 except OutlineValidationError as error:
@@ -358,8 +361,10 @@ class OutlineService:
                 return OutlineResponse(
                     **completion.output.model_dump(),
                     total_pages=request.total_pages,
+                    usage=response_usage(usages),
                 )
             except LlmBridgeError as error:
+                usages.append(error.usage or unknown_llm_usage(self._profile.model))
                 if error.category is ErrorCategory.SCHEMA and attempt == 0:
                     validation_reason = "SCHEMA"
                     continue

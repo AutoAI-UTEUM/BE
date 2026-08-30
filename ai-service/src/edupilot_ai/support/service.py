@@ -14,20 +14,10 @@ from edupilot_ai.models.learning_support import (
     DiagnosisRequest,
     DiagnosisResponse,
 )
-from edupilot_ai.models.turn import Usage
 from edupilot_ai.settings import AgentLlmProfile
+from edupilot_ai.usage import response_usage, unknown_llm_usage
 
 _MIN_RETRY_TIMEOUT_SECONDS = 10.0
-
-
-def _usage(values: list[LlmUsage], default_model: str) -> Usage:
-    reasoning = [value.reasoning_tokens for value in values if value.reasoning_tokens is not None]
-    return Usage(
-        model=values[-1].model if values else default_model,
-        input_tokens=sum(value.input_tokens for value in values),
-        output_tokens=sum(value.output_tokens for value in values),
-        reasoning_tokens=sum(reasoning) if reasoning else None,
-    )
 
 
 def assessment_messages(
@@ -129,11 +119,10 @@ class QuizAssessmentService:
                 usages.append(completion.usage)
                 return AssessmentResponse(
                     **completion.output.model_dump(),
-                    usage=_usage(usages, self._profile.model),
+                    usage=response_usage(usages),
                 )
             except LlmBridgeError as error:
-                if error.usage is not None:
-                    usages.append(error.usage)
+                usages.append(error.usage or unknown_llm_usage(self._profile.model))
                 if error.category is ErrorCategory.SCHEMA and attempt == 0:
                     continue
                 raise _api_error(
@@ -179,11 +168,10 @@ class QuizDiagnosisService:
                 usages.append(completion.usage)
                 return DiagnosisResponse(
                     **completion.output.model_dump(),
-                    usage=_usage(usages, self._profile.model),
+                    usage=response_usage(usages),
                 )
             except LlmBridgeError as error:
-                if error.usage is not None:
-                    usages.append(error.usage)
+                usages.append(error.usage or unknown_llm_usage(self._profile.model))
                 if error.category is ErrorCategory.SCHEMA and attempt == 0:
                     continue
                 raise _api_error(

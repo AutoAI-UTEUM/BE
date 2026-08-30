@@ -2317,13 +2317,15 @@ reasoningTokens}]`을 반환합니다. users 테이블과 DB에서 조인하며 
 | POST | `/internal/ai/diagnosis` | 진단 질문 생성 | 퀴즈 제출 파이프라인 3단계 (기준 점수 미달 시) |
 | POST | `/internal/ai/exams/draft` | 시험 문항 AI 초안 생성 | 소유 강사의 DRAFT 시험 초안 요청 시 동기 호출 |
 
+body가 없는 204를 제외한 내부 API 성공 응답은 최상위 optional `usage`를 사용합니다. wire 키는 `model`, `inputTokens`, `outputTokens`, `reasoningTokens`이고 `usage`와 각 하위 값은 nullable입니다. LLM을 여러 번 호출하면 재생성을 포함해 합산하되, 한 호출이라도 토큰 수를 확인할 수 없으면 불완전한 합계를 기록하지 않고 `usage=null`로 반환합니다. Spring은 확인 가능한 usage를 사용자별 `ai_usage_log`에 기록합니다.
+
 `extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)과 nullable `xaiFileId`, 기본 빈 배열 `warnings: [{type,message}]`를 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `EDUPILOT_XAI_FILES_ENABLED=true`일 때만 추출 성공 원본을 xAI Files에 업로드합니다. 업로드 실패 또는 48MiB 초과는 `xaiFileId=null`과 `FILE_UPLOAD_FAILED` warning으로 강등하며 추출 응답은 200을 유지합니다. `FILE_UPLOAD_FAILED` 및 알 수 없는 warning type은 경고로만 기록하고 추출이 성공했다면 자료는 기존대로 READY가 됩니다. Spring은 non-blank `xaiFileId`만 내부 DB에 저장하고 외부 자료 응답에는 노출하지 않습니다. 기존 ACTIVE·READY 자료는 기본 OFF인 Spring bounded backfill이 `POST /internal/ai/files`로 원본만 업로드하며, 이 명시적 API는 `/extract` 자동 업로드 kill switch와 독립적으로 동작합니다. backfill은 claim과 file ID 반영을 각각 짧은 row-lock 트랜잭션으로 처리하고 외부 호출 중에는 트랜잭션을 유지하지 않으며, 실패 시 READY 유지·6시간 기본 backoff·경합 file ID 베스트에포트 삭제를 적용합니다. 자유 학습 턴 context에는 nullable `xaiFileId`를 포함하며 `includeCurrentPage=false`이면 null을 보냅니다. AI Service는 설명·QA·퀴즈의 실제 LLM 호출과 개요 생성에 파일을 첨부하고 Plan·결정적 안내·Repair·Note에는 첨부하지 않습니다. 퀴즈는 checkpoint가 있으면 `quizContext`의 coverage 페이지 범위, 없으면 현재 페이지 단일을 앵커로 사용하며 개요는 전달된 pages 범위를 유지합니다. file ID가 없으면 기존 텍스트 경로를 사용합니다(DEC-035·037). `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작하며 삭제 성공·xAI 404는 모두 204, 그 밖의 xAI 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)입니다. 자료 삭제나 file ID 교체 시 Spring은 트랜잭션 커밋 후 DELETE를 호출하며 실패해도 자료 삭제·READY 결과를 유지합니다. `captions`는 `{schemaVersion:"1.0", pages:[{pageNumber,imageBase64,extractedText}]}`를 최대 10페이지씩 받고 페이지별 nullable 캡션을 반환합니다. Spring은 캡션이 있으면 모든 페이지 텍스트 기반 AI 입력에 `\n\n[그림 설명] {caption}`을 읽기 시점에 병합하며 `material_pages.text_content` 원문은 유지합니다. 일부 청크 실패는 자료·개요 상태에 영향을 주지 않고 다음 청크 처리를 계속합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
 
 별도 시험 grade는 숫자 `examId`를 `quizId`로 사용합니다. `pageContext`와 `learnerMemoryDigest`는 생략·null을 허용하고 나머지 grade 요청 필드는 필수·non-null입니다. 응답이 있는 SHORT와 ESSAY는 각각 묶어 호출하며 한 유형이 실패해도 나머지 유형은 계속 호출합니다. 실제 호출의 `items`와 `studentAnswers`는 비어 있지 않아야 합니다. 상세 필드 강제력과 표준 오류 봉투는 `ai-integration-contract.md` v0.6 §6.2를 따릅니다.
 
 별도 시험의 비동기 grade 호출에서 `AI_REQUEST_INVALID`을 받으면 Spring 요청 계약 결함으로 ERROR 로그를 남기고 재시도 없이 해당 제출을 `GRADING_FAILED`로 종결합니다. 이미 커밋된 제출을 보상 삭제하거나 원 POST에 500을 반환하지 않습니다(DEC-032). 통합 학습 퀴즈의 동기 파이프라인 오류 변환은 기존 계약을 유지합니다.
 
-시험 문항 초안 내부 계약은 `ai-integration-contract.md` v0.6 §6.5와 `docs/contracts/exam-draft.schema.json`을 따릅니다. Spring은 120초 전용 read timeout으로 동기 호출하며 초안과 usage를 저장하지 않습니다.
+시험 문항 초안 내부 계약은 `ai-integration-contract.md` v0.6 §6.5와 `docs/contracts/exam-draft.schema.json`을 따릅니다. Spring은 120초 전용 read timeout으로 동기 호출하며 초안은 저장하지 않고 usage는 공통 `ai_usage_log`에 기록합니다.
 
 일반 턴 요청 최소 구조:
 

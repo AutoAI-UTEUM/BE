@@ -4,9 +4,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field, model_validator
 
-from edupilot_ai.models.base import ContractModel
+from edupilot_ai.models.base import ContractModel, Usage
 from edupilot_ai.models.quiz import QuizType
-from edupilot_ai.models.turn import Usage
 
 
 class SupportPageContext(ContractModel):
@@ -63,7 +62,7 @@ class AssessmentOutput(ContractModel):
 
 class AssessmentResponse(AssessmentOutput):
     schema_version: Literal["1.0"] = "1.0"
-    usage: Usage
+    usage: Usage | None = None
 
 
 class WrongItem(ContractModel):
@@ -93,7 +92,7 @@ class DiagnosisOutput(ContractModel):
 
 class DiagnosisResponse(DiagnosisOutput):
     schema_version: Literal["1.0"] = "1.0"
-    usage: Usage
+    usage: Usage | None = None
 
 
 class RepairOutput(ContractModel):

@@ -4,7 +4,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import Field, model_validator
 
-from edupilot_ai.models.base import ContractModel
+from edupilot_ai.models.base import ContractModel, Usage
 from edupilot_ai.models.quiz import (
     EssayQuestion,
     McqQuestion,
@@ -12,7 +12,6 @@ from edupilot_ai.models.quiz import (
     QuizType,
     ShortQuestion,
 )
-from edupilot_ai.models.turn import Usage
 
 
 class ExamPageContext(ContractModel):
@@ -80,4 +79,4 @@ class ExamDraftOutput(ContractModel):
 class ExamDraftResponse(ExamDraftOutput):
     schema_version: Literal["1.0"] = "1.0"
     exam_id: int = Field(strict=True, gt=0)
-    usage: Usage
+    usage: Usage | None = None
