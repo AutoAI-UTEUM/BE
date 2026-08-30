@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from edupilot_ai.models.base import ContractModel
+from edupilot_ai.models.base import ContractModel, Usage
 
 
 class ConversationSummaryMessage(ContractModel):
@@ -34,3 +34,4 @@ class ConversationSummaryCompletion(ContractModel):
 class ConversationSummaryResponse(ContractModel):
     schema_version: Literal["1.0"] = "1.0"
     summary: str = Field(min_length=1, max_length=1000)
+    usage: Usage | None = None

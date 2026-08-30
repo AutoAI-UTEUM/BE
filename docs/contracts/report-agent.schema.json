@@ -760,20 +760,45 @@
         },
         "Usage": {
           "additionalProperties": false,
+          "description": "Optional provider token accounting shared by every internal response.",
           "properties": {
             "model": {
-              "title": "Model",
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Model"
             },
             "inputTokens": {
-              "minimum": 0,
-              "title": "Inputtokens",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Inputtokens"
             },
             "outputTokens": {
-              "minimum": 0,
-              "title": "Outputtokens",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outputtokens"
             },
             "reasoningTokens": {
               "anyOf": [
@@ -789,11 +814,6 @@
               "title": "Reasoningtokens"
             }
           },
-          "required": [
-            "model",
-            "inputTokens",
-            "outputTokens"
-          ],
           "title": "Usage",
           "type": "object"
         }
@@ -830,15 +850,22 @@
           "type": "string"
         },
         "usage": {
-          "$ref": "#/$defs/Usage"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Usage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
         "criterionResults",
         "summary",
         "warnings",
-        "reportId",
-        "usage"
+        "reportId"
       ],
       "title": "ReportGenerateResponse",
       "type": "object"
@@ -1118,20 +1145,45 @@
       "$defs": {
         "Usage": {
           "additionalProperties": false,
+          "description": "Optional provider token accounting shared by every internal response.",
           "properties": {
             "model": {
-              "title": "Model",
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Model"
             },
             "inputTokens": {
-              "minimum": 0,
-              "title": "Inputtokens",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Inputtokens"
             },
             "outputTokens": {
-              "minimum": 0,
-              "title": "Outputtokens",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outputtokens"
             },
             "reasoningTokens": {
               "anyOf": [
@@ -1147,11 +1199,6 @@
               "title": "Reasoningtokens"
             }
           },
-          "required": [
-            "model",
-            "inputTokens",
-            "outputTokens"
-          ],
           "title": "Usage",
           "type": "object"
         }
@@ -1198,14 +1245,21 @@
           "type": "string"
         },
         "usage": {
-          "$ref": "#/$defs/Usage"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Usage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
         "answerable",
         "answer",
-        "evidenceIds",
-        "usage"
+        "evidenceIds"
       ],
       "title": "ReportQueryResponse",
       "type": "object"

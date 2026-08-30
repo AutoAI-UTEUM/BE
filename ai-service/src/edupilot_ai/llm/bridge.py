@@ -15,11 +15,11 @@ type LlmMessage = Mapping[str, Any]
 
 @dataclass(frozen=True, slots=True)
 class LlmUsage:
-    """Provider usage retained for the v0.4 turn response."""
+    """Best-effort provider usage shared across internal AI responses."""
 
-    model: str
-    input_tokens: int
-    output_tokens: int
+    model: str | None
+    input_tokens: int | None
+    output_tokens: int | None
     reasoning_tokens: int | None
 
 

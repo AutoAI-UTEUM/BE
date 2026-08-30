@@ -150,6 +150,12 @@ async def test_outline_endpoint_returns_camel_case_contract(
         ],
         "schemaVersion": "1.0",
         "totalPages": 3,
+        "usage": {
+            "model": "grok-4.5",
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "reasoningTokens": None,
+        },
     }
     assert len(fake_llm.calls) == 1
     assert fake_llm.file_attachments == [()]

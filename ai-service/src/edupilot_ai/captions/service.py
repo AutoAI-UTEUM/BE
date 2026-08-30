@@ -8,7 +8,7 @@ from http import HTTPStatus
 from time import monotonic
 
 from edupilot_ai.core.errors import ErrorCategory, InternalApiError
-from edupilot_ai.llm.bridge import LlmBridge, LlmBridgeError, LlmMessage
+from edupilot_ai.llm.bridge import LlmBridge, LlmBridgeError, LlmMessage, LlmUsage
 from edupilot_ai.models.captions import (
     CaptionOutput,
     CaptionPageRequest,
@@ -18,6 +18,7 @@ from edupilot_ai.models.captions import (
     PageCaption,
 )
 from edupilot_ai.settings import AgentLlmProfile
+from edupilot_ai.usage import response_usage, unknown_llm_usage
 
 logger = logging.getLogger(__name__)
 _INJECTION_DEFENSE_INSTRUCTION = (
@@ -106,6 +107,7 @@ class CaptionService:
         warnings: list[CaptionWarning] = []
         failed_count = 0
         last_error: LlmBridgeError | None = None
+        usages: list[LlmUsage] = []
 
         for index, page in enumerate(request.pages):
             remaining_seconds = deadline - self._clock()
@@ -137,6 +139,7 @@ class CaptionService:
                     profile=self._profile,
                     timeout_seconds=remaining_seconds,
                 )
+                usages.append(completion.usage)
                 caption = completion.output.caption
                 captions.append(
                     PageCaption(
@@ -145,6 +148,7 @@ class CaptionService:
                     )
                 )
             except LlmBridgeError as error:
+                usages.append(error.usage or unknown_llm_usage(self._profile.model))
                 last_error = error
                 failed_count += 1
                 captions.append(PageCaption(page_number=page.page_number, caption=None))
@@ -171,7 +175,11 @@ class CaptionService:
                 "failedCount": failed_count,
             },
         )
-        return CaptionsResponse(captions=captions, warnings=warnings)
+        return CaptionsResponse(
+            captions=captions,
+            warnings=warnings,
+            usage=response_usage(usages),
+        )
 
 
 def _page_warning(page_number: int) -> CaptionWarning:

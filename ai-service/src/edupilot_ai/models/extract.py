@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from edupilot_ai.models.base import ContractModel
+from edupilot_ai.models.base import ContractModel, Usage
 
 
 class ExtractedPage(ContractModel):
@@ -29,6 +29,7 @@ class ExtractResponse(ContractModel):
     pages: list[ExtractedPage]
     xai_file_id: str | None = None
     warnings: list[ExtractWarning] = Field(default_factory=list)
+    usage: Usage | None = None
 
     @model_validator(mode="after")
     def validate_pages(self) -> ExtractResponse:

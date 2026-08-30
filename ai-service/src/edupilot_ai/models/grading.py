@@ -5,9 +5,8 @@ from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
-from edupilot_ai.models.base import ContractModel
+from edupilot_ai.models.base import ContractModel, Usage
 from edupilot_ai.models.quiz import QuizType, RubricCriterion
-from edupilot_ai.models.turn import Usage
 
 
 class GradeItem(ContractModel):
@@ -94,4 +93,4 @@ class GradeResponse(ContractModel):
     score: float = Field(ge=0)
     max_score: float = Field(gt=0)
     items: list[GradeResultItem]
-    usage: Usage
+    usage: Usage | None = None

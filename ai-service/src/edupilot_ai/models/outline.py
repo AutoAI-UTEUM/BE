@@ -4,7 +4,7 @@ from typing import Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 
-from edupilot_ai.models.base import ContractModel
+from edupilot_ai.models.base import ContractModel, Usage
 
 
 class OutlinePage(ContractModel):
@@ -65,3 +65,4 @@ class OutlineOutput(ContractModel):
 class OutlineResponse(OutlineOutput):
     schema_version: Literal["1.0"] = "1.0"
     total_pages: int = Field(ge=1)
+    usage: Usage | None = None

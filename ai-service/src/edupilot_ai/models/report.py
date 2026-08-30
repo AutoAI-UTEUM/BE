@@ -4,8 +4,7 @@ from typing import Literal, Self
 
 from pydantic import Field, model_validator
 
-from edupilot_ai.models.base import ContractModel
-from edupilot_ai.models.turn import Usage
+from edupilot_ai.models.base import ContractModel, Usage
 
 MetricWindow = Literal["CUMULATIVE", "RECENT"]
 EvidenceSourceType = Literal["QUIZ", "QA", "DIAGNOSIS", "REPAIR", "MEMORY", "EXAM", "SESSION"]
@@ -144,7 +143,7 @@ class ReportGenerateOutput(ContractModel):
 class ReportGenerateResponse(ReportGenerateOutput):
     schema_version: Literal["1.0"] = "1.0"
     report_id: str = Field(min_length=1)
-    usage: Usage
+    usage: Usage | None = None
 
 
 class ReportQueryRequest(ContractModel):
@@ -175,4 +174,4 @@ class ReportQueryOutput(ContractModel):
 
 class ReportQueryResponse(ReportQueryOutput):
     schema_version: Literal["1.0"] = "1.0"
-    usage: Usage
+    usage: Usage | None = None

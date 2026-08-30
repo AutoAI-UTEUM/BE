@@ -30,6 +30,7 @@ from edupilot_ai.orchestration.prompts import (
 )
 from edupilot_ai.orchestration.timing import TurnDeadline
 from edupilot_ai.settings import AgentLlmProfile
+from edupilot_ai.usage import combine_llm_usages, unknown_llm_usage
 
 _NEXT_PAGE_EXPLAIN = re.compile(
     r"(다음|뒤|뒷)\s*(페이지|장|쪽).{0,12}(설명|알려|보여|가르쳐|넘어가)"
@@ -382,8 +383,7 @@ class RepairAgent:
                     timeout_seconds=deadline.remaining_seconds(),
                 )
             except LlmBridgeError as error:
-                if error.usage is not None:
-                    usages.append(error.usage)
+                usages.append(error.usage or unknown_llm_usage(self._profile.model))
                 if error.category is ErrorCategory.SCHEMA and attempt == 0:
                     logger.warning(
                         "repair output validation failed",
@@ -435,8 +435,7 @@ class NoteAgent:
                     timeout_seconds=timeout_seconds,
                 )
             except LlmBridgeError as error:
-                if error.usage is not None:
-                    usages.append(error.usage)
+                usages.append(error.usage or unknown_llm_usage(self._profile.model))
                 if error.category is ErrorCategory.SCHEMA and attempt == 0:
                     retry_reason = "SCHEMA_INVALID"
                     logger.warning(
@@ -499,12 +498,4 @@ def _note_output_violation(draft: NoteDraft) -> str | None:
 
 
 def _combined_usage(usages: list[LlmUsage], default_model: str) -> LlmUsage:
-    reasoning_values = [
-        usage.reasoning_tokens for usage in usages if usage.reasoning_tokens is not None
-    ]
-    return LlmUsage(
-        model=usages[-1].model if usages else default_model,
-        input_tokens=sum(usage.input_tokens for usage in usages),
-        output_tokens=sum(usage.output_tokens for usage in usages),
-        reasoning_tokens=sum(reasoning_values) if reasoning_values else None,
-    )
+    return combine_llm_usages(usages, default_model=default_model)

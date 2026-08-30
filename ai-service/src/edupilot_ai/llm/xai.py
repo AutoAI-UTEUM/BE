@@ -102,7 +102,7 @@ class _CompletionChoice(_XaiModel):
 class _CompletionResponse(_XaiModel):
     model: str
     choices: list[_CompletionChoice] = Field(min_length=1)
-    usage: _CompletionUsage
+    usage: Any | None = None
 
 
 class _StreamDelta(_XaiModel):
@@ -116,7 +116,7 @@ class _StreamChoice(_XaiModel):
 class _StreamChunk(_XaiModel):
     model: str
     choices: list[_StreamChoice] = Field(default_factory=list)
-    usage: _CompletionUsage | None = None
+    usage: Any | None = None
 
 
 class _ResponsesTokenDetails(_XaiModel):
@@ -126,7 +126,7 @@ class _ResponsesTokenDetails(_XaiModel):
 class _ResponsesUsage(_XaiModel):
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
-    output_tokens_details: _ResponsesTokenDetails
+    output_tokens_details: _ResponsesTokenDetails | None = None
 
 
 class _ResponsesContent(_XaiModel):
@@ -144,7 +144,7 @@ class _ResponsesResponse(_XaiModel):
     model: str
     status: str
     output: list[_ResponsesOutputItem]
-    usage: _ResponsesUsage | None = None
+    usage: Any | None = None
 
 
 def _responses_output_text(response: _ResponsesResponse) -> str:
@@ -160,14 +160,42 @@ def _responses_output_text(response: _ResponsesResponse) -> str:
     return texts[0]
 
 
+def _unavailable_usage(model: str | None) -> LlmUsage:
+    return LlmUsage(
+        model=model,
+        input_tokens=None,
+        output_tokens=None,
+        reasoning_tokens=None,
+    )
+
+
+def _completion_usage(model: str, raw_usage: Any) -> LlmUsage:
+    try:
+        usage = _CompletionUsage.model_validate(raw_usage)
+    except ValidationError:
+        return _unavailable_usage(model)
+    details = usage.completion_tokens_details
+    return LlmUsage(
+        model=model,
+        input_tokens=usage.prompt_tokens,
+        output_tokens=usage.completion_tokens,
+        reasoning_tokens=details.reasoning_tokens if details is not None else None,
+    )
+
+
 def _responses_usage(response: _ResponsesResponse) -> LlmUsage:
-    if response.status != "completed" or response.usage is None:
-        raise ValueError("Responses output is not complete or has no usage")
+    if response.status != "completed":
+        raise ValueError("Responses output is not complete")
+    try:
+        usage = _ResponsesUsage.model_validate(response.usage)
+    except ValidationError:
+        return _unavailable_usage(response.model)
+    details = usage.output_tokens_details
     return LlmUsage(
         model=response.model,
-        input_tokens=response.usage.input_tokens,
-        output_tokens=response.usage.output_tokens,
-        reasoning_tokens=response.usage.output_tokens_details.reasoning_tokens,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        reasoning_tokens=details.reasoning_tokens if details is not None else None,
     )
 
 
@@ -372,13 +400,7 @@ class XaiLlmBridge:
                 retryable=False,
             ) from exception
 
-        details = provider_response.usage.completion_tokens_details
-        usage = LlmUsage(
-            model=provider_response.model,
-            input_tokens=provider_response.usage.prompt_tokens,
-            output_tokens=provider_response.usage.completion_tokens,
-            reasoning_tokens=details.reasoning_tokens if details is not None else None,
-        )
+        usage = _completion_usage(provider_response.model, provider_response.usage)
         try:
             output = response_model.model_validate_json(content)
         except (json.JSONDecodeError, ValidationError) as exception:
@@ -467,7 +489,7 @@ class XaiLlmBridge:
                     retryable=True,
                 )
 
-            provider_usage: _CompletionUsage | None = None
+            provider_usage: LlmUsage | None = None
             provider_model: str | None = None
             completed = False
             response_body_started = False
@@ -541,7 +563,7 @@ class XaiLlmBridge:
                             ) from exception
                         provider_model = chunk.model
                         if chunk.usage is not None:
-                            provider_usage = chunk.usage
+                            provider_usage = _completion_usage(chunk.model, chunk.usage)
                         if chunk.choices:
                             text = chunk.choices[0].delta.content
                             if text:
@@ -596,7 +618,7 @@ class XaiLlmBridge:
                     category=ErrorCategory.INTERNAL,
                     retryable=True,
                 )
-            if provider_usage is None or provider_model is None:
+            if provider_model is None:
                 _log_call(
                     model=provider_model or profile.model,
                     started_at=started_at,
@@ -615,21 +637,13 @@ class XaiLlmBridge:
                     profile.model,
                     provider_model,
                 )
-            details = provider_usage.completion_tokens_details
             _log_call(
                 model=provider_model,
                 started_at=started_at,
                 status="SUCCESS",
                 attempt=attempt,
             )
-            yield LlmTextStreamCompleted(
-                usage=LlmUsage(
-                    model=provider_model,
-                    input_tokens=provider_usage.prompt_tokens,
-                    output_tokens=provider_usage.completion_tokens,
-                    reasoning_tokens=(details.reasoning_tokens if details is not None else None),
-                )
-            )
+            yield LlmTextStreamCompleted(usage=provider_usage or _unavailable_usage(provider_model))
             return
 
     async def _complete_json_with_files(

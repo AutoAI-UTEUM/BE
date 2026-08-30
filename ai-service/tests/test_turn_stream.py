@@ -181,6 +181,7 @@ async def test_explain_ndjson_golden_sequence_and_content_invariant(
     completed = TurnResponse.model_validate(events[-1]["result"])
     assert deltas == "".join(message.content for message in completed.messages)
     assert completed.messages[0].message_type == "EXPLANATION"
+    assert completed.usage is not None
     assert completed.usage.input_tokens == 12
     assert completed.usage.output_tokens == 8
     assert fake_llm.calls == []

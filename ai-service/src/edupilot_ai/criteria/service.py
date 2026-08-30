@@ -7,7 +7,7 @@ from http import HTTPStatus
 from time import monotonic
 
 from edupilot_ai.core.errors import ErrorCategory, InternalApiError
-from edupilot_ai.llm.bridge import LlmBridge, LlmBridgeError
+from edupilot_ai.llm.bridge import LlmBridge, LlmBridgeError, LlmUsage
 from edupilot_ai.models.criteria import (
     CRITERION_KEY_PATTERN,
     CriteriaMaterial,
@@ -16,6 +16,7 @@ from edupilot_ai.models.criteria import (
     CriteriaSuggestResponse,
 )
 from edupilot_ai.settings import AgentLlmProfile
+from edupilot_ai.usage import response_usage, unknown_llm_usage
 
 logger = logging.getLogger(__name__)
 _MIN_RETRY_TIMEOUT_SECONDS = 10.0
@@ -171,6 +172,7 @@ class CriteriaSuggestService:
             raise _insufficient_text_error()
 
         validation_reason: str | None = None
+        usages: list[LlmUsage] = []
         deadline = self._clock() + self._timeout_seconds
         for attempt in range(2):
             try:
@@ -192,6 +194,7 @@ class CriteriaSuggestService:
                     profile=self._profile,
                     timeout_seconds=remaining_seconds,
                 )
+                usages.append(completion.usage)
                 try:
                     validate_criteria_output(request, completion.output)
                 except CriteriaValidationError as error:
@@ -215,8 +218,12 @@ class CriteriaSuggestService:
                         "criterionCount": len(completion.output.criteria),
                     },
                 )
-                return CriteriaSuggestResponse(**completion.output.model_dump())
+                return CriteriaSuggestResponse(
+                    **completion.output.model_dump(),
+                    usage=response_usage(usages),
+                )
             except LlmBridgeError as error:
+                usages.append(error.usage or unknown_llm_usage(self._profile.model))
                 if error.category is ErrorCategory.SCHEMA and attempt == 0:
                     validation_reason = "SCHEMA"
                     continue
