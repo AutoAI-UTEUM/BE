@@ -272,6 +272,17 @@ GitHub `dev` Environment와 다음 Secrets를 등록합니다.
   workflow는 배포 전에 이 값을 검증하고 www 기준 health, CORS, HTTP 404 smoke를
   수행합니다.
 
+### 6.2 관리자 SPA 라우팅 유지
+
+`/admin`과 `/admin/...`는 Nginx의 클라이언트 경로 허용 목록에 포함하여 FE의
+`index.html`로 연결합니다. `/api/admin/**`는 기존 Spring 프록시와 관리자 권한 검사를
+유지하며, 허용 목록 밖의 존재하지 않는 경로는 HTTP 404를 반환합니다.
+
+prod 배포 smoke test는 `/admin`·`/admin/users`의 HTTP 200, 인증 정보 없는
+`/api/admin/users`의 HTTP 401, 잘못된 경로의 HTTP 404를 확인합니다. FE 배포는 정적
+파일만 교체하므로 Nginx 경로 수정은 BE 저장소의 `infra/nginx/edupilot.conf`에도
+반영해야 합니다. 서버에서만 수정하면 다음 BE 배포가 이전 설정으로 덮어쓸 수 있습니다.
+
 ## 7. 롤백
 
 배포 전 정상 동작한 이전 git SHA를 기록합니다. 애플리케이션 롤백은 이전 이미지
