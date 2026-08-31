@@ -164,3 +164,19 @@ jobs:
               "https://${{ vars.PROD_DOMAIN }}/__uteum_not_found_smoke__"
           )"
           test "$not_found_status" = "404"
+
+          for admin_path in /admin /admin/users; do
+            admin_status="$(
+              curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+                "https://${{ vars.PROD_DOMAIN }}${admin_path}"
+            )"
+            printf 'Admin SPA %s: HTTP %s\n' "$admin_path" "$admin_status"
+            test "$admin_status" = "200"
+          done
+
+          admin_api_status="$(
+            curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              "https://${{ vars.PROD_DOMAIN }}/api/admin/users?page=0&size=1"
+          )"
+          printf 'Unauthenticated admin API: HTTP %s\n' "$admin_api_status"
+          test "$admin_api_status" = "401"
