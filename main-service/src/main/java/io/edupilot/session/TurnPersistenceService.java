@@ -84,6 +84,7 @@ public class TurnPersistenceService {
 		TurnEventType eventType,
 		Long diagnosisId,
 		Long userMessageId,
+		boolean xaiFileAttached,
 		io.edupilot.ai.dto.TurnResponse aiResponse
 	) {
 		LearningSession session = sessionRepository.findOwnedForUpdate(
@@ -163,10 +164,10 @@ public class TurnPersistenceService {
 					: nextPageStatus;
 				boolean pageStatusChanged =
 					finalPageStatus != previousPageStatus;
+				// 저장 시점 DB 값이 아닌 AI 요청 스냅샷 기준으로 백필 경합을 방지한다.
 				boolean runtimeQuizDecision =
 					eventType == TurnEventType.EXPLAIN_CURRENT_PAGE
-						&& session.getMaterialXaiFileId() != null
-						&& !session.getMaterialXaiFileId().isBlank();
+						&& xaiFileAttached;
 				boolean quizEligible = runtimeQuizDecision
 					? pageStatusChanged
 						&& finalPageStatus == PageStatus.EXPLAINED

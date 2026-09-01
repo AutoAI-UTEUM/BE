@@ -5,6 +5,7 @@ import java.util.Map;
 public record TurnSnapshot(
 	Map<String, Object> session,
 	Map<String, Object> context,
-	Long materialId
+	Long materialId,
+	boolean xaiFileAttached
 ) {
 }
