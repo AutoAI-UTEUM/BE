@@ -188,6 +188,17 @@ chmod 600 /opt/edupilot/.env
 - `EDUPILOT_AI_BASE_URL`
 - `EDUPILOT_DOMAIN`
 - `EDUPILOT_STORAGE_DIR=/var/lib/edupilot/storage`
+- `EDUPILOT_ADMIN_INFRA_ENABLED=true`
+- `EDUPILOT_ADMIN_INFRA_REGION=ap-northeast-2`
+- `EDUPILOT_ADMIN_INFRA_INSTANCES_PROD=<prod instance id>`
+- `EDUPILOT_ADMIN_INFRA_INSTANCES_DEV=<dev instance id>`
+
+관리자 인프라 조회는 EC2 인스턴스 역할의 기본 자격증명 체인을 사용합니다. AWS access
+key와 secret key를 `.env`에 추가하지 않습니다. 기본 캐시 TTL은 CloudWatch 5분, Cost
+Explorer 12시간이며 필요할 때만 `EDUPILOT_ADMIN_INFRA_METRICS_CACHE_TTL`,
+`EDUPILOT_ADMIN_INFRA_COST_CACHE_TTL`로 조정합니다. 배포 후 ADMIN 토큰으로
+`GET /api/admin/infra/metrics`를 호출해 `available:true`와 대상 인스턴스의 실데이터를
+확인합니다.
 
 ### 5.2 DNS와 최초 인증서
 

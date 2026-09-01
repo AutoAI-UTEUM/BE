@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 계약 초안 |
-| 마지막 갱신 | 2026-08-29 |
+| 마지막 갱신 | 2026-09-01 |
 | 외부 호출자 | Frontend |
 | 내부 호출자 | Spring → FastAPI |
 
@@ -116,6 +116,9 @@
 | GET | `/api/admin/classrooms/{id}` | 관리자 강의실 상세 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/ai-usage/summary` | 관리자 AI 사용량 일별·기능별 집계 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/ai-usage/users` | 관리자 사용자별 AI 사용량 상위 집계 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/infra/metrics` | 관리자 EC2 CloudWatch 지표 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/infra/cost` | 관리자 AWS 비용 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/infra/app` | 관리자 애플리케이션 지표 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/classrooms/{id}/analytics` | 강의자 학습 현황 집계 | Y | 소유 INSTRUCTOR |
 | GET | `/api/classrooms/{classroomId}/students/{studentId}/learning-analytics` | 학습자별 상세 학습 현황 | Y | 소유 INSTRUCTOR |
 | PATCH | `/api/classrooms/{id}` | 강의실 수정 | Y | 소유 INSTRUCTOR |
@@ -2297,6 +2300,59 @@ DB에서 `DATE(CONVERT_TZ(created_at, '+00:00', '+09:00'))`로 일자 버킷을 
 userId ASC` 순으로 `items:[{userId,email,name,status,callCount,inputTokens,outputTokens,
 reasoningTokens}]`을 반환합니다. users 테이블과 DB에서 조인하며 `DELETED` 사용자의 로그도
 포함합니다.
+
+### GET `/api/admin/infra/metrics?env=&range=`
+
+`env`는 `prod` 기본 또는 `dev`, `range`는 `24h` 기본 또는 `1h | 6h | 24h | 7d`입니다.
+지원하지 않는 값은 `VALIDATION_FAILED`(400)입니다. 기간별 CloudWatch period는 각각
+`60 | 300 | 300 | 3600`초이고, 한 번의 `GetMetricData` 호출로 다음 여섯 시계열을
+조회합니다.
+
+- `cpu`: `AWS/EC2 CPUUtilization Average`
+- `netIn`, `netOut`: `AWS/EC2 NetworkIn/NetworkOut Sum`
+- `mem`: `CWAgent mem_used_percent Average`
+- `disk`: `CWAgent disk_used_percent Maximum`, `path="/"` SEARCH 표현식
+- `status`: `AWS/EC2 StatusCheckFailed Maximum`
+
+응답은 `available`, `env`, `range`, `from`, `to`, `periodSeconds`, `series`, `latest`를
+포함합니다. `series`의 각 점은 `{t, v}`이며 `t`는 UTC ISO-8601입니다. 데이터가 없는
+지표는 빈 배열이고 해당 `latest`는 null입니다. 성공 결과는 `(env, range)`별 5분 동안
+캐시합니다.
+
+### GET `/api/admin/infra/cost`
+
+Cost Explorer의 `UnblendedCost`를 `DAILY`·`SERVICE` 기준으로 한 번 조회해 다음을
+반환합니다.
+
+- `currency`
+- `monthToDate`: 이번 달 `total`, 서비스별 상위 10개와 나머지를 합한 `Other`
+- `daily`: 오늘을 포함한 최근 30일의 `{date, total}`
+- `updatedAt`: 성공값 캐시 시각
+- `note`: 비용 데이터는 어제까지가 확정치라는 안내
+
+성공 결과는 12시간 캐시하며 캐시 우회 파라미터는 제공하지 않습니다. Cost Explorer
+클라이언트는 글로벌 서비스 엔드포인트인 `us-east-1`을 사용합니다.
+
+### GET `/api/admin/infra/app`
+
+AWS 설정과 무관하게 프로세스 내부 `MeterRegistry`와 readiness 결과를 즉시 읽습니다.
+응답은 `available:true`와 다음 필드를 포함합니다.
+
+- `jvm`: heap used/max/committed bytes, live thread 수, GC 횟수
+- `http`: 프로세스 시작 이후 누적 요청 수·5xx 수·평균 응답시간(ms)
+- `db`: HikariCP active/idle/max 연결 수
+- `uptimeSeconds`
+- `aiService`: `UP | DOWN`, `checkedAt`
+
+### 관리자 인프라 조회 공통 가용성 정책
+
+`edupilot.admin.infra.enabled=false`이면 AWS 클라이언트를 만들지 않고 metrics/cost는
+`available:false, reason:"DISABLED"`을 반환합니다. AWS 권한·통신·타임아웃 오류도 HTTP
+200에서 `available:false`로 강등하며, 만료된 마지막 성공값이 있으면 그 값을
+`available:true, stale:true, reason`과 함께 반환합니다. AWS SDK 자격증명은 EC2 인스턴스
+역할의 기본 자격증명 체인만 사용하며 액세스 키 환경변수를 요구하지 않습니다. 호출별
+타임아웃은 5초입니다. Actuator는 내부 계측에만 사용하고 `/actuator/**` 웹 엔드포인트는
+노출하지 않습니다.
 
 ## 8. Spring → FastAPI 내부 API
 
