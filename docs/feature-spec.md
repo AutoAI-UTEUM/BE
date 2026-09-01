@@ -122,10 +122,12 @@ refresh token 정책은 구현 전에 별도로 확정합니다.
 
 ## 7. 퀴즈 생성
 
-1. 설명 후 시스템은 READY 개요에 유효한 `quizCheckpoints`가 있으면 현재 페이지가
-   `triggerPage`일 때만 퀴즈 진행 여부를 표시합니다. 이 checkpoint 모드는 현재
-   페이지 200자 게이트를 적용하지 않습니다. 계획이 없거나 개요가 READY가 아니면
-   기존 현재 페이지 200자 + 완전 개요 section 종료 규칙으로 fallback합니다.
+1. PDF가 첨부된 설명 턴에서 Orchestrator는 현재 페이지를 자료 전체 학습 흐름과
+   학습자 상태 안에서 판단합니다. 큰 section 중간이거나 짧은 페이지라도 독립적으로
+   점검 가능한 핵심 개념·가정·모델·공식 해석·예제 단위를 도입하거나 완성해 점검이
+   유익하면 같은 Plan에 퀴즈 제안을 포함하고, Spring은 설명 완료 후 정본 위젯으로
+   표시합니다. 페이지 길이·section 경계·사전 checkpoint는 런타임 판단 기준이 아닙니다.
+   file ID가 없는 구자료만 기존 checkpoint·200자·section 규칙으로 fallback합니다.
 2. 사용자가 `MCQ`, `OX`, `SHORT`, `ESSAY` 중 하나를 선택합니다.
 3. `QUIZ_TYPE_SELECTED` 이벤트로 FastAPI QuizAgent를 호출합니다.
 4. checkpoint 페이지에서는 QuizAgent가 해당 `coverage`의 캡션 병합 페이지 문맥을,

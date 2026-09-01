@@ -573,7 +573,10 @@ Spring이 인증된 PDF 스트림을 반환합니다. 자료 상세와 같은 �
 
 #### uiActions 위젯
 
-AI Service의 `uiActions`는 기본적으로 빈 배열입니다. 예외적으로
+AI Service의 `uiActions`는 기본적으로 빈 배열입니다. PDF가 첨부된
+`EXPLAIN_CURRENT_PAGE`에서는 전체 자료 흐름을 본 Orchestrator가 exact
+`BINARY_DECISION/SHOW_QUIZ_TYPE_SELECT/WAIT` 퀴즈 제안을 반환할 수 있고, Spring은
+실제 설명 완료 전이에서만 `UiAction.quizProposal()` 정본으로 치환합니다. 예외적으로
 `USER_QUESTION`의 `BINARY_DECISION/MOVE_NEXT_PAGE/WAIT` 제안은 Spring resolver
 산출이 비어 있고 현재 페이지가 마지막이 아닐 때만 수용하며, AI 객체 대신
 Spring `moveNextPage` 정본으로 치환해 저장·응답합니다. 그 외 제안은 무시합니다.
@@ -590,7 +593,7 @@ Spring `moveNextPage` 정본으로 치환해 저장·응답합니다. 그 외 �
   "type": "BINARY_DECISION",
   "content": "퀴즈를 진행할까요?",
   "yesEvent": "SHOW_QUIZ_TYPE_SELECT",
-  "noEvent": "MOVE_NEXT_PAGE"
+  "noEvent": "WAIT"
 }
 ```
 
@@ -614,17 +617,18 @@ Spring `moveNextPage` 정본으로 치환해 저장·응답합니다. 그 외 �
 | --- | --- | --- |
 | W1 | 세션 최초 생성 | `BINARY_DECISION("강의를 시작할까요?", EXPLAIN_CURRENT_PAGE, WAIT)` |
 | W2 | 페이지 이동 완료 | `BINARY_DECISION("현재 페이지를 설명할까요?", EXPLAIN_CURRENT_PAGE, WAIT)` |
-| W3 | 현재 페이지 설명 완료 + READY 유효 checkpoint의 triggerPage 일치(200자 게이트 없음). checkpoint 계획이 없으면 기존 200자+section 종료 규칙 fallback | `BINARY_DECISION("퀴즈를 진행할까요?", SHOW_QUIZ_TYPE_SELECT, MOVE_NEXT_PAGE)` |
+| W3 | xAI 첨부 자료의 현재 페이지 설명 완료 + Orchestrator의 exact 퀴즈 제안. file ID 없는 구자료는 기존 checkpoint·200자·section 규칙 fallback | `BINARY_DECISION("퀴즈를 진행할까요?", SHOW_QUIZ_TYPE_SELECT, WAIT)` |
 | W4 | W3의 yes 선택 | FE가 로컬 `QUIZ_TYPE_SELECT`를 표시하고 선택값으로 `QUIZ_TYPE_SELECTED` 턴 호출 |
 | W5 | 퀴즈 제출 파이프라인 완료 후 다음 학습 가능 | 마지막 페이지가 아니면 `BINARY_DECISION("다음 페이지로 이동할까요?", MOVE_NEXT_PAGE, WAIT)`. 마지막 페이지면 `BINARY_DECISION("학습을 완료할까요?", COMPLETE_SESSION, WAIT)`이며 yes 선택 시 FE가 `POST /api/sessions/{sessionId}/complete` 호출 |
 | W6 | 기준 미달이고 진단 생성 성공 | `DIAGNOSIS_QUESTION(content, diagnosisId)` |
 | W7 | 진단 답변의 교정 완료 | W5와 같은 다음 페이지/마지막 페이지 완료 분기 |
 
-W3은 READY 개요에 유효한 `quizCheckpoints`가 있으면 checkpoint 모드로 동작합니다.
-현재 페이지가 `triggerPage`인 경우에만 제안하며 이 모드에서는 단일 페이지 텍스트
-길이가 출제 범위를 대표하지 않으므로 200자 게이트를 적용하지 않습니다. 체크포인트가
-없거나 비어 있거나 검증에서 탈락한 경우, 개요가 없거나 PENDING/FAILED인 경우에는
-기존 규칙으로 fallback합니다. fallback의 페이지 텍스트 길이 임계값은
+W3은 xAI file ID가 있는 자료에서 런타임 Orchestrator 판단을 정본으로 사용합니다.
+현재 페이지가 큰 section의 중간이어도 독립적으로 점검 가능한 핵심 개념·가정·모델·
+공식 해석·예제 단위를 도입하거나 완성하면 제안할 수 있으며 페이지 글자 수나 정적
+checkpoint가 이를 차단하지 않습니다. 제안이 없으면 다음
+학습 위젯을 생성합니다. file ID가 없는 구자료에 한해 기존 규칙으로 fallback합니다.
+fallback의 페이지 텍스트 길이 임계값은
 `edupilot.quiz.proposal-min-page-text-length`(기본 200자)이며, READY 완전 개요는
 `sections[].endPage`에서만 제안하고 그 밖의 개요는 기존 200자 규칙을 사용합니다.
 
@@ -2319,7 +2323,7 @@ reasoningTokens}]`을 반환합니다. users 테이블과 DB에서 조인하며 
 
 body가 없는 204를 제외한 내부 API 성공 응답은 최상위 optional `usage`를 사용합니다. wire 키는 `model`, `inputTokens`, `outputTokens`, `reasoningTokens`이고 `usage`와 각 하위 값은 nullable입니다. LLM을 여러 번 호출하면 재생성을 포함해 합산하되, 한 호출이라도 토큰 수를 확인할 수 없으면 불완전한 합계를 기록하지 않고 `usage=null`로 반환합니다. Spring은 확인 가능한 usage를 사용자별 `ai_usage_log`에 기록합니다.
 
-`extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)과 nullable `xaiFileId`, 기본 빈 배열 `warnings: [{type,message}]`를 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `EDUPILOT_XAI_FILES_ENABLED=true`일 때만 추출 성공 원본을 xAI Files에 업로드합니다. 업로드 실패 또는 48MiB 초과는 `xaiFileId=null`과 `FILE_UPLOAD_FAILED` warning으로 강등하며 추출 응답은 200을 유지합니다. `FILE_UPLOAD_FAILED` 및 알 수 없는 warning type은 경고로만 기록하고 추출이 성공했다면 자료는 기존대로 READY가 됩니다. Spring은 non-blank `xaiFileId`만 내부 DB에 저장하고 외부 자료 응답에는 노출하지 않습니다. 기존 ACTIVE·READY 자료는 기본 OFF인 Spring bounded backfill이 `POST /internal/ai/files`로 원본만 업로드하며, 이 명시적 API는 `/extract` 자동 업로드 kill switch와 독립적으로 동작합니다. backfill은 claim과 file ID 반영을 각각 짧은 row-lock 트랜잭션으로 처리하고 외부 호출 중에는 트랜잭션을 유지하지 않으며, 실패 시 READY 유지·6시간 기본 backoff·경합 file ID 베스트에포트 삭제를 적용합니다. 자유 학습 턴 context에는 nullable `xaiFileId`를 포함하며 `includeCurrentPage=false`이면 null을 보냅니다. AI Service는 설명·QA·퀴즈의 실제 LLM 호출과 개요 생성에 파일을 첨부하고 Plan·결정적 안내·Repair·Note에는 첨부하지 않습니다. 퀴즈는 checkpoint가 있으면 `quizContext`의 coverage 페이지 범위, 없으면 현재 페이지 단일을 앵커로 사용하며 개요는 전달된 pages 범위를 유지합니다. file ID가 없으면 기존 텍스트 경로를 사용합니다(DEC-035·037). `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작하며 삭제 성공·xAI 404는 모두 204, 그 밖의 xAI 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)입니다. 자료 삭제나 file ID 교체 시 Spring은 트랜잭션 커밋 후 DELETE를 호출하며 실패해도 자료 삭제·READY 결과를 유지합니다. `captions`는 `{schemaVersion:"1.0", pages:[{pageNumber,imageBase64,extractedText}]}`를 최대 10페이지씩 받고 페이지별 nullable 캡션을 반환합니다. Spring은 캡션이 있으면 모든 페이지 텍스트 기반 AI 입력에 `\n\n[그림 설명] {caption}`을 읽기 시점에 병합하며 `material_pages.text_content` 원문은 유지합니다. 일부 청크 실패는 자료·개요 상태에 영향을 주지 않고 다음 청크 처리를 계속합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
+`extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)과 nullable `xaiFileId`, 기본 빈 배열 `warnings: [{type,message}]`를 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `EDUPILOT_XAI_FILES_ENABLED=true`일 때만 추출 성공 원본을 xAI Files에 업로드합니다. 업로드 실패 또는 48MiB 초과는 `xaiFileId=null`과 `FILE_UPLOAD_FAILED` warning으로 강등하며 추출 응답은 200을 유지합니다. `FILE_UPLOAD_FAILED` 및 알 수 없는 warning type은 경고로만 기록하고 추출이 성공했다면 자료는 기존대로 READY가 됩니다. Spring은 non-blank `xaiFileId`만 내부 DB에 저장하고 외부 자료 응답에는 노출하지 않습니다. 기존 ACTIVE·READY 자료는 기본 OFF인 Spring bounded backfill이 `POST /internal/ai/files`로 원본만 업로드하며, 이 명시적 API는 `/extract` 자동 업로드 kill switch와 독립적으로 동작합니다. backfill은 claim과 file ID 반영을 각각 짧은 row-lock 트랜잭션으로 처리하고 외부 호출 중에는 트랜잭션을 유지하지 않으며, 실패 시 READY 유지·6시간 기본 backoff·경합 file ID 베스트에포트 삭제를 적용합니다. 자유 학습 턴 context에는 nullable `xaiFileId`를 포함하며 `includeCurrentPage=false`이면 null을 보냅니다. AI Service는 설명 Plan과 설명·QA·퀴즈의 실제 LLM 호출, 개요 생성에 파일을 첨부하고 그 밖의 Plan·결정적 안내·Repair·Note에는 첨부하지 않습니다. 퀴즈는 checkpoint가 있으면 `quizContext`의 coverage 페이지 범위, 없으면 현재 페이지 단일을 앵커로 사용하며 개요는 전달된 pages 범위를 유지합니다. file ID가 없으면 기존 텍스트 경로를 사용합니다(DEC-035·037·039). `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작하며 삭제 성공·xAI 404는 모두 204, 그 밖의 xAI 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)입니다. 자료 삭제나 file ID 교체 시 Spring은 트랜잭션 커밋 후 DELETE를 호출하며 실패해도 자료 삭제·READY 결과를 유지합니다. `captions`는 `{schemaVersion:"1.0", pages:[{pageNumber,imageBase64,extractedText}]}`를 최대 10페이지씩 받고 페이지별 nullable 캡션을 반환합니다. Spring은 캡션이 있으면 모든 페이지 텍스트 기반 AI 입력에 `\n\n[그림 설명] {caption}`을 읽기 시점에 병합하며 `material_pages.text_content` 원문은 유지합니다. 일부 청크 실패는 자료·개요 상태에 영향을 주지 않고 다음 청크 처리를 계속합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
 
 별도 시험 grade는 숫자 `examId`를 `quizId`로 사용합니다. `pageContext`와 `learnerMemoryDigest`는 생략·null을 허용하고 나머지 grade 요청 필드는 필수·non-null입니다. 응답이 있는 SHORT와 ESSAY는 각각 묶어 호출하며 한 유형이 실패해도 나머지 유형은 계속 호출합니다. 실제 호출의 `items`와 `studentAnswers`는 비어 있지 않아야 합니다. 상세 필드 강제력과 표준 오류 봉투는 `ai-integration-contract.md` v0.6 §6.2를 따릅니다.
 
@@ -2472,13 +2476,15 @@ data: {"text":"편차는 "}
 :heartbeat
 ```
 
-사용자 위젯은 내부 AI 응답이 아니라 Spring이 §5 W1~W7 규칙으로 생성합니다.
+사용자 위젯은 Spring이 §5 W1~W7 규칙으로 정본화합니다. 퀴즈 제안은 내부 AI의
+exact allowlist 입력을 받아 생성하고, 그 밖의 상태 전이 위젯은 Spring 규칙으로
+생성합니다.
 한 턴에는 마지막 상태 전이 위젯만 존재하므로 `ui_action`은 0회 또는
 1회입니다. `data.action`은 §5 `uiActions` 항목 하나와 완전히 동일합니다.
 
 ```text
 event: ui_action
-data: {"action":{"type":"BINARY_DECISION","content":"퀴즈를 진행할까요?","yesEvent":"SHOW_QUIZ_TYPE_SELECT","noEvent":"MOVE_NEXT_PAGE"}}
+data: {"action":{"type":"BINARY_DECISION","content":"퀴즈를 진행할까요?","yesEvent":"SHOW_QUIZ_TYPE_SELECT","noEvent":"WAIT"}}
 ```
 
 진단 입력형 위젯은 yes/no 필드를 포함하지 않습니다.
@@ -2493,7 +2499,7 @@ data: {"action":{"type":"DIAGNOSIS_QUESTION","content":"왜 역수를 곱하는�
 
 ```text
 event: completed
-data: {"result":{"turnId":"turn-123","sessionId":100,"messages":[{"messageId":501,"senderType":"AI","messageType":"EXPLANATION","content":"편차는 평균과 관측값의 차이입니다.","pageNumber":3,"status":"COMPLETED","createdAt":"2026-07-28T09:00:00Z"}],"uiActions":[{"type":"BINARY_DECISION","content":"퀴즈를 진행할까요?","yesEvent":"SHOW_QUIZ_TYPE_SELECT","noEvent":"MOVE_NEXT_PAGE"}],"state":{"currentPage":3,"pageStatus":"EXPLAINED","activeQuizId":null}}}
+data: {"result":{"turnId":"turn-123","sessionId":100,"messages":[{"messageId":501,"senderType":"AI","messageType":"EXPLANATION","content":"편차는 평균과 관측값의 차이입니다.","pageNumber":3,"status":"COMPLETED","createdAt":"2026-07-28T09:00:00Z"}],"uiActions":[{"type":"BINARY_DECISION","content":"퀴즈를 진행할까요?","yesEvent":"SHOW_QUIZ_TYPE_SELECT","noEvent":"WAIT"}],"state":{"currentPage":3,"pageStatus":"EXPLAINED","activeQuizId":null}}}
 ```
 
 오류 data는 Spring의 안정된 외부 오류 코드와 공개 메시지만 포함합니다.

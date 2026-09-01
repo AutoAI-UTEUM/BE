@@ -139,7 +139,9 @@ public class TurnResponseValidator {
 			response.uiActions().stream()
 				.filter(action ->
 					!isMoveNextPageProposal(action)
-						&& !isNoteProposal(action))
+						&& !isNoteProposal(action)
+						&& !(eventType == TurnEventType.EXPLAIN_CURRENT_PAGE
+							&& isQuizProposal(action)))
 				.toList()
 		);
 		warnIgnoredActiveQuizId(response);
@@ -285,6 +287,20 @@ public class TurnResponseValidator {
 			&& "WAIT".equals(action.get("noEvent"))
 			&& action.get("content") instanceof String content
 			&& StringUtils.hasText(content);
+	}
+
+	static boolean isQuizProposal(Map<String, Object> action) {
+		return action != null
+			&& action.keySet().equals(Set.of(
+				"type",
+				"content",
+				"yesEvent",
+				"noEvent"
+			))
+			&& "BINARY_DECISION".equals(action.get("type"))
+			&& "퀴즈를 진행할까요?".equals(action.get("content"))
+			&& "SHOW_QUIZ_TYPE_SELECT".equals(action.get("yesEvent"))
+			&& "WAIT".equals(action.get("noEvent"));
 	}
 
 	static void warnIgnoredUiActions(

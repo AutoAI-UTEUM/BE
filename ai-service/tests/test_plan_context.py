@@ -104,6 +104,7 @@ def test_plan_context_contains_only_bounded_planner_fields(
     assert "materialId" not in json.dumps(serialized["session"])
     assert serialized["eventType"] == "USER_QUESTION"
     assert serialized["eventPayload"] == {"message": "편차가 뭔지 모르겠어"}
+    assert serialized["hasMaterialAttachment"] is True
     assert serialized["pageTextPreview"] == "P" * 500
     assert serialized["hasPreviousPageText"] is True
     assert serialized["hasNextPageText"] is False

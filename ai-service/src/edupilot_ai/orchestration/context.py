@@ -90,6 +90,7 @@ class PlanContext(PlanContextModel):
     session: PlanSession
     event_type: EventType
     event_payload: dict[str, Any]
+    has_material_attachment: bool
     page_text_preview: str
     has_previous_page_text: bool
     has_next_page_text: bool
@@ -167,6 +168,7 @@ class PlanContext(PlanContextModel):
             ),
             event_type=context.event_type,
             event_payload=event_payload,
+            has_material_attachment=context.attached_file_id is not None,
             page_text_preview=(context.current_page_text or "")[:500],
             has_previous_page_text=context.previous_page_text is not None,
             has_next_page_text=context.next_page_text is not None,

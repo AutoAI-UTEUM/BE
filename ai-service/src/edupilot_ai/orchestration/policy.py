@@ -62,6 +62,20 @@ class PolicyVerifier:
         plan: TurnPlan,
         context: AgentContext,
     ) -> tuple[TurnPlan, list[Adjustment]]:
+        if context.event_type is EventType.EXPLAIN_CURRENT_PAGE:
+            primary_tools = [
+                action.tool for action in plan.actions if action.tool not in MEMORY_TOOLS
+            ]
+            if primary_tools not in (
+                [ToolName.EXPLAIN_PAGE],
+                [ToolName.EXPLAIN_PAGE, ToolName.PROMPT_BINARY_DECISION],
+            ):
+                raise PolicyViolation("explanation Plan has an invalid action sequence")
+            if (
+                ToolName.PROMPT_BINARY_DECISION in primary_tools
+                and context.attached_file_id is None
+            ):
+                raise PolicyViolation("quiz proposal requires the full material attachment")
         if sum(action.tool is ToolName.PROMOTE_MEMORY for action in plan.actions) > 1:
             raise PolicyViolation("multiple memory promotions in one turn")
         if len(plan.actions) > plan.pedagogy_policy.intervention_budget:
@@ -92,6 +106,19 @@ class PolicyVerifier:
     ) -> tuple[PlanAction, list[Adjustment]]:
         event = context.event_type
         if event is EventType.EXPLAIN_CURRENT_PAGE:
+            if action.tool is ToolName.PROMPT_BINARY_DECISION:
+                if set(action.args) != {"contentMarkdown", "decisionType"}:
+                    raise PolicyViolation("quiz proposal args do not match policy")
+                corrected = _normalized_action(
+                    action,
+                    {"contentMarkdown", "decisionType"},
+                )
+                if corrected.args != {
+                    "contentMarkdown": "퀴즈를 진행할까요?",
+                    "decisionType": "QUIZ_DECISION",
+                }:
+                    raise PolicyViolation("quiz proposal args do not match policy")
+                return corrected, []
             if action.tool is not ToolName.EXPLAIN_PAGE:
                 raise PolicyViolation("tool does not match event")
             corrected = _normalized_action(action, {"page", "detailLevel"})

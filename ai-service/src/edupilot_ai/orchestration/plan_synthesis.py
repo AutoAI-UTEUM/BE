@@ -28,7 +28,9 @@ def _single_action_plan(
 
 def synthesize_plan(context: AgentContext) -> TurnPlan | None:
     """Synthesize fixed-outcome Plans; return None when an LLM must plan."""
-    if context.event_type is EventType.EXPLAIN_CURRENT_PAGE:
+    if context.event_type is EventType.EXPLAIN_CURRENT_PAGE and (
+        context.attached_file_id is None or not (context.current_page_text or "").strip()
+    ):
         detail_level = context.event_payload.detail_level
         return _single_action_plan(
             turn_goal="EXPLAIN_CURRENT_PAGE",

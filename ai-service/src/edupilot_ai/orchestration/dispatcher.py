@@ -386,6 +386,21 @@ class ToolDispatcher:
                 state_patch={},
                 usage=LlmUsage(self._model, 0, 0, None),
             )
+        if action.tool is ToolName.PROMPT_BINARY_DECISION:
+            return AgentResult(
+                agent="UiActionResolver",
+                message=None,
+                state_patch={},
+                usage=LlmUsage(self._model, 0, 0, None),
+                ui_actions=[
+                    {
+                        "type": "BINARY_DECISION",
+                        "content": "퀴즈를 진행할까요?",
+                        "yesEvent": "SHOW_QUIZ_TYPE_SELECT",
+                        "noEvent": "WAIT",
+                    }
+                ],
+            )
         raise PolicyViolation("tool is not implemented in issue #23")
 
     @staticmethod
