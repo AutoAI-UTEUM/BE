@@ -214,7 +214,8 @@ class QuizProposalPolicyTest {
 				"summary",
 				List.of(sections),
 				checkpoints,
-				totalPages
+				totalPages,
+				null
 			)
 		);
 		return overview;

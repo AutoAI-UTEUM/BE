@@ -30,6 +30,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.ExamDraftRequest;
 import io.edupilot.ai.dto.ExamDraftResponse;
 import io.edupilot.auth.JwtTokenProvider;
@@ -114,6 +115,7 @@ class ExamDraftApiContractTest {
 				.content(twoTypeRequest(fixture.material().getId())))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.truncated").value(false))
+			.andExpect(jsonPath("$.data.usage").doesNotExist())
 			.andExpect(jsonPath("$.data.questions[0].answerChoiceId").value("a"))
 			.andExpect(jsonPath("$.data.questions[0].explanation").value("Because A"))
 			.andExpect(jsonPath("$.data.questions[1].referenceAnswer").value("Answer"));
@@ -121,6 +123,25 @@ class ExamDraftApiContractTest {
 		assertThat(questionRepository.findByExam_IdOrderByQuestionNo(
 			fixture.exam().getId()
 		)).hasSize(before);
+	}
+
+	@Test
+	void acceptsDraftResponseWithoutOptionalUsage() throws Exception {
+		ExamDraftResponse response = mcqResponse(fixture.exam().getId(), 1);
+		when(aiClient.generateExamDraft(any())).thenReturn(new ExamDraftResponse(
+			response.schemaVersion(),
+			response.examId(),
+			response.questions(),
+			null
+		));
+
+		mockMvc.perform(post(endpoint())
+				.header(HttpHeaders.AUTHORIZATION, bearer(fixture.instructor()))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(singleMcqRequest(fixture.material().getId(), 1)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.questions[0].questionId").value("mcq-1"))
+			.andExpect(jsonPath("$.data.usage").doesNotExist());
 	}
 
 	@Test
@@ -367,8 +388,8 @@ class ExamDraftApiContractTest {
 		);
 	}
 
-	private ExamDraftResponse.Usage usage() {
-		return new ExamDraftResponse.Usage("grok-test", 10, 20, null);
+	private AiUsage usage() {
+		return new AiUsage("grok-test", 10L, 20L, null);
 	}
 
 	private String endpoint() {

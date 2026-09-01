@@ -12,7 +12,8 @@ public record OutlineResponse(
 	String materialSummary,
 	List<Section> sections,
 	List<QuizCheckpoint> quizCheckpoints,
-	int totalPages
+	int totalPages,
+	AiUsage usage
 ) {
 	private static final Logger log = LoggerFactory.getLogger(
 		OutlineResponse.class
@@ -24,15 +25,6 @@ public record OutlineResponse(
 			sections,
 			totalPages
 		);
-	}
-
-	public OutlineResponse(
-		String schemaVersion,
-		String materialSummary,
-		List<Section> sections,
-		int totalPages
-	) {
-		this(schemaVersion, materialSummary, sections, null, totalPages);
 	}
 
 	public record Section(

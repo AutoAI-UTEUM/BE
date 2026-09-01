@@ -57,7 +57,8 @@ class ConversationSummaryWorkerTest {
 			.thenThrow(new AiClientException(ErrorCode.AI_SERVICE_TIMEOUT))
 			.thenReturn(new ConversationSummaryResponse(
 				"1.0",
-				"재시도 요약"
+				"재시도 요약",
+				null
 			));
 
 		assertThatCode(() -> worker().summarize(100L, "trace-summary"))
@@ -82,7 +83,7 @@ class ConversationSummaryWorkerTest {
 			.thenAnswer(invocation -> {
 				assertThat(MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY))
 					.isEqualTo("turn-trace-337");
-				return new ConversationSummaryResponse("1.0", "새 요약");
+				return new ConversationSummaryResponse("1.0", "새 요약", null);
 			});
 		MDC.put(TraceIdFilter.TRACE_ID_MDC_KEY, "caller-context");
 

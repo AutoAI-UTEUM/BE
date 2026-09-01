@@ -304,7 +304,8 @@ class MaterialApiContractTest {
 			.andExpect(jsonPath("$.data.answer")
 				.value("자료에 따르면 답은 42입니다."))
 			.andExpect(jsonPath("$.data.warnings[0].type")
-				.value("CONTEXT_TRUNCATED"));
+				.value("CONTEXT_TRUNCATED"))
+			.andExpect(jsonPath("$.data.usage").doesNotExist());
 
 		mockMvc.perform(post("/api/materials/10/quiz-chat")
 				.header(HttpHeaders.AUTHORIZATION, bearer())
@@ -312,7 +313,8 @@ class MaterialApiContractTest {
 				.content(request))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.answer")
-				.value("자료에 따르면 답은 42입니다."));
+				.value("자료에 따르면 답은 42입니다."))
+			.andExpect(jsonPath("$.data.usage").doesNotExist());
 	}
 
 	@Test

@@ -662,7 +662,8 @@ class TurnSnapshotServiceTest {
 					List.of("keyword")
 				)),
 				List.of(checkpoint),
-				totalPages
+				totalPages,
+				null
 			)
 		);
 		return overview;

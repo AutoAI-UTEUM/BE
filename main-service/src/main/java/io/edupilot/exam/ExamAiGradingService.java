@@ -13,7 +13,6 @@ import org.springframework.stereotype.Service;
 
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
-import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
 import io.edupilot.aiusage.AiFeature;
@@ -52,7 +51,7 @@ public class ExamAiGradingService {
 				aiUsageService.record(
 					prepared.userId(),
 					AiFeature.GRADE,
-					toUsage(response == null ? null : response.usage()),
+					response == null ? null : response.usage(),
 					true
 				);
 				grades.putAll(validate(prepared.examId(), group, response));
@@ -84,15 +83,6 @@ public class ExamAiGradingService {
 			failed = true;
 		}
 		return new ExamAiGradingOutcome(Map.copyOf(grades), failed);
-	}
-
-	private AiUsage toUsage(GradeResponse.Usage usage) {
-		return usage == null ? null : new AiUsage(
-			usage.model(),
-			usage.inputTokens(),
-			usage.outputTokens(),
-			usage.reasoningTokens()
-		);
 	}
 
 	private GradeRequest toRequest(

@@ -17,8 +17,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.OutlineRequest;
 import io.edupilot.ai.dto.OutlineResponse;
+import io.edupilot.aiusage.AiFeature;
 import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.MaterialOutlinePersistenceService.OutlineSnapshot;
@@ -60,6 +62,12 @@ class MaterialOutlineGenerationServiceTest {
 			response
 		);
 		verify(persistenceService, never()).markFailed(10L);
+		verify(aiUsageService).record(
+			1L,
+			AiFeature.OUTLINE,
+			response.usage(),
+			true
+		);
 	}
 
 	@ParameterizedTest
@@ -103,7 +111,9 @@ class MaterialOutlineGenerationServiceTest {
 				2,
 				List.of("핵심")
 			)),
-			2
+			null,
+			2,
+			null
 		);
 		when(persistenceService.snapshot(10L)).thenReturn(Optional.of(snapshot));
 		when(aiClient.outline(request)).thenReturn(invalid);
@@ -156,7 +166,9 @@ class MaterialOutlineGenerationServiceTest {
 				2,
 				List.of("핵심")
 			)),
-			2
+			null,
+			2,
+			new AiUsage("grok-outline", 30L, 12L, 4L)
 		);
 	}
 }

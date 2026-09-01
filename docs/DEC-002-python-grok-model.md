@@ -55,7 +55,7 @@
 
 - 추정(세션 30턴 중 LLM 경유 22턴, 호출당 입력 ~6K·출력 ~4K, 턴당 2회 호출): 세션당 약 $1.2, 월 300세션 시 약 $360.
 - 재검토 트리거: 월 LLM 비용 $150 초과 시(제안값 — 팀 확정 필요) 이원화 검토. 대상 grok-4.3($1.25/$2.50, 캐시 입력 $0.20), 설명·QA 이원화 시 약 55% 절감 추정.
-- 판단 데이터: 전 내부 응답 usage(model, inputTokens, outputTokens, reasoningTokens) 수집.
+- 판단 데이터: 전 내부 응답 `usage(model, input_tokens, output_tokens, reasoning_tokens)` 수집.
 
 ## 3. 검토했으나 채택하지 않은 대안
 

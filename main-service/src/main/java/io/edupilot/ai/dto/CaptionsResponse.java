@@ -5,9 +5,9 @@ import java.util.List;
 public record CaptionsResponse(
 	String schemaVersion,
 	List<PageCaption> captions,
-	List<Warning> warnings
+	List<Warning> warnings,
+	AiUsage usage
 ) {
-
 	public record PageCaption(int pageNumber, String caption) {
 	}
 
