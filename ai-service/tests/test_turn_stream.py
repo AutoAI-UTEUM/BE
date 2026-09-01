@@ -48,6 +48,7 @@ from tests.test_learning_support import (
     temporary_candidate,
 )
 from tests.test_quiz_grading import make_quiz
+from tests.test_turn_contract import make_explain_plan
 
 
 class SlowFakeLlm(FakeLlm):
@@ -144,6 +145,7 @@ async def test_explain_ndjson_golden_sequence_and_content_invariant(
     context = payload["context"]
     assert isinstance(context, dict)
     context["xaiFileId"] = "file-explain-stream"
+    fake_llm.queue(make_explain_plan(propose_quiz=True))
     fake_llm.queue_text_stream(
         "편차는 ",
         "**평균과 관측값의 차이**입니다.",
@@ -181,16 +183,25 @@ async def test_explain_ndjson_golden_sequence_and_content_invariant(
     completed = TurnResponse.model_validate(events[-1]["result"])
     assert deltas == "".join(message.content for message in completed.messages)
     assert completed.messages[0].message_type == "EXPLANATION"
+    assert completed.ui_actions == [
+        {
+            "type": "BINARY_DECISION",
+            "content": "퀴즈를 진행할까요?",
+            "yesEvent": "SHOW_QUIZ_TYPE_SELECT",
+            "noEvent": "WAIT",
+        }
+    ]
     assert completed.usage is not None
     assert completed.usage.input_tokens == 12
     assert completed.usage.output_tokens == 8
-    assert fake_llm.calls == []
+    assert len(fake_llm.calls) == 1
     assert len(fake_llm.stream_calls) == 1
     assert 0 < fake_llm.stream_calls[0][2] <= 180
     stream_system_prompt = fake_llm.stream_calls[0][0][0]["content"]
     assert "Return only the learner-facing Markdown explanation." in stream_system_prompt
     assert "모든 학습자 대상 텍스트" in stream_system_prompt
     assert [item.file_id for item in fake_llm.stream_file_attachments[0]] == ["file-explain-stream"]
+    assert [item.file_id for item in fake_llm.file_attachments[0]] == ["file-explain-stream"]
 
 
 async def test_explain_empty_page_streams_fixed_guidance_without_agent_llm(

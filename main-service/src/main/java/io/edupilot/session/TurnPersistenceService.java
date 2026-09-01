@@ -163,14 +163,22 @@ public class TurnPersistenceService {
 					: nextPageStatus;
 				boolean pageStatusChanged =
 					finalPageStatus != previousPageStatus;
-				boolean quizEligible = quizProposalPolicy.isEligible(
-					session.getMaterialId(),
-					session.getCurrentPage(),
-					session.getMaterialPageCount(),
-					eventType,
-					finalPageStatus,
-					pageStatusChanged
-				);
+				boolean runtimeQuizDecision =
+					eventType == TurnEventType.EXPLAIN_CURRENT_PAGE
+						&& session.getMaterialXaiFileId() != null
+						&& !session.getMaterialXaiFileId().isBlank();
+				boolean quizEligible = runtimeQuizDecision
+					? pageStatusChanged
+						&& finalPageStatus == PageStatus.EXPLAINED
+						&& hasSingleQuizProposal(aiResponse)
+					: quizProposalPolicy.isEligible(
+						session.getMaterialId(),
+						session.getCurrentPage(),
+						session.getMaterialPageCount(),
+						eventType,
+						finalPageStatus,
+						pageStatusChanged
+					);
 				uiActions = uiActionResolver.forPageTransition(
 					previousPageStatus,
 					finalPageStatus,
@@ -323,6 +331,23 @@ public class TurnPersistenceService {
 			));
 		}
 		return List.copyOf(accepted);
+	}
+
+	private boolean hasSingleQuizProposal(
+		io.edupilot.ai.dto.TurnResponse aiResponse
+	) {
+		List<Map<String, Object>> proposals = aiResponse.uiActions().stream()
+			.filter(TurnResponseValidator::isQuizProposal)
+			.limit(2)
+			.toList();
+		if (proposals.size() > 1) {
+			TurnResponseValidator.warnIgnoredUiActions(
+				aiResponse.turnId(),
+				proposals
+			);
+			return false;
+		}
+		return proposals.size() == 1;
 	}
 
 	private List<ChatMessage> saveAiMessages(

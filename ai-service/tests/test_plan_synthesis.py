@@ -26,7 +26,22 @@ def _context(
     return ContextBuilder().build(TurnRequest.model_validate(payload))
 
 
-def test_explain_plan_is_synthesized_and_policy_verified(
+def test_explain_plan_requires_runtime_orchestrator_when_pdf_is_attached(
+    turn_payload: dict[str, object],
+) -> None:
+    context = _context(
+        turn_payload,
+        event_type="EXPLAIN_CURRENT_PAGE",
+        event_payload={"detailLevel": "DETAILED"},
+    )
+    context = context.model_copy(update={"xai_file_id": "file-runtime-plan"})
+
+    plan = synthesize_plan(context)
+
+    assert plan is None
+
+
+def test_explain_plan_without_pdf_keeps_legacy_deterministic_fallback(
     turn_payload: dict[str, object],
 ) -> None:
     context = _context(

@@ -215,6 +215,62 @@ class TurnPersistenceServiceTest {
 	}
 
 	@Test
+	void acceptsRuntimeOrchestratorQuizProposalForXaiBackedMaterial() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINING,
+			PageStatus.EXPLAINED,
+			3,
+			78
+		);
+		when(session.getMaterialXaiFileId()).thenReturn("file-runtime-material");
+
+		PersistedTurn persisted = service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.EXPLAIN_CURRENT_PAGE,
+			null,
+			501L,
+			responseWithUiActions(
+				Map.of("pageStatus", "EXPLAINED"),
+				List.of(),
+				List.of(quizProposal())
+			)
+		);
+
+		assertThat(persisted.uiActions())
+			.containsExactly(UiAction.quizProposal());
+		verify(materialPageRepository, never())
+			.findTextLengthByMaterialIdAndPageNumber(any(), anyInt());
+	}
+
+	@Test
+	void runtimeOrchestratorNoQuizDecisionOverridesStaticFallback() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINING,
+			PageStatus.EXPLAINED,
+			3,
+			78
+		);
+		when(session.getMaterialXaiFileId()).thenReturn("file-runtime-material");
+
+		PersistedTurn persisted = service().persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.EXPLAIN_CURRENT_PAGE,
+			null,
+			501L,
+			response(Map.of("pageStatus", "EXPLAINED"), List.of())
+		);
+
+		assertThat(persisted.uiActions())
+			.containsExactly(UiAction.moveNextPage());
+		verify(materialPageRepository, never())
+			.findTextLengthByMaterialIdAndPageNumber(any(), anyInt());
+	}
+
+	@Test
 	void acceptsCanonicalMoveNextPageProposalForUserQuestion() {
 		LearningSession session = activeSession(
 			PageStatus.EXPLAINED,
@@ -941,6 +997,15 @@ class TurnPersistenceServiceTest {
 			"type", "BINARY_DECISION",
 			"content", content,
 			"yesEvent", "NOTE_REQUESTED",
+			"noEvent", "WAIT"
+		);
+	}
+
+	private Map<String, Object> quizProposal() {
+		return Map.of(
+			"type", "BINARY_DECISION",
+			"content", "퀴즈를 진행할까요?",
+			"yesEvent", "SHOW_QUIZ_TYPE_SELECT",
 			"noEvent", "WAIT"
 		);
 	}

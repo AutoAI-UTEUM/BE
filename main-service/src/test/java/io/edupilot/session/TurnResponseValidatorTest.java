@@ -27,6 +27,29 @@ import io.edupilot.quiz.QuizGenerationValidator;
 
 class TurnResponseValidatorTest {
 
+	@Test
+	void recognizesOnlyCanonicalRuntimeQuizProposal() {
+		Map<String, Object> canonical = Map.of(
+			"type", "BINARY_DECISION",
+			"content", "퀴즈를 진행할까요?",
+			"yesEvent", "SHOW_QUIZ_TYPE_SELECT",
+			"noEvent", "WAIT"
+		);
+		Map<String, Object> extraField = new java.util.LinkedHashMap<>(
+			canonical
+		);
+		extraField.put("private", "ignored");
+
+		assertThat(TurnResponseValidator.isQuizProposal(canonical)).isTrue();
+		assertThat(TurnResponseValidator.isQuizProposal(Map.of(
+			"type", "BINARY_DECISION",
+			"content", "임의 문구",
+			"yesEvent", "SHOW_QUIZ_TYPE_SELECT",
+			"noEvent", "WAIT"
+		))).isFalse();
+		assertThat(TurnResponseValidator.isQuizProposal(extraField)).isFalse();
+	}
+
 	private final TurnResponseValidator validator =
 		new TurnResponseValidator(new QuizGenerationValidator());
 
