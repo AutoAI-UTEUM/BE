@@ -6,7 +6,7 @@ from typing import Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 
-from edupilot_ai.models.base import ContractModel
+from edupilot_ai.models.base import ContractModel, Usage
 
 MAX_CAPTION_IMAGE_BYTES = 10 * 1024 * 1024
 
@@ -58,3 +58,4 @@ class CaptionsResponse(ContractModel):
     schema_version: Literal["1.0"] = "1.0"
     captions: list[PageCaption]
     warnings: list[CaptionWarning] = Field(default_factory=list)
+    usage: Usage | None = None

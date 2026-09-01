@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
-from edupilot_ai.models.base import ContractModel
+from edupilot_ai.models.base import ContractModel, Usage
 from edupilot_ai.models.quiz import QuizGeneration, QuizType
 
 
@@ -219,13 +219,6 @@ class Message(ContractModel):
     content: str
 
 
-class Usage(ContractModel):
-    model: str
-    input_tokens: int = Field(ge=0)
-    output_tokens: int = Field(ge=0)
-    reasoning_tokens: int | None = Field(default=None, ge=0)
-
-
 class NoteDraft(ContractModel):
     title: str = Field(min_length=1, max_length=60)
     content: str = Field(min_length=1)
@@ -243,4 +236,4 @@ class TurnResponse(ContractModel):
     memory_write: dict[str, Any] | None = None
     quiz: QuizGeneration | None = Field(default=None, exclude_if=lambda value: value is None)
     note_draft: NoteDraft | None = Field(default=None, exclude_if=lambda value: value is None)
-    usage: Usage
+    usage: Usage | None = None

@@ -84,6 +84,7 @@ public class TurnPersistenceService {
 		TurnEventType eventType,
 		Long diagnosisId,
 		Long userMessageId,
+		boolean xaiFileAttached,
 		io.edupilot.ai.dto.TurnResponse aiResponse
 	) {
 		LearningSession session = sessionRepository.findOwnedForUpdate(
@@ -163,14 +164,22 @@ public class TurnPersistenceService {
 					: nextPageStatus;
 				boolean pageStatusChanged =
 					finalPageStatus != previousPageStatus;
-				boolean quizEligible = quizProposalPolicy.isEligible(
-					session.getMaterialId(),
-					session.getCurrentPage(),
-					session.getMaterialPageCount(),
-					eventType,
-					finalPageStatus,
-					pageStatusChanged
-				);
+				// 저장 시점 DB 값이 아닌 AI 요청 스냅샷 기준으로 백필 경합을 방지한다.
+				boolean runtimeQuizDecision =
+					eventType == TurnEventType.EXPLAIN_CURRENT_PAGE
+						&& xaiFileAttached;
+				boolean quizEligible = runtimeQuizDecision
+					? pageStatusChanged
+						&& finalPageStatus == PageStatus.EXPLAINED
+						&& hasSingleQuizProposal(aiResponse)
+					: quizProposalPolicy.isEligible(
+						session.getMaterialId(),
+						session.getCurrentPage(),
+						session.getMaterialPageCount(),
+						eventType,
+						finalPageStatus,
+						pageStatusChanged
+					);
 				uiActions = uiActionResolver.forPageTransition(
 					previousPageStatus,
 					finalPageStatus,
@@ -323,6 +332,23 @@ public class TurnPersistenceService {
 			));
 		}
 		return List.copyOf(accepted);
+	}
+
+	private boolean hasSingleQuizProposal(
+		io.edupilot.ai.dto.TurnResponse aiResponse
+	) {
+		List<Map<String, Object>> proposals = aiResponse.uiActions().stream()
+			.filter(TurnResponseValidator::isQuizProposal)
+			.limit(2)
+			.toList();
+		if (proposals.size() > 1) {
+			TurnResponseValidator.warnIgnoredUiActions(
+				aiResponse.turnId(),
+				proposals
+			);
+			return false;
+		}
+		return proposals.size() == 1;
 	}
 
 	private List<ChatMessage> saveAiMessages(

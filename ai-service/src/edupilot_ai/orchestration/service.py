@@ -8,6 +8,7 @@ from http import HTTPStatus
 
 from edupilot_ai.core.errors import ErrorCategory, InternalApiError
 from edupilot_ai.llm.bridge import LlmBridgeError, LlmUsage
+from edupilot_ai.models.base import Usage
 from edupilot_ai.models.plan import TurnPlan
 from edupilot_ai.models.stream import (
     CompletedStreamEvent,
@@ -18,7 +19,7 @@ from edupilot_ai.models.stream import (
     ThoughtSummaryStreamEvent,
     TurnStreamEvent,
 )
-from edupilot_ai.models.turn import EventType, TurnRequest, TurnResponse, Usage
+from edupilot_ai.models.turn import EventType, TurnRequest, TurnResponse
 from edupilot_ai.orchestration.context import AgentContext, ContextBuilder
 from edupilot_ai.orchestration.dispatcher import (
     DispatchResult,
@@ -30,6 +31,7 @@ from edupilot_ai.orchestration.orchestrator import Orchestrator
 from edupilot_ai.orchestration.plan_synthesis import synthesize_plan
 from edupilot_ai.orchestration.policy import PolicyVerifier, PolicyViolation
 from edupilot_ai.orchestration.timing import MonotonicClock, TurnDeadline
+from edupilot_ai.usage import response_usage
 
 HEARTBEAT_INTERVAL_SECONDS = 10.0
 logger = logging.getLogger(__name__)
@@ -72,15 +74,11 @@ def _stream_error(error: InternalApiError) -> ErrorStreamEvent:
     )
 
 
-def _usage(usages: list[LlmUsage], default_model: str) -> Usage:
-    reasoning_values = [
-        item.reasoning_tokens for item in usages if item.reasoning_tokens is not None
-    ]
-    return Usage(
-        model=usages[-1].model if usages else default_model,
-        input_tokens=sum(item.input_tokens for item in usages),
-        output_tokens=sum(item.output_tokens for item in usages),
-        reasoning_tokens=sum(reasoning_values) if reasoning_values else None,
+def _usage(usages: list[LlmUsage], default_model: str) -> Usage | None:
+    return response_usage(
+        usages,
+        default_model=default_model,
+        include_zero_when_empty=True,
     )
 
 

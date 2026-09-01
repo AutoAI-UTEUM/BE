@@ -213,6 +213,7 @@ class TurnSnapshotServiceTest {
 			.isEqualTo("promoted digest");
 		assertThat(snapshot.context().get("xaiFileId"))
 			.isEqualTo("file-turn-snapshot");
+		assertThat(snapshot.xaiFileAttached()).isTrue();
 	}
 
 	@Test
@@ -232,6 +233,9 @@ class TurnSnapshotServiceTest {
 	@Test
 	void excludesAllPageTextsWithoutLoadingPages() {
 		LearningSession session = session();
+		LearningMaterial material = (LearningMaterial) ReflectionTestUtils
+			.getField(session, "material");
+		material.replaceXaiFileId("file-hidden-with-page-context");
 		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
 			.thenReturn(Optional.of(session));
 
@@ -243,7 +247,24 @@ class TurnSnapshotServiceTest {
 			.containsEntry("previousPageText", null)
 			.containsEntry("nextPageText", null)
 			.hasSize(13);
+		assertThat(snapshot.xaiFileAttached()).isFalse();
 		org.mockito.Mockito.verifyNoInteractions(pageRepository);
+	}
+
+	@Test
+	void blankXaiFileIdIsNotMarkedAttached() {
+		LearningSession session = session();
+		LearningMaterial material = (LearningMaterial) ReflectionTestUtils
+			.getField(session, "material");
+		ReflectionTestUtils.setField(material, "xaiFileId", "   ");
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+
+		TurnSnapshot snapshot = service().build(1L, 100L, 501L, true);
+
+		assertThat(snapshot.context())
+			.containsEntry("xaiFileId", "   ");
+		assertThat(snapshot.xaiFileAttached()).isFalse();
 	}
 
 	@Test

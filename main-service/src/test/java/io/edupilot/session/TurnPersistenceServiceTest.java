@@ -3,6 +3,7 @@ package io.edupilot.session;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -94,6 +95,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
 			null,
 			501L,
+			false,
 			new io.edupilot.ai.dto.TurnResponse(
 				"1.0",
 				"turn-1",
@@ -177,7 +179,7 @@ class TurnPersistenceServiceTest {
 	}
 
 	@Test
-	void createsQuizProposalAtExactTextLengthThreshold() {
+	void usesLegacyPolicyWhenFileIdIsBackfilledAfterSnapshot() {
 		LearningSession session = activeSession(
 			PageStatus.NOT_EXPLAINED,
 			PageStatus.EXPLAINED,
@@ -188,14 +190,21 @@ class TurnPersistenceServiceTest {
 			10L,
 			1
 		)).thenReturn(Optional.of(200));
+		org.mockito.Mockito.lenient()
+			.when(session.getMaterialXaiFileId())
+			.thenReturn("file-backfilled-after-snapshot");
+		QuizProposalPolicy policy = org.mockito.Mockito.spy(
+			quizProposalPolicy()
+		);
 
-		PersistedTurn persisted = service().persist(
+		PersistedTurn persisted = service(policy).persist(
 			1L,
 			100L,
 			"request-1",
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
 			null,
 			501L,
+			false,
 			responseWithUiActions(
 				Map.of("pageStatus", "EXPLAINED"),
 				List.of(),
@@ -211,7 +220,197 @@ class TurnPersistenceServiceTest {
 			true
 		);
 		verify(pageRecordRepository).upsertExplainedPage(100L, 1, NOW);
+		verify(policy).isEligible(
+			10L,
+			1,
+			3,
+			TurnEventType.EXPLAIN_CURRENT_PAGE,
+			PageStatus.EXPLAINED,
+			true
+		);
+		verify(session, never()).getMaterialXaiFileId();
 		verify(summaryDispatcher).dispatchAfterCommit(100L);
+	}
+
+	@Test
+	void usesSnapshotWithXaiWhenFileIdIsClearedBeforePersist() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINING,
+			PageStatus.EXPLAINED,
+			3,
+			78
+		);
+		org.mockito.Mockito.lenient()
+			.when(session.getMaterialXaiFileId())
+			.thenReturn(null);
+		QuizProposalPolicy policy = org.mockito.Mockito.spy(
+			quizProposalPolicy()
+		);
+
+		PersistedTurn persisted = service(policy).persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.EXPLAIN_CURRENT_PAGE,
+			null,
+			501L,
+			true,
+			responseWithUiActions(
+				Map.of("pageStatus", "EXPLAINED"),
+				List.of(),
+				List.of(quizProposal())
+			)
+		);
+
+		assertThat(persisted.uiActions())
+			.containsExactly(UiAction.quizProposal());
+		verify(policy, never()).isEligible(
+			any(), anyInt(), any(), any(), any(), anyBoolean()
+		);
+		verify(session, never()).getMaterialXaiFileId();
+		verify(materialPageRepository, never())
+			.findTextLengthByMaterialIdAndPageNumber(any(), anyInt());
+	}
+
+	@Test
+	void runtimeSnapshotWithoutQuizProposalOverridesStaticFallback() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINING,
+			PageStatus.EXPLAINED,
+			3,
+			78
+		);
+		org.mockito.Mockito.lenient()
+			.when(session.getMaterialXaiFileId())
+			.thenReturn(" ");
+		QuizProposalPolicy policy = org.mockito.Mockito.spy(
+			quizProposalPolicy()
+		);
+
+		PersistedTurn persisted = service(policy).persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.EXPLAIN_CURRENT_PAGE,
+			null,
+			501L,
+			true,
+			response(Map.of("pageStatus", "EXPLAINED"), List.of())
+		);
+
+		assertThat(persisted.uiActions())
+			.containsExactly(UiAction.moveNextPage());
+		verify(policy, never()).isEligible(
+			any(), anyInt(), any(), any(), any(), anyBoolean()
+		);
+		verify(session, never()).getMaterialXaiFileId();
+		verify(materialPageRepository, never())
+			.findTextLengthByMaterialIdAndPageNumber(any(), anyInt());
+	}
+
+	@Test
+	void runtimeSnapshotWithMultipleQuizProposalsWarnsAndRejectsThem() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINING,
+			PageStatus.EXPLAINED,
+			3,
+			78
+		);
+		org.mockito.Mockito.lenient()
+			.when(session.getMaterialXaiFileId())
+			.thenReturn(null);
+		QuizProposalPolicy policy = org.mockito.Mockito.spy(
+			quizProposalPolicy()
+		);
+		Logger logger = (Logger) LoggerFactory.getLogger(
+			TurnResponseValidator.class
+		);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+
+		PersistedTurn persisted;
+		try {
+			persisted = service(policy).persist(
+				1L,
+				100L,
+				"request-1",
+				TurnEventType.EXPLAIN_CURRENT_PAGE,
+				null,
+				501L,
+				true,
+				responseWithUiActions(
+					Map.of("pageStatus", "EXPLAINED"),
+					List.of(),
+					List.of(quizProposal(), quizProposal())
+				)
+			);
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+
+		assertThat(persisted.uiActions())
+			.containsExactly(UiAction.moveNextPage());
+		assertThat(appender.list)
+			.filteredOn(event -> event.getFormattedMessage().equals(
+				"Ignored non-empty AI uiActions"
+			))
+			.singleElement()
+			.satisfies(event ->
+				assertThat(event.getKeyValuePairs())
+					.anySatisfy(pair -> {
+						assertThat(pair.key).isEqualTo("uiActionCount");
+						assertThat(pair.value).isEqualTo(2);
+					})
+			);
+		verify(policy, never()).isEligible(
+			any(), anyInt(), any(), any(), any(), anyBoolean()
+		);
+		verify(session, never()).getMaterialXaiFileId();
+	}
+
+	@Test
+	void nonExplainEventUsesLegacyPolicyRegardlessOfSnapshotFlag() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINING,
+			PageStatus.EXPLAINED,
+			1,
+			3
+		);
+		stubUserQuestionMessage();
+		QuizProposalPolicy policy = org.mockito.Mockito.spy(
+			quizProposalPolicy()
+		);
+
+		PersistedTurn persisted = service(policy).persist(
+			1L,
+			100L,
+			"request-1",
+			TurnEventType.USER_QUESTION,
+			null,
+			501L,
+			true,
+			response(
+				Map.of(
+					"pageStatus", "EXPLAINED",
+					"qaThread", Map.of("mode", "START_NEW")
+				),
+				List.of()
+			)
+		);
+
+		assertThat(persisted.uiActions())
+			.containsExactly(UiAction.quizProposal());
+		verify(policy).isEligible(
+			10L,
+			1,
+			3,
+			TurnEventType.USER_QUESTION,
+			PageStatus.EXPLAINED,
+			true
+		);
+		verify(session, never()).getMaterialXaiFileId();
 	}
 
 	@Test
@@ -231,6 +430,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.USER_QUESTION,
 			null,
 			501L,
+			false,
 			responseWithUiActions(
 				Map.of("qaThread", Map.of("mode", "START_NEW")),
 				List.of(),
@@ -265,6 +465,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.USER_QUESTION,
 			null,
 			501L,
+			false,
 			responseWithUiActions(
 				Map.of("qaThread", Map.of("mode", "START_NEW")),
 				List.of(),
@@ -298,6 +499,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.USER_QUESTION,
 			null,
 			501L,
+			false,
 			responseWithUiActions(
 				Map.of("qaThread", Map.of("mode", "START_NEW")),
 				List.of(),
@@ -340,6 +542,7 @@ class TurnPersistenceServiceTest {
 				TurnEventType.USER_QUESTION,
 				null,
 				501L,
+				false,
 				responseWithUiActions(
 					Map.of("qaThread", Map.of("mode", "START_NEW")),
 					List.of(),
@@ -387,6 +590,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
 			null,
 			501L,
+			false,
 			response(Map.of("pageStatus", "EXPLAINED"), List.of())
 		);
 
@@ -419,6 +623,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
 			null,
 			501L,
+			false,
 			response(Map.of("pageStatus", "EXPLAINED"), List.of())
 		);
 
@@ -446,6 +651,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
 			null,
 			501L,
+			false,
 			response(Map.of("pageStatus", "EXPLAINED"), List.of())
 		);
 
@@ -469,6 +675,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
 			null,
 			501L,
+			false,
 			response(Map.of("pageStatus", "EXPLAINED"), List.of())
 		);
 
@@ -510,6 +717,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.USER_QUESTION,
 			null,
 			501L,
+			false,
 			response(patch, List.of())
 		);
 
@@ -548,6 +756,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.DIAGNOSIS_ANSWER_SUBMITTED,
 			30L,
 			501L,
+			false,
 			response(
 				patch,
 				List.of(Map.of(
@@ -611,6 +820,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.DIAGNOSIS_ANSWER_SUBMITTED,
 			30L,
 			501L,
+			false,
 			response(
 				patch,
 				List.of(Map.of(
@@ -655,6 +865,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.QUIZ_TYPE_SELECTED,
 			null,
 			501L,
+			false,
 			new io.edupilot.ai.dto.TurnResponse(
 				"1.0",
 				"turn-1",
@@ -705,6 +916,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
 			null,
 			501L,
+			false,
 			response(
 				Map.of(),
 				List.of(),
@@ -759,6 +971,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
 			null,
 			501L,
+			false,
 			responseWithMemoryWrite(
 				Map.of("candidateIds", List.of(11, 12L)),
 				List.of(Map.of(
@@ -840,6 +1053,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
 			null,
 			501L,
+			false,
 			response(Map.of(), List.of())
 		);
 
@@ -854,6 +1068,7 @@ class TurnPersistenceServiceTest {
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
 			null,
 			501L,
+			false,
 			responseWithMemoryWrite(memoryWrite, List.of())
 		)).isInstanceOfSatisfying(BusinessException.class, exception ->
 			assertThat(exception.errorCode())
@@ -945,6 +1160,15 @@ class TurnPersistenceServiceTest {
 		);
 	}
 
+	private Map<String, Object> quizProposal() {
+		return Map.of(
+			"type", "BINARY_DECISION",
+			"content", "퀴즈를 진행할까요?",
+			"yesEvent", "SHOW_QUIZ_TYPE_SELECT",
+			"noEvent", "WAIT"
+		);
+	}
+
 	private void stubUserQuestionMessage() {
 		ChatMessage userMessage = org.mockito.Mockito.mock(ChatMessage.class);
 		when(userMessage.getSenderType()).thenReturn(SenderType.USER);
@@ -1006,6 +1230,20 @@ class TurnPersistenceServiceTest {
 	}
 
 	private TurnPersistenceService service() {
+		return service(quizProposalPolicy());
+	}
+
+	private QuizProposalPolicy quizProposalPolicy() {
+		return new QuizProposalPolicy(
+			materialPageRepository,
+			materialOverviewRepository,
+			new QuizProperties(new BigDecimal("0.6"), 200)
+		);
+	}
+
+	private TurnPersistenceService service(
+		QuizProposalPolicy quizProposalPolicy
+	) {
 		return new TurnPersistenceService(
 			sessionRepository,
 			pageRecordRepository,
@@ -1016,11 +1254,7 @@ class TurnPersistenceServiceTest {
 			userRepository,
 			materialRepository,
 			quizService,
-			new QuizProposalPolicy(
-				materialPageRepository,
-				materialOverviewRepository,
-				new QuizProperties(new BigDecimal("0.6"), 200)
-			),
+			quizProposalPolicy,
 			diagnosisService,
 			new UiActionResolver(),
 			summaryDispatcher,

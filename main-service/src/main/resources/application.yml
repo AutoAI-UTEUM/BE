@@ -30,6 +30,12 @@ server:
     include-message: never
     include-stacktrace: never
 
+management:
+  endpoints:
+    web:
+      exposure:
+        exclude: "*"
+
 springdoc:
   api-docs:
     path: /v3/api-docs
@@ -37,6 +43,15 @@ springdoc:
     path: /swagger-ui.html
 
 edupilot:
+  admin:
+    infra:
+      enabled: ${EDUPILOT_ADMIN_INFRA_ENABLED:false}
+      region: ${EDUPILOT_ADMIN_INFRA_REGION:ap-northeast-2}
+      instances:
+        prod: ${EDUPILOT_ADMIN_INFRA_INSTANCES_PROD:i-0e15131f675ec5e8e}
+        dev: ${EDUPILOT_ADMIN_INFRA_INSTANCES_DEV:}
+      metrics-cache-ttl: ${EDUPILOT_ADMIN_INFRA_METRICS_CACHE_TTL:5m}
+      cost-cache-ttl: ${EDUPILOT_ADMIN_INFRA_COST_CACHE_TTL:12h}
   google:
     client-id: ${EDUPILOT_GOOGLE_CLIENT_ID:}
   cors:

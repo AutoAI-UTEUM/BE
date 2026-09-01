@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from edupilot_ai.models.base import ContractModel
+from edupilot_ai.models.base import ContractModel, Usage
 
 
 class DocChatContextDocument(ContractModel):
@@ -53,3 +53,4 @@ class DocChatResponse(ContractModel):
     schema_version: Literal["1.0"] = "1.0"
     answer: str = Field(min_length=1)
     warnings: list[DocChatWarning] = Field(default_factory=list)
+    usage: Usage | None = None

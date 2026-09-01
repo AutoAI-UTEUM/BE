@@ -188,6 +188,17 @@ chmod 600 /opt/edupilot/.env
 - `EDUPILOT_AI_BASE_URL`
 - `EDUPILOT_DOMAIN`
 - `EDUPILOT_STORAGE_DIR=/var/lib/edupilot/storage`
+- `EDUPILOT_ADMIN_INFRA_ENABLED=true`
+- `EDUPILOT_ADMIN_INFRA_REGION=ap-northeast-2`
+- `EDUPILOT_ADMIN_INFRA_INSTANCES_PROD=<prod instance id>`
+- `EDUPILOT_ADMIN_INFRA_INSTANCES_DEV=<dev instance id>`
+
+관리자 인프라 조회는 EC2 인스턴스 역할의 기본 자격증명 체인을 사용합니다. AWS access
+key와 secret key를 `.env`에 추가하지 않습니다. 기본 캐시 TTL은 CloudWatch 5분, Cost
+Explorer 12시간이며 필요할 때만 `EDUPILOT_ADMIN_INFRA_METRICS_CACHE_TTL`,
+`EDUPILOT_ADMIN_INFRA_COST_CACHE_TTL`로 조정합니다. 배포 후 ADMIN 토큰으로
+`GET /api/admin/infra/metrics`를 호출해 `available:true`와 대상 인스턴스의 실데이터를
+확인합니다.
 
 ### 5.2 DNS와 최초 인증서
 
@@ -271,6 +282,17 @@ GitHub `dev` Environment와 다음 Secrets를 등록합니다.
 - GitHub prod Environment의 `PROD_DOMAIN`은 `www.uteum.com`으로 설정합니다. prod
   workflow는 배포 전에 이 값을 검증하고 www 기준 health, CORS, HTTP 404 smoke를
   수행합니다.
+
+### 6.2 관리자 SPA 라우팅 유지
+
+`/admin`과 `/admin/...`는 Nginx의 클라이언트 경로 허용 목록에 포함하여 FE의
+`index.html`로 연결합니다. `/api/admin/**`는 기존 Spring 프록시와 관리자 권한 검사를
+유지하며, 허용 목록 밖의 존재하지 않는 경로는 HTTP 404를 반환합니다.
+
+prod 배포 smoke test는 `/admin`·`/admin/users`의 HTTP 200, 인증 정보 없는
+`/api/admin/users`의 HTTP 401, 잘못된 경로의 HTTP 404를 확인합니다. FE 배포는 정적
+파일만 교체하므로 Nginx 경로 수정은 BE 저장소의 `infra/nginx/edupilot.conf`에도
+반영해야 합니다. 서버에서만 수정하면 다음 BE 배포가 이전 설정으로 덮어쓸 수 있습니다.
 
 ## 7. 롤백
 

@@ -7,13 +7,14 @@ from http import HTTPStatus
 from time import monotonic
 
 from edupilot_ai.core.errors import ErrorCategory, InternalApiError
-from edupilot_ai.llm.bridge import LlmBridge, LlmBridgeError
+from edupilot_ai.llm.bridge import LlmBridge, LlmBridgeError, LlmUsage
 from edupilot_ai.models.conversation_summary import (
     ConversationSummaryCompletion,
     ConversationSummaryRequest,
     ConversationSummaryResponse,
 )
 from edupilot_ai.settings import AgentLlmProfile
+from edupilot_ai.usage import response_usage, unknown_llm_usage
 
 logger = logging.getLogger(__name__)
 _MAX_SUMMARY_CHARS = 1000
@@ -110,6 +111,7 @@ class ConversationSummaryService:
         request: ConversationSummaryRequest,
     ) -> ConversationSummaryResponse:
         validation_reason: str | None = None
+        usages: list[LlmUsage] = []
         deadline = self._clock() + self._timeout_seconds
         for attempt in range(2):
             try:
@@ -132,11 +134,13 @@ class ConversationSummaryService:
                     timeout_seconds=remaining_seconds,
                 )
             except LlmBridgeError as error:
+                usages.append(error.usage or unknown_llm_usage(self._profile.model))
                 if error.category is ErrorCategory.SCHEMA and attempt == 0:
                     validation_reason = "SCHEMA"
                     continue
                 raise _api_error(error) from error
 
+            usages.append(completion.usage)
             raw_summary = completion.output.summary
             summary = raw_summary[:_MAX_SUMMARY_CHARS]
             if not summary.strip():
@@ -161,5 +165,8 @@ class ConversationSummaryService:
                     "summaryChars": len(summary),
                 },
             )
-            return ConversationSummaryResponse(summary=summary)
+            return ConversationSummaryResponse(
+                summary=summary,
+                usage=response_usage(usages),
+            )
         raise AssertionError("unreachable")

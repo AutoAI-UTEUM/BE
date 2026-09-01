@@ -15,8 +15,8 @@ from edupilot_ai.models.grading import (
     GradeResultItem,
     GraderOutput,
 )
-from edupilot_ai.models.turn import Usage
 from edupilot_ai.settings import AgentLlmProfile
+from edupilot_ai.usage import response_usage, unknown_llm_usage
 
 logger = logging.getLogger(__name__)
 _MIN_RETRY_TIMEOUT_SECONDS = 10.0
@@ -84,16 +84,6 @@ def _verdict(ratio: float) -> GradeVerdict:
     return "PARTIAL"
 
 
-def _usage(usages: list[LlmUsage], default_model: str) -> Usage:
-    reasoning = [usage.reasoning_tokens for usage in usages if usage.reasoning_tokens is not None]
-    return Usage(
-        model=usages[-1].model if usages else default_model,
-        input_tokens=sum(usage.input_tokens for usage in usages),
-        output_tokens=sum(usage.output_tokens for usage in usages),
-        reasoning_tokens=sum(reasoning) if reasoning else None,
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class ValidatedGrade:
     items: list[GradeResultItem]
@@ -140,7 +130,7 @@ class GraderAgent:
                     score=score,
                     max_score=max_score,
                     items=validated.items,
-                    usage=_usage(usages, self._profile.model),
+                    usage=response_usage(usages),
                 )
             except GradeOutputViolation as error:
                 logger.warning(
@@ -155,6 +145,7 @@ class GraderAgent:
                         retryable=False,
                     ) from None
             except LlmBridgeError as error:
+                usages.append(error.usage or unknown_llm_usage(self._profile.model))
                 if error.category is not ErrorCategory.SCHEMA or attempt == 1:
                     raise
         raise AssertionError("unreachable")

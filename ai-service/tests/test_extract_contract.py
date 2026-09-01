@@ -54,6 +54,7 @@ async def test_extract_returns_versioned_pages(
         ],
         "xaiFileId": None,
         "warnings": [],
+        "usage": None,
     }
     ExtractResponse.model_validate(response.json())
     assert fake_file_client.uploads == []

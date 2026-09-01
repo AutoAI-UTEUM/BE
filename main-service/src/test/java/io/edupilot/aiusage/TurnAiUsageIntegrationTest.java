@@ -145,7 +145,8 @@ class TurnAiUsageIntegrationTest {
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L),
 				Map.of(),
-				10L
+				10L,
+				false
 			));
 		when(streamService.beginTurn(eq(1L), eq(100L), any()))
 			.thenReturn(Optional.empty());
@@ -156,6 +157,7 @@ class TurnAiUsageIntegrationTest {
 			any(),
 			eq(null),
 			eq(501L),
+			eq(false),
 			any()
 		)).thenReturn(persisted());
 	}

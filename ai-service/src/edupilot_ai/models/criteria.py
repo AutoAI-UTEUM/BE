@@ -5,7 +5,7 @@ from typing import Literal, Self
 
 from pydantic import Field, model_validator
 
-from edupilot_ai.models.base import ContractModel
+from edupilot_ai.models.base import ContractModel, Usage
 from edupilot_ai.models.outline import OutlineSection
 from edupilot_ai.models.report import EvidenceSourceType
 
@@ -50,6 +50,7 @@ class CriteriaSuggestOutput(ContractModel):
 
 class CriteriaSuggestResponse(CriteriaSuggestOutput):
     schema_version: Literal["1.0"] = "1.0"
+    usage: Usage | None = None
 
 
 CRITERION_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{2,50}$")

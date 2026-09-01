@@ -4,7 +4,7 @@
 | --- | --- |
 | 상태 | 다른 팀원 구현을 위한 참고·계약 초안 |
 | 마지막 갱신 | 2026-08-28 |
-| 변경 이력 | 2026-07-23: Grok 전환·계약 v0.4 정합 용어 정리<br>2026-08-17: 계약 v0.6 정합화<br>2026-08-25: xAI Files 업로드·삭제 Phase 1, 설명·QA 턴 첨부 Phase 3, 퀴즈·개요 첨부 Phase 5 반영<br>2026-08-28: 비동기 대화 요약과 선택 `conversationSummary` 턴 문맥 반영 |
+| 변경 이력 | 2026-07-23: Grok 전환·계약 v0.4 정합 용어 정리<br>2026-08-17: 계약 v0.6 정합화<br>2026-08-25: xAI Files 업로드·삭제 Phase 1, 설명·QA 턴 첨부 Phase 3, 퀴즈·개요 첨부 Phase 5 반영<br>2026-08-28: 비동기 대화 요약과 선택 `conversationSummary` 턴 문맥 반영<br>2026-09-01: 전체 자료 흐름 기반 런타임 퀴즈 제안 Plan 복원 |
 | 구현 소유 | FastAPI AI Server |
 | 연동 소유 | Spring Backend ↔ FastAPI AI Server |
 
@@ -136,7 +136,7 @@ Orchestrator Plan의 JSON 스키마와 교수 정책을 검증하고 허용되�
 
 ### LlmBridge
 
-Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출력, 스트리밍, timeout, provider 오류 변환과 xAI Files 업로드·삭제·첨부를 담당하되 도메인 정책을 결정하지 않습니다. 파일이 없는 호출은 기존 Chat Completions를 유지하고, 파일이 있는 설명·QA·QuizAgent·개요 생성 호출은 Responses API의 `input_file.file_id`와 `store=false`를 사용합니다. 페이지 근거의 범위 앵커·폴백은 Spring이 추출해 동봉하는 `pageContext` 또는 outline `pages` 텍스트이며 PDF 원본은 앵커 범위의 세부 확인에만 사용합니다. 개요는 일반 자료 3~6개·최대 10개 구간으로 묶고 모든 페이지를 겹침·공백 없이 한 번씩 포함하며, `quizCheckpoints`로 복습 시점과 이미 학습한 coverage를 계획합니다. Spring은 checkpoint 턴에만 해당 coverage의 캡션 병합 텍스트를 `quizContext`로 전달하고 퀴즈 귀속은 triggerPage로 유지합니다. file ID는 Plan에 전달하지 않고 결정적 안내·Repair·Note에는 첨부하지 않습니다(DEC-006·035·037).
+Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출력, 스트리밍, timeout, provider 오류 변환과 xAI Files 업로드·삭제·첨부를 담당하되 도메인 정책을 결정하지 않습니다. 파일이 없는 호출은 기존 Chat Completions를 유지하고, 파일이 있는 설명·QA·QuizAgent·개요 생성 호출은 Responses API의 `input_file.file_id`와 `store=false`를 사용합니다. `EXPLAIN_CURRENT_PAGE`의 Plan 호출에도 PDF를 첨부해 Orchestrator가 현재 페이지를 전체 학습 흐름 안에서 판단합니다. 페이지 텍스트는 현재 페이지 범위 앵커이고 PDF 원본은 전체 흐름·세부 근거 확인용입니다. `quizCheckpoints`는 누적 coverage와 file ID가 없는 구자료 fallback에 사용합니다. 결정적 안내·Repair·Note에는 파일을 첨부하지 않습니다(DEC-006·035·039).
 
 ## 3. 멀티 에이전트 턴 처리 단계
 
@@ -144,7 +144,7 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
 2. **StateReducer**: LLM 없이 가능한 상태 변경을 Spring이 먼저 처리합니다. 상태 변경 자체가 새 AI 턴을 의미하지는 않습니다.
 3. **컨텍스트 수집**: Spring 스냅샷을 기반으로 ContextBuilder가 필요한 문맥을 구성합니다.
 4. **Plan 생성**: Orchestrator가 이번 턴의 목적, 교수 정책, 액션을 결정합니다.
-   이벤트→도구가 유일하게 결정되는 턴(현재 페이지 설명, 퀴즈 유형 선택, 결정적 안내 응답)은 Orchestrator가 LLM 호출 없이 Plan을 결정적으로 합성합니다. 합성 Plan도 동일하게 Plan 검증을 거칩니다.
+   퀴즈 유형 선택과 결정적 안내처럼 이벤트→도구가 유일한 턴은 LLM 없이 Plan을 합성합니다. PDF가 첨부된 현재 페이지 설명은 예외로, Orchestrator가 전체 자료 흐름을 읽고 `EXPLAIN_PAGE` 뒤의 퀴즈 제안 필요 여부까지 같은 Plan에서 판단합니다. 합성·모델 Plan 모두 동일한 검증을 거칩니다.
 5. **Plan 검증**: Policy/Verifier가 스키마, 허용 도구, 현재 상태, 교수 정책을 검사합니다.
 6. **도구 실행**: ToolDispatcher가 검증된 전문 에이전트/서비스를 실행합니다.
 7. **결과 수집**: 메시지, 퀴즈, 채점, 진단 등 결과를 표준 DTO로 수집합니다.
@@ -198,6 +198,15 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
         "page": 2,
         "detailLevel": "NORMAL"
       }
+    },
+    {
+      "actionId": "a2",
+      "type": "CALL_TOOL",
+      "tool": "PROMPT_BINARY_DECISION",
+      "args": {
+        "contentMarkdown": "퀴즈를 진행할까요?",
+        "decisionType": "QUIZ_DECISION"
+      }
     }
   ],
   "reason": "현재 페이지 설명 요청에 맞는 도구를 선택함",
@@ -213,7 +222,7 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
 입력:
 
 - `pageContext`(Backend 추출 페이지 텍스트 동봉 — DEC-006), `page`
-- nullable xAI file ID(실제 QuizAgent 호출에만 첨부하며 Plan에는 미전달)
+- nullable xAI file ID(설명 Plan의 전체 흐름 판단과 실제 Explainer·QuizAgent 호출에 첨부)
 - 현재 페이지 및 필요한 인접 페이지 문맥
 - `detailLevel`: `NORMAL` 또는 `DETAILED`
 - `learnerLevel`, `learnerMemoryDigest`
@@ -688,6 +697,10 @@ ToolDispatcher는 액션별 사용자 출력 봉투를 만들지 않습니다. �
 - 허용된 상태 패치만 합칩니다.
 - 에이전트가 이동 제안 등 UI action을 생성하면 결과 종합 단계에서 수집해 응답
   `uiActions`에 싣습니다. Spring은 allowlist로 수용 여부를 결정합니다.
+- 설명 Plan의 `PROMPT_BINARY_DECISION/QUIZ_DECISION`은 현재 페이지가 큰 section의
+  중간이거나 짧더라도 독립적으로 점검 가능한 핵심 개념·가정·모델·공식 해석을
+  도입하거나 완성한 경우 선택할 수 있습니다. Dispatcher가 이를 고정된 퀴즈 제안
+  `uiActions`로 변환하며, Spring은 실제 설명 완료 전이에서만 정본 위젯으로 치환합니다.
 - 멱등성은 Spring의 `requestId`가 소유하며 FastAPI는 자체 중복 실행 저장소를 두지
   않습니다.
 

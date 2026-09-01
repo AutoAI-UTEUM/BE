@@ -111,7 +111,20 @@ def responses_response(
     }
 
 
-def responses_stream(*, include_done: bool = False) -> str:
+_DEFAULT_RESPONSES_USAGE = object()
+_OMITTED_USAGE = object()
+
+
+def responses_stream(
+    *,
+    include_done: bool = False,
+    usage: object = _DEFAULT_RESPONSES_USAGE,
+) -> str:
+    completed_response = responses_response(content="첨부 문서의 근거입니다.")
+    if usage is _OMITTED_USAGE:
+        completed_response.pop("usage")
+    elif usage is not _DEFAULT_RESPONSES_USAGE:
+        completed_response["usage"] = usage
     events = [
         {"type": "response.created", "response": {"status": "in_progress"}},
         {"type": "response.file_search_call.in_progress", "item_id": "search-1"},
@@ -120,7 +133,7 @@ def responses_stream(*, include_done: bool = False) -> str:
         {"type": "response.output_text.delta", "delta": "근거입니다."},
         {
             "type": "response.completed",
-            "response": responses_response(content="첨부 문서의 근거입니다."),
+            "response": completed_response,
         },
     ]
     frames = [f"data: {json.dumps(event, ensure_ascii=False)}" for event in events]
@@ -192,6 +205,41 @@ async def test_xai_bridge_uses_responses_wire_for_structured_file_attachment(
         record for record in caplog.records if record.message == "xAI chat completion finished"
     )
     assert call_log.__dict__["tool"] == "responses"
+
+
+@pytest.mark.parametrize(
+    "usage_value",
+    [_OMITTED_USAGE, None, {"input_tokens": "invalid", "output_tokens": 12}],
+    ids=["omitted", "null", "malformed"],
+)
+async def test_xai_responses_structured_keeps_output_when_usage_is_unavailable(
+    respx_mock: respx.MockRouter,
+    usage_value: object | None,
+) -> None:
+    response = responses_response(content='{"answer":"첨부 근거"}')
+    if usage_value is _OMITTED_USAGE:
+        response.pop("usage")
+    else:
+        response["usage"] = usage_value
+    respx_mock.post(XAI_RESPONSES_URL).mock(return_value=httpx.Response(200, json=response))
+
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(client=client, api_key=SecretStr("xai-test-not-real"))
+        result = await bridge.complete_json(
+            messages=[{"role": "user", "content": "anchor"}],
+            response_model=ExampleStructuredOutput,
+            profile=profile(),
+            timeout_seconds=30,
+            attachments=(LlmFileAttachment(file_id="file-test"),),
+        )
+
+    assert result.output.answer == "첨부 근거"
+    assert result.usage == LlmUsage(
+        model="grok-4.5",
+        input_tokens=None,
+        output_tokens=None,
+        reasoning_tokens=None,
+    )
 
 
 async def test_xai_responses_structured_retries_before_headers(
@@ -374,6 +422,48 @@ async def test_xai_bridge_streams_only_responses_output_text_with_file(
     assert terminal.usage.reasoning_tokens == 4
     assert "PRIVATE-REASONING" not in caplog.text
     assert "file-private-stream" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "usage_value",
+    [_OMITTED_USAGE, None, {"input_tokens": 31, "output_tokens": "invalid"}],
+    ids=["omitted", "null", "malformed"],
+)
+async def test_xai_responses_stream_keeps_text_when_usage_is_unavailable(
+    respx_mock: respx.MockRouter,
+    usage_value: object | None,
+) -> None:
+    respx_mock.post(XAI_RESPONSES_URL).mock(
+        return_value=httpx.Response(
+            200,
+            text=responses_stream(usage=usage_value),
+            headers={"Content-Type": "text/event-stream"},
+        )
+    )
+
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(client=client, api_key=SecretStr("xai-test-not-real"))
+        items = [
+            item
+            async for item in bridge.complete_text_stream(
+                messages=[{"role": "user", "content": "anchor"}],
+                profile=profile(),
+                timeout_seconds=30,
+                attachments=(LlmFileAttachment(file_id="file-test"),),
+            )
+        ]
+
+    assert "".join(item.text for item in items if isinstance(item, LlmTextDelta)) == (
+        "첨부 문서의 근거입니다."
+    )
+    terminal = items[-1]
+    assert isinstance(terminal, LlmTextStreamCompleted)
+    assert terminal.usage == LlmUsage(
+        model="grok-4.5",
+        input_tokens=None,
+        output_tokens=None,
+        reasoning_tokens=None,
+    )
 
 
 async def test_xai_responses_stream_rejects_non_object_event_as_schema(
@@ -589,6 +679,40 @@ async def test_xai_bridge_sends_strict_structured_output_wire_format(
     assert call_log.__dict__["model"] == "grok-4.5"
     assert call_log.__dict__["status"] == "SUCCESS"
     assert call_log.__dict__["attempt"] == 1
+
+
+@pytest.mark.parametrize(
+    "usage_value",
+    [_OMITTED_USAGE, None, {"prompt_tokens": 11, "completion_tokens": "invalid"}],
+    ids=["omitted", "null", "malformed"],
+)
+async def test_xai_chat_structured_keeps_output_when_usage_is_unavailable(
+    respx_mock: respx.MockRouter,
+    usage_value: object | None,
+) -> None:
+    response = completion_response(content='{"answer":"grounded"}')
+    if usage_value is _OMITTED_USAGE:
+        response.pop("usage")
+    else:
+        response["usage"] = usage_value
+    respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(return_value=httpx.Response(200, json=response))
+
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(client=client, api_key=SecretStr("xai-test-not-real"))
+        result = await bridge.complete_json(
+            messages=[{"role": "user", "content": "anchor"}],
+            response_model=ExampleStructuredOutput,
+            profile=profile(),
+            timeout_seconds=30,
+        )
+
+    assert result.output.answer == "grounded"
+    assert result.usage == LlmUsage(
+        model="grok-4.5",
+        input_tokens=None,
+        output_tokens=None,
+        reasoning_tokens=None,
+    )
 
 
 async def test_xai_bridge_sends_multimodal_image_content_parts(
@@ -940,8 +1064,11 @@ async def test_xai_bridge_logs_rate_limit_without_provider_body(
     assert "PRIVATE-PROMPT" not in caplog.text
 
 
-def stream_response() -> str:
-    chunks = [
+_DEFAULT_STREAM_USAGE = object()
+
+
+def stream_response(*, usage: object = _DEFAULT_STREAM_USAGE) -> str:
+    chunks: list[dict[str, object]] = [
         {
             "id": "stream-test",
             "object": "chat.completion.chunk",
@@ -969,13 +1096,16 @@ def stream_response() -> str:
             "object": "chat.completion.chunk",
             "model": "grok-4.5",
             "choices": [],
-            "usage": {
-                "prompt_tokens": 13,
-                "completion_tokens": 9,
-                "completion_tokens_details": {"reasoning_tokens": 2},
-            },
         },
     ]
+    if usage is _DEFAULT_STREAM_USAGE:
+        usage = {
+            "prompt_tokens": 13,
+            "completion_tokens": 9,
+            "completion_tokens_details": {"reasoning_tokens": 2},
+        }
+    if usage is not None:
+        chunks[-1]["usage"] = usage
     frames = [f"data: {json.dumps(chunk, ensure_ascii=False)}" for chunk in chunks]
     frames.append("data: [DONE]")
     return "\n\n".join(frames) + "\n\n"
@@ -1031,6 +1161,47 @@ async def test_xai_bridge_streams_markdown_without_response_format(
         record for record in caplog.records if record.message == "xAI chat completion finished"
     )
     assert call_log.__dict__["status"] == "SUCCESS"
+
+
+@pytest.mark.parametrize(
+    "usage_value",
+    [None, {"prompt_tokens": "invalid", "completion_tokens": 9}],
+    ids=["missing", "malformed"],
+)
+async def test_xai_chat_stream_keeps_text_when_usage_is_unavailable(
+    respx_mock: respx.MockRouter,
+    usage_value: object | None,
+) -> None:
+    respx_mock.post(XAI_CHAT_COMPLETIONS_URL).mock(
+        return_value=httpx.Response(
+            200,
+            text=stream_response(usage=usage_value),
+            headers={"Content-Type": "text/event-stream"},
+        )
+    )
+
+    async with httpx.AsyncClient() as client:
+        bridge = XaiLlmBridge(client=client, api_key=SecretStr("xai-test-not-real"))
+        items = [
+            item
+            async for item in bridge.complete_text_stream(
+                messages=[{"role": "user", "content": "anchor"}],
+                profile=profile(),
+                timeout_seconds=30,
+            )
+        ]
+
+    assert "".join(item.text for item in items if isinstance(item, LlmTextDelta)) == (
+        "편차는 평균과의 차이입니다."
+    )
+    terminal = items[-1]
+    assert isinstance(terminal, LlmTextStreamCompleted)
+    assert terminal.usage == LlmUsage(
+        model="grok-4.5",
+        input_tokens=None,
+        output_tokens=None,
+        reasoning_tokens=None,
+    )
 
 
 async def test_xai_bridge_retries_stream_before_response_starts(

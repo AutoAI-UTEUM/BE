@@ -217,6 +217,7 @@ public class SessionTurnService {
 					eventType,
 					payload.diagnosisId(),
 					userMessageId,
+					snapshot.xaiFileAttached(),
 					aiResponse
 				);
 			} else {
@@ -245,6 +246,7 @@ public class SessionTurnService {
 						eventType,
 						payload.diagnosisId(),
 						userMessageId,
+						snapshot.xaiFileAttached(),
 						execution.response()
 					);
 			}

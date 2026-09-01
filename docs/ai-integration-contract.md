@@ -14,6 +14,8 @@
 > v0.5 → v0.6 주요 변경: grade 요청의 전 필드에 required·nullable을 명시하고 시험이 숫자 `examId`를 `quizId`로 전달하는 규칙, 선택 문맥 없이 채점하는 규칙, 표준 `AI_REQUEST_INVALID` 오류 봉투를 확정했다. 이는 문서상 필수 필드를 선택으로 완화한 것이 아니라 기존에 없던 필드 강제력을 명문화하고 구현을 일치시키는 변경이다.
 >
 > 2026-08-25 추가 확정: PDF 원본 직접 참조 전환의 Phase 1로, 기존 텍스트 추출을 유지하면서 kill switch가 켜진 환경에서 추출 성공 원본을 xAI Files에 선택적으로 업로드하고 삭제할 수 있는 내부 계약을 추가했다. Phase 3에서는 Spring이 턴 `context.xaiFileId`를 nullable로 전달하고 AI Service가 설명·QA 실행에 원본을 첨부한다. Phase 5에서는 현재 페이지 단일 범위를 유지하는 QuizAgent와 nullable `xaiFileId`를 받는 개요 생성까지 첨부를 확대한다(DEC-035).
+>
+> 2026-09-01 추가 확정: PDF가 첨부된 설명 턴은 Orchestrator가 원본의 전체 학습 흐름에서 현재 페이지의 점검 가치를 판단하고, 필요한 경우 설명 뒤 퀴즈 제안을 같은 Plan에 포함한다. Spring은 exact allowlist를 통과한 제안만 정본 위젯으로 치환한다(DEC-039).
 
 ---
 
@@ -25,7 +27,7 @@
   - v0.2의 "RuleRouter" 개념은 이 구조로 흡수됨 — **결정 가능한 분기는 전부 Spring 측 규칙**(StateReducer·파이프라인 트리거·페이지 이동), FastAPI 내부에는 별도 규칙 라우터를 두지 않는다. Policy/Verifier는 LLM Plan의 스키마·허용 도구·교수 정책 검증만 담당한다(동일 판단 로직 이중화 금지).
   - 단, 이벤트로 결과가 유일하게 결정되는 턴의 Plan 합성과 결정적 안내 fast-path(페이지 이동 안내·빈 페이지)는 AI 내부 규칙으로 처리한다(설계 승인, 2026-08-17).
 - **상태 소유: Spring** — FastAPI는 무상태. 요청마다 스냅샷을 받고 statePatch를 제안하며, Spring이 허용목록으로 검증 후 반영. FastAPI는 자체 영속 저장소(Redis 포함)를 두지 않는다.
-- **PDF 접근** — 자료 업로드 시 `/internal/ai/extract`로 1회 추출 → Spring이 `material_pages`와 nullable xAI file ID를 저장 → `/internal/ai/outline`에는 저장된 전 페이지 텍스트와 nullable `xaiFileId`를 전달하고, 턴마다 현재±1 페이지 텍스트와 nullable `xaiFileId`를 스냅샷에 동봉한다. 추출 텍스트는 범위·구조 앵커이자 file ID 부재 시 폴백으로 계속 유지한다. AI Service는 file ID가 있으면 Explainer·QaAgent·QuizAgent와 개요 생성의 실제 LLM 호출에 원본을 첨부하고, Plan·결정적 안내·Repair·Note에는 첨부하지 않는다. 첨부 호출도 현재 페이지 텍스트·질문 또는 개요 pages의 범위를 벗어나지 않는다(DEC-035).
+- **PDF 접근** — 자료 업로드 시 `/internal/ai/extract`로 1회 추출 → Spring이 `material_pages`와 nullable xAI file ID를 저장 → `/internal/ai/outline`에는 저장된 전 페이지 텍스트와 nullable `xaiFileId`를 전달하고, 턴마다 현재±1 페이지 텍스트와 nullable `xaiFileId`를 스냅샷에 동봉한다. 추출 텍스트는 범위·구조 앵커이자 file ID 부재 시 폴백으로 계속 유지한다. AI Service는 file ID가 있으면 PDF가 첨부된 설명 Plan, Explainer·QaAgent·QuizAgent와 개요 생성 호출에 원본을 첨부한다. 설명 Plan은 현재 페이지가 전체 흐름에서 퀴즈 점검 지점인지 판단하고, 실행 에이전트는 현재 페이지·질문·개요 pages의 범위를 벗어나지 않는다. 결정적 안내·Repair·Note에는 첨부하지 않는다(DEC-035·039).
 
 ## 1. 공통 규칙
 
@@ -97,7 +99,7 @@
 - `latestRepair`: 직전 교정 답변 원문 포함 — 교정 후 USER_QUESTION에서 QaAgent가 문맥 승계.
 - `currentPageText`의 타입은 `string | null`이다. null은 `USER_QUESTION`이면서 `includeCurrentPage=false`인 턴에서만 허용한다. `EXPLAIN_CURRENT_PAGE`와 `QUIZ_TYPE_SELECTED`에서는 계속 필수이며, AI Service는 eventType과 context를 교차 검증해 위반 요청을 category `SCHEMA`로 거부한다.
 - `QUIZ_TYPE_SELECTED`에서 현재 페이지가 READY 개요의 `quizCheckpoints[].triggerPage`이면 Spring은 기존 nullable `quizContext`에 `{coverage:{startPage,endPage},pages:[{pageNumber,text}]}`를 추가한다. `pages`는 coverage 전 범위를 오름차순으로 정확히 한 번 포함하며 캡션 병합 텍스트의 합계를 앞에서부터 12,000자로 제한한다. 체크포인트가 아니거나 계획이 없으면 `quizContext=null`로 현재 페이지 단일 출제 경로를 유지한다.
-- `xaiFileId`의 타입은 `string | null`이다. 구자료·업로드 실패 자료는 `null`이며 외부 API에는 노출하지 않는다. AI Service는 이 값을 Plan 입력이나 turn LLM 호출 로그에 넣지 않고 Explainer·QaAgent·QuizAgent 호출에서 xAI Responses API의 `input_file.file_id`로 사용하며 `store=false`를 강제한다.
+- `xaiFileId`의 타입은 `string | null`이다. 구자료·업로드 실패 자료는 `null`이며 외부 API나 로그에는 노출하지 않는다. AI Service는 설명 Plan과 Explainer·QaAgent·QuizAgent 호출에서 xAI Responses API의 `input_file.file_id`로 사용하며 `store=false`를 강제한다. Plan JSON에는 file ID 대신 첨부 유무만 포함한다.
 - `includeCurrentPage=false`이면 Spring은 `xaiFileId`, `currentPageText`, `previousPageText`, `nextPageText`를 모두 null로 전달하고 그 외 context 필드는 유지한다. 선택 필드인 `conversationSummary`는 페이지 첨부 여부와 독립적으로 전달할 수 있다.
 - `includeCurrentPage=false`인데 페이지 텍스트가 전달된 경우 AI Service는 해당 context를 무시하지 않고 사용한다. 이 조합의 정합 책임은 Spring에 있다.
 - 방어적으로 `includeCurrentPage=false`인데 `xaiFileId`가 전달돼도 AI Service는 파일을 첨부하지 않는다. 페이지 이동 안내·빈 페이지 고정 안내는 file ID 유무와 무관하게 LLM을 호출하지 않는다.
@@ -106,7 +108,7 @@
 
 | eventType | payload | Orchestrator 기대 동작 |
 | --- | --- | --- |
-| `EXPLAIN_CURRENT_PAGE` | `{ "detailLevel": "NORMAL\|DETAILED" }` | ExplainerAgent — 현재 페이지 중심 설명 |
+| `EXPLAIN_CURRENT_PAGE` | `{ "detailLevel": "NORMAL\|DETAILED" }` | PDF 첨부 시 Orchestrator가 `EXPLAIN_PAGE`와 선택적 퀴즈 제안을 같은 Plan에 구성하고, ExplainerAgent가 현재 페이지를 설명 |
 | `USER_QUESTION` | `{ "message": "...", "includeCurrentPage": true\|false }` (`includeCurrentPage` 선택, 생략 시 `true`) | Orchestrator가 Plan에서 START_NEW/FOLLOW_UP을 결정하고, QaAgent는 전달받아 수행. latestRepair 있으면 교정 문맥 승계 |
 | `QUIZ_TYPE_SELECTED` | `{ "quizType": "MCQ\|OX\|SHORT\|ESSAY" }` | QuizAgent (GENERATE_QUIZ_* 도구) |
 | `DIAGNOSIS_ANSWER_SUBMITTED` | `{ "diagnosisId": 30, "answer": "..." }` | RepairAgent — 진단 답변 기반 짧은 교정 |
@@ -155,11 +157,7 @@
   생략합니다. `reason`은 자유 문자열로 Spring이 enum 검증 없이 저장합니다.
   초기 reason 값은 `PAGE_MISMATCH_CORRECTED`,
   `EVENT_PAYLOAD_MISMATCH_CORRECTED`입니다.
-- `usage`: **채택 확정** — 모든 내부 응답의 표준 선택 필드이며 필드명은
-  `model`, `input_tokens`, `output_tokens`, `reasoning_tokens`이다. 응답에서 생략하거나
-  `null`로 보낼 수 있고 `reasoning_tokens`도 nullable이다. Spring은 순차 배포 호환을
-  위해 기존 camelCase 토큰 키도 수신하며, 외부 API에는 노출하지 않고
-  `ai_usage_log`에 기록한다.
+- `usage`: **채택 확정** — body 없는 204 응답을 제외한 모든 내부 성공 응답의 표준 선택 필드입니다. wire 키는 기존 turn과 동일한 `model`, `inputTokens`, `outputTokens`, `reasoningTokens`이며 `usage`와 각 하위 값은 모두 nullable입니다. provider usage가 없거나 안전하게 합산할 수 없으면 `null`이고, Spring은 순차 배포 호환을 위해 snake_case 토큰 키도 수신하며, 외부 API에는 노출하지 않고 사용자별 `ai_usage_log`에 기록해 비용·쿼터 판단에 사용합니다.
 - 퀴즈 생성 턴에서는 turn 응답 최상위의 nullable `quiz` 필드에 전체 퀴즈
   JSON(§6.2 생성 스키마, 정답·비공개 필드 포함)을 반환합니다. 그 외 턴에서는
   `null`입니다. Spring이 이를 검증·분리 저장(비공개 필드는 학생 노출 DTO에서
@@ -181,11 +179,30 @@
   형식입니다. 존재할 때 `title`은 공백이 아니고 60자 이하여야 하며 `content`는
   공백이 아니어야 합니다. Spring은 초안을 영속 메시지·대화 요약·QA thread digest·
   로그에 넣지 않고 외부 completed 응답으로만 전달합니다.
-- `uiActions`: 기본값은 `[]`입니다. 다만 `USER_QUESTION` 턴은 아래 §3.3.1의
-  `moveNextPage` 제안을 보낼 수 있습니다. 사용자 위젯의 정본은 항상 Spring이
+- `uiActions`: 기본값은 `[]`입니다. 다만 설명 턴의 퀴즈 제안과
+  `USER_QUESTION` 턴의 아래 §3.3.1 제안을 보낼 수 있습니다. 사용자 위젯의 정본은 항상 Spring이
   [API 명세](api-spec.md) §5 규칙표에 따라 생성합니다.
 
-### 3.3.1 uiActions allowlist (`moveNextPage`, `noteProposal`)
+### 3.3.1 uiActions allowlist (`quizProposal`, `moveNextPage`, `noteProposal`)
+
+PDF가 첨부된 `EXPLAIN_CURRENT_PAGE` Plan에서 현재 페이지가 전체 학습 흐름의 의미 있는
+개념·가정·모델·공식 해석·예제 단위를 독립적으로 점검할 수 있게 도입하거나 완성하면
+AI Service는 다음 exact 제안을 반환할 수 있습니다. 페이지 길이·outline section 경계·
+사전 checkpoint가 아니라 의미와 학습자 문맥으로 판단합니다.
+
+```json
+{
+  "type": "BINARY_DECISION",
+  "content": "퀴즈를 진행할까요?",
+  "yesEvent": "SHOW_QUIZ_TYPE_SELECT",
+  "noEvent": "WAIT"
+}
+```
+
+Spring은 실제 `EXPLAINING → EXPLAINED` 전이에서 위 4개 필드가 정확히 일치하는 단일
+항목만 수용하고 `UiAction.quizProposal()` 정본으로 치환합니다. 제안이 없으면 다음
+학습 위젯을 생성합니다. file ID가 없는 구자료만 기존 checkpoint·section 정책을
+fallback으로 사용합니다.
 
 AI Service가 `USER_QUESTION` 턴에서 다음 의미의 항목을 제안할 수 있습니다.
 
@@ -319,8 +336,8 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
   일치해야 합니다.
 - 중단·오류 시 일부 `content_delta`는 미확정이며 `error` 뒤 스트림을
   종료합니다. 부분 메시지나 statePatch를 확정 결과로 반환하지 않습니다.
-- AI Service는 `ui_action` 내부 이벤트를 발행하지 않습니다. §3.3의
-  `uiActions=[]` 원칙대로 사용자 위젯은 Spring이 생성합니다.
+- AI Service는 `ui_action` 내부 이벤트를 발행하지 않습니다. 퀴즈 제안은 설명 delta가
+  끝난 뒤 `completed.result.uiActions`에만 포함되고 Spring이 정본 위젯으로 치환합니다.
 
 ### 5.2 LLM 호출과 시간 예산
 
@@ -366,6 +383,8 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
   저장하며, `error` 또는 연결 중단 시 저장하지 않습니다.
 
 ## 6. 파이프라인 엔드포인트 DTO (api-spec §8 기준 + usage 추가)
+
+모든 JSON 성공 응답은 최상위 선택 `usage`를 가집니다. 한 요청에서 LLM을 여러 번 호출하면 확인 가능한 모든 호출(재생성 포함)을 합산합니다. 한 호출이라도 토큰 수를 확인할 수 없어 합산이 불완전하면 `usage=null`로 반환하며 본 기능 결과는 유지합니다. LLM 토큰 호출이 없는 extract·xAI Files upload는 항상 `usage=null`이고, DELETE의 204 응답에는 body가 없습니다. QuizGeneration은 독립 endpoint가 아니라 turn 산물이므로 turn 최상위 `usage`만 사용합니다.
 
 ### 6.1 POST /internal/ai/extract
 

@@ -477,7 +477,7 @@
   - Phase 1은 `EDUPILOT_XAI_FILES_ENABLED` kill switch가 켜진 경우에만 추출 성공 원본을 xAI Files에 업로드합니다. 기본값은 `false`이며 응답의 nullable `xaiFileId`와 `warnings[{type,message}]`로 결과를 전달합니다.
   - 업로드 실패나 xAI 파일 제한 48MiB 초과는 `FILE_UPLOAD_FAILED` warning으로 강등하고 텍스트 추출 성공 응답은 HTTP 200을 유지합니다.
   - `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작합니다. 삭제 성공과 이미 없는 파일(404)은 204로 멱등 처리하고, 그 밖의 provider 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)로 반환합니다.
-  - Spring은 `xaiFileId`를 자료에 저장하고 자료 삭제 시 정리 훅을 호출합니다. Phase 3에서는 턴 context에 nullable `xaiFileId`를 전달하고 AI Service가 Explainer·QaAgent의 실제 LLM 호출에 첨부합니다. Phase 5에서는 QuizAgent와 개요 생성까지 첨부를 확대하되 퀴즈는 현재 페이지 단일, 개요는 전달된 pages 범위를 앵커로 유지합니다. Plan·결정적 안내·Repair·Note에는 첨부하지 않으며 `includeCurrentPage=false`이면 사용하지 않습니다.
+  - Spring은 `xaiFileId`를 자료에 저장하고 자료 삭제 시 정리 훅을 호출합니다. Phase 3에서는 턴 context에 nullable `xaiFileId`를 전달하고 AI Service가 Explainer·QaAgent의 실제 LLM 호출에 첨부합니다. Phase 5에서는 QuizAgent와 개요 생성까지 첨부를 확대하되 퀴즈는 현재 페이지 단일, 개요는 전달된 pages 범위를 앵커로 유지합니다. DEC-039에 따라 xAI-backed 설명 턴의 Plan에도 전체 흐름 판단용으로 첨부하며, 그 외 Plan·결정적 안내·Repair·Note에는 첨부하지 않습니다. `includeCurrentPage=false`이면 사용하지 않습니다.
   - 첨부 호출은 xAI Responses API의 `input_file.file_id`를 사용하고 `store=false`를 강제합니다. 추출된 현재 페이지 텍스트와 질문은 범위 앵커이며 원본 PDF는 해당 범위의 세부 근거 확인용입니다.
   - 기존 ACTIVE·READY 자료의 소급 업로드는 텍스트를 다시 추출하지 않는 `POST /internal/ai/files`로 수행합니다. 명시적 API는 `/extract` 자동 업로드 kill switch와 독립이며, Spring의 별도 기본 OFF bounded backfill이 작업량을 통제합니다. claim·저장을 짧은 row-lock 트랜잭션으로 분리하고 외부 호출 중에는 트랜잭션을 유지하지 않습니다. 실패 시 READY를 보존하고 backoff를 적용하며 경합으로 저장하지 못한 ID는 베스트에포트 삭제합니다.
 - 이유: 원본의 시각·레이아웃 정보를 이후 LLM 입력에서 활용할 수 있는 기반을 만들면서도, provider 업로드 장애 때문에 이미 성공한 결정적 텍스트 추출과 자료 등록이 실패하지 않도록 단계와 실패 경계를 분리합니다.
@@ -486,7 +486,7 @@
 
 ### DEC-036 — 개요 section 경계 기반 퀴즈 제안
 
-- 상태: Accepted — 설계자 승인, [#319](https://github.com/AutoAI-UTEUM/BE/issues/319)
+- 상태: Superseded for xAI-backed materials by DEC-039 — file ID 없는 구자료 fallback으로 유지
 - 결정일: 2026-08-25
 - 결정자: 프로젝트 설계자, Backend 담당자, AI Service 담당자
 - 선택: Spring이 현재 페이지 설명 완료와 텍스트 200자 이상을 먼저 확인한 뒤, READY 개요가 1페이지부터 자료 마지막 페이지까지 연속 coverage이면 `sections[].endPage`에서만 퀴즈를 제안합니다. 개요 없음/PENDING/FAILED와 구버전 불완전 READY 개요는 기존 200자 규칙으로 fallback합니다. 조회 정책은 별도 `QuizProposalPolicy`가 소유하고 `UiActionResolver`는 결정된 boolean만 받아 순수 위젯 매핑을 유지합니다. 제안 시점과 무관하게 AI 퀴즈 출제 범위는 현재 페이지 단일입니다.
@@ -496,7 +496,7 @@
 
 ### DEC-037 — AI checkpoint 기반 퀴즈 제안과 coverage 출제
 
-- 상태: Accepted — 설계자 승인, [#338](https://github.com/AutoAI-UTEUM/BE/issues/338)
+- 상태: Partially superseded by DEC-039 — 제안 시점은 구자료 fallback, coverage 계약은 유지
 - 결정일: 2026-08-28
 - 결정자: Backend 담당자, AI Service 담당자
 - 선택: READY 개요의 유효한 `quizCheckpoints`를 section 종료 추론보다 우선합니다. Spring은 현재 페이지가 `triggerPage`일 때만 퀴즈를 제안하고 checkpoint 모드에서는 200자 게이트를 적용하지 않습니다. 유형 선택 턴은 기존 nullable `quizContext` 계약에 coverage 전 페이지의 캡션 병합 텍스트를 오름차순으로 넣고 전체 12,000자 뒤쪽을 결정적으로 절단합니다. AI 출력 coverage는 이 범위와 같아야 하며 퀴즈 엔티티의 `pageNumber`는 현재 triggerPage로 유지합니다. checkpoint가 없거나 저장 JSON 검증에서 탈락하면 DEC-036의 기존 200자·section 정책으로 fallback합니다.
@@ -514,6 +514,17 @@
 - 이유: 최근 원문으로 즉시 문맥 정확도를 유지하면서 긴 세션의 초반 배경·학습 선호를 제한된 토큰의 보조 요약으로 이어갑니다. 요약을 사용자 턴과 분리하고 경계를 성공 시에만 전진시켜 외부 AI 장애가 턴 성공이나 재시도 가능성을 훼손하지 않게 합니다.
 - 대안과 trade-off: 턴 요청 안에서 동기 요약하면 최신성이 높지만 응답 지연과 실패 결합이 생깁니다. 최근 원문을 요약으로 대체하면 토큰은 줄지만 세부 발화가 손실되므로 병행 방식을 채택합니다. 단일 Main Service 인스턴스의 전용 순차 executor와 저장 시 경계 재검증으로 중복 결과를 방어하며, 다중 인스턴스 확장 시에는 DB lease 도입을 별도로 검토합니다.
 - 후속 변경 문서: [AI 통합 계약](ai-integration-contract.md) §3.1·§6.10, [DB 명세](database.md), [API 명세](api-spec.md) §5·§8.
+
+### DEC-039 — 전체 자료 흐름 기반 런타임 퀴즈 제안
+
+- 상태: Accepted — 통합학습 에이전트 명세 재확인, 2026-09-01
+- 결정일: 2026-09-01
+- 결정자: 프로젝트 설계자
+- 선택: xAI file ID가 있는 `EXPLAIN_CURRENT_PAGE`는 결정적 Plan 합성에서 제외합니다. Orchestrator가 PDF 원본을 첨부받아 현재 페이지를 전체 학습 흐름과 학습자 상태 안에서 판단하고, 페이지가 짧거나 큰 section 중간이어도 독립적으로 점검 가능한 핵심 개념·가정·모델·공식 해석·예제 단위를 도입하거나 완성해 점검이 유익하면 `EXPLAIN_PAGE` 뒤에 exact `PROMPT_BINARY_DECISION/QUIZ_DECISION`을 같은 Plan에 둡니다. 페이지 길이·section 경계·사전 checkpoint는 런타임 판단 기준으로 사용하지 않습니다. Dispatcher는 이를 기존 최상위 `uiActions`의 고정 퀴즈 제안으로 변환하고, Spring은 실제 설명 완료 전이에서 exact 단일 항목만 `UiAction.quizProposal()` 정본으로 치환합니다. 제안이 없다는 판단도 정본이므로 DEC-036·037의 정적 정책과 OR하지 않습니다. file ID가 없는 구자료에만 기존 checkpoint·section·200자 정책을 fallback으로 유지합니다.
+- 방어 경계: Plan은 `[EXPLAIN_PAGE]` 또는 `[EXPLAIN_PAGE, PROMPT_BINARY_DECISION]` 순서만 허용하며 prompt args와 표시 문구를 exact 검증합니다. Spring은 AI가 보낸 임의 문구를 외부에 노출하지 않고 canonical 위젯을 생성합니다. 내부 NDJSON 이벤트 종류는 늘리지 않고 최종 `completed.result.uiActions`만 사용합니다.
+- 이유: section 경계에 고정한 사전 checkpoint는 큰 section 중간의 독립적인 핵심 개념 페이지를 구조적으로 누락했습니다. 통합학습 명세의 중앙 Orchestrator가 실제 학습 시점의 전체 자료 흐름과 학습자 문맥으로 판단해야 의미 기반 타이밍을 복원할 수 있습니다.
+- 대안과 trade-off: outline 시점 checkpoint는 호출 비용이 낮지만 모든 학습자에게 고정되고 coarse section 품질에 종속됩니다. 런타임 판단은 설명 턴 LLM 호출이 1회 늘지만 자료·학습자별 판단을 정확히 적용합니다. checkpoint coverage는 누적 출제 문맥과 legacy fallback 용도로 계속 유지합니다.
+- 후속 변경 문서: [AI 통합 계약](ai-integration-contract.md) §0·§3.3.1, [API 명세](api-spec.md) §5 W3, [기능 명세](feature-spec.md) §7, [에이전트 명세](agent-system-spec.md) §3·§4.
 
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 
@@ -591,9 +602,9 @@
   발급합니다. `START_NEW` statePatch에는 `mode`만 포함하고,
   `FOLLOW_UP`은 요청 스냅샷의 `qaThreadDigest.threadRef`를 그대로
   반환합니다.
-- **B1 — uiActions 소유권**: AI Service의 `uiActions`는 예약 필드이며
-  항상 빈 배열입니다. 비어 있지 않은 값은 Spring이 무시하고 경고하며,
-  사용자 위젯은 Spring이 생성합니다.
+- **B1 — uiActions 소유권**: AI Service는 설명 턴의 exact 퀴즈 제안과
+  USER_QUESTION의 이동·노트 제안만 allowlist 입력으로 반환할 수 있습니다.
+  Spring은 허용된 의미만 정본 `UiAction`으로 치환하고 나머지는 무시·경고합니다.
 - **B2 — 위젯 복원 규칙**: Spring은 API 명세 §5의 W1~W7 중 마지막 상태
   전이 1개에 대해서만 위젯을 생성합니다. 재진입은 서버 발급 위젯만
   복원하고, FE 로컬 `QUIZ_TYPE_SELECT` 표시 중 재진입하면 W3으로

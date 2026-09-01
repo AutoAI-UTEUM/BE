@@ -211,6 +211,7 @@ async def test_upload_endpoint_returns_nonblank_file_id_when_kill_switch_is_off(
     assert response.json() == {
         "schemaVersion": "1.0",
         "xaiFileId": "file-backfill-contract",
+        "usage": None,
     }
     assert fake_file_client.uploads == [(b"%PDF-backfill", "private.pdf")]
 

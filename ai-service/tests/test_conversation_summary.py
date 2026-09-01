@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from edupilot_ai.core.errors import ErrorCategory, InternalErrorResponse
-from edupilot_ai.llm.bridge import LlmBridgeError
+from edupilot_ai.llm.bridge import LlmBridgeError, LlmUsage
 from edupilot_ai.models.conversation_summary import (
     ConversationSummaryCompletion,
     ConversationSummaryRequest,
@@ -56,6 +56,12 @@ async def test_conversation_summary_returns_camel_case_contract(
     assert response.json() == {
         "schemaVersion": "1.0",
         "summary": "학생은 그림 예시를 선호하며 학습률의 역할을 복습하고 있습니다.",
+        "usage": {
+            "model": "grok-4.5",
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "reasoningTokens": None,
+        },
     }
     assert len(fake_llm.calls) == 1
     assert fake_llm.calls[0][1].reasoning_effort is ReasoningEffort.LOW
@@ -168,9 +174,13 @@ async def test_blank_summary_regenerates_once(
     fake_llm: FakeLlm,
     auth_headers: dict[str, str],
 ) -> None:
-    fake_llm.queue(
+    fake_llm.queue_completion(
         ConversationSummaryCompletion(summary="   "),
+        LlmUsage("grok-summary", 10, 2, 1),
+    )
+    fake_llm.queue_completion(
         ConversationSummaryCompletion(summary="학생은 학습률 예시를 통해 개념을 복습했습니다."),
+        LlmUsage("grok-summary", 20, 3, 2),
     )
 
     response = await client.post(
@@ -181,6 +191,12 @@ async def test_blank_summary_regenerates_once(
 
     assert response.status_code == 200
     assert response.json()["summary"] == "학생은 학습률 예시를 통해 개념을 복습했습니다."
+    assert response.json()["usage"] == {
+        "model": "grok-summary",
+        "inputTokens": 30,
+        "outputTokens": 5,
+        "reasoningTokens": 3,
+    }
     assert len(fake_llm.calls) == 2
     first_system = fake_llm.calls[0][0][0]["content"]
     retry_system = fake_llm.calls[1][0][0]["content"]

@@ -346,7 +346,17 @@ class ClassroomJpaContextTest {
 		Classroom classroomEntity = classroomRepository.findById(
 			classroom.classroomId()
 		).orElseThrow();
-		Instant rangeStart = Instant.parse("2026-09-01T00:00:00Z");
+		LocalDate boundaryDate = today.minusDays(1);
+		Instant rangeStart = boundaryDate
+			.atStartOfDay(ZoneOffset.UTC)
+			.toInstant();
+		Instant rangeEnd = boundaryDate.plusDays(1)
+			.atStartOfDay(ZoneOffset.UTC)
+			.toInstant()
+			.minusNanos(1_000);
+		Instant nextDayStart = boundaryDate.plusDays(1)
+			.atStartOfDay(ZoneOffset.UTC)
+			.toInstant();
 		ClassroomWeek boundaryWeek = weekRepository.saveAndFlush(
 			ClassroomWeek.create(
 				classroomEntity,
@@ -362,14 +372,14 @@ class ClassroomJpaContextTest {
 				classroomEntity,
 				"Boundary notice",
 				"Included",
-				Instant.parse("2026-09-01T23:59:59.999999Z")
+				rangeEnd
 			)
 		);
 		noticeRepository.saveAndFlush(ClassroomNotice.create(
 			classroomEntity,
 			"Next day",
 			"Excluded",
-			Instant.parse("2026-09-02T00:00:00Z")
+			nextDayStart
 		));
 		ClassroomNotice reservedNotice = noticeRepository.saveAndFlush(
 			ClassroomNotice.create(
@@ -396,8 +406,8 @@ class ClassroomJpaContextTest {
 		assertThat(scheduleService.list(
 			learner.getId(),
 			UserRole.LEARNER,
-			LocalDate.of(2026, 9, 1),
-			LocalDate.of(2026, 9, 1),
+			boundaryDate,
+			boundaryDate,
 			classroom.classroomId()
 		).items()).extracting(item -> item.scheduleId())
 			.containsExactly(
