@@ -135,11 +135,12 @@ public class TurnSnapshotService {
 		sessionData.put("currentPage", session.getCurrentPage());
 		sessionData.put("pageStatus", session.getPageStatus().name());
 
+		String xaiFileId = includeCurrentPage
+			? session.getMaterialXaiFileId()
+			: null;
+		boolean xaiFileAttached = xaiFileId != null && !xaiFileId.isBlank();
 		Map<String, Object> context = new LinkedHashMap<>();
-		context.put(
-			"xaiFileId",
-			includeCurrentPage ? session.getMaterialXaiFileId() : null
-		);
+		context.put("xaiFileId", xaiFileId);
 		context.put(
 			"currentPageText",
 			includeCurrentPage
@@ -219,7 +220,12 @@ public class TurnSnapshotService {
 				)
 			);
 		}
-		return new TurnSnapshot(sessionData, context, materialId);
+		return new TurnSnapshot(
+			sessionData,
+			context,
+			materialId,
+			xaiFileAttached
+		);
 	}
 
 	private Map<String, Object> quizContext(

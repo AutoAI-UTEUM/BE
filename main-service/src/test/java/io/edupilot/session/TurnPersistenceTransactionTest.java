@@ -123,6 +123,7 @@ class TurnPersistenceTransactionTest {
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
 			null,
 			501L,
+			false,
 			new io.edupilot.ai.dto.TurnResponse(
 				"1.0",
 				"turn-1",

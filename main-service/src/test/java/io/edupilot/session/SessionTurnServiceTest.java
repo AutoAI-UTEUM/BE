@@ -3,6 +3,7 @@ package io.edupilot.session;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -115,7 +116,8 @@ class SessionTurnServiceTest {
 	}
 
 	@Test
-	void retryableFailureUsesNewTurnIdAndAlwaysReleases() throws Exception {
+	void retryableFailureRetainsSnapshotAcrossAttemptsAndAlwaysReleases()
+		throws Exception {
 		AtomicLong now = new AtomicLong();
 		when(preparationService.prepare(
 			1L,
@@ -131,7 +133,8 @@ class SessionTurnServiceTest {
 					"qaThreadDigest",
 					Map.of("threadRef", "qa-30")
 				),
-				10L
+				10L,
+				true
 			));
 		io.edupilot.ai.dto.TurnResponse aiResponse = aiResponse("ignored");
 		when(aiClient.executeTurn(any()))
@@ -162,6 +165,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		)).thenReturn(new PersistedTurn(
 			publicResponse.turnId(),
@@ -209,6 +213,19 @@ class SessionTurnServiceTest {
 			eq((String) null),
 			eq(java.util.Set.of())
 		);
+		ArgumentCaptor<Boolean> xaiFileAttached =
+			ArgumentCaptor.forClass(Boolean.class);
+		verify(persistenceService).persist(
+			any(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			xaiFileAttached.capture(),
+			any()
+		);
+		assertThat(xaiFileAttached.getValue()).isTrue();
 		verify(claimService).claim(1L, 100L, "request-1");
 		verify(claimService).release(100L, "request-1");
 	}
@@ -289,7 +306,8 @@ class SessionTurnServiceTest {
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L),
 				Map.of("currentPageText", "페이지 내용"),
-				10L
+				10L,
+				false
 			));
 		when(streamService.beginTurn(
 			eq(1L),
@@ -324,6 +342,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		)).thenReturn(new PersistedTurn(
 			"turn-note",
@@ -395,7 +414,8 @@ class SessionTurnServiceTest {
 		TurnSnapshot snapshot = new TurnSnapshot(
 			Map.of("sessionId", 100L),
 			Map.of(),
-			10L
+			10L,
+			false
 		);
 		when(snapshotService.build(1L, 100L, 501L, true))
 			.thenReturn(snapshot);
@@ -418,6 +438,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		)).thenReturn(persisted(publicResponse()));
 
@@ -586,7 +607,8 @@ class SessionTurnServiceTest {
 		TurnSnapshot snapshot = new TurnSnapshot(
 			Map.of("sessionId", 100L),
 			Map.of(),
-			10L
+			10L,
+			false
 		);
 		when(snapshotService.build(1L, 100L, 501L, true))
 			.thenReturn(snapshot);
@@ -607,6 +629,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		)).thenReturn(persisted(publicResponse()));
 
@@ -660,7 +683,8 @@ class SessionTurnServiceTest {
 		TurnSnapshot snapshot = new TurnSnapshot(
 			Map.of("sessionId", 100L, "currentPage", 2),
 			Map.of("currentPageText", "현재"),
-			10L
+			10L,
+			false
 		);
 		when(snapshotService.build(1L, 100L, 501L, true))
 			.thenReturn(snapshot);
@@ -683,6 +707,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		)).thenReturn(persisted(publicResponse()));
 
@@ -720,8 +745,16 @@ class SessionTurnServiceTest {
 	}
 
 	@Test
-	void streamsIntermediateEventsThenPersistsBeforeCompleted() throws Exception {
+	void streamsIntermediateEventsThenPersistsSnapshotBeforeCompleted()
+		throws Exception {
 		stubPreparedTurn();
+		when(snapshotService.build(1L, 100L, 501L, true))
+			.thenReturn(new TurnSnapshot(
+				Map.of("sessionId", 100L),
+				Map.of(),
+				10L,
+				true
+			));
 		Map<String, Object> moveNextPageProposal = Map.of(
 			"type", "BINARY_DECISION",
 			"content", "AI 임의 문구",
@@ -768,6 +801,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		)).thenReturn(persisted(publicResponse));
 
@@ -782,6 +816,8 @@ class SessionTurnServiceTest {
 		verify(streamConnection).send(TurnStreamEvent.contentDelta("답변"));
 		ArgumentCaptor<io.edupilot.ai.dto.TurnResponse> aiResponseCaptor =
 			ArgumentCaptor.forClass(io.edupilot.ai.dto.TurnResponse.class);
+		ArgumentCaptor<Boolean> xaiFileAttached =
+			ArgumentCaptor.forClass(Boolean.class);
 		var order = inOrder(persistenceService, streamService);
 		order.verify(persistenceService).persist(
 			any(),
@@ -790,6 +826,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			xaiFileAttached.capture(),
 			aiResponseCaptor.capture()
 		);
 		order.verify(streamService).complete(
@@ -798,6 +835,7 @@ class SessionTurnServiceTest {
 		);
 		assertThat(aiResponseCaptor.getValue().uiActions())
 			.containsExactly(moveNextPageProposal);
+		assertThat(xaiFileAttached.getValue()).isTrue();
 		verify(aiClient, never()).executeTurn(any());
 	}
 
@@ -874,7 +912,7 @@ class SessionTurnServiceTest {
 			eq("부분 답변")
 		);
 		verify(persistenceService, never()).persist(
-			any(), any(), anyString(), any(), any(), any(), any()
+			any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()
 		);
 		verify(responseValidator, never()).validate(
 			any(), anyString(), any(), any(), any(), any()
@@ -916,7 +954,7 @@ class SessionTurnServiceTest {
 			any(), any(), anyString(), anyString(), anyString()
 		);
 		verify(persistenceService, never()).persist(
-			any(), any(), anyString(), any(), any(), any(), any()
+			any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()
 		);
 		verify(preparationService).markFailed(501L);
 		var failure = ArgumentCaptor.forClass(RuntimeException.class);
@@ -988,7 +1026,8 @@ class SessionTurnServiceTest {
 					"currentPageText", "현재",
 					"nextPageText", "다음"
 				),
-				10L
+				10L,
+				false
 			));
 		when(aiClientProperties.turnReadTimeout())
 			.thenReturn(Duration.ofSeconds(200));
@@ -1021,6 +1060,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		)).thenReturn(persisted(publicResponse));
 
@@ -1066,7 +1106,8 @@ class SessionTurnServiceTest {
 						)
 					)
 				),
-				10L
+				10L,
+				false
 			),
 			new QuizGeneration.Coverage(1, 3)
 		);
@@ -1084,6 +1125,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		)).thenReturn(persisted(publicResponse));
 
@@ -1109,7 +1151,8 @@ class SessionTurnServiceTest {
 					"previousPageText", "previous",
 					"nextPageText", "next"
 				),
-				10L
+				10L,
+				false
 			),
 			new QuizGeneration.Coverage(3, 3)
 		);
@@ -1127,6 +1170,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		)).thenReturn(persisted(publicResponse));
 
@@ -1150,7 +1194,8 @@ class SessionTurnServiceTest {
 			new TurnSnapshot(
 				Map.of("sessionId", 100L, "currentPage", "3"),
 				Map.of("currentPageText", "current"),
-				10L
+				10L,
+				false
 			),
 			new QuizGeneration.Coverage(3, 3)
 		);
@@ -1184,7 +1229,8 @@ class SessionTurnServiceTest {
 					"currentPageText", "current",
 					"nextPageText", "next"
 				),
-				10L
+				10L,
+				false
 			),
 			new QuizGeneration.Coverage(2, 2)
 		);
@@ -1234,6 +1280,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		);
 	}
@@ -1275,6 +1322,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		)).thenReturn(persisted(publicResponse()));
 
@@ -1338,6 +1386,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		);
 		verify(preparationService).markFailed(501L);
@@ -1386,6 +1435,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		);
 		verify(claimService).release(100L, "request-1");
@@ -1581,7 +1631,8 @@ class SessionTurnServiceTest {
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L),
 				Map.of(),
-				10L
+				10L,
+				false
 			));
 	}
 
@@ -1647,6 +1698,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		)).thenReturn(persisted(response));
 
@@ -1659,6 +1711,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		);
 		verify(streamService).complete(streamConnection, response);
@@ -1689,6 +1742,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		)).thenReturn(persisted(response));
 		org.mockito.Mockito.doThrow(new AiClientException(
@@ -1732,6 +1786,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		)).thenThrow(failure);
 
@@ -1768,6 +1823,7 @@ class SessionTurnServiceTest {
 			any(),
 			any(),
 			any(),
+			anyBoolean(),
 			any()
 		)).thenReturn(new PersistedTurn(
 			response.turnId(),
