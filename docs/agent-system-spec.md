@@ -650,12 +650,15 @@ ToolDispatcher는 액션별 사용자 출력 봉투를 만들지 않습니다. �
   "memoryWrite": null,
   "usage": {
     "model": "grok-4.5-<date>",
-    "inputTokens": 0,
-    "outputTokens": 0,
-    "reasoningTokens": 0
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "reasoning_tokens": 0
   }
 }
 ```
+
+`usage`는 모든 내부 AI 응답의 optional 필드입니다. 순차 배포 동안 Spring은
+기존 camelCase 토큰 키도 함께 수신하며, 비용 기록 후 외부 API 응답에서는 제외합니다.
 
 ### 오류와 fallback
 

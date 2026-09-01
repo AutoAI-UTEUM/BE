@@ -2,6 +2,7 @@ package io.edupilot.ai.dto;
 
 public record ConversationSummaryResponse(
 	String schemaVersion,
-	String summary
+	String summary,
+	AiUsage usage
 ) {
 }

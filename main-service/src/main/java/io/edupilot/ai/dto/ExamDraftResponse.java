@@ -14,7 +14,7 @@ public record ExamDraftResponse(
 	String schemaVersion,
 	Long examId,
 	List<Question> questions,
-	Usage usage
+	AiUsage usage
 ) {
 
 	@JsonTypeInfo(
@@ -107,14 +107,6 @@ public record ExamDraftResponse(
 	public record Rubric(
 		String criterion,
 		BigDecimal weight
-	) {
-	}
-
-	public record Usage(
-		String model,
-		Integer inputTokens,
-		Integer outputTokens,
-		Integer reasoningTokens
 	) {
 	}
 }

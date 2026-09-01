@@ -61,7 +61,7 @@ public class MaterialOutlineGenerationService {
 				aiUsageService.record(
 					snapshot.get().ownerId(),
 					AiFeature.OUTLINE,
-					null,
+					response == null ? null : response.usage(),
 					true
 				);
 			} catch (AiClientException exception) {

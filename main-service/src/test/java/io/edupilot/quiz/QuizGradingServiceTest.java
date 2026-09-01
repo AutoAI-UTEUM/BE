@@ -14,7 +14,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.GradeResponse;
+import io.edupilot.aiusage.AiFeature;
 import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -106,6 +108,15 @@ class QuizGradingServiceTest {
 		assertThat(result.score()).isEqualByComparingTo("15.00");
 		assertThat(result.items()).extracting(GradingItem::verdict)
 			.containsExactly(GradingVerdict.CORRECT, GradingVerdict.PARTIAL);
+		org.mockito.Mockito.verify(
+			aiUsageService,
+			org.mockito.Mockito.times(2)
+		).record(
+			1L,
+			AiFeature.GRADE,
+			new AiUsage("grok-grade", 18L, 8L, 1L),
+			true
+		);
 	}
 
 	@Test
@@ -169,7 +180,7 @@ class QuizGradingServiceTest {
 					"일부가 부족합니다."
 				)
 			),
-			null
+			new AiUsage("grok-grade", 18L, 8L, 1L)
 		);
 	}
 

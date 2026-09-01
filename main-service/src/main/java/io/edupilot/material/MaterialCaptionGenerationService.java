@@ -112,7 +112,7 @@ public class MaterialCaptionGenerationService {
 			aiUsageService.record(
 				ownerId,
 				AiFeature.CAPTIONS,
-				null,
+				response == null ? null : response.usage(),
 				true
 			);
 			Map<Integer, String> captions = new HashMap<>();

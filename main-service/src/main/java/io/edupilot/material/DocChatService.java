@@ -104,7 +104,12 @@ public class DocChatService {
 		io.edupilot.ai.dto.DocChatResponse response;
 		try {
 			response = aiClient.docChat(aiRequest);
-			aiUsageService.record(userId, AiFeature.DOC_CHAT, null, true);
+			aiUsageService.record(
+				userId,
+				AiFeature.DOC_CHAT,
+				response == null ? null : response.usage(),
+				true
+			);
 		} catch (AiClientException exception) {
 			aiUsageService.record(userId, AiFeature.DOC_CHAT, null, false);
 			throw exception;

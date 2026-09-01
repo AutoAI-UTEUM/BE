@@ -32,7 +32,9 @@ class MaterialOutlineMarkdownRendererTest {
 					List.of()
 				)
 			),
-			4
+			null,
+			4,
+			null
 		);
 
 		assertThat(renderer.render(response)).isEqualTo("""

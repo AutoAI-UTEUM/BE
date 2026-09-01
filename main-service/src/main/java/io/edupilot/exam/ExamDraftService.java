@@ -58,7 +58,7 @@ public class ExamDraftService {
 			aiUsageService.record(
 				userId,
 				AiFeature.EXAM_DRAFT,
-				toUsage(response == null ? null : response.usage()),
+				response == null ? null : response.usage(),
 				true
 			);
 		} catch (AiClientException exception) {
@@ -67,16 +67,6 @@ public class ExamDraftService {
 		}
 		validateResponse(prepared, response);
 		return ExamDraftQuestionsResponse.from(response, prepared.truncated());
-	}
-
-	private AiUsage toUsage(ExamDraftResponse.Usage usage) {
-		return usage == null ? null : new AiUsage(
-			usage.model(),
-			usage.inputTokens() == null ? null : usage.inputTokens().longValue(),
-			usage.outputTokens() == null ? null : usage.outputTokens().longValue(),
-			usage.reasoningTokens() == null
-				? null : usage.reasoningTokens().longValue()
-		);
 	}
 
 	private void validateResponse(
@@ -180,14 +170,16 @@ public class ExamDraftService {
 		}
 	}
 
-	private boolean validUsage(ExamDraftResponse.Usage usage) {
-		return usage != null && hasText(usage.model())
-			&& nonNegative(usage.inputTokens())
-			&& nonNegative(usage.outputTokens())
-			&& (usage.reasoningTokens() == null || usage.reasoningTokens() >= 0);
+	private boolean validUsage(AiUsage usage) {
+		return usage == null || (
+			hasText(usage.model())
+				&& nonNegative(usage.inputTokens())
+				&& nonNegative(usage.outputTokens())
+				&& (usage.reasoningTokens() == null || usage.reasoningTokens() >= 0)
+		);
 	}
 
-	private boolean nonNegative(Integer value) {
+	private boolean nonNegative(Long value) {
 		return value != null && value >= 0;
 	}
 

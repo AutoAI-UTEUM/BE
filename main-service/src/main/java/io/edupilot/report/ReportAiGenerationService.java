@@ -14,6 +14,7 @@ import org.springframework.util.StringUtils;
 
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.ReportGenerateRequest;
 import io.edupilot.ai.dto.ReportGenerateResponse;
 import io.edupilot.aiusage.AiFeature;
@@ -254,14 +255,7 @@ public class ReportAiGenerationService {
 		if (response == null || !SCHEMA_VERSION.equals(response.schemaVersion())
 			|| !request.reportId().equals(response.reportId())
 			|| response.criterionResults() == null || response.summary() == null
-			|| response.warnings() == null || response.usage() == null
-			|| !StringUtils.hasText(response.usage().model())
-			|| response.usage().inputTokens() == null
-			|| response.usage().inputTokens() < 0
-			|| response.usage().outputTokens() == null
-			|| response.usage().outputTokens() < 0
-			|| response.usage().reasoningTokens() != null
-			&& response.usage().reasoningTokens() < 0) {
+			|| response.warnings() == null || invalidUsage(response.usage())) {
 			throw invalid(null);
 		}
 		Map<String, ReportGenerateRequest.Criterion> criteria = new LinkedHashMap<>();
@@ -293,6 +287,18 @@ public class ReportAiGenerationService {
 			}
 			validateEvidenceIds(warning.evidenceIds(), evidence, false);
 		}
+	}
+
+	private boolean invalidUsage(AiUsage usage) {
+		return usage != null && (
+			!StringUtils.hasText(usage.model())
+				|| usage.inputTokens() == null
+				|| usage.inputTokens() < 0
+				|| usage.outputTokens() == null
+				|| usage.outputTokens() < 0
+				|| usage.reasoningTokens() != null
+				&& usage.reasoningTokens() < 0
+		);
 	}
 
 	private void validateCriterionResult(

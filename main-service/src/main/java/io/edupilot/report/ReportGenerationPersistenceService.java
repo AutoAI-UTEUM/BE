@@ -24,6 +24,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class ReportGenerationPersistenceService {
+	private static final String UNKNOWN_AI_MODEL = "unknown";
 	private static final List<ReportGenerationStatus> ACTIVE_STATUSES = List.of(
 		ReportGenerationStatus.PENDING,
 		ReportGenerationStatus.PROCESSING
@@ -142,7 +143,7 @@ public class ReportGenerationPersistenceService {
 				overall.stage(),
 				summary(response),
 				dataQuality(input.dataQuality()),
-				response.usage().model(),
+				model(response),
 				"1.0"
 			));
 		} catch (DataIntegrityViolationException exception) {
@@ -177,9 +178,15 @@ public class ReportGenerationPersistenceService {
 			.toList();
 		resultRepository.saveAll(results);
 		resultRepository.flush();
-		generation.complete(response.usage().model(), "1.0");
+		generation.complete(model(response), "1.0");
 		generationRepository.flush();
 		return true;
+	}
+
+	private String model(ReportGenerateResponse response) {
+		return response.usage() == null
+			? UNKNOWN_AI_MODEL
+			: response.usage().model();
 	}
 
 	@Transactional

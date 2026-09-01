@@ -8,7 +8,8 @@ import io.edupilot.report.ReportSourceType;
 public record CriteriaSuggestResponse(
 	String schemaVersion,
 	List<Criterion> criteria,
-	List<Warning> warnings
+	List<Warning> warnings,
+	AiUsage usage
 ) {
 	public record Criterion(
 		String key,

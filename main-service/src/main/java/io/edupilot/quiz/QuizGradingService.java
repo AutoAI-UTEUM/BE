@@ -15,7 +15,6 @@ import org.springframework.util.StringUtils;
 
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
-import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
 import io.edupilot.aiusage.AiFeature;
@@ -50,7 +49,7 @@ public class QuizGradingService {
 			aiUsageService.record(
 				userId,
 				AiFeature.GRADE,
-				toUsage(response == null ? null : response.usage()),
+				response == null ? null : response.usage(),
 				true
 			);
 		} catch (AiClientException exception) {
@@ -58,15 +57,6 @@ public class QuizGradingService {
 			throw exception;
 		}
 		return validateAiResult(prepared, response);
-	}
-
-	private AiUsage toUsage(GradeResponse.Usage usage) {
-		return usage == null ? null : new AiUsage(
-			usage.model(),
-			usage.inputTokens(),
-			usage.outputTokens(),
-			usage.reasoningTokens()
-		);
 	}
 
 	private GradingResult gradeDeterministically(

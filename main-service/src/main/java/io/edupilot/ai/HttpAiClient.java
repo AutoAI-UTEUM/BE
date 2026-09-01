@@ -881,7 +881,8 @@ public class HttpAiClient implements AiClient {
 					: response.summary().substring(0, 1_000);
 				return new ConversationSummaryResponse(
 					response.schemaVersion(),
-					summary
+					summary,
+					response.usage()
 				);
 			}
 		);
@@ -1077,8 +1078,7 @@ public class HttpAiClient implements AiClient {
 					"reportId",
 					"criterionResults",
 					"summary",
-					"warnings",
-					"usage"
+					"warnings"
 				)
 			);
 			for (JsonNode result : requiredArray(root, "criterionResults")) {
@@ -1117,10 +1117,7 @@ public class HttpAiClient implements AiClient {
 					Set.of("type", "message", "evidenceIds")
 				);
 			}
-			requireReportFields(
-				requiredObject(root, "usage"),
-				Set.of("model", "inputTokens", "outputTokens", "reasoningTokens")
-			);
+			validateOptionalUsage(root);
 			return objectMapper.treeToValue(root, ReportGenerateResponse.class);
 		} catch (RuntimeException exception) {
 			throw new AiClientException(
@@ -1129,6 +1126,27 @@ public class HttpAiClient implements AiClient {
 				false,
 				exception
 			);
+		}
+	}
+
+	private void validateOptionalUsage(JsonNode parent) {
+		JsonNode usage = parent.get("usage");
+		if (usage == null || usage.isNull()) {
+			return;
+		}
+		if (!usage.isObject()) {
+			throw new IllegalArgumentException("usage response object required");
+		}
+		@SuppressWarnings("unchecked")
+		Set<String> fields = objectMapper.convertValue(usage, Map.class).keySet();
+		Set<String> camelCase = Set.of(
+			"model", "inputTokens", "outputTokens", "reasoningTokens"
+		);
+		Set<String> snakeCase = Set.of(
+			"model", "input_tokens", "output_tokens", "reasoning_tokens"
+		);
+		if (!fields.equals(camelCase) && !fields.equals(snakeCase)) {
+			throw new IllegalArgumentException("invalid usage response fields");
 		}
 	}
 

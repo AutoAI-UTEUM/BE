@@ -25,8 +25,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.CaptionsRequest;
 import io.edupilot.ai.dto.CaptionsResponse;
+import io.edupilot.aiusage.AiFeature;
 import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.material.MaterialCaptionPersistenceService.CaptionSnapshot;
 import io.edupilot.material.MaterialCaptionPersistenceService.PageSnapshot;
@@ -102,6 +104,12 @@ class MaterialCaptionGenerationServiceTest {
 			Map.entry(20, "caption-20")
 		)));
 		verify(persistenceService).markCompleted(10L, NOW);
+		verify(aiUsageService, org.mockito.Mockito.times(2)).record(
+			1L,
+			AiFeature.CAPTIONS,
+			new AiUsage("grok-captions", 40L, 15L, null),
+			true
+		);
 	}
 
 	private CaptionsResponse response(CaptionsRequest request, boolean includeNull) {
@@ -114,6 +122,11 @@ class MaterialCaptionGenerationServiceTest {
 					: "caption-" + page.pageNumber()
 			));
 		}
-		return new CaptionsResponse("1.0", captions, List.of());
+		return new CaptionsResponse(
+			"1.0",
+			captions,
+			List.of(),
+			new AiUsage("grok-captions", 40L, 15L, null)
+		);
 	}
 }

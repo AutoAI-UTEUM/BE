@@ -8,7 +8,6 @@ public record ExamDraftQuestionsResponse(
 	String schemaVersion,
 	Long examId,
 	List<ExamDraftResponse.Question> questions,
-	ExamDraftResponse.Usage usage,
 	boolean truncated
 ) {
 
@@ -20,7 +19,6 @@ public record ExamDraftQuestionsResponse(
 			response.schemaVersion(),
 			response.examId(),
 			response.questions(),
-			response.usage(),
 			truncated
 		);
 	}

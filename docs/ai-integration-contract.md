@@ -147,7 +147,7 @@
   "noteDraft": null,
   "memoryCandidates": [],
   "memoryWrite": null,
-  "usage": { "model": "grok-4.5-<date>", "inputTokens": 0, "outputTokens": 0, "reasoningTokens": 0 }
+  "usage": { "model": "grok-4.5-<date>", "input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0 }
 }
 ```
 
@@ -157,7 +157,7 @@
   생략합니다. `reason`은 자유 문자열로 Spring이 enum 검증 없이 저장합니다.
   초기 reason 값은 `PAGE_MISMATCH_CORRECTED`,
   `EVENT_PAYLOAD_MISMATCH_CORRECTED`입니다.
-- `usage`: **채택 확정** — body 없는 204 응답을 제외한 모든 내부 성공 응답의 표준 선택 필드입니다. wire 키는 기존 turn과 동일한 `model`, `inputTokens`, `outputTokens`, `reasoningTokens`이며 `usage`와 각 하위 값은 모두 nullable입니다. provider usage가 없거나 안전하게 합산할 수 없으면 `null`이고, Spring은 사용자별 `ai_usage_log`에 기록해 비용·쿼터 판단에 사용합니다.
+- `usage`: **채택 확정** — body 없는 204 응답을 제외한 모든 내부 성공 응답의 표준 선택 필드입니다. wire 키는 기존 turn과 동일한 `model`, `inputTokens`, `outputTokens`, `reasoningTokens`이며 `usage`와 각 하위 값은 모두 nullable입니다. provider usage가 없거나 안전하게 합산할 수 없으면 `null`이고, Spring은 순차 배포 호환을 위해 snake_case 토큰 키도 수신하며, 외부 API에는 노출하지 않고 사용자별 `ai_usage_log`에 기록해 비용·쿼터 판단에 사용합니다.
 - 퀴즈 생성 턴에서는 turn 응답 최상위의 nullable `quiz` 필드에 전체 퀴즈
   JSON(§6.2 생성 스키마, 정답·비공개 필드 포함)을 반환합니다. 그 외 턴에서는
   `null`입니다. Spring이 이를 검증·분리 저장(비공개 필드는 학생 노출 DTO에서
@@ -516,9 +516,9 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
   ],
   "usage": {
     "model": "grok-4",
-    "inputTokens": 1200,
-    "outputTokens": 350,
-    "reasoningTokens": null
+    "input_tokens": 1200,
+    "output_tokens": 350,
+    "reasoning_tokens": null
   }
 }
 ```
