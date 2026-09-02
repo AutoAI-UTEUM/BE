@@ -6,8 +6,10 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,6 +41,10 @@ public class AdminInfraMetricsService {
 		AdminInfraMetricsService.class
 	);
 	private static final String INSTANCE_ID = "InstanceId";
+	private static final String DISK_QUERY_ID = "disk";
+	private static final Pattern INSTANCE_ID_PATTERN = Pattern.compile(
+		"^i-[A-Za-z0-9]+$"
+	);
 
 	private final AdminInfraProperties properties;
 	private final Optional<CloudWatchClient> cloudWatchClient;
@@ -71,6 +77,9 @@ public class AdminInfraMetricsService {
 			return AdminInfraMetricsResponse.unavailable(
 				"INSTANCE_NOT_CONFIGURED"
 			);
+		}
+		if (!INSTANCE_ID_PATTERN.matcher(instanceId).matches()) {
+			return AdminInfraMetricsResponse.unavailable("INSTANCE_ID_INVALID");
 		}
 
 		CacheKey cacheKey = new CacheKey(environment, metricRange);
@@ -231,14 +240,16 @@ public class AdminInfraMetricsService {
 	}
 
 	private MetricDataQuery diskQuery(String instanceId, int periodSeconds) {
-		String expression = "MAX(SEARCH('{CWAgent,InstanceId,path} "
-			+ "MetricName=\"disk_used_percent\" AND InstanceId=\""
-			+ instanceId
-			+ "\" AND path=\"/\"', 'Maximum', "
-			+ periodSeconds
-			+ "))";
+		String expression = String.format(
+			Locale.ROOT,
+			"SEARCH('{CWAgent,InstanceId,device,fstype,path} "
+				+ "MetricName=\"disk_used_percent\" InstanceId=\"%s\" "
+				+ "path=\"/\"', 'Maximum', %d)",
+			instanceId,
+			periodSeconds
+		);
 		return MetricDataQuery.builder()
-			.id("disk")
+			.id(DISK_QUERY_ID)
 			.expression(expression)
 			.returnData(true)
 			.build();
@@ -255,9 +266,34 @@ public class AdminInfraMetricsService {
 				))
 				.sorted(Comparator.comparing(Point::t))
 				.toList();
-			points.put(result.id(), resultPoints);
+			if (DISK_QUERY_ID.equals(result.id())) {
+				points.merge(
+					DISK_QUERY_ID,
+					resultPoints,
+					this::mergeMaximumByTimestamp
+				);
+			} else {
+				points.put(result.id(), resultPoints);
+			}
 		}
 		return points;
+	}
+
+	private List<Point> mergeMaximumByTimestamp(
+		List<Point> first,
+		List<Point> second
+	) {
+		Map<Instant, Double> maximumByTimestamp = new HashMap<>();
+		for (Point point : first) {
+			maximumByTimestamp.merge(point.t(), point.v(), Double::max);
+		}
+		for (Point point : second) {
+			maximumByTimestamp.merge(point.t(), point.v(), Double::max);
+		}
+		return maximumByTimestamp.entrySet().stream()
+			.sorted(Map.Entry.comparingByKey())
+			.map(entry -> new Point(entry.getKey(), entry.getValue()))
+			.toList();
 	}
 
 	private Double latest(List<Point> points) {
