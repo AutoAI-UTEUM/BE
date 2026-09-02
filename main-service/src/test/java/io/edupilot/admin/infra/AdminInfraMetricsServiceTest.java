@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
@@ -81,10 +82,17 @@ class AdminInfraMetricsServiceTest {
 						assertThat(dimension.value()).isEqualTo("i-prod");
 					});
 			});
-		assertThat(queries.get("disk").expression())
+		MetricDataQuery diskQuery = queries.get("disk");
+		assertThat(diskQuery.metricStat()).isNull();
+		assertThat(diskQuery.expression())
+			.contains("{CWAgent,InstanceId,device,fstype,path}")
+			.contains("MetricName=\"disk_used_percent\"")
 			.contains("InstanceId=\"i-prod\"")
 			.contains("path=\"/\"")
-			.contains("'Maximum', 60");
+			.contains("'Maximum', 60")
+			.doesNotContain("device=\"")
+			.doesNotContain("fstype=\"")
+			.doesNotStartWith("MAX(");
 
 		assertThat(response.available()).isTrue();
 		assertThat(response.periodSeconds()).isEqualTo(60);
@@ -94,6 +102,58 @@ class AdminInfraMetricsServiceTest {
 		assertThat(response.series().mem()).isEmpty();
 		assertThat(response.latest().cpu()).isEqualTo(20.0);
 		assertThat(response.latest().mem()).isNull();
+	}
+
+	@Test
+	void mergesMultipleDiskSeriesUsingMaximumValuePerTimestamp() {
+		when(cloudWatchClient.getMetricData(any(GetMetricDataRequest.class)))
+			.thenReturn(GetMetricDataResponse.builder()
+				.metricDataResults(
+					MetricDataResult.builder()
+						.id("disk")
+						.timestamps(
+							NOW.minusSeconds(600),
+							NOW.minusSeconds(300)
+						)
+						.values(40.0, 60.0)
+						.build(),
+					MetricDataResult.builder()
+						.id("disk")
+						.timestamps(
+							NOW.minusSeconds(600),
+							NOW.minusSeconds(300),
+							NOW
+						)
+						.values(50.0, 55.0, 70.0)
+						.build()
+				)
+				.build());
+
+		AdminInfraMetricsResponse response = service.metrics("prod", "1h");
+
+		assertThat(response.series().disk())
+			.extracting(AdminInfraMetricsResponse.Point::v)
+			.containsExactly(50.0, 60.0, 70.0);
+		assertThat(response.latest().disk()).isEqualTo(70.0);
+	}
+
+	@Test
+	void rejectsInvalidInstanceIdBeforeBuildingSearchExpression() {
+		AdminInfraMetricsService invalidInstanceService =
+			new AdminInfraMetricsService(
+				properties(true, "i-prod\" path=\"*"),
+				Optional.of(cloudWatchClient),
+				clock
+			);
+
+		AdminInfraMetricsResponse response = invalidInstanceService.metrics(
+			"prod",
+			"1h"
+		);
+
+		assertThat(response.available()).isFalse();
+		assertThat(response.reason()).isEqualTo("INSTANCE_ID_INVALID");
+		verifyNoInteractions(cloudWatchClient);
 	}
 
 	@Test
@@ -157,10 +217,17 @@ class AdminInfraMetricsServiceTest {
 	}
 
 	private AdminInfraProperties properties(boolean enabled) {
+		return properties(enabled, "i-prod");
+	}
+
+	private AdminInfraProperties properties(
+		boolean enabled,
+		String prodInstanceId
+	) {
 		return new AdminInfraProperties(
 			enabled,
 			"ap-northeast-2",
-			new AdminInfraProperties.Instances("i-prod", "i-dev"),
+			new AdminInfraProperties.Instances(prodInstanceId, "i-dev"),
 			Duration.ofMinutes(5),
 			Duration.ofHours(12)
 		);
