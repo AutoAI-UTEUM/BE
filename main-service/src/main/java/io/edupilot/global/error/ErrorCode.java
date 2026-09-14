@@ -251,6 +251,16 @@ public enum ErrorCode {
 		HttpStatus.BAD_REQUEST,
 		"시험 마감일은 현재보다 미래여야 합니다."
 	),
+	SCORE_OUT_OF_RANGE(
+		"SCORE_OUT_OF_RANGE",
+		HttpStatus.BAD_REQUEST,
+		"점수는 0 이상 문항 배점 이하여야 합니다."
+	),
+	SUBMISSION_NOT_ADJUSTABLE(
+		"SUBMISSION_NOT_ADJUSTABLE",
+		HttpStatus.CONFLICT,
+		"채점이 완료된 제출만 점수를 수정할 수 있습니다."
+	),
 	GRADING_RESULT_INVALID(
 		"GRADING_RESULT_INVALID",
 		HttpStatus.BAD_GATEWAY,

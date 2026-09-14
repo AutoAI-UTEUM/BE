@@ -47,6 +47,8 @@ import io.edupilot.exam.dto.ExamAttemptStartResponse;
 import io.edupilot.exam.dto.ExamOptionResponse;
 import io.edupilot.exam.dto.ExamSubmissionResponse;
 import io.edupilot.exam.dto.ExamSubmissionSummaryResponse;
+import io.edupilot.exam.dto.InstructorExamAnswerResultResponse;
+import io.edupilot.exam.dto.InstructorExamSubmissionResponse;
 import io.edupilot.exam.dto.StudentExamDetailResponse;
 import io.edupilot.exam.dto.StudentExamListItemResponse;
 import io.edupilot.exam.dto.StudentExamListResponse;
@@ -218,7 +220,10 @@ class ExamApiContractTest {
 			.doesNotContain("privateAnswer")
 			.doesNotContain("answerChoiceId")
 			.doesNotContain("referenceAnswer")
-			.doesNotContain("modelAnswer");
+			.doesNotContain("modelAnswer")
+			.doesNotContain("manualScore")
+			.doesNotContain("adjustedBy")
+			.doesNotContain("adjustedAt");
 	}
 
 	@Test
@@ -295,6 +300,61 @@ class ExamApiContractTest {
 	}
 
 	@Test
+	void instructorCanAdjustAnswerScoreAndReceivesFullUpdatedDetail() throws Exception {
+		InstructorExamSubmissionResponse response = instructorSubmission();
+		when(instructorExamService.adjustAnswerScore(
+			eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), eq(10L), eq("q1"), any()
+		)).thenReturn(response);
+
+		mockMvc.perform(patch(
+				"/api/exams/{examId}/submissions/{submissionId}/answers/{questionId}/score",
+				30L, 10L, "q1"
+			)
+			.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"score\":8.00}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.submissionId").value(10))
+			.andExpect(jsonPath("$.data.score").value(8.0))
+			.andExpect(jsonPath("$.data.normalizedScore").value(80.0))
+			.andExpect(jsonPath("$.data.items[0].score").value(8.0))
+			.andExpect(jsonPath("$.data.items[0].manualScore").value(8.0))
+			.andExpect(jsonPath("$.data.items[0].adjustedAt").value(NOW.toString()));
+
+		verify(instructorExamService).adjustAnswerScore(
+			eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), eq(10L), eq("q1"), any()
+		);
+	}
+
+	@Test
+	void manualScoreAdjustmentValidatesRequestRoleRangeAndSubmissionState() throws Exception {
+		doThrow(new BusinessException(ErrorCode.ACCESS_DENIED))
+			.when(instructorExamService).adjustAnswerScore(
+				eq(2L), eq(UserRole.LEARNER), eq(30L), eq(10L), eq("q1"), any()
+			);
+		doThrow(new BusinessException(ErrorCode.SCORE_OUT_OF_RANGE))
+			.when(instructorExamService).adjustAnswerScore(
+				eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), eq(11L), eq("q1"), any()
+			);
+		doThrow(new BusinessException(ErrorCode.SUBMISSION_NOT_ADJUSTABLE))
+			.when(instructorExamService).adjustAnswerScore(
+				eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), eq(12L), eq("q1"), any()
+			);
+
+		manualScorePatch(learnerToken, 10L, "{\"score\":1.00}")
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.error.code").value("ACCESS_DENIED"));
+		manualScorePatch(instructorToken, 11L, "{\"score\":11.00}")
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("SCORE_OUT_OF_RANGE"));
+		manualScorePatch(instructorToken, 12L, "{\"score\":1.00}")
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.error.code").value("SUBMISSION_NOT_ADJUSTABLE"));
+		manualScorePatch(instructorToken, 13L, "{}")
+			.andExpect(status().isBadRequest());
+	}
+
+	@Test
 	void completedClassroomAllowsCloseAndDraftDeleteButBlocksLearningWrites() throws Exception {
 		doThrow(new BusinessException(ErrorCode.CLASSROOM_COMPLETED))
 			.when(instructorExamService).create(eq(1L), eq(UserRole.INSTRUCTOR), eq(20L), any());
@@ -352,6 +412,26 @@ class ExamApiContractTest {
 			.get("paths")
 			.get("/api/exams/{examId}/attempts/start")
 			.has("post")).isTrue();
+		assertThat(objectMapper.readTree(result.getResponse().getContentAsByteArray())
+			.get("paths")
+			.get(
+				"/api/exams/{examId}/submissions/{submissionId}/answers/{questionId}/score"
+			)
+			.has("patch")).isTrue();
+	}
+
+	private org.springframework.test.web.servlet.ResultActions manualScorePatch(
+		String token,
+		Long submissionId,
+		String body
+	) throws Exception {
+		return mockMvc.perform(patch(
+				"/api/exams/{examId}/submissions/{submissionId}/answers/{questionId}/score",
+				30L, submissionId, "q1"
+			)
+			.header(HttpHeaders.AUTHORIZATION, bearer(token))
+			.contentType(MediaType.APPLICATION_JSON)
+			.content(body));
 	}
 
 	private org.springframework.test.web.servlet.ResultActions submit(String requestId)
@@ -380,6 +460,29 @@ class ExamApiContractTest {
 				"q1", "답안", submitted ? null : new BigDecimal("8.00"),
 				new BigDecimal("10.00"), submitted ? null : Verdict.PARTIAL,
 				submitted ? null : "피드백"
+			))
+		);
+	}
+
+	private InstructorExamSubmissionResponse instructorSubmission() {
+		return new InstructorExamSubmissionResponse(
+			10L,
+			1,
+			SubmissionStatus.GRADED,
+			new BigDecimal("8.00"),
+			new BigDecimal("10.00"),
+			new BigDecimal("80.00"),
+			NOW.minusSeconds(60),
+			NOW.minusSeconds(30),
+			List.of(new InstructorExamAnswerResultResponse(
+				"q1",
+				"답안",
+				new BigDecimal("8.00"),
+				new BigDecimal("10.00"),
+				Verdict.PARTIAL,
+				"피드백",
+				new BigDecimal("8.00"),
+				NOW
 			))
 		);
 	}

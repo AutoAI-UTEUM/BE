@@ -160,6 +160,8 @@
 | `EXAM_ALREADY_SUBMITTED` | 409 | 재응시가 허용되지 않은 GRADED 시험 또는 채점 중인 SUBMITTED 시험에 새 `requestId`로 다시 제출. SUBMITTED일 수 있으므로 FE는 기존 결과·polling 화면으로 유도 |
 | `INVALID_EXAM_ANSWER` | 400 | 알 수 없거나 중복된 문항 ID 또는 문항 유형과 맞지 않는 답안 |
 | `INVALID_EXAM_DUE_AT` | 400 | 생성·수정 요청에 명시한 `dueAt`이 현재 시각보다 미래가 아님. 수정에서 필드를 생략하거나 null로 제거하는 것은 허용 |
+| `SCORE_OUT_OF_RANGE` | 400 | 수동 점수가 0 미만이거나 해당 문항의 `maxScore`를 초과함 |
+| `SUBMISSION_NOT_ADJUSTABLE` | 409 | 수동 점수 수정 대상 제출이 `GRADED` 상태가 아님. FE는 채점 완료 후 재시도를 안내 |
 
 ### 리포트
 

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -14,20 +15,28 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.test.util.ReflectionTestUtils;
+
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 import io.edupilot.classroom.Classroom;
 import io.edupilot.classroom.ClassroomColor;
 import io.edupilot.classroom.ClassroomService;
 import io.edupilot.exam.dto.CreateExamRequest;
 import io.edupilot.exam.dto.ExamQuestionRequest;
+import io.edupilot.exam.dto.ManualScoreAdjustmentRequest;
 import io.edupilot.exam.dto.UpdateExamRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -62,6 +71,7 @@ class InstructorExamServiceTest {
 			submissionRepository,
 			answerRepository,
 			submissionPersistenceService,
+			new ExamSubmissionScoreCalculator(),
 			notificationDispatcher,
 			Clock.fixed(NOW, ZoneOffset.UTC)
 		);
@@ -278,6 +288,169 @@ class InstructorExamServiceTest {
 		);
 	}
 
+	@Test
+	void adjustsOnlyManualScoreAndRecalculatesEffectiveSubmissionScoresUnderLock() {
+		AdjustmentFixture fixture = adjustableSubmission(SubmissionStatus.GRADED);
+
+		var response = service.adjustAnswerScore(
+			1L,
+			UserRole.INSTRUCTOR,
+			100L,
+			300L,
+			"q1",
+			new ManualScoreAdjustmentRequest(new BigDecimal("8.00"))
+		);
+
+		assertThat(fixture.answer().getScore()).isEqualByComparingTo("5.00");
+		assertThat(fixture.answer().getManualScore()).isEqualByComparingTo("8.00");
+		assertThat(fixture.answer().effectiveScore()).isEqualByComparingTo("8.00");
+		assertThat(fixture.answer().getAdjustedBy()).isEqualTo(1L);
+		assertThat(fixture.answer().getAdjustedAt()).isEqualTo(NOW);
+		assertThat(fixture.answer().getVerdict()).isEqualTo(Verdict.PARTIAL);
+		assertThat(fixture.submission().getScore()).isEqualByComparingTo("8.00");
+		assertThat(fixture.submission().getNormalizedScore()).isEqualByComparingTo("40.00");
+		assertThat(response.score()).isEqualByComparingTo("8.00");
+		assertThat(response.items().getFirst().score()).isEqualByComparingTo("8.00");
+		assertThat(response.items().getFirst().manualScore()).isEqualByComparingTo("8.00");
+		assertThat(response.items().getFirst().adjustedAt()).isEqualTo(NOW);
+		verify(submissionRepository).findByIdAndExamIdForUpdate(300L, 100L);
+		verifyNoInteractions(notificationDispatcher);
+	}
+
+	@Test
+	void recalculatesVerdictAtZeroMaximumAndPartialBoundaries() {
+		AdjustmentFixture fixture = adjustableSubmission(SubmissionStatus.GRADED);
+
+		service.adjustAnswerScore(
+			1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+			new ManualScoreAdjustmentRequest(BigDecimal.ZERO)
+		);
+		assertThat(fixture.answer().getVerdict()).isEqualTo(Verdict.WRONG);
+
+		service.adjustAnswerScore(
+			1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+			new ManualScoreAdjustmentRequest(new BigDecimal("20.00"))
+		);
+		assertThat(fixture.answer().getVerdict()).isEqualTo(Verdict.CORRECT);
+
+		service.adjustAnswerScore(
+			1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+			new ManualScoreAdjustmentRequest(new BigDecimal("7.50"))
+		);
+		assertThat(fixture.answer().getVerdict()).isEqualTo(Verdict.PARTIAL);
+	}
+
+	@Test
+	void rejectsOutOfRangeMissingQuestionAndNonGradedSubmissions() {
+		adjustableSubmission(SubmissionStatus.GRADED);
+		assertError(
+			() -> service.adjustAnswerScore(
+				1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+				new ManualScoreAdjustmentRequest(new BigDecimal("-0.01"))
+			),
+			ErrorCode.SCORE_OUT_OF_RANGE
+		);
+		assertError(
+			() -> service.adjustAnswerScore(
+				1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+				new ManualScoreAdjustmentRequest(new BigDecimal("20.01"))
+			),
+			ErrorCode.SCORE_OUT_OF_RANGE
+		);
+		assertError(
+			() -> service.adjustAnswerScore(
+				1L, UserRole.INSTRUCTOR, 100L, 300L, "q999",
+				new ManualScoreAdjustmentRequest(BigDecimal.ONE)
+			),
+			ErrorCode.EXAM_NOT_FOUND
+		);
+
+		adjustableSubmission(SubmissionStatus.SUBMITTED);
+		assertError(
+			() -> service.adjustAnswerScore(
+				1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+				new ManualScoreAdjustmentRequest(BigDecimal.ONE)
+			),
+			ErrorCode.SUBMISSION_NOT_ADJUSTABLE
+		);
+		adjustableSubmission(SubmissionStatus.GRADING_FAILED);
+		assertError(
+			() -> service.adjustAnswerScore(
+				1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+				new ManualScoreAdjustmentRequest(BigDecimal.ONE)
+			),
+			ErrorCode.SUBMISSION_NOT_ADJUSTABLE
+		);
+	}
+
+	@Test
+	void rejectsLearnerOtherInstructorAndForeignSubmission() {
+		assertError(
+			() -> service.adjustAnswerScore(
+				2L, UserRole.LEARNER, 100L, 300L, "q1",
+				new ManualScoreAdjustmentRequest(BigDecimal.ONE)
+			),
+			ErrorCode.ACCESS_DENIED
+		);
+
+		Exam exam = exam(false);
+		when(examRepository.findWithClassroomById(100L)).thenReturn(Optional.of(exam));
+		assertError(
+			() -> service.adjustAnswerScore(
+				2L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+				new ManualScoreAdjustmentRequest(BigDecimal.ONE)
+			),
+			ErrorCode.CLASSROOM_NOT_FOUND
+		);
+
+		when(submissionRepository.findByIdAndExamIdForUpdate(300L, 100L))
+			.thenReturn(Optional.empty());
+		assertError(
+			() -> service.adjustAnswerScore(
+				1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+				new ManualScoreAdjustmentRequest(BigDecimal.ONE)
+			),
+			ErrorCode.EXAM_NOT_FOUND
+		);
+	}
+
+	@Test
+	void readjustmentAuditUsesPreviousEffectiveScoreWithoutAnswerContent() {
+		AdjustmentFixture fixture = adjustableSubmission(SubmissionStatus.GRADED);
+		Logger logger = (Logger) LoggerFactory.getLogger(InstructorExamService.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			service.adjustAnswerScore(
+				1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+				new ManualScoreAdjustmentRequest(new BigDecimal("5.00"))
+			);
+			service.adjustAnswerScore(
+				1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+				new ManualScoreAdjustmentRequest(new BigDecimal("8.00"))
+			);
+
+			ILoggingEvent event = appender.list.getLast();
+			Map<String, Object> fields = event.getKeyValuePairs().stream()
+				.collect(Collectors.toMap(pair -> pair.key, pair -> pair.value));
+			assertThat(fields)
+				.containsEntry("action", "MANUAL_SCORE_ADJUSTED")
+				.containsEntry("actorUserId", 1L)
+				.containsEntry("examId", 100L)
+				.containsEntry("submissionId", 300L)
+				.containsEntry("questionId", "q1")
+				.containsEntry("beforeScore", new BigDecimal("5.00"))
+				.containsEntry("afterScore", new BigDecimal("8.00"))
+				.containsEntry("adjustedAt", NOW);
+			assertThat(event.getFormattedMessage())
+				.doesNotContain(fixture.answer().getAnswer());
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+	}
+
 	private Exam exam(boolean resetClassroom) {
 		if (resetClassroom) {
 			ReflectionTestUtils.setField(classroom, "status", io.edupilot.classroom.ClassroomStatus.ACTIVE);
@@ -321,6 +494,45 @@ class InstructorExamServiceTest {
 			null,
 			List.of(new RubricCriterion("Accuracy", rubricWeight))
 		);
+	}
+
+	private AdjustmentFixture adjustableSubmission(SubmissionStatus status) {
+		Exam exam = exam(false);
+		ExamQuestion question = question(exam, BigDecimal.ONE);
+		User learner = User.create(
+			"learner@example.com", "hash", "Learner", UserRole.LEARNER
+		);
+		ReflectionTestUtils.setField(learner, "id", 2L);
+		ExamSubmission submission = ExamSubmission.create(
+			exam,
+			learner,
+			1,
+			"request-id",
+			new BigDecimal("20.00"),
+			NOW.minusSeconds(60)
+		);
+		ReflectionTestUtils.setField(submission, "id", 300L);
+		ExamAnswer answer = ExamAnswer.create(
+			submission, question, "confidential student answer", new BigDecimal("20.00")
+		);
+		ReflectionTestUtils.setField(answer, "id", 400L);
+		answer.recordGrade(new BigDecimal("5.00"), Verdict.PARTIAL, "feedback");
+		if (status == SubmissionStatus.GRADED) {
+			submission.complete(
+				new BigDecimal("5.00"), new BigDecimal("25.00"), NOW.minusSeconds(30)
+			);
+		} else if (status == SubmissionStatus.GRADING_FAILED) {
+			submission.failGrading();
+		}
+		when(examRepository.findWithClassroomById(100L)).thenReturn(Optional.of(exam));
+		when(submissionRepository.findByIdAndExamIdForUpdate(300L, 100L))
+			.thenReturn(Optional.of(submission));
+		when(answerRepository.findBySubmission_IdOrderByQuestion_Id(300L))
+			.thenReturn(List.of(answer));
+		return new AdjustmentFixture(submission, answer);
+	}
+
+	private record AdjustmentFixture(ExamSubmission submission, ExamAnswer answer) {
 	}
 
 	private void assertError(Runnable action, ErrorCode expected) {

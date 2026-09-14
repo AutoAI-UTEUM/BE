@@ -32,7 +32,7 @@
 | `exam_questions` | id, exam_id, question_no, question_type, points, public_question_json, private_answer_json, schema_version, timestamps | `FK(exam_id)`, `UK(exam_id,question_no)`, 유형·점수 CHECK |
 | `exam_attempt_starts` | id, exam_id, user_id, started_at | `FK(exam_id)`, `FK(user_id)`, `UK(exam_id,user_id)` |
 | `exam_submissions` | id, exam_id, user_id, attempt_no, request_id, status, started_at(nullable), duration_seconds(nullable), submitted_at, graded_at(nullable), score(nullable), max_score, normalized_score(nullable), grading_lease_token(nullable), grading_lease_until, grading_retry_count, timestamps | `FK(exam_id)`, `FK(user_id)`, 시도·멱등 UK, 상태·점수·소요 시간·재시도 CHECK, 상태+lease·제출시각 인덱스 |
-| `exam_answers` | id, submission_id, question_id, answer(nullable), score(nullable), max_score, verdict(nullable), feedback(nullable), timestamps | `FK(submission_id)`, `FK(question_id)`, `UK(submission_id,question_id)`, 점수·판정 CHECK |
+| `exam_answers` | id, submission_id, question_id, answer(nullable), score(nullable), manual_score(nullable), adjusted_by(nullable), adjusted_at(nullable), max_score, verdict(nullable), feedback(nullable), timestamps | `FK(submission_id)`, `FK(question_id)`, `UK(submission_id,question_id)`, 원점수·수동점수·판정 CHECK |
 | `report_criteria` | id, classroom_id, criterion_key, name, description(nullable), rubric_json, allowed_sources_json, min_evidence, weight, version, active, timestamps | `FK(classroom_id)`, `UK(classroom_id,criterion_key,version)`, `IDX(classroom_id,active)`, 최소 근거·weight·version CHECK |
 | `report_generations` | id, classroom_id, student_id, requested_by, request_id, scope_type, week_number(nullable), scope_hash, snapshot_hash(nullable), criterion_catalog_json(nullable), policy_version, source_data_as_of(nullable), status, failure_code(nullable), model(nullable), prompt_version(nullable), generation lease, timestamps | 강의실·학생·요청자 FK, `UK(classroom_id,student_id,request_id)`, status+lease·학생별 상태 인덱스, 범위·주차·상태 CHECK |
 | `student_reports` | id, generation_id, classroom_id, student_id, scope_key, version, previous_report_id(nullable), overall_score(nullable), overall_stage(nullable), summary(nullable), data_quality_json, model, prompt_version, timestamps | generation·강의실·학생·이전 리포트 FK, `UK(generation_id)`, `UK(classroom_id,student_id,scope_key,version)`, scope key·version·점수 CHECK |
@@ -133,6 +133,7 @@
 - `exam_submissions.score IS NULL OR (score >= 0 AND score <= max_score)`
 - `exam_submissions.normalized_score IS NULL OR (normalized_score >= 0 AND normalized_score <= 100)`
 - `exam_answers.score IS NULL OR (score >= 0 AND score <= max_score)`
+- `exam_answers.manual_score IS NULL OR (manual_score >= 0 AND manual_score <= max_score)`; 유효 점수는 `COALESCE(manual_score, score)`이며 AI 원점수 `score`는 수동 수정으로 덮어쓰지 않음
 - `report_criteria.min_evidence >= 1`, `report_criteria.weight > 0`, `report_criteria.version >= 1`
 - `report_generations.scope_type IN (FULL, WEEK)`, `week_number IS NULL OR week_number >= 1`, `status IN (PENDING, PROCESSING, COMPLETED, FAILED)`
 - `student_reports.version >= 1`, `overall_score IS NULL OR (overall_score >= 0 AND overall_score <= 100)`
@@ -226,6 +227,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V37__user_last_active_at.sql`은 사용자 최근 활동 nullable 컬럼과 정렬 인덱스를 추가하고, 기존 활동 테이블의 사용자별 최신 시각으로 1회 백필합니다.
 - `V38__exam_review_timing.sql`은 시험별 미소비 응시 시작 테이블과 제출의 nullable 시작·소요 시간 컬럼 및 non-negative 제약을 추가합니다. 기존 제출은 null을 유지합니다.
 - `V39__exam_due_at_notifications.sql`은 시험의 nullable 마감 표시 시각, 시험 알림 3종 CHECK 확장, nullable dedup 키와 UNIQUE 인덱스를 추가합니다.
+- `V40__exam_answer_manual_scores.sql`은 답안별 nullable 수동 점수와 조정 강사·시각 감사 필드, 수동 점수 범위 CHECK를 추가합니다. 기존 AI 원점수는 그대로 유지합니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.

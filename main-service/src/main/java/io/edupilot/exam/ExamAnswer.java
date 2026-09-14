@@ -40,6 +40,15 @@ public class ExamAnswer {
 	@Column(precision = 10, scale = 2)
 	private BigDecimal score;
 
+	@Column(name = "manual_score", precision = 10, scale = 2)
+	private BigDecimal manualScore;
+
+	@Column(name = "adjusted_by")
+	private Long adjustedBy;
+
+	@Column(name = "adjusted_at")
+	private Instant adjustedAt;
+
 	@Column(name = "max_score", nullable = false, precision = 10, scale = 2)
 	private BigDecimal maxScore;
 
@@ -88,6 +97,21 @@ public class ExamAnswer {
 		this.feedback = feedback;
 	}
 
+	public void recordManualScore(
+		BigDecimal manualScore,
+		Long adjustedBy,
+		Instant adjustedAt
+	) {
+		this.manualScore = manualScore;
+		this.adjustedBy = adjustedBy;
+		this.adjustedAt = adjustedAt;
+		this.verdict = Verdict.fromScore(manualScore, maxScore);
+	}
+
+	public BigDecimal effectiveScore() {
+		return manualScore != null ? manualScore : score;
+	}
+
 	public Long getId() { return id; }
 	public Long getSubmissionId() { return submission.getId(); }
 	public Long getQuestionId() { return question.getId(); }
@@ -98,6 +122,9 @@ public class ExamAnswer {
 	public ExamPrivateAnswer getPrivateAnswer() { return question.getPrivateAnswer(); }
 	public String getAnswer() { return answer; }
 	public BigDecimal getScore() { return score; }
+	public BigDecimal getManualScore() { return manualScore; }
+	public Long getAdjustedBy() { return adjustedBy; }
+	public Instant getAdjustedAt() { return adjustedAt; }
 	public BigDecimal getMaxScore() { return maxScore; }
 	public Verdict getVerdict() { return verdict; }
 	public String getFeedback() { return feedback; }

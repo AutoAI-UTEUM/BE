@@ -1297,7 +1297,7 @@ class TurnPersistenceServiceTest {
 		return new io.edupilot.ai.dto.TurnResponse(
 			"1.0",
 			"turn-1",
-			"WRITE_NOTE",
+			"Create concise notes from what the learner has covered",
 			List.of(),
 			messages,
 			statePatch,

@@ -70,6 +70,14 @@ public interface ExamSubmissionRepository extends JpaRepository<ExamSubmission, 
 
 	Optional<ExamSubmission> findByIdAndExam_Id(Long id, Long examId);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select submission from ExamSubmission submission "
+		+ "where submission.id = :submissionId and submission.exam.id = :examId")
+	Optional<ExamSubmission> findByIdAndExamIdForUpdate(
+		@Param("submissionId") Long submissionId,
+		@Param("examId") Long examId
+	);
+
 	@Modifying(clearAutomatically = true, flushAutomatically = true)
 	@Query("update ExamSubmission submission "
 		+ "set submission.gradingLeaseToken = :leaseToken, "

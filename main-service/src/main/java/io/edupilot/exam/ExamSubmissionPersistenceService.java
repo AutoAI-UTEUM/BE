@@ -1,7 +1,6 @@
 package io.edupilot.exam;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -54,6 +53,7 @@ public class ExamSubmissionPersistenceService {
 	private final ExamAttemptStartRepository attemptStartRepository;
 	private final UserRepository userRepository;
 	private final DeterministicAnswerGrader deterministicAnswerGrader;
+	private final ExamSubmissionScoreCalculator scoreCalculator;
 	private final ExamGradingDispatcher gradingDispatcher;
 	private final ExamNotificationDispatcher notificationDispatcher;
 	private final Clock clock;
@@ -67,6 +67,7 @@ public class ExamSubmissionPersistenceService {
 		ExamAttemptStartRepository attemptStartRepository,
 		UserRepository userRepository,
 		DeterministicAnswerGrader deterministicAnswerGrader,
+		ExamSubmissionScoreCalculator scoreCalculator,
 		ExamGradingDispatcher gradingDispatcher,
 		ExamNotificationDispatcher notificationDispatcher,
 		Clock clock
@@ -79,6 +80,7 @@ public class ExamSubmissionPersistenceService {
 		this.attemptStartRepository = attemptStartRepository;
 		this.userRepository = userRepository;
 		this.deterministicAnswerGrader = deterministicAnswerGrader;
+		this.scoreCalculator = scoreCalculator;
 		this.gradingDispatcher = gradingDispatcher;
 		this.notificationDispatcher = notificationDispatcher;
 		this.clock = clock;
@@ -179,10 +181,12 @@ public class ExamSubmissionPersistenceService {
 		answerRepository.saveAll(answers);
 		answerRepository.flush();
 		if (!hasAnsweredSubjective) {
-			BigDecimal score = answers.stream()
-				.map(ExamAnswer::getScore)
-				.reduce(BigDecimal.ZERO, BigDecimal::add);
-			submission.complete(score, normalized(score, submission.getMaxScore()), clock.instant());
+			ExamSubmissionScoreCalculator.Result result = scoreCalculator.calculate(
+				submission, answers
+			);
+			submission.complete(
+				result.score(), result.normalizedScore(), clock.instant()
+			);
 			submissionRepository.flush();
 		} else {
 			gradingDispatcher.dispatchAfterCommit(submission.getId(), exam.getId());
@@ -262,14 +266,11 @@ public class ExamSubmissionPersistenceService {
 		if (outcome.failed()) {
 			submission.failGrading();
 		} else {
-			if (answers.stream().anyMatch(answer -> answer.getScore() == null)) {
-				throw new BusinessException(ErrorCode.GRADING_RESULT_INVALID);
-			}
-			BigDecimal score = answers.stream()
-				.map(ExamAnswer::getScore)
-				.reduce(BigDecimal.ZERO, BigDecimal::add);
+			ExamSubmissionScoreCalculator.Result result = scoreCalculator.calculate(
+				submission, answers
+			);
 			submission.complete(
-				score, normalized(score, submission.getMaxScore()), clock.instant()
+				result.score(), result.normalizedScore(), clock.instant()
 			);
 		}
 		answerRepository.flush();
@@ -448,14 +449,6 @@ public class ExamSubmissionPersistenceService {
 			submission,
 			answerRepository.findBySubmission_IdOrderByQuestion_Id(submission.getId())
 		);
-	}
-
-	private BigDecimal normalized(BigDecimal score, BigDecimal maxScore) {
-		if (maxScore == null || maxScore.signum() <= 0) {
-			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR);
-		}
-		return score.multiply(BigDecimal.valueOf(100))
-			.divide(maxScore, 2, RoundingMode.HALF_UP);
 	}
 
 	private Integer durationSeconds(

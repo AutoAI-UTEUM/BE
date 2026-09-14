@@ -524,7 +524,7 @@ public class HttpAiClient implements AiClient {
 			throw invalidStreamCompletion(
 				request,
 				response,
-				"event-goal-shape"
+				"event-type-missing"
 			);
 		}
 
@@ -534,15 +534,21 @@ public class HttpAiClient implements AiClient {
 				request,
 				contentDeltaCount,
 				accumulatedContent,
-				"EXPLAIN_CURRENT_PAGE",
+				"explain",
 				"EXPLANATION"
 			);
 			case "USER_QUESTION" -> {
-				if (response.isDirectNote(eventType)) {
+				if (response.isDirectNote(eventType, contentDeltaCount)) {
 					validateNoteCompletion(
 						response,
 						request,
 						contentDeltaCount
+					);
+				} else if (contentDeltaCount == 0) {
+					throw invalidStreamCompletion(
+						request,
+						response,
+						noteShapeFailureRule(response)
 					);
 				} else {
 					validateDeltaBackedCompletion(
@@ -550,7 +556,7 @@ public class HttpAiClient implements AiClient {
 						request,
 						contentDeltaCount,
 						accumulatedContent,
-						"ANSWER_USER_QUESTION",
+						"question",
 						"QA"
 					);
 				}
@@ -574,7 +580,7 @@ public class HttpAiClient implements AiClient {
 			default -> throw invalidStreamCompletion(
 				request,
 				response,
-				"event-goal-shape"
+				"event-type-unsupported"
 			);
 		}
 	}
@@ -584,24 +590,35 @@ public class HttpAiClient implements AiClient {
 		TurnRequest request,
 		int contentDeltaCount,
 		String accumulatedContent,
-		String expectedGoal,
+		String rulePrefix,
 		String expectedMessageType
 	) {
-		if (!expectedGoal.equals(response.turnGoal())
-			|| !hasSingleMessage(response, expectedMessageType)
-			|| response.quiz() != null
-			|| response.noteDraft() != null) {
+		if (!hasSingleMessage(response, expectedMessageType)) {
 			throw invalidStreamCompletion(
 				request,
 				response,
-				"event-goal-shape"
+				"%s-message-shape".formatted(rulePrefix)
+			);
+		}
+		if (response.quiz() != null) {
+			throw invalidStreamCompletion(
+				request,
+				response,
+				"%s-unexpected-quiz".formatted(rulePrefix)
+			);
+		}
+		if (response.noteDraft() != null) {
+			throw invalidStreamCompletion(
+				request,
+				response,
+				"%s-unexpected-note-draft".formatted(rulePrefix)
 			);
 		}
 		if (contentDeltaCount < 1) {
 			throw invalidStreamCompletion(
 				request,
 				response,
-				"content-delta-required"
+				"%s-empty-delta".formatted(rulePrefix)
 			);
 		}
 		String completedContent = (String) response.messages()
@@ -611,7 +628,7 @@ public class HttpAiClient implements AiClient {
 			throw invalidStreamCompletion(
 				request,
 				response,
-				"content-delta-match"
+				"%s-delta-content-mismatch".formatted(rulePrefix)
 			);
 		}
 	}
@@ -621,16 +638,46 @@ public class HttpAiClient implements AiClient {
 		TurnRequest request,
 		int contentDeltaCount
 	) {
-		if (!response.hasNoteResponseShape()
-			|| !hasSingleMessage(response, "SYSTEM")
-			|| !validNoteDraft(response)) {
+		validateNoContentDelta(
+			response,
+			request,
+			contentDeltaCount,
+			"note-content-delta-forbidden"
+		);
+		if (!response.hasNoteResponseShape()) {
 			throw invalidStreamCompletion(
 				request,
 				response,
-				"event-goal-shape"
+				noteShapeFailureRule(response)
 			);
 		}
-		validateNoContentDelta(response, request, contentDeltaCount);
+		if (!hasSingleMessage(response, "SYSTEM")) {
+			throw invalidStreamCompletion(
+				request,
+				response,
+				"note-shape-system-message"
+			);
+		}
+		if (!validNoteDraft(response)) {
+			throw invalidStreamCompletion(
+				request,
+				response,
+				"note-shape-invalid-draft"
+			);
+		}
+	}
+
+	private String noteShapeFailureRule(TurnResponse response) {
+		if (response.noteDraft() == null) {
+			return "note-shape-missing-draft";
+		}
+		if (response.statePatch() == null || !response.statePatch().isEmpty()) {
+			return "note-shape-state-patch";
+		}
+		if (response.quiz() != null) {
+			return "note-shape-unexpected-quiz";
+		}
+		return "note-shape-system-message";
 	}
 
 	private void validateDiagnosisCompletion(
@@ -639,20 +686,41 @@ public class HttpAiClient implements AiClient {
 		int contentDeltaCount
 	) {
 		Map<String, Object> patch = response.statePatch();
-		if (!"REPAIR_MISCONCEPTION".equals(response.turnGoal())
-			|| !hasSingleMessage(response, "REPAIR")
-			|| !"REPAIR_COMPLETED".equals(patch.get("pageStatus"))
-			|| !patch.containsKey("pendingDiagnosis")
-			|| patch.get("pendingDiagnosis") != null
-			|| response.quiz() != null
-			|| response.noteDraft() != null) {
+		if (!hasSingleMessage(response, "REPAIR")) {
 			throw invalidStreamCompletion(
 				request,
 				response,
-				"event-goal-shape"
+				"diagnosis-message-shape"
 			);
 		}
-		validateNoContentDelta(response, request, contentDeltaCount);
+		if (!"REPAIR_COMPLETED".equals(patch.get("pageStatus"))) {
+			throw invalidStreamCompletion(
+				request,
+				response,
+				"diagnosis-page-status"
+			);
+		}
+		if (!patch.containsKey("pendingDiagnosis")
+			|| patch.get("pendingDiagnosis") != null) {
+			throw invalidStreamCompletion(
+				request,
+				response,
+				"diagnosis-pending-diagnosis"
+			);
+		}
+		if (response.quiz() != null || response.noteDraft() != null) {
+			throw invalidStreamCompletion(
+				request,
+				response,
+				"diagnosis-unexpected-artifact"
+			);
+		}
+		validateNoContentDelta(
+			response,
+			request,
+			contentDeltaCount,
+			"diagnosis-content-delta-forbidden"
+		);
 	}
 
 	private void validateQuizCompletion(
@@ -660,29 +728,46 @@ public class HttpAiClient implements AiClient {
 		TurnRequest request,
 		int contentDeltaCount
 	) {
-		if (!"GENERATE_QUIZ".equals(response.turnGoal())
-			|| !response.messages().isEmpty()
-			|| response.quiz() == null
-			|| response.noteDraft() != null) {
+		if (!response.messages().isEmpty()) {
 			throw invalidStreamCompletion(
 				request,
 				response,
-				"event-goal-shape"
+				"quiz-message-shape"
 			);
 		}
-		validateNoContentDelta(response, request, contentDeltaCount);
+		if (response.quiz() == null) {
+			throw invalidStreamCompletion(
+				request,
+				response,
+				"quiz-shape-missing-quiz"
+			);
+		}
+		if (response.noteDraft() != null) {
+			throw invalidStreamCompletion(
+				request,
+				response,
+				"quiz-unexpected-note-draft"
+			);
+		}
+		validateNoContentDelta(
+			response,
+			request,
+			contentDeltaCount,
+			"quiz-content-delta-forbidden"
+		);
 	}
 
 	private void validateNoContentDelta(
 		TurnResponse response,
 		TurnRequest request,
-		int contentDeltaCount
+		int contentDeltaCount,
+		String validationRule
 	) {
 		if (contentDeltaCount != 0) {
 			throw invalidStreamCompletion(
 				request,
 				response,
-				"content-delta-forbidden"
+				validationRule
 			);
 		}
 	}
@@ -1526,7 +1611,6 @@ public class HttpAiClient implements AiClient {
 		if (response == null
 			|| !StringUtils.hasText(response.schemaVersion())
 			|| !StringUtils.hasText(response.turnId())
-			|| !StringUtils.hasText(response.turnGoal())
 			|| response.actionsExecuted() == null
 			|| response.messages() == null
 			|| response.statePatch() == null

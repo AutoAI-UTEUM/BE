@@ -16,7 +16,7 @@ public record ExamAnswerResultResponse(
 	public static ExamAnswerResultResponse from(ExamAnswer answer, boolean revealResult) {
 		return new ExamAnswerResultResponse(
 			"q" + answer.getQuestionNo(), answer.getAnswer(),
-			revealResult ? answer.getScore() : null,
+			revealResult ? answer.effectiveScore() : null,
 			answer.getMaxScore(),
 			revealResult ? answer.getVerdict() : null,
 			revealResult ? answer.getFeedback() : null

@@ -105,6 +105,7 @@
 | POST | `/api/exams/{examId}/submissions` | 별도 시험 제출 | Y | 승인 멤버 |
 | GET | `/api/exams/{examId}/submissions` | 시험별 최신 대표 제출 목록 | Y | 소유 INSTRUCTOR |
 | GET | `/api/exams/{examId}/submissions/{submissionId}` | 특정 시험 제출 상세 | Y | 소유 INSTRUCTOR |
+| PATCH | `/api/exams/{examId}/submissions/{submissionId}/answers/{questionId}/score` | 문항별 수동 점수 수정 | Y | 소유 INSTRUCTOR |
 | POST | `/api/exams/{examId}/submissions/{submissionId}/regrade` | 실패한 시험 제출 재채점 | Y | 소유 INSTRUCTOR |
 | GET | `/api/exams/{examId}/submissions/me` | 본인 시험 제출 결과 조회 | Y | 제출한 승인 멤버 |
 | GET | `/api/users/me/memory?materialId={materialId}` | 학습자 메모리 조회(자료별) | Y | 본인 |
@@ -1138,7 +1139,8 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 | POST | `/api/exams/{examId}/close` | PUBLISHED→CLOSED. CLOSED에서는 멱등입니다. |
 | DELETE | `/api/exams/{examId}` | DRAFT만 물리 삭제합니다. |
 | GET | `/api/exams/{examId}/submissions?page&size` | 학생별 최신 대표 제출과 attempt 수를 조회합니다. |
-| GET | `/api/exams/{examId}/submissions/{submissionId}` | 특정 제출의 답안·점수·판정·피드백을 조회합니다. |
+| GET | `/api/exams/{examId}/submissions/{submissionId}` | 특정 제출의 답안·유효 점수·판정·피드백과 수동 조정 메타를 조회합니다. |
+| PATCH | `/api/exams/{examId}/submissions/{submissionId}/answers/{questionId}/score` | GRADED 제출의 문항 점수를 수동 조정하고 갱신된 제출 상세 전체를 반환합니다. |
 | POST | `/api/exams/{examId}/submissions/{submissionId}/regrade` | `GRADING_FAILED` 제출의 저장 답안을 재채점 큐에 등록하고 `SUBMITTED`/202를 반환합니다. |
 
 생성·수정 요청의 공통 형태:
@@ -1168,6 +1170,46 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 - rubric 키 생략, null, 빈 배열은 모두 미입력입니다. 미입력 SHORT/ESSAY는 grade 호출 시 서버가 `[{"criterion":"모범 답안 부합도","weight":1.0}]`을 주입합니다.
 - publish를 CLOSED에서 호출하거나 공개 이후 수정·삭제하면 `EXAM_NOT_EDITABLE`(409)입니다. close를 DRAFT에서 호출하면 `EXAM_NOT_PUBLISHED`(409)입니다.
 - 재채점은 소유 강사만 호출할 수 있습니다. 다른 강사 소유·존재하지 않는 제출은 404로 은닉하고, `GRADING_FAILED`가 아닌 제출은 `EXAM_ALREADY_SUBMITTED`(409)로 거부합니다. 요청 body는 없으며 저장된 답안을 그대로 사용하고 `gradingRetryCount`를 0으로 초기화합니다. executor 포화는 429로 바꾸지 않고 202를 유지하며 scheduler가 회수합니다.
+
+문항별 수동 점수 수정 요청:
+
+```json
+{
+  "score": 8.00
+}
+```
+
+수정 성공 시 `GET /api/exams/{examId}/submissions/{submissionId}`와 같은 강의자 제출 상세 전체를 반환합니다. 문항의 `score`와 제출의 총점·정규화 점수는 수동 점수를 반영한 유효 값이며, `manualScore != null`이면 수동 조정된 문항입니다.
+
+```json
+{
+  "submissionId": 300,
+  "attemptNo": 1,
+  "status": "GRADED",
+  "score": 88.00,
+  "maxScore": 100.00,
+  "normalizedScore": 88.00,
+  "submittedAt": "2026-08-02T12:00:00Z",
+  "gradedAt": "2026-08-02T12:00:01Z",
+  "items": [
+    {
+      "questionId": "q1",
+      "answer": "학습자 답안",
+      "score": 8.00,
+      "maxScore": 10.00,
+      "verdict": "PARTIAL",
+      "feedback": "AI 채점 피드백",
+      "manualScore": 8.00,
+      "adjustedAt": "2026-08-03T00:00:00Z"
+    }
+  ]
+}
+```
+
+- `score`는 소수 둘째 자리까지 허용하며 `0 <= score <= 문항 maxScore`입니다. 범위를 벗어나면 `SCORE_OUT_OF_RANGE`(400)입니다.
+- `GRADED` 상태에서만 수정할 수 있습니다. `SUBMITTED`·`GRADING_FAILED`는 `SUBMISSION_NOT_ADJUSTABLE`(409)이며 FE는 "채점 진행 중, 완료 후 재시도"로 안내합니다.
+- AI 원점수는 보존하고 `manualScore`가 있으면 이를 유효 점수로 사용합니다. 재수정은 최신 `manualScore`를 교체하며 총점·`normalizedScore`·해당 문항 `verdict`를 다시 계산합니다.
+- 수동 수정은 `EXAM_GRADED` 알림을 다시 생성하지 않습니다. `adjustedBy`는 감사용 내부 필드로 API에 노출하지 않습니다.
 
 #### AI 문항 초안 (강사 보조 동선)
 
@@ -1331,6 +1373,7 @@ AI 응답의 `usage`는 서버 비용 기록에만 사용하며 외부 API 응�
 - HTTP 202 응답 본문은 200과 동일한 API envelope 및 `ExamSubmissionResponse` 스키마입니다. FE는 HTTP 상태코드가 아니라 응답의 `status` 필드로 화면과 polling 여부를 분기합니다.
 - `SUBMITTED`에서는 `score`, `normalizedScore`, `gradedAt`과 모든 문항의 `score`, `verdict`, `feedback`을 null로 반환합니다. MCQ/OX 결과가 내부에서 이미 계산됐어도 terminal 상태 전에는 마스킹합니다. `answer`, `maxScore`, `questionId=q{questionNo}`는 유지합니다.
 - 학생 목록·상세와 POST 제출 응답에는 `correctAnswer`, `explanation`을 포함하지 않습니다. 본인 결과 GET도 명시적 `correctAnswer`, `explanation` 외에 `answerChoiceId`, `answerValue`, `referenceAnswer`, `modelAnswer`, `rubric`, `privateAnswer`, `isCorrect` 키를 포함하지 않습니다.
+- 강사가 점수를 수동 조정한 문항은 학습자 결과의 문항 `score`와 제출 총점·정규화 점수에 유효 점수로 반영합니다. `manualScore`, `adjustedBy`, `adjustedAt`은 학습자 응답에 포함하지 않습니다. `reviewAvailable` 판정식은 변하지 않습니다.
 - POST가 `SUBMITTED`를 반환하면 기존 `GET /api/exams/{examId}/submissions/me`를 2초 간격으로 polling하고, 30초 뒤 5초 간격으로 전환합니다. `GRADED | GRADING_FAILED`에서 즉시 중단합니다. 31분을 넘기면 채점 지연 안내를 표시하되 polling은 유지하고, 세 번의 30분 채점 창과 scheduler 지연을 포함한 91분을 넘겨도 `SUBMITTED`이면 마지막 조회 후 중단하고 문의 안내를 표시합니다.
 
 #### 채점·실패 계약
@@ -1342,7 +1385,7 @@ AI 응답의 `usage`는 서버 비용 기록에만 사용하며 외부 API 응�
 - `GRADING_FAILED`에서는 제출 `score`, `normalizedScore`, `gradedAt`이 null입니다. 실패한 AI 문항의 `score`, `verdict`, `feedback`도 null이며 성공한 결정적·AI 결과와 미응답 결과는 보존합니다.
 - 내부 AI가 `AI_REQUEST_INVALID`을 반환하면 Spring 계약 결함입니다. 비동기 worker는 HTTP 400·422를 동일하게 재시도하지 않고 제출을 `GRADING_FAILED`로 종결하며 `submissionId`, `examId`, 오류 code만 ERROR 로그에 남깁니다.
 - 채점 worker는 5분 lease를 사용하고 scheduler는 30초마다 최대 100건을 회수합니다. `SUBMITTED.updatedAt`은 마지막 채점 시도 시작 시각이며 최초 제출·lease claim·컷오프 재큐잉·강사 재채점에서 현재 시각으로 갱신합니다. 마지막 시도 시작 후 30분이 지나면 active lease보다 우선해 첫 두 번은 `gradingRetryCount`를 증가시키고 재큐잉하며, 세 번째 30분 컷오프에서는 `gradingRetryCount=3`, `GRADING_FAILED`로 종결합니다. 강사 재채점은 카운트를 0으로 초기화합니다.
-- AI 응답 점수는 문항 범위·소수 자릿수·questionId·verdict를 Spring이 재검증합니다. 총점과 `ROUND(score/maxScore*100,2)` 정규화 점수는 Spring이 계산합니다. 시험 결과는 quiz-assessment·diagnosis 파이프라인을 호출하지 않습니다.
+- AI 응답 점수는 문항 범위·소수 자릿수·questionId·verdict를 Spring이 재검증합니다. 문항 유효 점수는 `manualScore ?? score`이며, 총점과 `ROUND(유효점수 합/maxScore*100,2)` 정규화 점수는 Spring의 공용 계산기로 산출합니다. 시험 결과는 quiz-assessment·diagnosis 파이프라인을 호출하지 않습니다.
 - 운영용 최신 제출과 학생 결과 조회는 상태와 무관한 `MAX(attemptNo)`를 사용합니다. 성적·리포트 대표값은 `MAX(attemptNo WHERE status=GRADED)`이며, `GRADED 80점 → GRADING_FAILED` 순서라면 이전 80점 제출이 대표 성적입니다.
 
 ## 7. 학습 환경설정·학습자 메모리 API

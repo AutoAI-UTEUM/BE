@@ -55,7 +55,7 @@ public record StudentExamSubmissionResponse(
 		boolean revealResult,
 		boolean reviewAvailable
 	) {
-		BigDecimal score = revealResult ? answer.getScore() : null;
+		BigDecimal score = revealResult ? answer.effectiveScore() : null;
 		Verdict verdict = revealResult ? answer.getVerdict() : null;
 		String feedback = revealResult ? answer.getFeedback() : null;
 		if (!reviewAvailable) {

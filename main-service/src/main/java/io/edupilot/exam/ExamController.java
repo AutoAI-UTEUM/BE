@@ -18,7 +18,9 @@ import io.edupilot.auth.AuthenticatedUser;
 import io.edupilot.exam.dto.ExamAttemptStartResponse;
 import io.edupilot.exam.dto.ExamSubmissionResponse;
 import io.edupilot.exam.dto.InstructorExamDetailResponse;
+import io.edupilot.exam.dto.InstructorExamSubmissionResponse;
 import io.edupilot.exam.dto.InstructorSubmissionListResponse;
+import io.edupilot.exam.dto.ManualScoreAdjustmentRequest;
 import io.edupilot.exam.dto.StudentExamSubmissionResponse;
 import io.edupilot.exam.dto.SubmitExamRequest;
 import io.edupilot.exam.dto.UpdateExamRequest;
@@ -124,13 +126,27 @@ public class ExamController {
 
 	@GetMapping("/{examId}/submissions/{submissionId}")
 	@Operation(summary = "시험 제출 상세 조회")
-	public ApiResponse<ExamSubmissionResponse> submissionDetail(
+	public ApiResponse<InstructorExamSubmissionResponse> submissionDetail(
 		@AuthenticationPrincipal AuthenticatedUser user,
 		@PathVariable Long examId,
 		@PathVariable Long submissionId
 	) {
 		return ApiResponse.success(instructorExamService.submissionDetail(
 			user.userId(), user.role(), examId, submissionId
+		));
+	}
+
+	@PatchMapping("/{examId}/submissions/{submissionId}/answers/{questionId}/score")
+	@Operation(summary = "시험 답안 문항 점수 수동 수정")
+	public ApiResponse<InstructorExamSubmissionResponse> adjustAnswerScore(
+		@AuthenticationPrincipal AuthenticatedUser user,
+		@PathVariable Long examId,
+		@PathVariable Long submissionId,
+		@PathVariable String questionId,
+		@Valid @RequestBody ManualScoreAdjustmentRequest request
+	) {
+		return ApiResponse.success(instructorExamService.adjustAnswerScore(
+			user.userId(), user.role(), examId, submissionId, questionId, request
 		));
 	}
 

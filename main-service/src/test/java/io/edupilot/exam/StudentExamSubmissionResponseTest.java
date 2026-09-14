@@ -97,6 +97,35 @@ class StudentExamSubmissionResponseTest {
 		assertThat(json.toString()).doesNotContain("rubric");
 	}
 
+	@Test
+	void manualAdjustmentUsesEffectiveScoreWithoutExposingAdjustmentMetadata() {
+		ExamSubmission submission = submission();
+		when(submission.getScore()).thenReturn(new BigDecimal("8.00"));
+		when(submission.getNormalizedScore()).thenReturn(new BigDecimal("80.00"));
+		ExamAnswer answer = answer(
+			1,
+			ExamQuestionType.SHORT,
+			new ExamPublicQuestion("SHORT", List.of()),
+			new ExamPrivateAnswer(null, null, null, "참고 답안", null, List.of())
+		);
+		answer.recordManualScore(
+			new BigDecimal("8.00"), 1L, Instant.parse("2026-09-09T02:00:00Z")
+		);
+
+		JsonNode json = objectMapper.valueToTree(
+			StudentExamSubmissionResponse.from(submission, List.of(answer), true)
+		);
+
+		assertThat(json.at("/score").decimalValue()).isEqualByComparingTo("8.00");
+		assertThat(json.at("/reviewAvailable").booleanValue()).isTrue();
+		assertThat(json.at("/items/0/score").decimalValue()).isEqualByComparingTo("8.00");
+		assertThat(json.at("/items/0/verdict").textValue()).isEqualTo("PARTIAL");
+		assertThat(json.toString())
+			.doesNotContain("manualScore")
+			.doesNotContain("adjustedBy")
+			.doesNotContain("adjustedAt");
+	}
+
 	private ExamSubmission submission() {
 		ExamSubmission submission = mock(ExamSubmission.class);
 		when(submission.getId()).thenReturn(10L);

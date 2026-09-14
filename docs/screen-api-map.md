@@ -46,6 +46,7 @@
 | 시험 관리 | 자료 기반 AI 문항 초안 | `POST /api/classrooms/{classroomId}/exams/{examId}/draft-questions` | 보조 버튼으로 초안을 받아 편집기에 채우되 자동 저장하지 않음. `truncated=true`면 30페이지 제한 안내 | 소유 강사, DRAFT 상태, READY 자료, AI 오류 |
 | 시험 관리 | 공개·마감·DRAFT 삭제 | `POST /api/exams/{examId}/publish`, `POST .../close`, `DELETE /api/exams/{examId}` | 상태 배지와 응시 가능 여부 갱신 | `EXAM_NOT_EDITABLE`, `EXAM_NOT_PUBLISHED` |
 | 시험 결과 관리 | 학생별 최신 제출·특정 시도 조회 | `GET /api/exams/{examId}/submissions`, `GET .../submissions/{submissionId}` | 운영 화면은 전체 상태의 최신 attempt를 표시. 성적·리포트 대표값은 최신 GRADED attempt | 시험 소유권, 페이지네이션 |
+| 시험 결과 관리 | 문항 점수 수동 조정 | `PATCH /api/exams/{examId}/submissions/{submissionId}/answers/{questionId}/score` | `{score}` 전송 후 반환된 제출 상세 전체로 화면 갱신. `manualScore != null`이면 수동 조정 표시 | 소유 강사·GRADED만 허용, 범위 400, 채점 중·실패 409 |
 | 시험 결과 관리 | 실패 제출 재채점 | `POST /api/exams/{examId}/submissions/{submissionId}/regrade` | `GRADING_FAILED`에만 버튼 노출. 202/SUBMITTED 후 결과 조회로 전환하며 저장 답안을 재사용 | 비소유·부재 404, 상태 충돌 409. executor 포화는 202 후 scheduler 회수 |
 | 시험 응시 | 공개·마감 시험 목록과 상세 조회 | `GET /api/classrooms/{classroomId}/exams`, `GET /api/exams/{examId}` | PUBLISHED는 응시 UI, CLOSED는 읽기 전용 결과 UI. `dueAt`은 표시용이며 경과 자체로 응시를 막지 않음 | DRAFT는 `EXAM_NOT_FOUND`로 은닉 |
 | 시험 응시 | 응시 화면 진입 | `POST /api/exams/{examId}/attempts/start` | 화면 진입 시 1회 호출하고 반환된 `startedAt`을 표시 기준으로 사용. 새로고침·재진입도 같은 미소비 시각 반환 | 비멤버·강사·DRAFT/CLOSED·완료 강의실 |

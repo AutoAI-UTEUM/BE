@@ -134,6 +134,11 @@ public class ExamSubmission {
 		clearGradingLease();
 	}
 
+	public void updateScores(BigDecimal score, BigDecimal normalizedScore) {
+		this.score = score;
+		this.normalizedScore = normalizedScore;
+	}
+
 	public void failGrading() {
 		this.status = SubmissionStatus.GRADING_FAILED;
 		this.score = null;

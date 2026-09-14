@@ -2,9 +2,12 @@ package io.edupilot.exam;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -17,11 +20,13 @@ import io.edupilot.classroom.ClassroomStatus;
 import io.edupilot.exam.dto.CreateExamRequest;
 import io.edupilot.exam.dto.ExamQuestionRequest;
 import io.edupilot.exam.dto.ExamSubmissionResponse;
+import io.edupilot.exam.dto.InstructorExamSubmissionResponse;
 import io.edupilot.exam.dto.InstructorExamDetailResponse;
 import io.edupilot.exam.dto.InstructorExamListItemResponse;
 import io.edupilot.exam.dto.InstructorExamListResponse;
 import io.edupilot.exam.dto.InstructorSubmissionListItemResponse;
 import io.edupilot.exam.dto.InstructorSubmissionListResponse;
+import io.edupilot.exam.dto.ManualScoreAdjustmentRequest;
 import io.edupilot.exam.dto.UpdateExamRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -31,7 +36,9 @@ import io.edupilot.user.UserRole;
 @Service
 public class InstructorExamService {
 
+	private static final Logger log = LoggerFactory.getLogger(InstructorExamService.class);
 	private static final String SCHEMA_VERSION = "1.0";
+	private static final String MANUAL_SCORE_ADJUSTED = "MANUAL_SCORE_ADJUSTED";
 
 	private final ClassroomService classroomService;
 	private final ExamRepository examRepository;
@@ -39,6 +46,7 @@ public class InstructorExamService {
 	private final ExamSubmissionRepository submissionRepository;
 	private final ExamAnswerRepository answerRepository;
 	private final ExamSubmissionPersistenceService submissionPersistenceService;
+	private final ExamSubmissionScoreCalculator scoreCalculator;
 	private final ExamNotificationDispatcher notificationDispatcher;
 	private final Clock clock;
 
@@ -49,6 +57,7 @@ public class InstructorExamService {
 		ExamSubmissionRepository submissionRepository,
 		ExamAnswerRepository answerRepository,
 		ExamSubmissionPersistenceService submissionPersistenceService,
+		ExamSubmissionScoreCalculator scoreCalculator,
 		ExamNotificationDispatcher notificationDispatcher,
 		Clock clock
 	) {
@@ -58,6 +67,7 @@ public class InstructorExamService {
 		this.submissionRepository = submissionRepository;
 		this.answerRepository = answerRepository;
 		this.submissionPersistenceService = submissionPersistenceService;
+		this.scoreCalculator = scoreCalculator;
 		this.notificationDispatcher = notificationDispatcher;
 		this.clock = clock;
 	}
@@ -239,7 +249,7 @@ public class InstructorExamService {
 	}
 
 	@Transactional(readOnly = true)
-	public ExamSubmissionResponse submissionDetail(
+	public InstructorExamSubmissionResponse submissionDetail(
 		Long userId,
 		UserRole role,
 		Long examId,
@@ -249,10 +259,62 @@ public class InstructorExamService {
 		ExamSubmission submission = submissionRepository.findByIdAndExam_Id(
 			submissionId, examId
 		).orElseThrow(() -> new BusinessException(ErrorCode.EXAM_NOT_FOUND));
-		return ExamSubmissionResponse.from(
+		return InstructorExamSubmissionResponse.from(
 			submission,
 			answerRepository.findBySubmission_IdOrderByQuestion_Id(submissionId)
 		);
+	}
+
+	@Transactional
+	public InstructorExamSubmissionResponse adjustAnswerScore(
+		Long userId,
+		UserRole role,
+		Long examId,
+		Long submissionId,
+		String questionId,
+		ManualScoreAdjustmentRequest request
+	) {
+		requireOwnedExam(userId, role, examId);
+		ExamSubmission submission = submissionRepository.findByIdAndExamIdForUpdate(
+			submissionId, examId
+		).orElseThrow(() -> new BusinessException(ErrorCode.EXAM_NOT_FOUND));
+		List<ExamAnswer> answers = answerRepository
+			.findBySubmission_IdOrderByQuestion_Id(submissionId);
+		ExamAnswer answer = answers.stream()
+			.filter(candidate -> ("q" + candidate.getQuestionNo()).equals(questionId))
+			.findFirst()
+			.orElseThrow(() -> new BusinessException(ErrorCode.EXAM_NOT_FOUND));
+		if (submission.getStatus() != SubmissionStatus.GRADED) {
+			throw new BusinessException(ErrorCode.SUBMISSION_NOT_ADJUSTABLE);
+		}
+		BigDecimal newScore = request == null ? null : request.score();
+		if (newScore == null) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+		}
+		if (newScore.signum() < 0 || newScore.compareTo(answer.getMaxScore()) > 0) {
+			throw new BusinessException(ErrorCode.SCORE_OUT_OF_RANGE);
+		}
+
+		BigDecimal beforeScore = answer.effectiveScore();
+		Instant adjustedAt = clock.instant();
+		answer.recordManualScore(newScore, userId, adjustedAt);
+		ExamSubmissionScoreCalculator.Result result = scoreCalculator.calculate(
+			submission, answers
+		);
+		submission.updateScores(result.score(), result.normalizedScore());
+		answerRepository.flush();
+		submissionRepository.flush();
+		log.atInfo()
+			.addKeyValue("action", MANUAL_SCORE_ADJUSTED)
+			.addKeyValue("actorUserId", userId)
+			.addKeyValue("examId", examId)
+			.addKeyValue("submissionId", submissionId)
+			.addKeyValue("questionId", questionId)
+			.addKeyValue("beforeScore", beforeScore)
+			.addKeyValue("afterScore", newScore)
+			.addKeyValue("adjustedAt", adjustedAt)
+			.log("Instructor manually adjusted an exam answer score");
+		return InstructorExamSubmissionResponse.from(submission, answers);
 	}
 
 	@Transactional
