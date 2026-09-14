@@ -48,5 +48,6 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	maxHeapSize = '2g'
 	systemProperty 'it.ai', System.getProperty('it.ai', 'false')
 }
