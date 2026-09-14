@@ -74,6 +74,8 @@ class HttpAiClientStreamTest {
 			);
 
 		assertThat(response.turnId()).isEqualTo("turn-stream");
+		assertThat(response.turnGoal())
+			.isEqualTo("Answer the learner's question using the current page");
 		assertThat(events)
 			.extracting(TurnStreamEvent::type)
 			.containsExactly(
@@ -122,7 +124,8 @@ class HttpAiClientStreamTest {
 					Duration.ofSeconds(2)
 				);
 
-			assertThat(response.turnGoal()).isEqualTo("WRITE_NOTE");
+			assertThat(response.turnGoal())
+				.isEqualTo("Summarize the lesson as a study note");
 			assertThat(response.noteDraft()).isNotNull();
 		}
 	}
@@ -140,14 +143,15 @@ class HttpAiClientStreamTest {
 				Duration.ofSeconds(2)
 			);
 
-		assertThat(response.turnGoal()).isEqualTo("REPAIR_MISCONCEPTION");
+		assertThat(response.turnGoal())
+			.isEqualTo("Repair the learner's misconception");
 		assertThat(response.messages()).singleElement().satisfies(message ->
 			assertThat(message.get("messageType")).isEqualTo("REPAIR")
 		);
 	}
 
 	@Test
-	void explanationRequiresContentDeltaMatchingItsSingleMessage() {
+	void explanationAcceptsFreeTextGoalAndUiActionsWithMatchingDelta() {
 		server.enqueue(ndjson("""
 			{"type":"content_delta","text":"페이지 설명"}
 			%s
@@ -165,7 +169,10 @@ class HttpAiClientStreamTest {
 				Duration.ofSeconds(2)
 			);
 
-		assertThat(response.turnGoal()).isEqualTo("EXPLAIN_CURRENT_PAGE");
+		assertThat(response.turnGoal()).isEqualTo(
+			"Explain page 17 on high-dimensional gradient descent geometry"
+		);
+		assertThat(response.uiActions()).hasSize(1);
 	}
 
 	@Test
@@ -213,30 +220,19 @@ class HttpAiClientStreamTest {
 	}
 
 	@Test
-	void rejectsEventGoalOutsideMatrixAndLogsRule() {
-		Logger logger = (Logger) LoggerFactory.getLogger(HttpAiClient.class);
-		ListAppender<ILoggingEvent> appender = new ListAppender<>();
-		appender.start();
-		logger.addAppender(appender);
-
-		try {
-			assertInvalid(completedQuiz("turn-stream"));
-		} finally {
-			logger.detachAppender(appender);
-			appender.stop();
-		}
-
-		assertThat(appender.list)
-			.filteredOn(event -> event.getFormattedMessage().equals(
-				"AI stream completion validation failed"
-			))
-			.singleElement()
-			.satisfies(event ->
-				assertThat(event.getKeyValuePairs()).anySatisfy(pair -> {
-					assertThat(pair.key).isEqualTo("validationRule");
-					assertThat(pair.value).isEqualTo("event-goal-shape");
-				})
-			);
+	void logsTheSpecificShapeRuleThatRejectedCompletion() {
+		assertThat(invalidValidationRule(
+			completedExplanation("turn-stream", "페이지 설명"),
+			"EXPLAIN_CURRENT_PAGE"
+		)).isEqualTo("explain-empty-delta");
+		assertThat(invalidValidationRule(
+			completed("turn-stream", "질문 답변"),
+			"USER_QUESTION"
+		)).isEqualTo("note-shape-missing-draft");
+		assertThat(invalidValidationRule(
+			completedQuizWithoutQuiz("turn-stream"),
+			"QUIZ_TYPE_SELECTED"
+		)).isEqualTo("quiz-shape-missing-quiz");
 	}
 
 	@Test
@@ -457,6 +453,30 @@ class HttpAiClientStreamTest {
 			);
 	}
 
+	private String invalidValidationRule(String body, String eventType) {
+		Logger logger = (Logger) LoggerFactory.getLogger(HttpAiClient.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+
+		try {
+			assertInvalid(body, eventType);
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+
+		return appender.list.stream()
+			.filter(event -> event.getFormattedMessage().equals(
+				"AI stream completion validation failed"
+			))
+			.flatMap(event -> event.getKeyValuePairs().stream())
+			.filter(pair -> "validationRule".equals(pair.key))
+			.map(pair -> String.valueOf(pair.value))
+			.findFirst()
+			.orElseThrow();
+	}
+
 	private void assertStreamReadFailure(
 		IOException failure,
 		ErrorCode expectedError
@@ -555,13 +575,13 @@ class HttpAiClientStreamTest {
 
 	private String completed(String turnId, String content) {
 		return """
-			{"type":"completed","result":{"schemaVersion":"1.0","turnId":"%s","turnGoal":"ANSWER_USER_QUESTION","actionsExecuted":[],"messages":[{"messageType":"QA","content":"%s"}],"statePatch":{},"uiActions":[],"memoryCandidates":[]}}
+			{"type":"completed","result":{"schemaVersion":"1.0","turnId":"%s","turnGoal":"Answer the learner's question using the current page","actionsExecuted":[],"messages":[{"messageType":"QA","content":"%s"}],"statePatch":{},"uiActions":[],"memoryCandidates":[]}}
 			""".formatted(turnId, content).strip();
 	}
 
 	private String completedExplanation(String turnId, String content) {
 		return """
-			{"type":"completed","result":{"schemaVersion":"1.0","turnId":"%s","turnGoal":"EXPLAIN_CURRENT_PAGE","actionsExecuted":[],"messages":[{"messageType":"EXPLANATION","content":"%s"}],"statePatch":{"pageStatus":"EXPLAINED"},"uiActions":[],"memoryCandidates":[]}}
+			{"type":"completed","result":{"schemaVersion":"1.0","turnId":"%s","turnGoal":"Explain page 17 on high-dimensional gradient descent geometry","actionsExecuted":[],"messages":[{"messageType":"EXPLANATION","content":"%s"}],"statePatch":{"pageStatus":"EXPLAINED"},"uiActions":[{"type":"BINARY_DECISION","content":"퀴즈를 진행할까요?","yesEvent":"SHOW_QUIZ_TYPE_SELECT","noEvent":"WAIT"}],"memoryCandidates":[]}}
 			""".formatted(turnId, content).strip();
 	}
 
@@ -581,25 +601,25 @@ class HttpAiClientStreamTest {
 		String noteDraft
 	) {
 		return """
-			{"type":"completed","result":{"schemaVersion":"1.0","turnId":"%s","turnGoal":"WRITE_NOTE","actionsExecuted":[],"messages":%s,"statePatch":%s,"uiActions":[],"memoryCandidates":[],"noteDraft":%s}}
+			{"type":"completed","result":{"schemaVersion":"1.0","turnId":"%s","turnGoal":"Summarize the lesson as a study note","actionsExecuted":[],"messages":%s,"statePatch":%s,"uiActions":[],"memoryCandidates":[],"noteDraft":%s}}
 			""".formatted(turnId, messages, statePatch, noteDraft).strip();
 	}
 
 	private String completedDiagnosis(String turnId) {
 		return """
-			{"type":"completed","result":{"schemaVersion":"1.0","turnId":"%s","turnGoal":"REPAIR_MISCONCEPTION","actionsExecuted":[],"messages":[{"messageType":"REPAIR","content":"교정 설명"}],"statePatch":{"pageStatus":"REPAIR_COMPLETED","pendingDiagnosis":null},"uiActions":[],"memoryCandidates":[]}}
+			{"type":"completed","result":{"schemaVersion":"1.0","turnId":"%s","turnGoal":"Repair the learner's misconception","actionsExecuted":[],"messages":[{"messageType":"REPAIR","content":"교정 설명"}],"statePatch":{"pageStatus":"REPAIR_COMPLETED","pendingDiagnosis":null},"uiActions":[],"memoryCandidates":[]}}
 			""".formatted(turnId).strip();
 	}
 
 	private String completedQuiz(String turnId) {
 		return """
-			{"type":"completed","result":{"schemaVersion":"1.0","turnId":"%s","turnGoal":"GENERATE_QUIZ","actionsExecuted":[],"messages":[],"statePatch":{"pageStatus":"QUIZ_READY"},"uiActions":[],"quiz":{"schemaVersion":"1.0","generationId":"generation-1","quizType":"MCQ","coverage":{"startPage":2,"endPage":4},"title":"퀴즈","questionCount":5,"questions":[{"questionId":"q1","questionText":"문항 1","points":10,"choices":[{"choiceId":"a","text":"A"},{"choiceId":"b","text":"B"}],"answerChoiceId":"a","explanation":"해설"},{"questionId":"q2","questionText":"문항 2","points":10,"choices":[{"choiceId":"a","text":"A"},{"choiceId":"b","text":"B"}],"answerChoiceId":"a","explanation":"해설"},{"questionId":"q3","questionText":"문항 3","points":10,"choices":[{"choiceId":"a","text":"A"},{"choiceId":"b","text":"B"}],"answerChoiceId":"a","explanation":"해설"},{"questionId":"q4","questionText":"문항 4","points":10,"choices":[{"choiceId":"a","text":"A"},{"choiceId":"b","text":"B"}],"answerChoiceId":"a","explanation":"해설"},{"questionId":"q5","questionText":"문항 5","points":10,"choices":[{"choiceId":"a","text":"A"},{"choiceId":"b","text":"B"}],"answerChoiceId":"a","explanation":"해설"}]},"memoryCandidates":[]}}
+			{"type":"completed","result":{"schemaVersion":"1.0","turnId":"%s","turnGoal":"Generate a five-question checkpoint quiz","actionsExecuted":[],"messages":[],"statePatch":{"pageStatus":"QUIZ_READY"},"uiActions":[],"quiz":{"schemaVersion":"1.0","generationId":"generation-1","quizType":"MCQ","coverage":{"startPage":2,"endPage":4},"title":"퀴즈","questionCount":5,"questions":[{"questionId":"q1","questionText":"문항 1","points":10,"choices":[{"choiceId":"a","text":"A"},{"choiceId":"b","text":"B"}],"answerChoiceId":"a","explanation":"해설"},{"questionId":"q2","questionText":"문항 2","points":10,"choices":[{"choiceId":"a","text":"A"},{"choiceId":"b","text":"B"}],"answerChoiceId":"a","explanation":"해설"},{"questionId":"q3","questionText":"문항 3","points":10,"choices":[{"choiceId":"a","text":"A"},{"choiceId":"b","text":"B"}],"answerChoiceId":"a","explanation":"해설"},{"questionId":"q4","questionText":"문항 4","points":10,"choices":[{"choiceId":"a","text":"A"},{"choiceId":"b","text":"B"}],"answerChoiceId":"a","explanation":"해설"},{"questionId":"q5","questionText":"문항 5","points":10,"choices":[{"choiceId":"a","text":"A"},{"choiceId":"b","text":"B"}],"answerChoiceId":"a","explanation":"해설"}]},"memoryCandidates":[]}}
 			""".formatted(turnId).strip();
 	}
 
 	private String completedQuizWithoutQuiz(String turnId) {
 		return """
-			{"type":"completed","result":{"schemaVersion":"1.0","turnId":"%s","turnGoal":"GENERATE_QUIZ","actionsExecuted":[],"messages":[],"statePatch":{"pageStatus":"QUIZ_READY"},"uiActions":[],"memoryCandidates":[]}}
+			{"type":"completed","result":{"schemaVersion":"1.0","turnId":"%s","turnGoal":"Generate a five-question checkpoint quiz","actionsExecuted":[],"messages":[],"statePatch":{"pageStatus":"QUIZ_READY"},"uiActions":[],"memoryCandidates":[]}}
 			""".formatted(turnId).strip();
 	}
 }

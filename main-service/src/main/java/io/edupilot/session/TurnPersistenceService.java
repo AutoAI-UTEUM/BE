@@ -99,9 +99,10 @@ public class TurnPersistenceService {
 		if (!requestId.equals(session.getActiveTurnRequestId())) {
 			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
 		}
-		boolean directNote = aiResponse.isDirectNote(eventType.name());
+		// Persisted direct-note responses have no content delta by contract.
+		boolean directNote = aiResponse.isDirectNote(eventType.name(), 0);
 		if (eventType == TurnEventType.USER_QUESTION
-			&& "WRITE_NOTE".equals(aiResponse.turnGoal())
+			&& aiResponse.hasNoteResponseSignal()
 			&& !directNote) {
 			throw policy();
 		}
