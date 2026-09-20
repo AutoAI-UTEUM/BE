@@ -21,6 +21,7 @@ class LlmUsage:
     input_tokens: int | None
     output_tokens: int | None
     reasoning_tokens: int | None
+    cost_usd_ticks: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

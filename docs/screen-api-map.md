@@ -143,6 +143,8 @@ turn 응답의 `state.activeQuizId`는 nullable입니다. 퀴즈 생성 턴에�
 ## 4. FE가 의존하면 안 되는 정보
 
 - FastAPI 내부 엔드포인트
+- 내부 `usage.cost_usd_ticks`(10^10 ticks/USD): 서버 비용 집계 전용이며 학습 화면
+  응답·SSE에는 노출하지 않습니다. 관리자 비용 표시는 별도 Spring API 계약을 따릅니다.
 - Orchestrator의 세부 Plan 또는 비공개 reason
 - Grok 프롬프트와 내부 추론
 - 퀴즈 제출 전 정답·루브릭
