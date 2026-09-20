@@ -15,8 +15,13 @@ edupilot:
     pipeline-read-timeout: 45s
   jwt:
     secret: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
-    access-token-ttl: 1h
-    refresh-token-ttl: 14d
+    access-token-ttl: 15m
+  auth:
+    session:
+      absolute-ttl: 14d
+      admin-idle-ttl: 30m
+      instructor-idle-ttl: 2h
+      learner-idle-ttl: 2h
   storage:
     root-directory: build/test-storage
 

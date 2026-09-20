@@ -2,6 +2,7 @@ package io.edupilot.auth;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import io.edupilot.auth.AuthService.LoginResult;
 import io.edupilot.auth.AuthService.RefreshResult;
 import io.edupilot.auth.dto.AccessTokenResponse;
+import io.edupilot.auth.dto.AuthSessionResponse;
 import io.edupilot.auth.dto.EmailAvailabilityResponse;
 import io.edupilot.auth.dto.GoogleLoginRequest;
 import io.edupilot.auth.dto.LoginRequest;
@@ -63,7 +65,10 @@ public class AuthController {
 		return ResponseEntity.ok()
 			.header(
 				HttpHeaders.SET_COOKIE,
-				refreshTokenCookie.create(result.refreshToken()).toString()
+				refreshTokenCookie.create(
+					result.refreshToken(),
+					result.cookieMaxAge()
+				).toString()
 			)
 			.body(ApiResponse.success(result.response()));
 	}
@@ -77,7 +82,10 @@ public class AuthController {
 		return ResponseEntity.ok()
 			.header(
 				HttpHeaders.SET_COOKIE,
-				refreshTokenCookie.create(result.refreshToken()).toString()
+				refreshTokenCookie.create(
+					result.refreshToken(),
+					result.cookieMaxAge()
+				).toString()
 			)
 			.body(ApiResponse.success(result.response()));
 	}
@@ -91,9 +99,23 @@ public class AuthController {
 		return ResponseEntity.ok()
 			.header(
 				HttpHeaders.SET_COOKIE,
-				refreshTokenCookie.create(result.refreshToken()).toString()
+				refreshTokenCookie.create(
+					result.refreshToken(),
+					result.cookieMaxAge()
+				).toString()
 			)
 			.body(ApiResponse.success(result.response()));
+	}
+
+	@PostMapping("/session/activity")
+	@Operation(summary = "현재 인증 세션 활동 연장")
+	public ApiResponse<AuthSessionResponse> recordActivity(
+		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+		@CookieValue(name = RefreshTokenCookie.NAME, required = false) String rawToken
+	) {
+		return ApiResponse.success(
+			authService.recordActivity(authenticatedUser.userId(), rawToken)
+		);
 	}
 
 	@PostMapping("/logout")

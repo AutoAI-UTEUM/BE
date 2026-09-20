@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 계약 초안 |
-| 마지막 갱신 | 2026-09-09 |
+| 마지막 갱신 | 2026-09-20 |
 | 외부 호출자 | Frontend |
 | 내부 호출자 | Spring → FastAPI |
 
@@ -56,6 +56,7 @@
 | POST | `/api/auth/login` | 로그인 | N | 전체 |
 | POST | `/api/auth/google` | Google ID 토큰 로그인·가입 | N | 전체 |
 | POST | `/api/auth/refresh` | access 재발급 (refresh 쿠키 회전) | 쿠키 | refresh 쿠키 보유자 |
+| POST | `/api/auth/session/activity` | 실제 사용자 활동으로 현재 인증 세션 idle 만료 연장 | Y+쿠키 | Bearer 사용자와 refresh 쿠키 사용자가 같은 현재 세션 |
 | POST | `/api/auth/logout` | 로그아웃 (refresh 폐기·쿠키 만료) | 쿠키 | refresh 쿠키 보유자 (멱등) |
 | GET | `/api/health/ready` | DB·AI Service readiness ([응답 계약](issues/11-observability.md)) | N | 전체 |
 | GET | `/api/users/me` | 내 정보 조회 | Y | 본인 |
@@ -227,7 +228,7 @@
 {
   "accessToken": "jwt-token",
   "tokenType": "Bearer",
-  "expiresIn": 3600,
+  "expiresIn": 900,
   "user": {
     "id": 1,
     "email": "user@example.com",
@@ -236,13 +237,20 @@
     "affiliation": "EduPilot University",
     "avatarUrl": "/api/users/me/avatar",
     "learningEmailOptIn": true
+  },
+  "session": {
+    "idleTimeoutSeconds": 7200,
+    "idleExpiresAt": "2026-09-20T06:00:00Z",
+    "absoluteExpiresAt": "2026-10-04T04:00:00Z"
   }
 }
 ```
 
 응답과 JWT `role` claim은 `LEARNER | INSTRUCTOR | ADMIN` 중 저장된 계정 역할을 반환합니다. `LEARNER`와 `INSTRUCTOR`는 현재 동일한 인증·소유권 규칙을 적용합니다.
 
-refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DEC-004 Accepted). 쿠키 계약(확정): 이름 `edupilot_refresh`, `HttpOnly`, `Secure`, `SameSite=Lax`, **`Path=/api/auth`**(refresh·logout 요청에만 전송되도록 최소화), `Domain` 미설정(host-only), Max-Age 14일. 서버는 refresh 해시를 DB에 저장하고 회전·재사용 감지·강제 폐기를 지원합니다. access token 만료는 1시간이며 FE는 메모리에 보관합니다(localStorage 금지). 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
+refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DEC-004, DEC-040 Accepted). 쿠키 계약(확정): 이름 `edupilot_refresh`, `HttpOnly`, `Secure`, `SameSite=Lax`, **`Path=/api/auth`**, `Domain` 미설정(host-only), Max-Age는 최초 로그인 기준 절대 만료까지 남은 시간(최대 14일)입니다. 서버는 refresh 해시를 브라우저·기기별 인증 세션에 연결하고 회전·재사용 감지·강제 폐기를 지원합니다. access token 만료는 15분이며 FE는 메모리에 보관합니다(localStorage 금지).
+
+`session.idleTimeoutSeconds`는 역할 정책 원값으로 `ADMIN=1800`, `INSTRUCTOR|LEARNER=7200`입니다. `idleExpiresAt`은 실제 현재 세션의 idle 만료이고 절대 만료에 가까우면 정책 원값보다 짧을 수 있습니다. `absoluteExpiresAt`은 최초 로그인 후 14일이며 refresh나 activity로 연장되지 않습니다. 모든 시각은 UTC ISO 8601입니다. 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
 
 ### POST `/api/auth/google`
 
@@ -299,17 +307,39 @@ Google ID 토큰을 검증해 기존 계정으로 로그인하거나 신규 계�
 {
   "accessToken": "jwt-token",
   "tokenType": "Bearer",
-  "expiresIn": 3600
+  "expiresIn": 900,
+  "session": {
+    "idleTimeoutSeconds": 7200,
+    "idleExpiresAt": "2026-09-20T06:10:00Z",
+    "absoluteExpiresAt": "2026-10-04T04:00:00Z"
+  }
 }
 ```
 
-- **회전**: 성공 시 기존 refresh는 폐기되고 새 refresh 쿠키가 재발급됩니다. FE는 401 수신 시 이 API를 `credentials: "include"`로 호출해 access를 재발급받습니다.
-- **재사용 감지**: 이미 폐기(회전)된 refresh가 재사용되면 탈취 신호로 간주해 **해당 사용자의 refresh를 전량 폐기**하고 401을 반환합니다. FE 분기 단순화를 위해 별도 코드 없이 `TOKEN_INVALID`로 통일합니다(재로그인 유도).
-- 주요 오류: `TOKEN_INVALID`(401 — 쿠키 없음·미존재·폐기·만료·재사용 감지), `USER_INACTIVE`(403 — 탈퇴·비활성 사용자).
+- **회전**: 성공 시 기존 refresh는 폐기되고 같은 인증 세션에 새 refresh 쿠키가 발급됩니다. 성공한 refresh는 현재 세션 활동으로 기록해 idle 만료를 역할별 시간만큼 연장하지만 `absoluteExpiresAt`과 새 token/cookie 만료는 최초 로그인 기준 절대 만료를 넘지 않습니다.
+- **재사용 감지**: 이미 폐기된 refresh가 재사용되면 연결된 인증 세션 family의 token만 전량 폐기합니다. V41 이전의 `sessionId=null`인 폐기 token은 family를 복원할 수 없어 사용자 전체 token/session을 폐기합니다. 오류는 `TOKEN_INVALID`로 통일합니다.
+- FE는 access 만료 5분 전 최근 실제 입력 활동이 있을 때 또는 일반 요청의 최초 401에서만 `credentials: "include"`로 호출하고, 탭 전체 single-flight로 중복 회전을 막습니다.
+- 주요 오류: `TOKEN_INVALID`(401 — 쿠키 없음·미존재·폐기·재사용 감지), `AUTH_SESSION_IDLE_EXPIRED`(401), `AUTH_SESSION_ABSOLUTE_EXPIRED`(401), `USER_INACTIVE`(403). 이 오류들은 refresh 쿠키도 만료합니다.
+
+### POST `/api/auth/session/activity`
+
+Bearer access token과 `edupilot_refresh` 쿠키가 모두 필요하며 요청 body는 없습니다. Bearer 사용자와 cookie token 사용자가 같고 현재 인증 세션이 유효할 때만 성공합니다. 실제 pointer/key/touch/scroll 입력을 FE가 탭 전체 기준 최대 5분에 한 번 모아 호출하며 background polling이나 단순 timer는 활동으로 보내지 않습니다.
+
+`data`:
+
+```json
+{
+  "idleTimeoutSeconds": 7200,
+  "idleExpiresAt": "2026-09-20T06:15:00Z",
+  "absoluteExpiresAt": "2026-10-04T04:00:00Z"
+}
+```
+
+이 API는 access/refresh token을 발급하거나 회전하지 않고 cookie도 다시 설정하지 않습니다. 서버는 token과 세션의 폐기·idle·absolute 상태를 매번 검증하되 같은 세션의 DB UPDATE만 Caffeine으로 5분간 스로틀합니다. 일반 인증 API는 `auth_sessions`를 조회하거나 연장하지 않습니다. 주요 오류와 cookie 만료 규칙은 refresh와 같습니다.
 
 ### POST `/api/auth/logout`
 
-요청 body 없음 — `edupilot_refresh` 쿠키의 refresh를 폐기하고 쿠키를 만료(Max-Age=0)시킵니다. 이미 폐기됐거나 쿠키가 없어도 200을 반환합니다(멱등). access token은 서버가 무효화하지 않으며 만료(최대 1시간)로 소멸합니다 — FE는 로그아웃 시 메모리의 access를 즉시 삭제합니다.
+요청 body 없음 — `edupilot_refresh` 쿠키가 속한 현재 인증 세션과 그 세션의 활성 refresh token만 폐기하고 쿠키를 만료(Max-Age=0)시킵니다. 다른 기기의 인증 세션은 유지합니다. 이미 폐기됐거나 쿠키가 없어도 200을 반환합니다(멱등). access token은 서버가 무효화하지 않으며 만료(최대 15분)로 소멸합니다 — FE는 로그아웃 시 메모리의 access를 즉시 삭제합니다.
 
 ### GET `/api/users/me`
 
@@ -337,7 +367,7 @@ login의 `user`와 같은 사용자 필드를 반환합니다. 기존 계정은 
 
 `newPassword`에는 회원가입과 같은 비밀번호 정책(8~64자, 영문·숫자 각 1자 이상)을 적용합니다. `LOCAL` 계정만 사용할 수 있고, 현재 비밀번호가 일치해야 하며 현재 비밀번호와 같은 새 비밀번호는 거부합니다. 현재 비밀번호 검증에 5회 실패하면 마지막 실패부터 15분 동안 사용자 ID 기준으로 요청을 제한합니다. 성공하면 실패 횟수를 초기화합니다.
 
-이 요청에서는 현재 브라우저의 refresh token을 식별할 수 없으므로 성공 시 해당 사용자의 활성 refresh token을 **전량 폐기**합니다. `data`는 다음과 같으며, FE는 `reauthenticationRequired=true`를 받으면 보유 access token을 삭제하고 로그인 화면으로 이동해야 합니다. 기존 access token은 stateless JWT이므로 만료 전까지 서버에서 개별 폐기할 수 없습니다.
+이 요청에서는 현재 브라우저의 refresh token을 식별할 수 없으므로 성공 시 해당 사용자의 인증 세션과 활성 refresh token을 **전량 폐기**합니다. `data`는 다음과 같으며, FE는 `reauthenticationRequired=true`를 받으면 보유 access token을 삭제하고 로그인 화면으로 이동해야 합니다. 기존 access token은 stateless JWT이므로 만료 전까지(최대 15분) 서버에서 개별 폐기할 수 없습니다.
 
 ```json
 {
@@ -375,7 +405,7 @@ Bearer 인증 후 저장된 이미지의 실제 Media-Type으로 private/no-stor
 }
 ```
 
-회원 탈퇴(DEC-028). 비밀번호 재확인 후 `status=DELETED` 전환과 동시에 개인 식별 정보를 익명화합니다(email → `deleted_{id}`, name → 고정 문구, password_hash 무효화 — 재가입 허용). refresh token은 전부 폐기합니다. 소유 자료·세션은 함께 논리 삭제하고, 퀴즈 제출·평가·메모리 레코드는 익명 상태로 보존합니다. 복구는 지원하지 않으므로 FE는 확인 모달을 거쳐 호출합니다. 주요 오류: `INVALID_CREDENTIALS`.
+회원 탈퇴(DEC-028). 비밀번호 재확인 후 `status=DELETED` 전환과 동시에 개인 식별 정보를 익명화합니다(email → `deleted_{id}`, name → 고정 문구, password_hash 무효화 — 재가입 허용). 인증 세션과 refresh token은 전부 폐기합니다. 소유 자료·학습 세션은 함께 논리 삭제하고, 퀴즈 제출·평가·메모리 레코드는 익명 상태로 보존합니다. 복구는 지원하지 않으므로 FE는 확인 모달을 거쳐 호출합니다. 주요 오류: `INVALID_CREDENTIALS`.
 
 ## 4. 자료 API
 

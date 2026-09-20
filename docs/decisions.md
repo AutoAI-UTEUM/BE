@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | Open |
-| 마지막 갱신 | 2026-09-09 |
+| 마지막 갱신 | 2026-09-20 |
 
 확정된 선택은 날짜, 결정자, 이유를 기록하고 관련 문서를 함께 갱신합니다. 마감일은 팀 일정 확정 후 입력합니다.
 
 `DEC-001` 같은 값은 이 문서 안에서 결정을 추적하기 위한 ID이며 GitHub 이슈 번호가 아닙니다. 기본적으로 관련 Epic의 `결정 필요` 체크박스로 관리합니다. 여러 팀의 합의가 필요하거나 실제 개발을 막는 항목만 별도 `[Decision]` 이슈로 만들고, 이 표에 GitHub 이슈 링크를 추가합니다.
 
-**현재 별도 Open 상태로 등록된 DEC는 없습니다.** DEC-001~035의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC-033의 잔여 TBD 목록에서 추적합니다. 새 결정이 필요해지면 이 표 형식으로 다시 등재합니다.
+**현재 별도 Open 상태로 등록된 DEC는 없습니다.** DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC-033의 잔여 TBD 목록에서 추적합니다. 새 결정이 필요해지면 이 표 형식으로 다시 등재합니다.
 
 | ID | 결정 항목 | 현재 후보/질문 | 영향 | 소유자 | 목표 시점 |
 | --- | --- | --- | --- | --- | --- |
@@ -527,6 +527,17 @@
 - 이유: section 경계에 고정한 사전 checkpoint는 큰 section 중간의 독립적인 핵심 개념 페이지를 구조적으로 누락했습니다. 통합학습 명세의 중앙 Orchestrator가 실제 학습 시점의 전체 자료 흐름과 학습자 문맥으로 판단해야 의미 기반 타이밍을 복원할 수 있습니다.
 - 대안과 trade-off: outline 시점 checkpoint는 호출 비용이 낮지만 모든 학습자에게 고정되고 coarse section 품질에 종속됩니다. 런타임 판단은 설명 턴 LLM 호출이 1회 늘지만 자료·학습자별 판단을 정확히 적용합니다. checkpoint coverage는 누적 출제 문맥과 legacy fallback 용도로 계속 유지합니다.
 - 후속 변경 문서: [AI 통합 계약](ai-integration-contract.md) §0·§3.3.1, [API 명세](api-spec.md) §5 W3, [기능 명세](feature-spec.md) §7, [에이전트 명세](agent-system-spec.md) §3·§4.
+
+### DEC-040 — 브라우저·기기별 인증 세션 idle·absolute 수명
+
+- 상태: Accepted — Backend 이슈 #396
+- 결정일: 2026-09-20
+- 결정자: Backend 담당자
+- 선택: access token TTL은 15분으로 줄이고 refresh token family마다 `AuthSession`을 둡니다. idle timeout은 `ADMIN=30분`, `INSTRUCTOR|LEARNER=2시간`, absolute timeout은 최초 로그인 기준 14일입니다. refresh 성공과 실제 사용자 입력을 전달하는 `POST /api/auth/session/activity`만 idle을 연장하며, 일반 Bearer API와 background polling은 인증 세션을 연장하지 않습니다. session 활동 DB 쓰기는 5분에 한 번으로 스로틀하되 폐기·만료 검증은 생략하지 않습니다.
+- 폐기 경계: refresh 회전은 같은 session을 유지하고 absolute 만료를 연장하지 않습니다. 폐기 token 재사용은 해당 session family만 폐기하고, V41 이전 legacy token처럼 family를 복원할 수 없을 때만 사용자 전체를 폐기합니다. 명시적 로그아웃은 현재 session만, 비밀번호 변경·관리자 초기화·회원 탈퇴는 사용자 전체 session/token을 폐기합니다.
+- 이유: 기존 회전 시점 `now+14일` 방식은 계속 사용하는 계정을 무기한 유지했고 사용자 단위 `lastActiveAt`은 여러 기기를 구분하지 못했습니다. 세션별 idle과 absolute를 분리하면 활동 중 UX를 유지하면서 방치 세션과 장기 세션을 서버 정본으로 종료할 수 있습니다.
+- 대안과 trade-off: 모든 API마다 session을 조회·갱신하면 즉시 폐기는 강하지만 DB 쓰기와 stateless JWT 장점을 잃습니다. 15분 access TTL과 명시적 activity API를 택해 일반 요청 경로를 유지하며, session 종료 뒤 이미 발급된 access가 최대 15분 남을 수 있음을 수용합니다. FE는 실제 활동·선제 refresh·401 fallback을 탭 전체 single-flight로 조정해야 합니다.
+- 후속 변경 문서: [API 명세](api-spec.md) §3, [화면-API 매핑](screen-api-map.md), [DB 명세](database.md), [도메인 모델](domain-model.md), [에러 코드](error-code.md).
 
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 

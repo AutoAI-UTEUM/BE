@@ -1,6 +1,7 @@
 package io.edupilot.auth;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.Set;
@@ -10,9 +11,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.edupilot.auth.RefreshTokenService.ActivityResult;
+import io.edupilot.auth.RefreshTokenService.IssueResult;
 import io.edupilot.auth.RefreshTokenService.RotationResult;
-import io.edupilot.auth.RefreshTokenService.RotationStatus;
+import io.edupilot.auth.RefreshTokenService.SessionStatus;
 import io.edupilot.auth.dto.AccessTokenResponse;
+import io.edupilot.auth.dto.AuthSessionResponse;
 import io.edupilot.auth.dto.EmailAvailabilityResponse;
 import io.edupilot.auth.dto.GoogleLoginRequest;
 import io.edupilot.auth.dto.LoginRequest;
@@ -114,21 +118,27 @@ public class AuthService {
 
 	public RefreshResult refresh(String rawToken) {
 		RotationResult rotation = refreshTokenService.rotate(rawToken);
-		if (rotation.status() == RotationStatus.INACTIVE) {
-			throw new BusinessException(ErrorCode.USER_INACTIVE);
-		}
-		if (rotation.status() != RotationStatus.SUCCESS) {
-			throw new BusinessException(ErrorCode.TOKEN_INVALID);
-		}
+		throwIfSessionUnavailable(rotation.status());
 
 		String accessToken = jwtTokenProvider.createAccessToken(rotation.user());
 		AccessTokenResponse response = new AccessTokenResponse(
 			accessToken,
 			TOKEN_TYPE,
-			jwtTokenProvider.accessTokenExpiresInSeconds()
+			jwtTokenProvider.accessTokenExpiresInSeconds(),
+			AuthSessionResponse.from(rotation.session(), rotation.idleTtl())
 		);
 		userActivityTracker.track(rotation.user().getId());
-		return new RefreshResult(response, rotation.rawToken());
+		return new RefreshResult(
+			response,
+			rotation.rawToken(),
+			cookieMaxAge(rotation.session())
+		);
+	}
+
+	public AuthSessionResponse recordActivity(Long userId, String rawToken) {
+		ActivityResult result = refreshTokenService.recordActivity(userId, rawToken);
+		throwIfSessionUnavailable(result.status());
+		return AuthSessionResponse.from(result.session(), result.idleTtl());
 	}
 
 	public void logout(String rawToken) {
@@ -147,14 +157,43 @@ public class AuthService {
 
 	private LoginResult issueLogin(User user) {
 		String accessToken = jwtTokenProvider.createAccessToken(user);
-		String refreshToken = refreshTokenService.issue(user);
+		IssueResult issue = refreshTokenService.issue(user);
 		LoginResponse response = new LoginResponse(
 			accessToken,
 			TOKEN_TYPE,
 			jwtTokenProvider.accessTokenExpiresInSeconds(),
-			UserResponse.from(user)
+			UserResponse.from(user),
+			AuthSessionResponse.from(issue.session(), issue.idleTtl())
 		);
-		return new LoginResult(response, refreshToken);
+		return new LoginResult(
+			response,
+			issue.rawToken(),
+			Duration.between(
+				issue.session().getLastActivityAt(),
+				issue.session().getAbsoluteExpiresAt()
+			)
+		);
+	}
+
+	private void throwIfSessionUnavailable(SessionStatus status) {
+		switch (status) {
+			case SUCCESS -> {
+				return;
+			}
+			case INACTIVE -> throw new BusinessException(ErrorCode.USER_INACTIVE);
+			case IDLE_EXPIRED -> throw new BusinessException(
+				ErrorCode.AUTH_SESSION_IDLE_EXPIRED
+			);
+			case ABSOLUTE_EXPIRED -> throw new BusinessException(
+				ErrorCode.AUTH_SESSION_ABSOLUTE_EXPIRED
+			);
+			case INVALID -> throw new BusinessException(ErrorCode.TOKEN_INVALID);
+		}
+	}
+
+	private Duration cookieMaxAge(AuthSession session) {
+		Duration remaining = Duration.between(clock.instant(), session.getAbsoluteExpiresAt());
+		return remaining.isNegative() ? Duration.ZERO : remaining;
 	}
 
 	static String normalizeEmail(String email) {
@@ -196,9 +235,17 @@ public class AuthService {
 	) {
 	}
 
-	public record LoginResult(LoginResponse response, String refreshToken) {
+	public record LoginResult(
+		LoginResponse response,
+		String refreshToken,
+		Duration cookieMaxAge
+	) {
 	}
 
-	public record RefreshResult(AccessTokenResponse response, String refreshToken) {
+	public record RefreshResult(
+		AccessTokenResponse response,
+		String refreshToken,
+		Duration cookieMaxAge
+	) {
 	}
 }

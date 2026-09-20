@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 논리 설계 초안 |
-| 마지막 갱신 | 2026-09-09 |
+| 마지막 갱신 | 2026-09-20 |
 | DB | MySQL |
 | Migration | Flyway (DEC-003 Accepted) |
 
@@ -14,7 +14,8 @@
 | 테이블 | 핵심 컬럼 | 주요 제약/인덱스 |
 | --- | --- | --- |
 | `users` | id, email, password_hash, auth_provider, google_sub(nullable), name, affiliation, avatar_key, learning_email_opt_in, 약관 버전·동의 시각, notification preferences, ai_answer_style, role, status, last_active_at(nullable), timestamps | `UK(email)`, `UK(google_sub)`, `IDX(status)`, `IDX(last_active_at)`, role·ai_answer_style CHECK |
-| `refresh_tokens` | id, user_id, token_hash, expires_at, revoked_at, created_at | `FK(user_id)`, `UK(token_hash)`, `IDX(user_id)` |
+| `auth_sessions` | id, user_id, last_activity_at, idle_expires_at, absolute_expires_at, revoked_at(nullable), timestamps | `FK(user_id)`, `IDX(user_id,revoked_at)`, 만료 순서 CHECK |
+| `refresh_tokens` | id, user_id, session_id(nullable), token_hash, expires_at, revoked_at, created_at | `FK(user_id)`, `FK(session_id)`, `UK(token_hash)`, `IDX(user_id)`, `IDX(session_id,revoked_at)` |
 | `learning_materials` | id, owner_id, title, storage_key, page_count, processing_status, failure_reason(nullable), failure_trace_id(nullable), captions_completed_at(nullable), xai_file_id(nullable), xai_file_upload_attempted_at(nullable), status, timestamps | `FK(owner_id)`, `UK(storage_key)`, `IDX(owner_id,status)`, `IDX(status,processing_status,xai_file_id,xai_file_upload_attempted_at,id)`, 상태·실패 사유·page_count CHECK |
 | `material_pages` | id, material_id, page_number, text_content, caption(nullable), created_at | `FK(material_id)`, `UK(material_id,page_number)`, `CHECK(page_number >= 1)` |
 | `material_overviews` | id, material_id, content(nullable), outline_json(nullable), status, timestamps | `FK(material_id)`, `UK(material_id)`, status CHECK |
@@ -93,7 +94,8 @@
 - `notes`는 사용자와 자료에 귀속하며 세션·페이지·원본 채팅 메시지는 nullable 참조입니다. 목록은 사용자×ACTIVE 자료 범위로 조회하므로 자료가 논리 삭제되면 노트 행은 보존하되 API 목록에서는 제외합니다. 최신순은 `(created_at DESC, id DESC)`로 고정합니다.
 - `feedbacks`는 인증 사용자를 작성자로 기록하고 `BUG | FEATURE_REQUEST | GENERAL` category와 최대 2,000자의 message를 저장합니다. 운영자 조회 API 없이 DB에서 직접 확인합니다.
 - `quiz_submissions.score`와 `max_score`는 AI 부분점수를 보존하기 위해 `DECIMAL(10,2)`를 사용합니다. API 응답도 소수 둘째 자리까지 포함할 수 있습니다.
-- refresh token 원문은 저장하지 않고 SHA-256 해시만 `refresh_tokens.token_hash`에 저장합니다. 회전·로그아웃·탈퇴 시 `revoked_at`을 기록합니다.
+- refresh token 원문은 저장하지 않고 SHA-256 해시만 `refresh_tokens.token_hash`에 저장합니다. V41 이후 신규 token은 브라우저·기기별 `auth_sessions`에 연결하고 회전해도 같은 session과 최초 로그인 기준 `absolute_expires_at`을 유지합니다. 기존 token 호환을 위해 `session_id`는 nullable이며 활성 legacy token은 최초 refresh/activity에서 기존 token 만료를 absolute 만료로 채택해 지연 전환합니다.
+- 인증 session idle은 `ADMIN=30분`, `INSTRUCTOR|LEARNER=2시간`, absolute는 최초 로그인 후 14일입니다. refresh와 명시적 activity API만 `last_activity_at`·`idle_expires_at`을 연장하고, 일반 Bearer API는 이 테이블을 읽거나 쓰지 않습니다. session 활동 UPDATE는 session ID 기준 Caffeine 5분 스로틀을 적용합니다. `users.last_active_at`은 관리자 목록용 사용자 단위 지표로 별도 유지합니다.
 - `users.role`의 기본값은 `LEARNER`입니다. 공개 가입은 애플리케이션 계층에서 `LEARNER | INSTRUCTOR`만 허용하며 `ADMIN`은 예약 역할입니다.
 - `users.auth_provider`는 계정 최초 생성 경로인 `LOCAL | GOOGLE`을 저장합니다. 검증된 이메일과 일치하는 로컬 계정에 Google 로그인을 자동 연결할 때는 `auth_provider=LOCAL`을 유지하고 nullable `google_sub`만 기록합니다. Google 최초 가입은 `password_hash='!oauth:google'` sentinel을 저장해 비밀번호 로그인을 차단합니다. 탈퇴 시 `google_sub=NULL`로 해제해 같은 Google 계정의 재가입을 허용합니다.
 - 계정 환경설정은 필드가 3개이고 사용자와 1:1이므로 별도 테이블 대신 `users` 컬럼으로 저장합니다. 기존 계정에는 `new_material_notification=true`, `study_reminder=true`, `ai_answer_style=NORMAL`을 적용합니다. `avatar_key`는 URL 대신 storage 상대 키를 저장하며 실제 파일은 `avatars/` 하위에 둡니다.
@@ -115,6 +117,7 @@
 - `material_pages.page_number >= 1`
 - `learning_materials.page_count IS NULL OR page_count >= 1`
 - `learning_sessions.current_page >= 1`이며 애플리케이션에서 자료 `page_count` 이하인지 검증
+- `auth_sessions.last_activity_at <= auth_sessions.idle_expires_at <= auth_sessions.absolute_expires_at`
 - `learning_sessions.conversation_reset_count >= 0`
 - `session_page_records.page_number >= 1`
 - `notes.page_number IS NULL OR page_number >= 1`
@@ -228,6 +231,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V38__exam_review_timing.sql`은 시험별 미소비 응시 시작 테이블과 제출의 nullable 시작·소요 시간 컬럼 및 non-negative 제약을 추가합니다. 기존 제출은 null을 유지합니다.
 - `V39__exam_due_at_notifications.sql`은 시험의 nullable 마감 표시 시각, 시험 알림 3종 CHECK 확장, nullable dedup 키와 UNIQUE 인덱스를 추가합니다.
 - `V40__exam_answer_manual_scores.sql`은 답안별 nullable 수동 점수와 조정 강사·시각 감사 필드, 수동 점수 범위 CHECK를 추가합니다. 기존 AI 원점수는 그대로 유지합니다.
+- `V41__auth_sessions.sql`은 브라우저·기기별 인증 세션과 역할별 idle·최초 로그인 기준 absolute 만료를 저장하고, `refresh_tokens.session_id` nullable FK를 추가합니다. 기존 refresh는 강제 로그아웃이나 일괄 백필 없이 최초 사용 시 애플리케이션에서 지연 전환합니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.

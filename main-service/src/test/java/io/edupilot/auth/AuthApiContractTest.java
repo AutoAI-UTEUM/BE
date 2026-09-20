@@ -5,7 +5,10 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -21,6 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -91,6 +95,9 @@ class AuthApiContractTest {
 	@MockitoBean
 	private RefreshTokenRepository refreshTokenRepository;
 
+	@Autowired
+	private AuthSessionRepository authSessionRepository;
+
 	@MockitoBean
 	private LearningMaterialRepository learningMaterialRepository;
 
@@ -123,10 +130,28 @@ class AuthApiContractTest {
 
 	private MockMvc mockMvc;
 	private User user;
+	private final AtomicLong authSessionIds = new AtomicLong(1_000L);
 
 	@BeforeEach
 	void setUp() {
-		reset(userRepository, refreshTokenRepository, googleIdTokenVerifier);
+		reset(
+			userRepository,
+			refreshTokenRepository,
+			authSessionRepository,
+			googleIdTokenVerifier
+		);
+		when(authSessionRepository.saveAndFlush(any(AuthSession.class)))
+			.thenAnswer(invocation -> {
+				AuthSession session = invocation.getArgument(0);
+				if (session.getId() == null) {
+					ReflectionTestUtils.setField(
+						session,
+						"id",
+						authSessionIds.getAndIncrement()
+					);
+				}
+				return session;
+			});
 		mockMvc = MockMvcBuilders.webAppContextSetup(context)
 			.apply(springSecurity())
 			.addFilters(traceIdFilter, accessLogFilter)
@@ -155,8 +180,11 @@ class AuthApiContractTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.accessToken").isString())
 			.andExpect(jsonPath("$.data.tokenType").value("Bearer"))
-			.andExpect(jsonPath("$.data.expiresIn").value(3600))
+			.andExpect(jsonPath("$.data.expiresIn").value(900))
 			.andExpect(jsonPath("$.data.user.id").value(1))
+			.andExpect(jsonPath("$.data.session.idleTimeoutSeconds").value(7200))
+			.andExpect(jsonPath("$.data.session.idleExpiresAt").isString())
+			.andExpect(jsonPath("$.data.session.absoluteExpiresAt").isString())
 			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
 				"edupilot_refresh="
 			)))
@@ -376,7 +404,7 @@ class AuthApiContractTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.accessToken").isString())
 			.andExpect(jsonPath("$.data.tokenType").value("Bearer"))
-			.andExpect(jsonPath("$.data.expiresIn").value(3600))
+			.andExpect(jsonPath("$.data.expiresIn").value(900))
 			.andExpect(jsonPath("$.data.user.id").value(1))
 			.andExpect(jsonPath("$.data.user.role").value("LEARNER"))
 			.andExpect(jsonPath("$.data.user.affiliation").value(
@@ -386,6 +414,9 @@ class AuthApiContractTest {
 				org.hamcrest.Matchers.nullValue()
 			))
 			.andExpect(jsonPath("$.data.user.learningEmailOptIn").value(false))
+			.andExpect(jsonPath("$.data.session.idleTimeoutSeconds").value(7200))
+			.andExpect(jsonPath("$.data.session.idleExpiresAt").isString())
+			.andExpect(jsonPath("$.data.session.absoluteExpiresAt").isString())
 			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
 				"edupilot_refresh="
 			)))
@@ -469,8 +500,7 @@ class AuthApiContractTest {
 		JwtTokenProvider expiredProvider = new JwtTokenProvider(
 			new JwtProperties(
 				"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
-				java.time.Duration.ofHours(1),
-				java.time.Duration.ofDays(14)
+				java.time.Duration.ofHours(1)
 			),
 			java.time.Clock.fixed(
 				Instant.parse("2020-01-01T00:00:00Z"),
@@ -628,7 +658,8 @@ class AuthApiContractTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.accessToken").isString())
 			.andExpect(jsonPath("$.data.tokenType").value("Bearer"))
-			.andExpect(jsonPath("$.data.expiresIn").value(3600))
+			.andExpect(jsonPath("$.data.expiresIn").value(900))
+			.andExpect(jsonPath("$.data.session.idleTimeoutSeconds").value(7200))
 			.andExpect(jsonPath("$.data.user").doesNotExist())
 			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
 				"edupilot_refresh="
@@ -642,10 +673,125 @@ class AuthApiContractTest {
 	void refreshWithoutCookieIsInvalidAndLogoutWithoutCookieIsIdempotent() throws Exception {
 		mockMvc.perform(post("/api/auth/refresh"))
 			.andExpect(status().isUnauthorized())
-			.andExpect(jsonPath("$.error.code").value("TOKEN_INVALID"));
+			.andExpect(jsonPath("$.error.code").value("TOKEN_INVALID"))
+			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
+				"Max-Age=0"
+			)));
 
 		mockMvc.perform(post("/api/auth/logout"))
 			.andExpect(status().isOk())
+			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
+				"Max-Age=0"
+			)));
+	}
+
+	@Test
+	void ordinaryAuthenticatedApiDoesNotReadOrWriteAuthSessions() throws Exception {
+		when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+		String accessToken = jwtTokenProvider.createAccessToken(user);
+		clearInvocations(authSessionRepository);
+
+		mockMvc.perform(get("/api/users/me")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+			.andExpect(status().isOk());
+
+		verifyNoInteractions(authSessionRepository);
+	}
+
+	@Test
+	void activityRequiresBearerAndMatchingRefreshSession() throws Exception {
+		String rawToken = "activity-refresh-token";
+		AuthSession session = AuthSession.create(
+			user,
+			Instant.now(),
+			java.time.Duration.ofHours(2),
+			java.time.Duration.ofDays(14)
+		);
+		ReflectionTestUtils.setField(session, "id", 9_001L);
+		RefreshToken token = new RefreshToken(
+			user,
+			session,
+			refreshTokenService.hash(rawToken),
+			session.getAbsoluteExpiresAt()
+		);
+		when(refreshTokenRepository.findByTokenHashForUpdate(
+			refreshTokenService.hash(rawToken)
+		)).thenReturn(Optional.of(token));
+		when(authSessionRepository.findByIdForUpdate(9_001L))
+			.thenReturn(Optional.of(session));
+		String accessToken = jwtTokenProvider.createAccessToken(user);
+
+		mockMvc.perform(post("/api/auth/session/activity")
+				.cookie(new MockCookie(RefreshTokenCookie.NAME, rawToken)))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code").value("AUTHENTICATION_REQUIRED"));
+
+		mockMvc.perform(post("/api/auth/session/activity")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+				.cookie(new MockCookie(RefreshTokenCookie.NAME, rawToken)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.idleTimeoutSeconds").value(7200))
+			.andExpect(jsonPath("$.data.idleExpiresAt").isString())
+			.andExpect(jsonPath("$.data.absoluteExpiresAt").isString());
+		verify(refreshTokenRepository, never()).save(any(RefreshToken.class));
+	}
+
+	@Test
+	void refreshReturnsDistinctSessionExpiryErrorsAndExpiresCookie() throws Exception {
+		String accessToken = jwtTokenProvider.createAccessToken(user);
+		AuthSession idleExpired = AuthSession.create(
+			user,
+			Instant.now().minus(java.time.Duration.ofHours(3)),
+			java.time.Duration.ofHours(2),
+			java.time.Duration.ofDays(14)
+		);
+		ReflectionTestUtils.setField(idleExpired, "id", 9_002L);
+		RefreshToken idleToken = new RefreshToken(
+			user,
+			idleExpired,
+			refreshTokenService.hash("idle-expired"),
+			idleExpired.getAbsoluteExpiresAt()
+		);
+		when(refreshTokenRepository.findByTokenHashForUpdate(
+			refreshTokenService.hash("idle-expired")
+		)).thenReturn(Optional.of(idleToken));
+		when(authSessionRepository.findByIdForUpdate(9_002L))
+			.thenReturn(Optional.of(idleExpired));
+
+		mockMvc.perform(post("/api/auth/refresh")
+				.cookie(new MockCookie(RefreshTokenCookie.NAME, "idle-expired")))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code").value("AUTH_SESSION_IDLE_EXPIRED"))
+			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
+				"Max-Age=0"
+			)));
+
+		AuthSession absoluteExpired = AuthSession.create(
+			user,
+			Instant.now().minus(java.time.Duration.ofDays(15)),
+			java.time.Duration.ofHours(2),
+			java.time.Duration.ofDays(14)
+		);
+		ReflectionTestUtils.setField(absoluteExpired, "id", 9_003L);
+		RefreshToken absoluteToken = new RefreshToken(
+			user,
+			absoluteExpired,
+			refreshTokenService.hash("absolute-expired"),
+			absoluteExpired.getAbsoluteExpiresAt()
+		);
+		when(refreshTokenRepository.findByTokenHashForUpdate(
+			refreshTokenService.hash("absolute-expired")
+		)).thenReturn(Optional.of(absoluteToken));
+		when(authSessionRepository.findByIdForUpdate(9_003L))
+			.thenReturn(Optional.of(absoluteExpired));
+
+		mockMvc.perform(post("/api/auth/session/activity")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+				.cookie(new MockCookie(RefreshTokenCookie.NAME, "absolute-expired")))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code").value(
+				"AUTH_SESSION_ABSOLUTE_EXPIRED"
+			))
 			.andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(
 				"Max-Age=0"
 			)));
