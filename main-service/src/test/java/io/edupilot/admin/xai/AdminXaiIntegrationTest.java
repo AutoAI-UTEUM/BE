@@ -5,11 +5,17 @@ import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +23,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -25,8 +33,12 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.admin.xai.XaiManagementClient.InvoicePreview;
+import io.edupilot.admin.xai.XaiManagementClient.InvoiceSummary;
 import io.edupilot.admin.xai.XaiManagementClient.PrepaidBalance;
 import io.edupilot.admin.xai.XaiManagementClient.SpendingLimits;
+import io.edupilot.admin.xai.dto.XaiUsageGranularity;
+import io.edupilot.admin.xai.dto.XaiUsageGroupBy;
+import io.edupilot.admin.xai.dto.XaiUsageMetric;
 import io.edupilot.auth.JwtTokenProvider;
 import io.edupilot.global.config.ReadinessResponse;
 import io.edupilot.global.config.ReadinessService;
@@ -61,6 +73,8 @@ class AdminXaiIntegrationTest {
 	@Autowired private TraceIdFilter traceIdFilter;
 	@Autowired private JwtTokenProvider jwtTokenProvider;
 	@Autowired private UserRepository userRepository;
+	@Autowired private JdbcTemplate jdbcTemplate;
+	@Autowired private AdminXaiUsageService adminXaiUsageService;
 	@MockitoBean private ReadinessService readinessService;
 	@MockitoBean private XaiManagementClient xaiManagementClient;
 
@@ -71,6 +85,12 @@ class AdminXaiIntegrationTest {
 
 	@BeforeEach
 	void setUp() {
+		jdbcTemplate.execute("""
+			create alias if not exists convert_tz
+			for 'io.edupilot.admin.H2TimeZoneFunctions.convertTz'
+			""");
+		jdbcTemplate.update("delete from xai_alert_config");
+		jdbcTemplate.update("delete from ai_usage_log");
 		userRepository.deleteAll();
 		admin = saveUser("admin-xai@example.com", UserRole.ADMIN);
 		learner = saveUser("learner-xai@example.com", UserRole.LEARNER);
@@ -86,6 +106,12 @@ class AdminXaiIntegrationTest {
 				YearMonth.now()
 			)
 		);
+		when(xaiManagementClient.fetchInvoices(YearMonth.of(2026, 8)))
+			.thenReturn(List.of(new InvoiceSummary(
+				YearMonth.of(2026, 8),
+				new BigDecimal("42.50"),
+				"PAID"
+			)));
 		mockMvc = MockMvcBuilders.webAppContextSetup(context)
 			.apply(springSecurity())
 			.addFilters(traceIdFilter)
@@ -98,7 +124,20 @@ class AdminXaiIntegrationTest {
 			get("/api/admin/xai/credits"),
 			get("/api/admin/xai/status"),
 			get("/api/admin/xai/overview"),
-			post("/api/admin/xai/sync")
+			post("/api/admin/xai/sync"),
+			get("/api/admin/xai/usage")
+				.param("from", "2026-09-01")
+				.param("to", "2026-09-01"),
+			get("/api/admin/xai/reconciliation")
+				.param("from", "2026-08-01")
+				.param("to", "2026-08-31"),
+			get("/api/admin/xai/invoices")
+				.param("year", "2026")
+				.param("month", "8"),
+			get("/api/admin/xai/alerts"),
+			put("/api/admin/xai/alerts")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(alertBody())
 		);
 
 		for (MockHttpServletRequestBuilder request : requests) {
@@ -115,6 +154,128 @@ class AdminXaiIntegrationTest {
 					.header(HttpHeaders.AUTHORIZATION, bearer(instructor)))
 				.andExpect(status().isForbidden());
 		}
+	}
+
+	@Test
+	void exposesPhaseTwoEndpointsWithoutBillingSecrets() throws Exception {
+		mockMvc.perform(get("/api/admin/xai/usage")
+				.param("from", "2026-09-01")
+				.param("to", "2026-09-01")
+				.header(HttpHeaders.AUTHORIZATION, bearer(admin)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.granularity").value("DAY"))
+			.andExpect(jsonPath("$.data.metric").value("COST"))
+			.andExpect(jsonPath("$.data.groupBy").value("FEATURE"))
+			.andExpect(jsonPath("$.data.unknownCostCalls").value(0));
+
+		String invoices = mockMvc.perform(get("/api/admin/xai/invoices")
+				.param("year", "2026")
+				.param("month", "8")
+				.header(HttpHeaders.AUTHORIZATION, bearer(admin)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items[0].amountUsd").value("42.50"))
+			.andExpect(jsonPath("$.data.items[0].status").value("PAID"))
+			.andReturn().getResponse().getContentAsString();
+		assertThat(invoices).doesNotContain(
+			"management-api-key",
+			"team-id",
+			"paymentMethod",
+			"billingAddress",
+			"integration-secret-key",
+			"integration-private-team"
+		);
+
+		mockMvc.perform(put("/api/admin/xai/alerts")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(alertBody())
+				.header(HttpHeaders.AUTHORIZATION, bearer(admin)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.balanceCriticalUsd").value("20"))
+			.andExpect(jsonPath("$.data.balanceWarningUsd").value("80"));
+	}
+
+	@Test
+	void rejectsUnsupportedApiKeyGroupingWithDedicatedCode() throws Exception {
+		mockMvc.perform(get("/api/admin/xai/usage")
+				.param("from", "2026-09-01")
+				.param("to", "2026-09-01")
+				.param("groupBy", "API_KEY")
+				.header(HttpHeaders.AUTHORIZATION, bearer(admin)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("UNSUPPORTED_GROUP_BY"));
+	}
+
+	@Test
+	void aggregatesMetricsFromInternalLogAtKstDayBoundary() {
+		insertUsage(
+			"2026-08-31T14:59:59Z",
+			"TURN",
+			"grok-before",
+			1,
+			1,
+			1,
+			10_000_000_000L,
+			"before"
+		);
+		insertUsage(
+			"2026-08-31T15:00:00Z",
+			"TURN",
+			"grok-a",
+			1,
+			2,
+			3,
+			10_000_000_000L,
+			"inside-1"
+		);
+		insertUsage(
+			"2026-09-01T14:59:59Z",
+			"GRADE",
+			"grok-b",
+			4,
+			5,
+			6,
+			null,
+			"inside-2"
+		);
+		insertUsage(
+			"2026-09-01T15:00:00Z",
+			"TURN",
+			"grok-after",
+			1,
+			1,
+			1,
+			10_000_000_000L,
+			"after"
+		);
+		LocalDate day = LocalDate.of(2026, 9, 1);
+
+		var cost = adminXaiUsageService.usage(
+			day,
+			day,
+			XaiUsageGranularity.DAY,
+			XaiUsageMetric.COST,
+			XaiUsageGroupBy.FEATURE
+		);
+		var tokens = adminXaiUsageService.usage(
+			day,
+			day,
+			XaiUsageGranularity.DAY,
+			XaiUsageMetric.TOKENS,
+			XaiUsageGroupBy.MODEL
+		);
+
+		assertThat(cost.unknownCostCalls()).isEqualTo(1);
+		assertThat(cost.items()).hasSize(2);
+		assertThat(cost.items().stream()
+			.filter(item -> item.group().equals("TURN"))
+			.findFirst().orElseThrow().costUsd())
+			.isEqualByComparingTo("1");
+		assertThat(cost.items().stream()
+			.filter(item -> item.group().equals("GRADE"))
+			.findFirst().orElseThrow().costUsd()).isNull();
+		assertThat(tokens.items()).extracting(
+			item -> item.group() + ":" + item.tokenCount()
+		).containsExactly("grok-a:6", "grok-b:15");
 	}
 
 	@Test
@@ -160,5 +321,47 @@ class AdminXaiIntegrationTest {
 
 	private String bearer(User user) {
 		return "Bearer " + jwtTokenProvider.createAccessToken(user);
+	}
+
+	private String alertBody() {
+		return """
+			{
+			  "balanceCriticalUsd": 20,
+			  "balanceWarningUsd": 80,
+			  "depletionCriticalDays": 5,
+			  "depletionWarningDays": 20
+			}
+			""";
+	}
+
+	private void insertUsage(
+		String createdAt,
+		String feature,
+		String model,
+		long inputTokens,
+		long outputTokens,
+		long reasoningTokens,
+		Long costUsdTicks,
+		String requestId
+	) {
+		jdbcTemplate.update("""
+			insert into ai_usage_log(
+			  user_id, feature, model, input_tokens, output_tokens,
+			  reasoning_tokens, cost_usd_ticks, request_id, success, created_at
+			) values (?, ?, ?, ?, ?, ?, ?, ?, true, ?)
+			""",
+			1L,
+			feature,
+			model,
+			inputTokens,
+			outputTokens,
+			reasoningTokens,
+			costUsdTicks,
+			requestId,
+			Timestamp.valueOf(LocalDateTime.ofInstant(
+				Instant.parse(createdAt),
+				ZoneOffset.UTC
+			))
+		);
 	}
 }

@@ -2,6 +2,7 @@ package io.edupilot.admin.xai;
 
 import java.math.BigDecimal;
 import java.time.YearMonth;
+import java.util.List;
 
 public interface XaiManagementClient {
 
@@ -10,6 +11,8 @@ public interface XaiManagementClient {
 	SpendingLimits fetchSpendingLimits();
 
 	InvoicePreview fetchInvoicePreview();
+
+	List<InvoiceSummary> fetchInvoices(YearMonth billingPeriod);
 
 	record PrepaidBalance(BigDecimal balanceUsd) {
 	}
@@ -20,6 +23,13 @@ public interface XaiManagementClient {
 	record InvoicePreview(
 		BigDecimal currentMonthCostUsd,
 		YearMonth billingCycle
+	) {
+	}
+
+	record InvoiceSummary(
+		YearMonth billingPeriod,
+		BigDecimal amountUsd,
+		String status
 	) {
 	}
 }

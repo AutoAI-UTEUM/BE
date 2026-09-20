@@ -44,6 +44,7 @@ class XaiSyncRateLimiterTest {
 			Duration.ofMinutes(2),
 			Duration.ofMinutes(2),
 			Duration.ofMinutes(5),
+			Duration.ofHours(1),
 			Duration.ofMinutes(1)
 		);
 	}

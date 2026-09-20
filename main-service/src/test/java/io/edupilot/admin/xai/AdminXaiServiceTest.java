@@ -1,6 +1,7 @@
 package io.edupilot.admin.xai;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -11,9 +12,11 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -22,10 +25,12 @@ import org.junit.jupiter.api.Test;
 import com.github.benmanes.caffeine.cache.Ticker;
 
 import io.edupilot.admin.xai.XaiManagementClient.InvoicePreview;
+import io.edupilot.admin.xai.XaiManagementClient.InvoiceSummary;
 import io.edupilot.admin.xai.XaiManagementClient.PrepaidBalance;
 import io.edupilot.admin.xai.XaiManagementClient.SpendingLimits;
 import io.edupilot.admin.xai.dto.AdminXaiCreditsResponse;
 import io.edupilot.admin.xai.dto.AdminXaiOverviewResponse;
+import io.edupilot.admin.xai.dto.XaiCostSource;
 
 class AdminXaiServiceTest {
 
@@ -34,6 +39,8 @@ class AdminXaiServiceTest {
 	private XaiManagementClient client;
 	private MutableClock clock;
 	private MutableTicker ticker;
+	private XaiAlertConfigService alertConfigService;
+	private AdminXaiUsageService usageService;
 	private AdminXaiService service;
 
 	@BeforeEach
@@ -41,6 +48,12 @@ class AdminXaiServiceTest {
 		client = mock(XaiManagementClient.class);
 		clock = new MutableClock(NOW);
 		ticker = new MutableTicker();
+		alertConfigService = mock(XaiAlertConfigService.class);
+		usageService = mock(AdminXaiUsageService.class);
+		when(alertConfigService.currentThresholds())
+			.thenReturn(XaiAlertThresholds.defaults());
+		when(usageService.costSummary(any(Instant.class), any(Instant.class)))
+			.thenReturn(new AdminXaiUsageService.CostSummary(null, 0, 0));
 		stubSuccess();
 		service = service(properties(true));
 	}
@@ -139,6 +152,7 @@ class AdminXaiServiceTest {
 		assertThat(response.postpaidRemainingUsd()).isEqualByComparingTo("100.00");
 		assertThat(response.totalAvailableUsd()).isEqualByComparingTo("200.00");
 		assertThat(response.averageDailyCost7d()).isEqualByComparingTo("10.000000");
+		assertThat(response.costSource()).isEqualTo(XaiCostSource.INVOICE_PREVIEW);
 		assertThat(response.projectedDepletionAt())
 			.isEqualTo(NOW.plus(Duration.ofDays(20)));
 		assertThat(response.riskLevel()).hasToString("WARNING");
@@ -158,6 +172,85 @@ class AdminXaiServiceTest {
 		assertThat(response.riskLevel()).hasToString("NORMAL");
 	}
 
+	@Test
+	void overviewPrefersKnownInternalSevenDayCostAndConfiguredThresholds() {
+		when(usageService.costSummary(any(Instant.class), any(Instant.class)))
+			.thenReturn(new AdminXaiUsageService.CostSummary(
+				new BigDecimal("70"),
+				7,
+				2
+			));
+		when(alertConfigService.currentThresholds()).thenReturn(
+			new XaiAlertThresholds(
+				new BigDecimal("300"),
+				new BigDecimal("400"),
+				2,
+				5
+			)
+		);
+
+		AdminXaiOverviewResponse response = service.overview();
+
+		assertThat(response.averageDailyCost7d()).isEqualByComparingTo("10");
+		assertThat(response.costSource()).isEqualTo(XaiCostSource.INTERNAL);
+		assertThat(response.riskLevel()).hasToString("CRITICAL");
+	}
+
+	@Test
+	void invoicesUseOneHourCacheAndReturnLastSuccessAsStale() {
+		YearMonth period = YearMonth.of(2026, 8);
+		when(client.fetchInvoices(period)).thenReturn(List.of(
+			new InvoiceSummary(period, new BigDecimal("12.34"), "PAID")
+		));
+
+		service.invoices(period);
+		var cached = service.invoices(period);
+
+		verify(client).fetchInvoices(period);
+		assertThat(cached.items()).singleElement().satisfies(invoice -> {
+			assertThat(invoice.amountUsd()).isEqualByComparingTo("12.34");
+			assertThat(invoice.status()).isEqualTo("PAID");
+		});
+		advance(Duration.ofHours(1).plusNanos(1));
+		when(client.fetchInvoices(period)).thenThrow(temporaryFailure());
+
+		var stale = service.invoices(period);
+
+		verify(client, times(2)).fetchInvoices(period);
+		assertThat(stale.stale()).isTrue();
+		assertThat(stale.items()).singleElement()
+			.extracting(invoice -> invoice.amountUsd())
+			.isEqualTo(new BigDecimal("12.34"));
+	}
+
+	@Test
+	void reconciliationMapsPartialDatesToWholeBillingMonthWithoutProration() {
+		LocalDate from = LocalDate.of(2026, 8, 10);
+		LocalDate to = LocalDate.of(2026, 8, 20);
+		YearMonth period = YearMonth.of(2026, 8);
+		when(usageService.costSummary(from, to)).thenReturn(
+			new AdminXaiUsageService.CostSummary(
+				new BigDecimal("8.00"),
+				2,
+				1
+			)
+		);
+		when(client.fetchInvoices(period)).thenReturn(List.of(
+			new InvoiceSummary(period, new BigDecimal("10.00"), "PAID")
+		));
+
+		var response = service.reconciliation(from, to);
+
+		assertThat(response.xaiPeriodFrom()).isEqualTo("2026-08-01");
+		assertThat(response.xaiPeriodTo()).isEqualTo("2026-08-31");
+		assertThat(response.internalCostUsd()).isEqualByComparingTo("8");
+		assertThat(response.xaiBilledUsd()).isEqualByComparingTo("10");
+		assertThat(response.differenceUsd()).isEqualByComparingTo("-2");
+		assertThat(response.differenceRatio()).isEqualByComparingTo("-0.2");
+		assertThat(response.unknownCostCalls()).isEqualTo(1);
+		assertThat(response.coverageNote()).contains("일할 계산하지");
+	}
+
 	private void stubSuccess() {
 		when(client.fetchPrepaidBalance())
 			.thenReturn(new PrepaidBalance(new BigDecimal("100.00")));
@@ -174,6 +267,8 @@ class AdminXaiServiceTest {
 			properties,
 			client,
 			new XaiRiskPolicy(),
+			alertConfigService,
+			usageService,
 			clock,
 			ticker
 		);
@@ -189,6 +284,7 @@ class AdminXaiServiceTest {
 			Duration.ofMinutes(2),
 			Duration.ofMinutes(2),
 			Duration.ofMinutes(5),
+			Duration.ofHours(1),
 			Duration.ofMinutes(1)
 		);
 	}

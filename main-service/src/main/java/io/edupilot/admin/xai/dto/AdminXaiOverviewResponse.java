@@ -18,6 +18,7 @@ public record AdminXaiOverviewResponse(
 	BigDecimal totalAvailableUsd,
 	@JsonFormat(shape = JsonFormat.Shape.STRING)
 	BigDecimal averageDailyCost7d,
+	XaiCostSource costSource,
 	Instant projectedDepletionAt,
 	XaiRiskLevel riskLevel,
 	Instant fetchedAt,
@@ -28,6 +29,7 @@ public record AdminXaiOverviewResponse(
 
 	public static AdminXaiOverviewResponse unavailable() {
 		return new AdminXaiOverviewResponse(
+			null,
 			null,
 			null,
 			null,

@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-09-20 |
+| 마지막 갱신 | 2026-09-21 |
 | 코드 형식 | `UPPER_SNAKE_CASE` |
 
 ## 1. 응답 형식
@@ -57,6 +57,7 @@
 | code | HTTP | 의미 |
 | --- | ---: | --- |
 | `VALIDATION_FAILED` | 400 | 필드 검증 실패 |
+| `UNSUPPORTED_GROUP_BY` | 400 | xAI 사용량의 `groupBy=API_KEY`처럼 내부 로그가 지원하지 않는 그룹 기준 |
 | `MALFORMED_REQUEST` | 400 | JSON/요청 구조 오류 |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | 지원하지 않는 콘텐츠 타입 |
 | `AUTHENTICATION_REQUIRED` | 401 | 인증 정보 없음 |

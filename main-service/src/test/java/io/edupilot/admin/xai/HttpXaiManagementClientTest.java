@@ -87,6 +87,40 @@ class HttpXaiManagementClientTest {
 	}
 
 	@Test
+	void listsOnlyRequestedInvoicePeriodAndDropsSensitiveBillingFields()
+		throws Exception {
+		server.enqueue(json("""
+			{
+			  "invoices": [{
+			    "teamId": "must-not-leak",
+			    "paymentMethodId": "must-not-leak",
+			    "billingAddress": {"line1": "must-not-leak"},
+			    "total": "1234",
+			    "invoiceStatus": "PAID",
+			    "monthly": {
+			      "billingCycle": {"year": 2026, "month": 8}
+			    }
+			  }]
+			}
+			"""));
+		HttpXaiManagementClient client = client(Duration.ofSeconds(1));
+
+		var invoices = client.fetchInvoices(YearMonth.of(2026, 8));
+
+		assertThat(invoices).singleElement().satisfies(invoice -> {
+			assertThat(invoice.billingPeriod()).isEqualTo(YearMonth.of(2026, 8));
+			assertThat(invoice.amountUsd()).isEqualByComparingTo("12.34");
+			assertThat(invoice.status()).isEqualTo("PAID");
+		});
+		RecordedRequest request = server.takeRequest();
+		assertRequest(
+			request,
+			"/v1/billing/teams/" + TEAM_ID
+				+ "/invoices?billingCycle.year=2026&billingCycle.month=8"
+		);
+	}
+
+	@Test
 	void classifiesConfigurationAndTemporaryFailuresWithoutSecrets() {
 		server.enqueue(new MockResponse().setResponseCode(401));
 		assertFailure(
@@ -156,6 +190,7 @@ class HttpXaiManagementClientTest {
 			Duration.ofMinutes(2),
 			Duration.ofMinutes(2),
 			Duration.ofMinutes(5),
+			Duration.ofHours(1),
 			Duration.ofMinutes(1)
 		);
 	}

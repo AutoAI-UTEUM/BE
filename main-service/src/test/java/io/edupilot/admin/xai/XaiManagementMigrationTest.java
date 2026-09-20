@@ -36,7 +36,7 @@ class XaiManagementMigrationTest {
 	private JdbcTemplate jdbcTemplate;
 
 	@Test
-	void v41RunsInMysqlModeAndAddsFutureUsageAndAlertSchema() {
+	void v42RunsInMysqlModeAndAddsUsageAndAlertSchema() {
 		List<String> usageColumns = jdbcTemplate.queryForList(
 			"select column_name from information_schema.columns "
 				+ "where table_name = 'AI_USAGE_LOG'",

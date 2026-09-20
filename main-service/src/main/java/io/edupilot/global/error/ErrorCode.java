@@ -312,6 +312,11 @@ public enum ErrorCode {
 		HttpStatus.TOO_MANY_REQUESTS,
 		"요청 한도를 초과했습니다."
 	),
+	UNSUPPORTED_GROUP_BY(
+		"UNSUPPORTED_GROUP_BY",
+		HttpStatus.BAD_REQUEST,
+		"지원하지 않는 사용량 그룹 기준입니다."
+	),
 	AI_QUOTA_EXCEEDED(
 		"AI_QUOTA_EXCEEDED",
 		HttpStatus.TOO_MANY_REQUESTS,

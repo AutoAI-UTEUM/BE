@@ -260,7 +260,9 @@ Spring resolver 결과가 비어 있고 세 필드 `type/yesEvent/noEvent`가 �
   `null` 또는 생략으로 반환합니다(현재 구현은 생략). 네트워크 재시도 이전
   실패 호출의 usage를 받지 못한 경우에도 마지막 성공 비용만 전체 비용으로
   보내지 않습니다. 무과금이라고 추정해 **0으로 채우지 않으며**, 0은 모든
-  과금 대상 호출에서 xAI가 명시적으로 0을 제공한 경우에만 가능합니다.
+  과금 대상 호출에서 xAI가 명시적으로 0을 제공한 경우에만 가능합니다. Spring은 확인된
+  ticks 원값과 nullable request ID를 V42의 `ai_usage_log`에 저장하며, 동일 request ID는 내부
+  중복 기록만 방지합니다. 실패·취소 요청을 포함한 정확 과금 원장은 xAI Management입니다.
   실제 호출이 없는 결정적 안내도 비용은 미확인(null/생략)으로 둡니다.
 - **토큰과 독립**: 비용만 미확인이면 기존 토큰 usage는 유지합니다.
   반대로 비용은 확인됐으나 토큰 수가 누락·파싱 실패한 경우, 비용은 보존하고
@@ -276,7 +278,7 @@ Spring resolver 결과가 비어 있고 세 필드 `type/yesEvent/noEvent`가 �
   conversation-summary, report 생성·질의, exam draft)에 공통 적용합니다.
   LLM 호출 없는 extract·Files upload는 `usage=null`, DELETE 204는 body 없음으로
   유지합니다. Spring 합의에 따라 신규 필드 부재는 NULL 저장하므로 이 필드
-  확장은 AI/Spring 배포 순서에 제약이 없습니다. V41 저장·requestId 멱등은 Spring 소관입니다.
+  확장은 AI/Spring 배포 순서에 제약이 없습니다. V42 저장·requestId 멱등은 Spring 소관입니다.
 
 ### 3.4 statePatch 허용목록 (api-spec §8 표와 동일 — Spring이 이외 전부 거부)
 

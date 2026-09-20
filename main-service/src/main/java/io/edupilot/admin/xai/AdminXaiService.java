@@ -6,10 +6,13 @@ import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -23,12 +26,19 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Ticker;
 
 import io.edupilot.admin.xai.XaiManagementClient.InvoicePreview;
+import io.edupilot.admin.xai.XaiManagementClient.InvoiceSummary;
 import io.edupilot.admin.xai.XaiManagementClient.PrepaidBalance;
 import io.edupilot.admin.xai.XaiManagementClient.SpendingLimits;
 import io.edupilot.admin.xai.dto.AdminXaiCreditsResponse;
+import io.edupilot.admin.xai.dto.AdminXaiInvoiceResponse;
+import io.edupilot.admin.xai.dto.AdminXaiInvoicesResponse;
 import io.edupilot.admin.xai.dto.AdminXaiOverviewResponse;
+import io.edupilot.admin.xai.dto.AdminXaiReconciliationResponse;
 import io.edupilot.admin.xai.dto.AdminXaiStatusResponse;
+import io.edupilot.admin.xai.dto.XaiCostSource;
 import io.edupilot.admin.xai.dto.XaiRiskLevel;
+import io.edupilot.global.error.BusinessException;
+import io.edupilot.global.error.ErrorCode;
 
 @Service
 public class AdminXaiService {
@@ -43,14 +53,20 @@ public class AdminXaiService {
 	private final XaiManagementProperties properties;
 	private final XaiManagementClient client;
 	private final XaiRiskPolicy riskPolicy;
+	private final XaiAlertConfigService alertConfigService;
+	private final AdminXaiUsageService usageService;
 	private final Clock clock;
 	private final Cache<String, CachedValue<PrepaidBalance>> balanceCache;
 	private final Cache<String, CachedValue<SpendingLimits>> limitsCache;
 	private final Cache<String, CachedValue<InvoicePreview>> invoiceCache;
+	private final Cache<YearMonth, CachedValue<List<InvoiceSummary>>>
+		historicalInvoiceCache;
 
 	private CachedValue<PrepaidBalance> lastBalance;
 	private CachedValue<SpendingLimits> lastLimits;
 	private CachedValue<InvoicePreview> lastInvoice;
+	private final Map<YearMonth, CachedValue<List<InvoiceSummary>>>
+		lastHistoricalInvoices = new HashMap<>();
 	private Instant lastSuccessfulSyncAt;
 	private Instant lastFailureAt;
 	private XaiManagementFailureType recentErrorClassification;
@@ -60,12 +76,16 @@ public class AdminXaiService {
 		XaiManagementProperties properties,
 		XaiManagementClient client,
 		XaiRiskPolicy riskPolicy,
+		XaiAlertConfigService alertConfigService,
+		AdminXaiUsageService usageService,
 		Clock clock
 	) {
 		this(
 			properties,
 			client,
 			riskPolicy,
+			alertConfigService,
+			usageService,
 			clock,
 			Ticker.systemTicker()
 		);
@@ -75,16 +95,25 @@ public class AdminXaiService {
 		XaiManagementProperties properties,
 		XaiManagementClient client,
 		XaiRiskPolicy riskPolicy,
+		XaiAlertConfigService alertConfigService,
+		AdminXaiUsageService usageService,
 		Clock clock,
 		Ticker ticker
 	) {
 		this.properties = properties;
 		this.client = client;
 		this.riskPolicy = riskPolicy;
+		this.alertConfigService = alertConfigService;
+		this.usageService = usageService;
 		this.clock = clock;
 		this.balanceCache = cache(properties.balanceCacheTtl(), ticker);
 		this.limitsCache = cache(properties.limitsCacheTtl(), ticker);
 		this.invoiceCache = cache(properties.invoiceCacheTtl(), ticker);
+		this.historicalInvoiceCache = Caffeine.newBuilder()
+			.maximumSize(24)
+			.expireAfterWrite(properties.historicalInvoiceCacheTtl())
+			.ticker(ticker)
+			.build();
 	}
 
 	public AdminXaiCreditsResponse credits() {
@@ -133,6 +162,93 @@ public class AdminXaiService {
 		);
 	}
 
+	public AdminXaiInvoicesResponse invoices(YearMonth period) {
+		if (!properties.configured()) {
+			return AdminXaiInvoicesResponse.unavailable(period);
+		}
+		Fetch<List<InvoiceSummary>> fetch = historicalInvoices(period);
+		if (fetch.failureType() != null) {
+			recordFailures(List.of(fetch.failureType()), clock.instant());
+		}
+		List<AdminXaiInvoiceResponse> items = fetch.cachedValue() == null
+			? null
+			: fetch.cachedValue().value().stream()
+				.map(this::invoiceResponse)
+				.toList();
+		return new AdminXaiInvoicesResponse(
+			period,
+			items,
+			fetch.cachedValue() == null
+				? null
+				: fetch.cachedValue().fetchedAt(),
+			lastSuccessfulSyncAt,
+			fetch.stale(),
+			true
+		);
+	}
+
+	public AdminXaiReconciliationResponse reconciliation(
+		LocalDate from,
+		LocalDate to
+	) {
+		if (from == null || to == null || from.isAfter(to)) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+		}
+		AdminXaiUsageService.CostSummary internal = usageService.costSummary(
+			from,
+			to
+		);
+		YearMonth firstMonth = YearMonth.from(from);
+		YearMonth lastMonth = YearMonth.from(to);
+		String coverageNote = "xAI 금액은 요청 기간이 걸친 과거 월의 확정 "
+			+ "invoice와 현재 월의 invoice preview를 사용하며 일할 계산하지 "
+			+ "않습니다.";
+		if (!properties.configured()) {
+			return new AdminXaiReconciliationResponse(
+				from,
+				to,
+				firstMonth.atDay(1),
+				lastMonth.atEndOfMonth(),
+				internal.costUsd(),
+				null,
+				null,
+				null,
+				internal.unknownCostCalls(),
+				coverageNote,
+				null,
+				false
+			);
+		}
+
+		BillingTotal billing = billedTotal(firstMonth, lastMonth);
+		BigDecimal difference = billing.totalUsd() == null
+			|| internal.costUsd() == null
+			? null
+			: internal.costUsd().subtract(billing.totalUsd());
+		BigDecimal differenceRatio = difference == null
+			|| billing.totalUsd().signum() == 0
+			? null
+			: difference.divide(
+				billing.totalUsd(),
+				8,
+				RoundingMode.HALF_UP
+			);
+		return new AdminXaiReconciliationResponse(
+			from,
+			to,
+			firstMonth.atDay(1),
+			lastMonth.atEndOfMonth(),
+			internal.costUsd(),
+			billing.totalUsd(),
+			difference,
+			differenceRatio,
+			internal.unknownCostCalls(),
+			coverageNote,
+			billing.stale(),
+			true
+		);
+	}
+
 	private AdminXaiOverviewResponse overview(Snapshot snapshot) {
 		if (!snapshot.available()) {
 			return AdminXaiOverviewResponse.unavailable();
@@ -151,10 +267,8 @@ public class AdminXaiService {
 		BigDecimal totalAvailable = prepaid == null || postpaidRemaining == null
 			? null
 			: prepaid.add(postpaidRemaining);
-		BigDecimal averageDailyCost = averageDailyCost(
-			snapshot.invoice(),
-			now
-		);
+		AverageCost averageCost = averageDailyCost(snapshot.invoice(), now);
+		BigDecimal averageDailyCost = averageCost.amount();
 		Instant projectedDepletionAt = projectedDepletionAt(
 			totalAvailable,
 			averageDailyCost,
@@ -165,7 +279,8 @@ public class AdminXaiService {
 			: riskPolicy.assess(
 				totalAvailable,
 				projectedDepletionAt,
-				now
+				now,
+				alertConfigService.currentThresholds()
 			);
 		return new AdminXaiOverviewResponse(
 			prepaid,
@@ -174,6 +289,7 @@ public class AdminXaiService {
 			postpaidRemaining,
 			totalAvailable,
 			averageDailyCost,
+			averageCost.source(),
 			projectedDepletionAt,
 			riskLevel,
 			snapshot.fetchedAt(),
@@ -191,6 +307,7 @@ public class AdminXaiService {
 			balanceCache.invalidateAll();
 			limitsCache.invalidateAll();
 			invoiceCache.invalidateAll();
+			historicalInvoiceCache.invalidateAll();
 		}
 
 		Instant now = clock.instant();
@@ -221,18 +338,7 @@ public class AdminXaiService {
 		addFailure(failures, limits.failureType());
 		addFailure(failures, invoice.failureType());
 		if (!failures.isEmpty()) {
-			lastFailureAt = now;
-			recentErrorClassification = failures.contains(
-				XaiManagementFailureType.CONFIGURATION_ERROR
-			)
-				? XaiManagementFailureType.CONFIGURATION_ERROR
-				: XaiManagementFailureType.TEMPORARY_FAILURE;
-			log.atWarn()
-				.addKeyValue(
-					"errorClassification",
-					recentErrorClassification
-				)
-				.log("xAI Management API query degraded");
+			recordFailures(failures, now);
 		} else if (balance.loaded() || limits.loaded() || invoice.loaded()) {
 			recentErrorClassification = null;
 		}
@@ -246,6 +352,48 @@ public class AdminXaiService {
 			oldestSuccess(balance, limits, invoice),
 			lastSuccessfulSyncAt
 		);
+	}
+
+	private synchronized Fetch<List<InvoiceSummary>> historicalInvoices(
+		YearMonth period
+	) {
+		Fetch<List<InvoiceSummary>> fetch = loadHistoricalInvoice(
+			period,
+			clock.instant()
+		);
+		if (fetch.loaded()) {
+			recentErrorClassification = null;
+		}
+		return fetch;
+	}
+
+	private Fetch<List<InvoiceSummary>> loadHistoricalInvoice(
+		YearMonth period,
+		Instant now
+	) {
+		CachedValue<List<InvoiceSummary>> fresh =
+			historicalInvoiceCache.getIfPresent(period);
+		if (fresh != null) {
+			return new Fetch<>(fresh, false, false, null);
+		}
+		try {
+			CachedValue<List<InvoiceSummary>> loaded = new CachedValue<>(
+				client.fetchInvoices(period),
+				now
+			);
+			historicalInvoiceCache.put(period, loaded);
+			lastHistoricalInvoices.put(period, loaded);
+			lastSuccessfulSyncAt = now;
+			return new Fetch<>(loaded, false, true, null);
+		} catch (RuntimeException exception) {
+			XaiManagementFailureType failureType = failureType(exception);
+			return new Fetch<>(
+				lastHistoricalInvoices.get(period),
+				true,
+				false,
+				failureType
+			);
+		}
 	}
 
 	private <T> Fetch<T> load(
@@ -266,29 +414,138 @@ public class AdminXaiService {
 			lastSuccessfulSyncAt = now;
 			return new Fetch<>(loaded, false, true, null);
 		} catch (RuntimeException exception) {
-			XaiManagementFailureType failureType =
-				exception instanceof XaiManagementClientException clientException
-					? clientException.failureType()
-					: XaiManagementFailureType.TEMPORARY_FAILURE;
+			XaiManagementFailureType failureType = failureType(exception);
 			return new Fetch<>(lastSuccess.get(), true, false, failureType);
 		}
 	}
 
-	private BigDecimal averageDailyCost(
+	private AverageCost averageDailyCost(
 		CachedValue<InvoicePreview> invoice,
 		Instant now
 	) {
+		try {
+			AdminXaiUsageService.CostSummary internal = usageService.costSummary(
+				now.minus(7, ChronoUnit.DAYS),
+				now
+			);
+			if (internal.knownCostCalls() > 0) {
+				return new AverageCost(
+					internal.costUsd().divide(
+						BigDecimal.valueOf(7),
+						10,
+						RoundingMode.HALF_UP
+					),
+					XaiCostSource.INTERNAL
+				);
+			}
+		} catch (RuntimeException exception) {
+			log.warn("Failed to aggregate internal xAI cost; using invoice preview");
+		}
 		if (invoice == null) {
-			return null;
+			return new AverageCost(null, null);
 		}
 		LocalDate cycleStart = invoice.value().billingCycle().atDay(1);
 		LocalDate today = LocalDate.ofInstant(now, ZoneOffset.UTC);
 		long elapsedDays = ChronoUnit.DAYS.between(cycleStart, today) + 1;
 		if (elapsedDays <= 0) {
-			return null;
+			return new AverageCost(null, null);
 		}
-		return invoice.value().currentMonthCostUsd()
-			.divide(BigDecimal.valueOf(elapsedDays), 6, RoundingMode.HALF_UP);
+		return new AverageCost(
+			invoice.value().currentMonthCostUsd()
+				.divide(
+					BigDecimal.valueOf(elapsedDays),
+					6,
+					RoundingMode.HALF_UP
+				),
+			XaiCostSource.INVOICE_PREVIEW
+		);
+	}
+
+	private BillingTotal billedTotal(
+		YearMonth firstMonth,
+		YearMonth lastMonth
+	) {
+		BigDecimal total = BigDecimal.ZERO;
+		boolean stale = false;
+		Fetch<InvoicePreview> preview = null;
+		YearMonth currentMonth = YearMonth.from(
+			LocalDate.ofInstant(clock.instant(), ZoneOffset.UTC)
+		);
+		for (YearMonth month = firstMonth;
+			!month.isAfter(lastMonth);
+			month = month.plusMonths(1)) {
+			if (month.equals(currentMonth)) {
+				preview = preview == null ? invoicePreview() : preview;
+				stale |= preview.stale();
+				if (preview.cachedValue() == null
+					|| !preview.cachedValue().value().billingCycle().equals(month)) {
+					return new BillingTotal(null, true);
+				}
+				total = total.add(
+					preview.cachedValue().value().currentMonthCostUsd()
+				);
+				continue;
+			}
+			Fetch<List<InvoiceSummary>> invoices = historicalInvoices(month);
+			stale |= invoices.stale();
+			if (invoices.failureType() != null) {
+				recordFailures(List.of(invoices.failureType()), clock.instant());
+			}
+			if (invoices.cachedValue() == null) {
+				return new BillingTotal(null, true);
+			}
+			for (InvoiceSummary invoice : invoices.cachedValue().value()) {
+				total = total.add(invoice.amountUsd());
+			}
+		}
+		return new BillingTotal(total, stale);
+	}
+
+	private synchronized Fetch<InvoicePreview> invoicePreview() {
+		Instant now = clock.instant();
+		Fetch<InvoicePreview> fetch = load(
+			invoiceCache,
+			client::fetchInvoicePreview,
+			() -> lastInvoice,
+			value -> lastInvoice = value,
+			now
+		);
+		if (fetch.failureType() != null) {
+			recordFailures(List.of(fetch.failureType()), now);
+		} else if (fetch.loaded()) {
+			recentErrorClassification = null;
+		}
+		return fetch;
+	}
+
+	private AdminXaiInvoiceResponse invoiceResponse(InvoiceSummary invoice) {
+		return new AdminXaiInvoiceResponse(
+			invoice.billingPeriod().atDay(1),
+			invoice.billingPeriod().atEndOfMonth(),
+			invoice.amountUsd(),
+			invoice.status()
+		);
+	}
+
+	private XaiManagementFailureType failureType(RuntimeException exception) {
+		return exception instanceof XaiManagementClientException clientException
+			? clientException.failureType()
+			: XaiManagementFailureType.TEMPORARY_FAILURE;
+	}
+
+	private synchronized void recordFailures(
+		List<XaiManagementFailureType> failures,
+		Instant now
+	) {
+		lastFailureAt = now;
+		recentErrorClassification = failures.contains(
+			XaiManagementFailureType.CONFIGURATION_ERROR
+		)
+			? XaiManagementFailureType.CONFIGURATION_ERROR
+			: XaiManagementFailureType.TEMPORARY_FAILURE;
+		log.atWarn()
+			.addKeyValue("errorClassification", recentErrorClassification)
+			.log("xAI Management API query degraded");
 	}
 
 	private Instant projectedDepletionAt(
@@ -366,6 +623,15 @@ public class AdminXaiService {
 	}
 
 	private record CachedValue<T>(T value, Instant fetchedAt) {
+	}
+
+	private record AverageCost(
+		BigDecimal amount,
+		XaiCostSource source
+	) {
+	}
+
+	private record BillingTotal(BigDecimal totalUsd, boolean stale) {
 	}
 
 	private record Fetch<T>(
