@@ -15,6 +15,7 @@ from edupilot_ai.api.deps import get_turn_service
 from edupilot_ai.core.async_iterators import closing_async_iterator, shielded_aclose
 from edupilot_ai.core.errors import InternalApiError
 from edupilot_ai.core.logging import bind_log_context, reset_log_context
+from edupilot_ai.core.observability import ContentTiming
 from edupilot_ai.models.turn import TurnRequest, TurnResponse
 from edupilot_ai.orchestration.service import TurnService
 
@@ -32,10 +33,12 @@ class _ClosingStreamingResponse(StreamingResponse):
             await shielded_aclose(self.body_iterator)
 
 
-def _turn_fields(turn: TurnRequest) -> dict[str, str | int]:
+def _turn_fields(turn: TurnRequest, *, streaming: bool) -> dict[str, str | int | bool]:
     return {
         "turnId": turn.turn_id,
         "sessionId": turn.session.session_id,
+        "eventType": turn.event.event_type.value,
+        "streaming": streaming,
     }
 
 
@@ -56,7 +59,9 @@ async def _logged_turn_stream(
     turn: TurnRequest,
 ) -> AsyncGenerator[str]:
     started_at = perf_counter()
-    fields = _turn_fields(turn)
+    fields = _turn_fields(turn, streaming=True)
+    timing = ContentTiming(started_at)
+    readiness: dict[str, float] = {}
     error_code: str | None = None
     cancelled = False
     stream = service.stream_ndjson(turn)
@@ -74,6 +79,15 @@ async def _logged_turn_stream(
                     event = json.loads(chunk)
                     if event.get("type") == "error":
                         error_code = str(event.get("code", "AI_INTERNAL_ERROR"))
+                    elif event.get("type") == "completed":
+                        readiness["resultReadyMs"] = round((perf_counter() - started_at) * 1000, 3)
+                    elif event.get("type") == "content_delta":
+                        text = event.get("text")
+                        if isinstance(text, str) and timing.observe(text):
+                            logger.info(
+                                "turn first content available",
+                                extra={**fields, **timing.fields(), "status": "STREAMING"},
+                            )
                 except json.JSONDecodeError, AttributeError:
                     pass
                 yield chunk
@@ -82,6 +96,8 @@ async def _logged_turn_stream(
             "turn stream failed" if error_code is not None else "turn stream completed",
             extra={
                 **fields,
+                **timing.fields(),
+                **readiness,
                 "status": "FAILED" if error_code is not None else "SUCCESS",
                 "durationMs": round((perf_counter() - started_at) * 1000, 3),
                 "errorCode": error_code,
@@ -95,6 +111,8 @@ async def _logged_turn_stream(
             "turn stream failed unexpectedly",
             extra={
                 **fields,
+                **timing.fields(),
+                **readiness,
                 "status": "FAILED",
                 "durationMs": round((perf_counter() - started_at) * 1000, 3),
                 "errorCode": "AI_INTERNAL_ERROR",
@@ -107,6 +125,8 @@ async def _logged_turn_stream(
                 "turn stream cancelled by client",
                 extra={
                     **fields,
+                    **timing.fields(),
+                    **readiness,
                     "status": "CANCELLED",
                     "durationMs": round((perf_counter() - started_at) * 1000, 3),
                 },
@@ -136,7 +156,7 @@ async def execute_turn(
 
     started_at = perf_counter()
     tokens = bind_log_context(turn_id=turn.turn_id)
-    fields = _turn_fields(turn)
+    fields = _turn_fields(turn, streaming=False)
     try:
         response = await service.execute(turn)
         logger.info(
