@@ -176,8 +176,8 @@ class RefreshTokenServiceTest {
 			refreshTokenService.hash(firstRotation.rawToken()),
 			absoluteExpiresAt
 		);
-		clock.advance(Duration.ofHours(1));
-		ticker.advance(Duration.ofHours(1));
+		clock.advance(Duration.ofMinutes(4));
+		ticker.advance(Duration.ofMinutes(4));
 		stubLocked(firstRotation.rawToken(), secondToken, session);
 
 		var secondRotation = refreshTokenService.rotate(firstRotation.rawToken());
@@ -185,6 +185,10 @@ class RefreshTokenServiceTest {
 		assertThat(secondRotation.status()).isEqualTo(SessionStatus.SUCCESS);
 		assertThat(secondRotation.session()).isSameAs(session);
 		assertThat(session.getAbsoluteExpiresAt()).isEqualTo(absoluteExpiresAt);
+		assertThat(session.getIdleExpiresAt()).isEqualTo(
+			NOW.plus(Duration.ofMinutes(4)).plus(LEARNER_IDLE_TTL)
+		);
+		verify(authSessionRepository, times(2)).saveAndFlush(session);
 		ArgumentCaptor<RefreshToken> savedTokens = ArgumentCaptor.forClass(
 			RefreshToken.class
 		);
@@ -219,6 +223,36 @@ class RefreshTokenServiceTest {
 			NOW.plus(Duration.ofMinutes(5)).plus(LEARNER_IDLE_TTL)
 		);
 		assertThat(session.getAbsoluteExpiresAt()).isEqualTo(absoluteExpiresAt);
+		InOrder lockOrder = inOrder(refreshTokenRepository, authSessionRepository);
+		lockOrder.verify(refreshTokenRepository).findByTokenHashForUpdate(
+			refreshTokenService.hash(rawToken)
+		);
+		lockOrder.verify(authSessionRepository).findByIdForUpdate(session.getId());
+	}
+
+	@Test
+	void activityCacheHitStillValidatesRevokedAndExpiredSessions() {
+		AuthSession revokedSession = activeSession();
+		RefreshToken revokedToken = token("cached-revoked", revokedSession);
+		stubLocked("cached-revoked", revokedToken, revokedSession);
+
+		assertThat(refreshTokenService.recordActivity(1L, "cached-revoked").status())
+			.isEqualTo(SessionStatus.SUCCESS);
+		revokedSession.revoke(NOW);
+		assertThat(refreshTokenService.recordActivity(1L, "cached-revoked").status())
+			.isEqualTo(SessionStatus.INVALID);
+
+		AuthSession expiredSession = activeSession();
+		RefreshToken expiredToken = token("cached-expired", expiredSession);
+		stubLocked("cached-expired", expiredToken, expiredSession);
+
+		assertThat(refreshTokenService.recordActivity(1L, "cached-expired").status())
+			.isEqualTo(SessionStatus.SUCCESS);
+		ReflectionTestUtils.setField(expiredSession, "idleExpiresAt", NOW);
+		assertThat(refreshTokenService.recordActivity(1L, "cached-expired").status())
+			.isEqualTo(SessionStatus.IDLE_EXPIRED);
+
+		verify(authSessionRepository, times(2)).saveAndFlush(any(AuthSession.class));
 	}
 
 	@Test
@@ -279,6 +313,44 @@ class RefreshTokenServiceTest {
 
 		assertThat(refreshTokenService.recordActivity(1L, "at-boundary").status())
 			.isEqualTo(SessionStatus.IDLE_EXPIRED);
+	}
+
+	@Test
+	void absoluteExpirationIsExclusiveBeforeBoundaryAndExpiredAtBoundary() {
+		Duration idleBeyondAbsolute = ABSOLUTE_TTL.plus(Duration.ofDays(1));
+		AuthSession justBeforeSession = AuthSession.create(
+			user,
+			NOW,
+			idleBeyondAbsolute,
+			ABSOLUTE_TTL
+		);
+		ReflectionTestUtils.setField(justBeforeSession, "id", 24L);
+		RefreshToken justBeforeToken = token("absolute-just-before", justBeforeSession);
+		stubLocked("absolute-just-before", justBeforeToken, justBeforeSession);
+		clock.advance(ABSOLUTE_TTL.minusNanos(1));
+		ticker.advance(ABSOLUTE_TTL.minusNanos(1));
+
+		assertThat(refreshTokenService.recordActivity(
+			1L,
+			"absolute-just-before"
+		).status()).isEqualTo(SessionStatus.SUCCESS);
+
+		AuthSession atBoundarySession = AuthSession.create(
+			user,
+			NOW,
+			idleBeyondAbsolute,
+			ABSOLUTE_TTL
+		);
+		ReflectionTestUtils.setField(atBoundarySession, "id", 25L);
+		RefreshToken atBoundaryToken = token("absolute-at-boundary", atBoundarySession);
+		stubLocked("absolute-at-boundary", atBoundaryToken, atBoundarySession);
+		clock.advance(Duration.ofNanos(1));
+		ticker.advance(Duration.ofNanos(1));
+
+		assertThat(refreshTokenService.recordActivity(
+			1L,
+			"absolute-at-boundary"
+		).status()).isEqualTo(SessionStatus.ABSOLUTE_EXPIRED);
 	}
 
 	@Test

@@ -124,7 +124,7 @@ public class RefreshTokenService {
 		}
 
 		token.revoke(now);
-		touchIfDue(session, now, idleTtl);
+		touch(session, now, idleTtl);
 		String newRawToken = generateToken();
 		refreshTokenRepository.save(new RefreshToken(
 			user,
@@ -231,6 +231,10 @@ public class RefreshTokenService {
 		if (sessionId != null && recentlyTouchedSessions.getIfPresent(sessionId) != null) {
 			return;
 		}
+		touch(session, now, idleTtl);
+	}
+
+	private void touch(AuthSession session, Instant now, Duration idleTtl) {
 		session.touch(now, idleTtl);
 		authSessionRepository.saveAndFlush(session);
 		rememberTouch(session);
