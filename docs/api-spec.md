@@ -124,6 +124,10 @@
 | GET | `/api/admin/infra/metrics` | 관리자 EC2 CloudWatch 지표 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/infra/cost` | 관리자 AWS 비용 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/infra/app` | 관리자 애플리케이션 지표 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/xai/credits` | 관리자 xAI 선불 크레딧·후불 한도 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/xai/status` | 관리자 xAI Management 연동 상태 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/xai/overview` | 관리자 xAI 비용·소진 위험 요약 조회 | Y | ADMIN + DB role/status 재검증 |
+| POST | `/api/admin/xai/sync` | 관리자 xAI Management 캐시 즉시 동기화 | Y | ADMIN + DB role/status 재검증; 사용자별 분당 1회 |
 | GET | `/api/classrooms/{id}/analytics` | 강의자 학습 현황 집계 | Y | 소유 INSTRUCTOR |
 | GET | `/api/classrooms/{classroomId}/students/{studentId}/learning-analytics` | 학습자별 상세 학습 현황 | Y | 소유 INSTRUCTOR |
 | PATCH | `/api/classrooms/{id}` | 강의실 수정 | Y | 소유 INSTRUCTOR |
@@ -2542,6 +2546,97 @@ AWS 설정과 무관하게 프로세스 내부 `MeterRegistry`와 readiness 결�
 역할의 기본 자격증명 체인만 사용하며 액세스 키 환경변수를 요구하지 않습니다. 호출별
 타임아웃은 5초입니다. Actuator는 내부 계측에만 사용하고 `/actuator/**` 웹 엔드포인트는
 노출하지 않습니다.
+
+### GET `/api/admin/xai/credits`
+
+xAI Management API의 선불 잔액, 후불 월 한도, 당월 사용액과 잔여액을 반환합니다. 금액은
+부동소수점 손실을 막기 위해 JSON 문자열인 USD `BigDecimal`로 직렬화합니다. xAI의 선불
+원장 `total.val`은 구매 크레딧을 음수 센트로 표현하므로 Spring이 부호를 반전하고 100으로
+나눠 사용 가능한 양의 USD 잔액으로 정규화합니다.
+
+```json
+{
+  "success": true,
+  "data": {
+    "prepaidBalanceUsd": "125.00",
+    "postpaidLimitUsd": "300.00",
+    "postpaidUsedUsd": "75.00",
+    "postpaidRemainingUsd": "225.00",
+    "fetchedAt": "2026-09-20T08:00:00Z",
+    "lastSuccessfulSyncAt": "2026-09-20T08:00:00Z",
+    "stale": false,
+    "available": true
+  },
+  "message": "요청이 성공했습니다."
+}
+```
+
+`fetchedAt`은 조합한 값 중 가장 오래된 성공 조회 시각이고,
+`lastSuccessfulSyncAt`은 실제 xAI endpoint가 마지막으로 성공한 시각입니다. 후불 잔여액은
+`max(한도 - invoice preview 당월 비용, 0)`입니다.
+
+### GET `/api/admin/xai/status`
+
+외부 조회를 새로 발생시키지 않고 현재 연동 상태를 반환합니다.
+
+```json
+{
+  "success": true,
+  "data": {
+    "available": true,
+    "lastSuccessfulSyncAt": "2026-09-20T08:00:00Z",
+    "lastFailureAt": null,
+    "recentErrorClassification": null
+  },
+  "message": "요청이 성공했습니다."
+}
+```
+
+최근 오류 분류는 인증·팀 설정 문제인 `CONFIGURATION_ERROR` 또는 429·5xx·통신·타임아웃
+문제인 `TEMPORARY_FAILURE`입니다. Management Key와 team ID는 어떤 응답에도 포함하지
+않습니다.
+
+### GET `/api/admin/xai/overview`
+
+credits 원값에 다음 파생값을 더해 반환합니다.
+
+- `currentMonthCostUsd`: postpaid invoice preview의 `totalWithCorr`
+- `totalAvailableUsd`: 선불 잔액 + 후불 잔여액
+- `averageDailyCost7d`: **1차 구현에서는** 이름과 달리 내부 7일 비용 집계가 아니라 invoice
+  preview 당월 비용을 UTC 청구 월의 경과 일수로 나눈 일평균입니다. 2차에서
+  `ai_usage_log.cost_usd_ticks` 기반 최근 7일 값으로 교체합니다.
+- `projectedDepletionAt`: 일평균이 양수일 때 `현재 + totalAvailable / 일평균`이며, 일평균이
+  0 또는 없으면 null입니다.
+- `riskLevel`: 소진 예상이 7일 이내이거나 잔액이 `$10` 미만이면 `CRITICAL`, 30일 이내이거나
+  `$50` 미만이면 `WARNING`, 그 외 `NORMAL`입니다. 일수 경계는 포함하고 금액 경계는
+  미만 비교입니다.
+
+응답의 나머지 메타 필드는 credits와 같습니다.
+
+### POST `/api/admin/xai/sync`
+
+세 endpoint 캐시를 무효화하고 즉시 다시 조회한 뒤 overview와 같은 응답을 반환합니다.
+사용자별 1분에 한 번만 허용하며 초과하면 `RATE_LIMIT_EXCEEDED`(429)입니다. 강제 조회가
+실패해도 마지막 성공값은 폐기하지 않고 stale 강등에 사용합니다. 감사 로그에는
+`action=XAI_SYNC`, actor user ID, endpoint, 시각만 기록합니다.
+
+### 관리자 xAI Management 공통 가용성·캐시 정책
+
+`XAI_MANAGEMENT_API_KEY`와 `XAI_TEAM_ID` 중 하나라도 비어 있으면 외부 호출 없이 HTTP 200의
+`available:false`와 나머지 nullable 필드 null을 반환합니다. 설정은 있으나 최초 조회가
+실패하면 `available:true, stale:true`와 null 데이터를 반환합니다. 성공 이력이 있으면
+마지막 성공값과 `stale:true`로 강등합니다. prepaid balance와 spending limits는 2분,
+invoice preview는 5분 캐시하며 connect timeout은 2초, read timeout은 5초입니다.
+
+상위 응답 스키마는 xAI 공식
+[Billing Management](https://docs.x.ai/developers/rest-api-reference/management/billing)의
+`GET /prepaid/balance`, `GET /postpaid/spending-limits`,
+`GET /postpaid/invoice/preview`를 기준으로 합니다. xAI 값은 센트 문자열로 역직렬화하고
+`double`로 변환하지 않습니다.
+
+사용량 그래프·reconciliation·invoice/alert API와 `ai_usage_log` 비용 저장은 2차 범위입니다.
+AI 담당과 `usage.costUsdTicks` 내부 계약을 합의하고 ai-service 반영 릴리즈가 준비된 뒤
+착수합니다.
 
 ## 8. Spring → FastAPI 내부 API
 
