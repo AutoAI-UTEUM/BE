@@ -52,6 +52,16 @@ edupilot:
         dev: ${EDUPILOT_ADMIN_INFRA_INSTANCES_DEV:}
       metrics-cache-ttl: ${EDUPILOT_ADMIN_INFRA_METRICS_CACHE_TTL:5m}
       cost-cache-ttl: ${EDUPILOT_ADMIN_INFRA_COST_CACHE_TTL:12h}
+    xai:
+      base-url: https://management-api.x.ai
+      management-api-key: ${XAI_MANAGEMENT_API_KEY:}
+      team-id: ${XAI_TEAM_ID:}
+      connect-timeout: 2s
+      read-timeout: 5s
+      balance-cache-ttl: 2m
+      limits-cache-ttl: 2m
+      invoice-cache-ttl: 5m
+      sync-rate-limit: 1m
   google:
     client-id: ${EDUPILOT_GOOGLE_CLIENT_ID:}
   cors:
