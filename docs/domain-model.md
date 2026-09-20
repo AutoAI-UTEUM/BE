@@ -3,14 +3,14 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-09-09 |
+| 마지막 갱신 | 2026-09-20 |
 | 범위 | Spring 소유 영속 도메인 |
 
 ## 1. 도메인 경계
 
 | 도메인 | 주요 모델 | 책임 |
 | --- | --- | --- |
-| Identity | User | 인증 주체, 역할, 계정 상태 |
+| Identity | User, AuthSession, RefreshToken | 인증 주체, 역할, 계정 상태, 브라우저·기기별 인증 수명 |
 | Material | LearningMaterial, MaterialPage, MaterialOverview | PDF 메타데이터, 페이지 문맥과 자료 개요 |
 | Classroom | Classroom, ClassroomMember, ClassroomJoinRequest, ClassroomWeek, ClassroomWeekMaterial, ClassroomNotice, ClassroomResource | 강의실 소유권, 참여, 주차 학습 자료, 일반 파일·링크 자료, 즉시·예약 공지 |
 | Notification | Notification | 사용자 귀속 인앱 알림, 읽음·보관 수명 |
@@ -36,6 +36,9 @@ erDiagram
   USER ||--o{ CLASSROOM_JOIN_REQUEST : requests
   USER ||--o{ EXAM_SUBMISSION : submits
   USER ||--o{ NOTIFICATION : receives
+  USER ||--o{ AUTH_SESSION : authenticates_with
+  USER ||--o{ REFRESH_TOKEN : owns
+  AUTH_SESSION ||--o{ REFRESH_TOKEN : rotates
 
   CLASSROOM ||--o{ CLASSROOM_MEMBER : contains
   CLASSROOM ||--o{ CLASSROOM_JOIN_REQUEST : receives
@@ -77,6 +80,14 @@ erDiagram
 - `LEARNER`와 `INSTRUCTOR`는 개인 PDF 업로드와 개인 통합학습을 사용할 수 있습니다. 강의실 개설·관리·자료 연결은 소유 `INSTRUCTOR`만 가능하고, `LEARNER`와 타 강의실에 참여한 `INSTRUCTOR`는 승인 멤버로서 공개 자료를 조회·학습할 수 있습니다(DEC-030).
 - 상태는 `ACTIVE`, `DELETED`입니다. 탈퇴(DEC-028)는 논리 삭제 + 즉시 익명화(email → `deleted_{id}`, name 고정 문구, password_hash 무효화)이며 복구는 MVP 미지원입니다. 유예 기간·물리 삭제 배치는 이후 개선안입니다.
 - 인증 제공자는 최초 가입 기준 `LOCAL | GOOGLE`입니다. Google 로그인은 검증된 `google_sub`를 우선 사용하고, 미연동이면 검증된 이메일과 같은 로컬 계정에 자동 연결합니다. Google 최초 가입 계정은 비밀번호 로그인을 허용하지 않으며 탈퇴 시 `google_sub`를 제거합니다.
+- `lastActiveAt`은 관리자 회원 목록에 표시하는 사용자 단위 최근 인증 API 활동입니다. 인증 session의 idle 만료 정본으로 사용하지 않습니다.
+
+### AuthSession / RefreshToken
+
+- `AuthSession`은 브라우저·기기별 refresh token family의 수명 정본입니다. 역할별 idle timeout은 `ADMIN=30분`, `INSTRUCTOR|LEARNER=2시간`이고 최초 로그인 기준 14일 absolute 만료는 refresh나 활동으로 바뀌지 않습니다(DEC-040).
+- refresh와 `POST /api/auth/session/activity`만 성공 시 idle을 연장합니다. 일반 Bearer API와 background polling은 인증 session을 조회하거나 연장하지 않습니다. 동일 session의 연속 활동 쓰기는 5분 동안 스로틀하지만 폐기·만료 검증은 매번 수행합니다.
+- refresh token 회전은 같은 `AuthSession`을 유지하고 token 행만 교체합니다. 폐기 token 재사용은 현재 session family만 폐기하며, family를 알 수 없는 V41 이전 legacy token만 사용자 전체를 폐기합니다.
+- 로그아웃은 현재 session만 폐기합니다. 비밀번호 변경·관리자 초기화·회원 탈퇴는 해당 사용자의 모든 `AuthSession`과 refresh token을 폐기합니다. stateless access token은 최대 15분의 자체 만료까지 유효할 수 있습니다.
 
 ### LearningMaterial
 

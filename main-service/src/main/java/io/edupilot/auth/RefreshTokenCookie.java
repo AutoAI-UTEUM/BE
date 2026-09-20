@@ -11,25 +11,21 @@ public class RefreshTokenCookie {
 	public static final String NAME = "edupilot_refresh";
 	private static final String PATH = "/api/auth";
 
-	private final JwtProperties jwtProperties;
-
-	public RefreshTokenCookie(JwtProperties jwtProperties) {
-		this.jwtProperties = jwtProperties;
-	}
-
-	public ResponseCookie create(String rawToken) {
+	public ResponseCookie create(String rawToken, Duration maxAge) {
 		return base(rawToken)
-			.maxAge(jwtProperties.refreshTokenTtl())
+			.maxAge(maxAge.isNegative() ? Duration.ZERO : maxAge)
 			.build();
 	}
 
 	public ResponseCookie expire() {
-		return base("")
-			.maxAge(Duration.ZERO)
-			.build();
+		return expired();
 	}
 
-	private ResponseCookie.ResponseCookieBuilder base(String value) {
+	public static ResponseCookie expired() {
+		return base("").maxAge(Duration.ZERO).build();
+	}
+
+	private static ResponseCookie.ResponseCookieBuilder base(String value) {
 		return ResponseCookie.from(NAME, value)
 			.httpOnly(true)
 			.secure(true)
