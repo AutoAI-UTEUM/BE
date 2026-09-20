@@ -6,6 +6,7 @@ import json
 import logging
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import replace
 from time import perf_counter
 from typing import Any
 
@@ -171,43 +172,84 @@ def _responses_output_text(response: _ResponsesResponse) -> str:
     return texts[0]
 
 
-def _unavailable_usage(model: str | None) -> LlmUsage:
+def _cost_usd_ticks(raw_usage: Any) -> int | None:
+    """Keep provider integer ticks exactly; malformed/missing cost is not free."""
+    value = raw_usage.get("cost_in_usd_ticks") if isinstance(raw_usage, dict) else None
+    return value if type(value) is int and value >= 0 else None
+
+
+def _attempt_usage(usage: LlmUsage, attempt: int) -> LlmUsage:
+    # A transport failure without usage is not proof that xAI did not bill it.
+    # Preserve existing token behavior, but never report a partial cost as a total.
+    return replace(usage, cost_usd_ticks=None) if attempt > 1 else usage
+
+
+def _unavailable_usage(model: str | None, *, cost_usd_ticks: int | None = None) -> LlmUsage:
     return LlmUsage(
         model=model,
         input_tokens=None,
         output_tokens=None,
         reasoning_tokens=None,
+        cost_usd_ticks=cost_usd_ticks,
     )
 
 
 def _completion_usage(model: str, raw_usage: Any) -> LlmUsage:
+    cost_usd_ticks = _cost_usd_ticks(raw_usage)
     try:
         usage = _CompletionUsage.model_validate(raw_usage)
     except ValidationError:
-        return _unavailable_usage(model)
+        return _unavailable_usage(model, cost_usd_ticks=cost_usd_ticks)
     details = usage.completion_tokens_details
     return LlmUsage(
         model=model,
         input_tokens=usage.prompt_tokens,
         output_tokens=usage.completion_tokens,
         reasoning_tokens=details.reasoning_tokens if details is not None else None,
+        cost_usd_ticks=cost_usd_ticks,
     )
 
 
 def _responses_usage(response: _ResponsesResponse) -> LlmUsage:
     if response.status != "completed":
         raise ValueError("Responses output is not complete")
+    return _responses_token_usage(response.model, response.usage)
+
+
+def _responses_token_usage(model: str, raw_usage: Any) -> LlmUsage:
+    cost_usd_ticks = _cost_usd_ticks(raw_usage)
     try:
-        usage = _ResponsesUsage.model_validate(response.usage)
+        usage = _ResponsesUsage.model_validate(raw_usage)
     except ValidationError:
-        return _unavailable_usage(response.model)
+        return _unavailable_usage(model, cost_usd_ticks=cost_usd_ticks)
     details = usage.output_tokens_details
     return LlmUsage(
-        model=response.model,
+        model=model,
         input_tokens=usage.input_tokens,
         output_tokens=usage.output_tokens,
         reasoning_tokens=details.reasoning_tokens if details is not None else None,
+        cost_usd_ticks=cost_usd_ticks,
     )
+
+
+def _error_response_usage(
+    response: httpx.Response, *, attempt: int, responses_api: bool = False
+) -> LlmUsage | None:
+    """Retain billed metadata even when the provider's body/envelope is invalid."""
+    try:
+        body = response.json()
+    except json.JSONDecodeError, UnicodeDecodeError:
+        return None
+    if not isinstance(body, dict) or not isinstance(body.get("usage"), dict):
+        return None
+    model = body.get("model")
+    # Do not substitute a requested model name for an unknown actual model.
+    if not isinstance(model, str):
+        return _attempt_usage(
+            _unavailable_usage(None, cost_usd_ticks=_cost_usd_ticks(body["usage"])), attempt
+        )
+    parse_usage = _responses_token_usage if responses_api else _completion_usage
+    return _attempt_usage(parse_usage(model, body["usage"]), attempt)
 
 
 def _consume_sse_line(line: str, data_lines: list[str]) -> str | None:
@@ -392,6 +434,7 @@ class XaiLlmBridge:
             raise LlmBridgeError(
                 category=ErrorCategory.INTERNAL,
                 retryable=response.status_code == 429 or response.status_code >= 500,
+                usage=_error_response_usage(response, attempt=successful_attempt),
             )
 
         try:
@@ -409,9 +452,12 @@ class XaiLlmBridge:
             raise LlmBridgeError(
                 category=ErrorCategory.SCHEMA,
                 retryable=False,
+                usage=_error_response_usage(response, attempt=successful_attempt),
             ) from exception
 
-        usage = _completion_usage(provider_response.model, provider_response.usage)
+        usage = _attempt_usage(
+            _completion_usage(provider_response.model, provider_response.usage), successful_attempt
+        )
         try:
             output = response_model.model_validate_json(content)
         except (json.JSONDecodeError, ValidationError) as exception:
@@ -657,7 +703,9 @@ class XaiLlmBridge:
                 status="SUCCESS",
                 attempt=attempt,
             )
-            yield LlmTextStreamCompleted(usage=provider_usage or _unavailable_usage(provider_model))
+            yield LlmTextStreamCompleted(
+                usage=_attempt_usage(provider_usage or _unavailable_usage(provider_model), attempt)
+            )
             return
 
     async def _complete_json_with_files(
@@ -784,12 +832,15 @@ class XaiLlmBridge:
             raise LlmBridgeError(
                 category=ErrorCategory.INTERNAL,
                 retryable=response.status_code == 429 or response.status_code >= 500,
+                usage=_error_response_usage(
+                    response, attempt=successful_attempt, responses_api=True
+                ),
             )
 
         try:
             provider_response = _ResponsesResponse.model_validate(response.json())
             content = _responses_output_text(provider_response)
-            usage = _responses_usage(provider_response)
+            usage = _attempt_usage(_responses_usage(provider_response), successful_attempt)
         except (json.JSONDecodeError, ValidationError, ValueError) as exception:
             _log_call(
                 model=profile.model,
@@ -803,6 +854,9 @@ class XaiLlmBridge:
             raise LlmBridgeError(
                 category=ErrorCategory.SCHEMA,
                 retryable=False,
+                usage=_error_response_usage(
+                    response, attempt=successful_attempt, responses_api=True
+                ),
             ) from exception
 
         try:
@@ -1043,7 +1097,7 @@ class XaiLlmBridge:
                 if provider_response is None:
                     raise ValueError("Responses stream has no terminal response")
                 terminal_text = _responses_output_text(provider_response)
-                usage = _responses_usage(provider_response)
+                usage = _attempt_usage(_responses_usage(provider_response), attempt)
             except ValueError as exception:
                 _log_call(
                     model=(provider_response.model if provider_response else profile.model),
