@@ -15,9 +15,16 @@ class ContractModel(BaseModel):
 
 
 class Usage(ContractModel):
-    """Optional provider token accounting shared by every internal response."""
+    """Optional provider token and cost accounting shared by internal responses."""
 
     model: str | None = None
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
     reasoning_tokens: int | None = Field(default=None, ge=0)
+    cost_usd_ticks: int | None = Field(
+        default=None,
+        alias="cost_usd_ticks",
+        strict=True,
+        ge=0,
+        exclude_if=lambda value: value is None,
+    )

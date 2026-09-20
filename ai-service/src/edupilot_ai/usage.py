@@ -1,4 +1,4 @@
-"""Provider-neutral token aggregation for internal response contracts."""
+"""Provider-neutral token and cost aggregation for internal response contracts."""
 
 from collections.abc import Sequence
 
@@ -21,7 +21,7 @@ def combine_llm_usages(
     *,
     default_model: str | None = None,
 ) -> LlmUsage:
-    """Combine calls while preserving unknown token counts as unknown."""
+    """Combine calls without treating missing counters or costs as zero."""
     if not values:
         return LlmUsage(
             model=default_model,
@@ -50,11 +50,17 @@ def combine_llm_usages(
         if any(value.reasoning_tokens is None for value in values)
         else sum(value.reasoning_tokens for value in values if value.reasoning_tokens is not None)
     )
+    cost_usd_ticks = (
+        None
+        if any(value.cost_usd_ticks is None for value in values)
+        else sum(value.cost_usd_ticks for value in values if value.cost_usd_ticks is not None)
+    )
     return LlmUsage(
         model=model,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         reasoning_tokens=reasoning_tokens,
+        cost_usd_ticks=cost_usd_ticks,
     )
 
 
@@ -64,15 +70,18 @@ def response_usage(
     default_model: str | None = None,
     include_zero_when_empty: bool = False,
 ) -> Usage | None:
-    """Return a wire usage object, or null when token totals are unavailable."""
+    """Return known totals; cost can be available independently of token counts."""
     if not values and not include_zero_when_empty:
         return None
     combined = combine_llm_usages(values, default_model=default_model)
-    if combined.input_tokens is None or combined.output_tokens is None:
+    if (
+        combined.input_tokens is None or combined.output_tokens is None
+    ) and combined.cost_usd_ticks is None:
         return None
     return Usage(
         model=combined.model,
         input_tokens=combined.input_tokens,
         output_tokens=combined.output_tokens,
         reasoning_tokens=combined.reasoning_tokens,
+        cost_usd_ticks=combined.cost_usd_ticks,
     )
