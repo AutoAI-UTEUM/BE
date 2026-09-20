@@ -1,6 +1,7 @@
 package io.edupilot.session;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -88,6 +89,7 @@ public class SessionStreamService {
 			HEARTBEAT_INTERVAL.toNanos(),
 			TimeUnit.NANOSECONDS
 		));
+		connection.sendReady(Instant.now());
 		log.atInfo()
 			.addKeyValue("sessionId", sessionId)
 			.addKeyValue(
@@ -127,12 +129,13 @@ public class SessionStreamService {
 
 	public void complete(
 		SessionStreamConnection connection,
+		String requestId,
 		TurnResponse response
 	) {
 		for (UiAction action : response.uiActions()) {
 			connection.sendUiAction(action);
 		}
-		connection.sendCompleted(response);
+		connection.sendCompleted(requestId, response);
 	}
 
 	public void fail(

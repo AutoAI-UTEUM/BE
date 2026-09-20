@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
@@ -45,7 +46,7 @@ class SessionStreamConnectionTest {
 		UiAction action = UiAction.quizProposal();
 		connection.sendUiAction(action);
 		TurnResponse response = response(action);
-		connection.sendCompleted(response);
+		connection.sendCompleted("request-1", response);
 
 		assertThat(emitter.eventNames()).containsExactly(
 			"status",
@@ -60,12 +61,73 @@ class SessionStreamConnectionTest {
 		assertThat(emitter.payload(2)).isEqualTo(Map.of("text", "답변"));
 		assertThat(emitter.raw(3)).contains(":heartbeat");
 		assertThat(emitter.payload(4)).isEqualTo(Map.of("action", action));
-		assertThat(emitter.payload(5)).isEqualTo(Map.of("result", response));
+		assertThat(emitter.payload(5)).isEqualTo(Map.of(
+			"requestId", "request-1",
+			"result", response
+		));
 		assertThat(emitter.rawEvents())
 			.noneMatch(value -> value.contains("statePatch")
 				|| value.contains("actionsExecuted")
 				|| value.contains("memoryCandidates")
 				|| value.startsWith("id:"));
+	}
+
+	@Test
+	void readyIsSentBeforeTheFirstHeartbeatWithUtcConnectedAt() {
+		CapturingSseEmitter emitter = new CapturingSseEmitter();
+		AtomicLong clock = new AtomicLong();
+		SessionStreamConnection connection = new SessionStreamConnection(
+			1L,
+			100L,
+			() -> {
+			},
+			emitter,
+			clock::get
+		);
+		Instant connectedAt = Instant.parse("2026-09-20T01:02:03Z");
+
+		connection.sendReady(connectedAt);
+		clock.set(java.time.Duration.ofSeconds(10).toNanos());
+		connection.sendHeartbeatIfIdle(
+			SessionStreamService.HEARTBEAT_INTERVAL.toNanos()
+		);
+
+		assertThat(emitter.eventNames()).containsExactly("ready", null);
+		assertThat(emitter.payload(0)).isEqualTo(Map.of(
+			"sessionId", 100L,
+			"connectedAt", "2026-09-20T01:02:03Z"
+		));
+		assertThat(emitter.raw(1)).contains(":heartbeat");
+	}
+
+	@Test
+	void readyWriteFailureClosesAndCleansUpConnection() {
+		AtomicInteger cleanupCount = new AtomicInteger();
+		SseEmitter failingEmitter = new SseEmitter(0L) {
+			@Override
+			public synchronized void send(SseEventBuilder builder)
+				throws IOException {
+				throw new IOException("downstream closed");
+			}
+		};
+		SessionStreamConnection connection = new SessionStreamConnection(
+			1L,
+			100L,
+			cleanupCount::incrementAndGet,
+			failingEmitter
+		);
+
+		assertThatThrownBy(() -> connection.sendReady(Instant.now()))
+			.isInstanceOfSatisfying(
+				io.edupilot.ai.AiClientException.class,
+				exception -> assertThat(exception.errorCode())
+					.isEqualTo(
+						io.edupilot.global.error.ErrorCode
+							.AI_STREAM_INTERRUPTED
+					)
+			);
+		assertThat(connection.isClosed()).isTrue();
+		assertThat(cleanupCount).hasValue(1);
 	}
 
 	@Test
@@ -113,13 +175,35 @@ class SessionStreamConnectionTest {
 			new NoteDraft("복습 노트", "## 핵심\n내용")
 		);
 
-		connection.sendCompleted(response);
+		connection.sendCompleted("request-note", response);
 
 		assertThat(emitter.eventNames()).containsExactly("completed");
 		JsonNode payload = objectMapper.valueToTree(emitter.payload(0));
+		assertThat(payload.get("requestId").textValue())
+			.isEqualTo("request-note");
 		assertThat(payload.get("result").get("noteDraft").get("title")
 			.textValue()).isEqualTo("복습 노트");
 		assertThat(emitter.eventNames()).doesNotContain("content_delta");
+	}
+
+	@Test
+	void completedCanOnlyBeSentOnce() {
+		CapturingSseEmitter emitter = new CapturingSseEmitter();
+		SessionStreamConnection connection = new SessionStreamConnection(
+			1L,
+			100L,
+			() -> {
+			},
+			emitter
+		);
+		TurnResponse response = response(UiAction.quizProposal());
+
+		connection.sendCompleted("request-1", response);
+
+		assertThatThrownBy(() ->
+			connection.sendCompleted("request-1", response))
+			.isInstanceOf(io.edupilot.ai.AiClientException.class);
+		assertThat(emitter.eventNames()).containsExactly("completed");
 	}
 
 	@Test
