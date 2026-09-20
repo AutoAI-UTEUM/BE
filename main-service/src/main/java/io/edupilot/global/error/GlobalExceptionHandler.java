@@ -7,6 +7,7 @@ import jakarta.validation.ConstraintViolationException;
 import org.apache.catalina.connector.ClientAbortException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
@@ -20,6 +21,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
+import io.edupilot.auth.RefreshTokenCookie;
 import io.edupilot.global.response.ErrorDetail;
 import io.edupilot.global.response.ErrorResponse;
 import io.edupilot.global.security.TraceIdFilter;
@@ -92,12 +94,18 @@ public class GlobalExceptionHandler {
 		BusinessException exception,
 		HttpServletRequest request
 	) {
-		return errorResponse(
+		ResponseEntity<ErrorResponse> response = errorResponse(
 			exception.errorCode(),
 			exception.clientMessage(),
 			List.of(),
 			request
 		);
+		if (!shouldExpireRefreshCookie(exception.errorCode(), request)) {
+			return response;
+		}
+		return ResponseEntity.status(response.getStatusCode())
+			.header(HttpHeaders.SET_COOKIE, RefreshTokenCookie.expired().toString())
+			.body(response.getBody());
 	}
 
 	@ExceptionHandler(NoResourceFoundException.class)
@@ -183,6 +191,22 @@ public class GlobalExceptionHandler {
 			current = current.getCause();
 		}
 		return false;
+	}
+
+	private boolean shouldExpireRefreshCookie(
+		ErrorCode errorCode,
+		HttpServletRequest request
+	) {
+		String requestUri = request.getRequestURI();
+		boolean sessionEndpoint = "/api/auth/refresh".equals(requestUri)
+			|| "/api/auth/session/activity".equals(requestUri);
+		if (!sessionEndpoint) {
+			return false;
+		}
+		return errorCode == ErrorCode.TOKEN_INVALID
+			|| errorCode == ErrorCode.USER_INACTIVE
+			|| errorCode == ErrorCode.AUTH_SESSION_IDLE_EXPIRED
+			|| errorCode == ErrorCode.AUTH_SESSION_ABSOLUTE_EXPIRED;
 	}
 
 	private void logClientDisconnect(HttpServletRequest request) {

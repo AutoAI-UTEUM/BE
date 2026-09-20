@@ -52,6 +52,16 @@ edupilot:
         dev: ${EDUPILOT_ADMIN_INFRA_INSTANCES_DEV:}
       metrics-cache-ttl: ${EDUPILOT_ADMIN_INFRA_METRICS_CACHE_TTL:5m}
       cost-cache-ttl: ${EDUPILOT_ADMIN_INFRA_COST_CACHE_TTL:12h}
+    xai:
+      base-url: https://management-api.x.ai
+      management-api-key: ${XAI_MANAGEMENT_API_KEY:}
+      team-id: ${XAI_TEAM_ID:}
+      connect-timeout: 2s
+      read-timeout: 5s
+      balance-cache-ttl: 2m
+      limits-cache-ttl: 2m
+      invoice-cache-ttl: 5m
+      sync-rate-limit: 1m
   google:
     client-id: ${EDUPILOT_GOOGLE_CLIENT_ID:}
   cors:
@@ -129,5 +139,10 @@ edupilot:
         queue-capacity: 50
   jwt:
     secret: ${EDUPILOT_JWT_SECRET}
-    access-token-ttl: 1h
-    refresh-token-ttl: 14d
+    access-token-ttl: ${EDUPILOT_JWT_ACCESS_TOKEN_TTL:15m}
+  auth:
+    session:
+      absolute-ttl: ${EDUPILOT_AUTH_SESSION_ABSOLUTE_TTL:14d}
+      admin-idle-ttl: ${EDUPILOT_AUTH_SESSION_ADMIN_IDLE_TTL:30m}
+      instructor-idle-ttl: ${EDUPILOT_AUTH_SESSION_INSTRUCTOR_IDLE_TTL:2h}
+      learner-idle-ttl: ${EDUPILOT_AUTH_SESSION_LEARNER_IDLE_TTL:2h}

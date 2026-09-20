@@ -147,7 +147,7 @@
   "noteDraft": null,
   "memoryCandidates": [],
   "memoryWrite": null,
-  "usage": { "model": "grok-4.5-<date>", "input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0 }
+  "usage": { "model": "grok-4.5-<date>", "inputTokens": 1234, "outputTokens": 567, "reasoningTokens": 89, "cost_usd_ticks": 37756001 }
 }
 ```
 
@@ -157,7 +157,7 @@
   생략합니다. `reason`은 자유 문자열로 Spring이 enum 검증 없이 저장합니다.
   초기 reason 값은 `PAGE_MISMATCH_CORRECTED`,
   `EVENT_PAYLOAD_MISMATCH_CORRECTED`입니다.
-- `usage`: **채택 확정** — body 없는 204 응답을 제외한 모든 내부 성공 응답의 표준 선택 필드입니다. wire 키는 기존 turn과 동일한 `model`, `inputTokens`, `outputTokens`, `reasoningTokens`이며 `usage`와 각 하위 값은 모두 nullable입니다. provider usage가 없거나 안전하게 합산할 수 없으면 `null`이고, Spring은 순차 배포 호환을 위해 snake_case 토큰 키도 수신하며, 외부 API에는 노출하지 않고 사용자별 `ai_usage_log`에 기록해 비용·쿼터 판단에 사용합니다.
+- `usage`: **채택 확정** — body 없는 204 응답을 제외한 모든 내부 성공 응답의 표준 선택 필드입니다. 기존 wire 키 `model`, `inputTokens`, `outputTokens`, `reasoningTokens`를 유지하고 선택 비용 필드 `cost_usd_ticks`를 추가합니다. `usage`와 각 하위 값은 모두 nullable입니다. Spring은 snake_case 토큰 키도 수신하며, 외부 API에는 노출하지 않고 사용자별 `ai_usage_log`에 기록해 비용·쿼터 판단에 사용합니다. 비용의 단위·미확인 값·합산 규칙은 §3.3.2를 따릅니다.
 - 퀴즈 생성 턴에서는 turn 응답 최상위의 nullable `quiz` 필드에 전체 퀴즈
   JSON(§6.2 생성 스키마, 정답·비공개 필드 포함)을 반환합니다. 그 외 턴에서는
   `null`입니다. Spring이 이를 검증·분리 저장(비공개 필드는 학생 노출 DTO에서
@@ -243,6 +243,40 @@ Spring resolver 결과가 비어 있고 세 필드 `type/yesEvent/noEvent`가 �
 허용합니다. 저장·외부 응답에는 AI 객체 원문 대신 Spring `UiAction` 정본을 사용하되,
 사용자에게 표시하는 `content` 문구는 AI 값을 유지합니다. 그 밖의 AI uiAction은 기존처럼
 제거하고 경고합니다.
+
+### 3.3.2 usage 비용 집계 (`cost_usd_ticks`)
+
+- **출처·단위**: xAI Chat Completions·Responses API의
+  `usage.cost_in_usd_ticks`를 내부 응답의 `usage.cost_usd_ticks`로 전달합니다.
+  **1 USD = 10^10 ticks**이며 음이 아닌 정수를 그대로 보존합니다.
+  달러 환산·부동소수점 변환·반올림·토큰 단가 기반 추정은 하지 않습니다.
+  [xAI 비용 문서](https://docs.x.ai/developers/cost-tracking)의 실제 호출별 과금값을 사용합니다.
+- **합산**: 한 내부 요청에 포함된 모든 LLM 호출(플래너·본문 생성, 페이지별 캡션,
+  출력 검증 실패 후 재생성 등)의 확인된 ticks를 정수로 더합니다.
+  생성 결과를 버렸더라도 xAI 응답에 비용이 있으면 포함하고, 같은 호출의 중간
+  누적 usage와 최종 usage를 중복 합산하지 않습니다. 서로 다른 모델이어도
+  비용 단위는 같으므로 합산하며 기존 규칙대로 `model=null`일 수 있습니다.
+- **미확인 비용**: 호출 하나라도 비용이 없거나 잘못된 타입이면 총비용을
+  `null` 또는 생략으로 반환합니다(현재 구현은 생략). 네트워크 재시도 이전
+  실패 호출의 usage를 받지 못한 경우에도 마지막 성공 비용만 전체 비용으로
+  보내지 않습니다. 무과금이라고 추정해 **0으로 채우지 않으며**, 0은 모든
+  과금 대상 호출에서 xAI가 명시적으로 0을 제공한 경우에만 가능합니다.
+  실제 호출이 없는 결정적 안내도 비용은 미확인(null/생략)으로 둡니다.
+- **토큰과 독립**: 비용만 미확인이면 기존 토큰 usage는 유지합니다.
+  반대로 비용은 확인됐으나 토큰 수가 누락·파싱 실패한 경우, 비용은 보존하고
+  알 수 없는 토큰 값은 null로 둡니다. 토큰 합계도 불완전하고 비용도
+  미확인이면 기존처럼 `usage=null`이며 본 기능 결과는 유지합니다.
+- **스트림**: 내부 turn NDJSON의 `completed.result.usage`에 **정확히 한 번만**
+  최종 집계를 실으며 status·thought_summary·content_delta·heartbeat에는
+  usage나 비용을 싣지 않습니다. 오류 봉투·error 이벤트 구조는 이번에 변경하지
+  않으므로 요청 전체 실패·중도 취소의 비용을 이 성공 응답만으로 정산할 수는
+  없습니다. 미확인·실패 요청의 비용 대조는 Spring의 Management API 트랙에서 다룹니다.
+- **범위·배포**: #357의 모든 usage 응답(turn의 퀴즈·노트 포함, grade,
+  quiz-assessment, diagnosis, outline, captions, criteria, doc-chat,
+  conversation-summary, report 생성·질의, exam draft)에 공통 적용합니다.
+  LLM 호출 없는 extract·Files upload는 `usage=null`, DELETE 204는 body 없음으로
+  유지합니다. Spring 합의에 따라 신규 필드 부재는 NULL 저장하므로 이 필드
+  확장은 AI/Spring 배포 순서에 제약이 없습니다. V41 저장·requestId 멱등은 Spring 소관입니다.
 
 ### 3.4 statePatch 허용목록 (api-spec §8 표와 동일 — Spring이 이외 전부 거부)
 
@@ -336,6 +370,7 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
   일치해야 합니다.
 - 중단·오류 시 일부 `content_delta`는 미확정이며 `error` 뒤 스트림을
   종료합니다. 부분 메시지나 statePatch를 확정 결과로 반환하지 않습니다.
+- 토큰·비용 usage는 `completed.result.usage`에만 한 번 반환합니다(§3.3.2).
 - AI Service는 `ui_action` 내부 이벤트를 발행하지 않습니다. 퀴즈 제안은 설명 delta가
   끝난 뒤 `completed.result.uiActions`에만 포함되고 Spring이 정본 위젯으로 치환합니다.
 
@@ -384,7 +419,7 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 
 ## 6. 파이프라인 엔드포인트 DTO (api-spec §8 기준 + usage 추가)
 
-모든 JSON 성공 응답은 최상위 선택 `usage`를 가집니다. 한 요청에서 LLM을 여러 번 호출하면 확인 가능한 모든 호출(재생성 포함)을 합산합니다. 한 호출이라도 토큰 수를 확인할 수 없어 합산이 불완전하면 `usage=null`로 반환하며 본 기능 결과는 유지합니다. LLM 토큰 호출이 없는 extract·xAI Files upload는 항상 `usage=null`이고, DELETE의 204 응답에는 body가 없습니다. QuizGeneration은 독립 endpoint가 아니라 turn 산물이므로 turn 최상위 `usage`만 사용합니다.
+모든 JSON 성공 응답은 최상위 선택 `usage`를 가집니다. 한 요청의 LLM 호출(재생성 포함)은 §3.3.2에 따라 토큰·비용을 집계하며, 미확인 값을 0으로 대체하지 않습니다. 토큰 합계도 불완전하고 비용도 미확인이면 `usage=null`로 반환하며 본 기능 결과는 유지합니다. LLM 토큰 호출이 없는 extract·xAI Files upload는 항상 `usage=null`이고, DELETE의 204 응답에는 body가 없습니다. QuizGeneration은 독립 endpoint가 아니라 turn 산물이므로 turn 최상위 `usage`만 사용합니다.
 
 ### 6.1 POST /internal/ai/extract
 
@@ -516,9 +551,10 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
   ],
   "usage": {
     "model": "grok-4",
-    "input_tokens": 1200,
-    "output_tokens": 350,
-    "reasoning_tokens": null
+    "inputTokens": 1200,
+    "outputTokens": 350,
+    "reasoningTokens": null,
+    "cost_usd_ticks": 37756001
   }
 }
 ```

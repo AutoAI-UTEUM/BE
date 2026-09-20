@@ -85,8 +85,7 @@ class JwtTokenProviderTest {
 	void rejectsSecretsShorterThan256Bits() {
 		JwtProperties properties = new JwtProperties(
 			"c2hvcnQ=",
-			Duration.ofHours(1),
-			Duration.ofDays(14)
+			Duration.ofHours(1)
 		);
 
 		assertThatThrownBy(() -> new JwtTokenProvider(properties, Clock.systemUTC()))
@@ -96,7 +95,7 @@ class JwtTokenProviderTest {
 
 	private JwtTokenProvider provider(Clock clock) {
 		return new JwtTokenProvider(
-			new JwtProperties(SECRET, Duration.ofHours(1), Duration.ofDays(14)),
+			new JwtProperties(SECRET, Duration.ofHours(1)),
 			clock
 		);
 	}

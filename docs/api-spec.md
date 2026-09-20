@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 계약 초안 |
-| 마지막 갱신 | 2026-09-09 |
+| 마지막 갱신 | 2026-09-20 |
 | 외부 호출자 | Frontend |
 | 내부 호출자 | Spring → FastAPI |
 
@@ -56,6 +56,7 @@
 | POST | `/api/auth/login` | 로그인 | N | 전체 |
 | POST | `/api/auth/google` | Google ID 토큰 로그인·가입 | N | 전체 |
 | POST | `/api/auth/refresh` | access 재발급 (refresh 쿠키 회전) | 쿠키 | refresh 쿠키 보유자 |
+| POST | `/api/auth/session/activity` | 실제 사용자 활동으로 현재 인증 세션 idle 만료 연장 | Y+쿠키 | Bearer 사용자와 refresh 쿠키 사용자가 같은 현재 세션 |
 | POST | `/api/auth/logout` | 로그아웃 (refresh 폐기·쿠키 만료) | 쿠키 | refresh 쿠키 보유자 (멱등) |
 | GET | `/api/health/ready` | DB·AI Service readiness ([응답 계약](issues/11-observability.md)) | N | 전체 |
 | GET | `/api/users/me` | 내 정보 조회 | Y | 본인 |
@@ -123,6 +124,10 @@
 | GET | `/api/admin/infra/metrics` | 관리자 EC2 CloudWatch 지표 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/infra/cost` | 관리자 AWS 비용 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/infra/app` | 관리자 애플리케이션 지표 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/xai/credits` | 관리자 xAI 선불 크레딧·후불 한도 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/xai/status` | 관리자 xAI Management 연동 상태 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/xai/overview` | 관리자 xAI 비용·소진 위험 요약 조회 | Y | ADMIN + DB role/status 재검증 |
+| POST | `/api/admin/xai/sync` | 관리자 xAI Management 캐시 즉시 동기화 | Y | ADMIN + DB role/status 재검증; 사용자별 분당 1회 |
 | GET | `/api/classrooms/{id}/analytics` | 강의자 학습 현황 집계 | Y | 소유 INSTRUCTOR |
 | GET | `/api/classrooms/{classroomId}/students/{studentId}/learning-analytics` | 학습자별 상세 학습 현황 | Y | 소유 INSTRUCTOR |
 | PATCH | `/api/classrooms/{id}` | 강의실 수정 | Y | 소유 INSTRUCTOR |
@@ -227,7 +232,7 @@
 {
   "accessToken": "jwt-token",
   "tokenType": "Bearer",
-  "expiresIn": 3600,
+  "expiresIn": 900,
   "user": {
     "id": 1,
     "email": "user@example.com",
@@ -236,13 +241,20 @@
     "affiliation": "EduPilot University",
     "avatarUrl": "/api/users/me/avatar",
     "learningEmailOptIn": true
+  },
+  "session": {
+    "idleTimeoutSeconds": 7200,
+    "idleExpiresAt": "2026-09-20T06:00:00Z",
+    "absoluteExpiresAt": "2026-10-04T04:00:00Z"
   }
 }
 ```
 
 응답과 JWT `role` claim은 `LEARNER | INSTRUCTOR | ADMIN` 중 저장된 계정 역할을 반환합니다. `LEARNER`와 `INSTRUCTOR`는 현재 동일한 인증·소유권 규칙을 적용합니다.
 
-refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DEC-004 Accepted). 쿠키 계약(확정): 이름 `edupilot_refresh`, `HttpOnly`, `Secure`, `SameSite=Lax`, **`Path=/api/auth`**(refresh·logout 요청에만 전송되도록 최소화), `Domain` 미설정(host-only), Max-Age 14일. 서버는 refresh 해시를 DB에 저장하고 회전·재사용 감지·강제 폐기를 지원합니다. access token 만료는 1시간이며 FE는 메모리에 보관합니다(localStorage 금지). 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
+refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DEC-004, DEC-040 Accepted). 쿠키 계약(확정): 이름 `edupilot_refresh`, `HttpOnly`, `Secure`, `SameSite=Lax`, **`Path=/api/auth`**, `Domain` 미설정(host-only), Max-Age는 최초 로그인 기준 절대 만료까지 남은 시간(최대 14일)입니다. 서버는 refresh 해시를 브라우저·기기별 인증 세션에 연결하고 회전·재사용 감지·강제 폐기를 지원합니다. access token 만료는 15분이며 FE는 메모리에 보관합니다(localStorage 금지).
+
+`session.idleTimeoutSeconds`는 역할 정책 원값으로 `ADMIN=1800`, `INSTRUCTOR|LEARNER=7200`입니다. `idleExpiresAt`은 실제 현재 세션의 idle 만료이고 절대 만료에 가까우면 정책 원값보다 짧을 수 있습니다. `absoluteExpiresAt`은 최초 로그인 후 14일이며 refresh나 activity로 연장되지 않습니다. 모든 시각은 UTC ISO 8601입니다. 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
 
 ### POST `/api/auth/google`
 
@@ -299,17 +311,39 @@ Google ID 토큰을 검증해 기존 계정으로 로그인하거나 신규 계�
 {
   "accessToken": "jwt-token",
   "tokenType": "Bearer",
-  "expiresIn": 3600
+  "expiresIn": 900,
+  "session": {
+    "idleTimeoutSeconds": 7200,
+    "idleExpiresAt": "2026-09-20T06:10:00Z",
+    "absoluteExpiresAt": "2026-10-04T04:00:00Z"
+  }
 }
 ```
 
-- **회전**: 성공 시 기존 refresh는 폐기되고 새 refresh 쿠키가 재발급됩니다. FE는 401 수신 시 이 API를 `credentials: "include"`로 호출해 access를 재발급받습니다.
-- **재사용 감지**: 이미 폐기(회전)된 refresh가 재사용되면 탈취 신호로 간주해 **해당 사용자의 refresh를 전량 폐기**하고 401을 반환합니다. FE 분기 단순화를 위해 별도 코드 없이 `TOKEN_INVALID`로 통일합니다(재로그인 유도).
-- 주요 오류: `TOKEN_INVALID`(401 — 쿠키 없음·미존재·폐기·만료·재사용 감지), `USER_INACTIVE`(403 — 탈퇴·비활성 사용자).
+- **회전**: 성공 시 기존 refresh는 폐기되고 같은 인증 세션에 새 refresh 쿠키가 발급됩니다. 성공한 refresh는 현재 세션 활동으로 기록해 idle 만료를 역할별 시간만큼 연장하지만 `absoluteExpiresAt`과 새 token/cookie 만료는 최초 로그인 기준 절대 만료를 넘지 않습니다.
+- **재사용 감지**: 이미 폐기된 refresh가 재사용되면 연결된 인증 세션 family의 token만 전량 폐기합니다. V41 이전의 `sessionId=null`인 폐기 token은 family를 복원할 수 없어 사용자 전체 token/session을 폐기합니다. 오류는 `TOKEN_INVALID`로 통일합니다.
+- FE는 access 만료 5분 전 최근 실제 입력 활동이 있을 때 또는 일반 요청의 최초 401에서만 `credentials: "include"`로 호출하고, 탭 전체 single-flight로 중복 회전을 막습니다.
+- 주요 오류: `TOKEN_INVALID`(401 — 쿠키 없음·미존재·폐기·재사용 감지), `AUTH_SESSION_IDLE_EXPIRED`(401), `AUTH_SESSION_ABSOLUTE_EXPIRED`(401), `USER_INACTIVE`(403). 이 오류들은 refresh 쿠키도 만료합니다.
+
+### POST `/api/auth/session/activity`
+
+Bearer access token과 `edupilot_refresh` 쿠키가 모두 필요하며 요청 body는 없습니다. Bearer 사용자와 cookie token 사용자가 같고 현재 인증 세션이 유효할 때만 성공합니다. 실제 pointer/key/touch/scroll 입력을 FE가 탭 전체 기준 최대 5분에 한 번 모아 호출하며 background polling이나 단순 timer는 활동으로 보내지 않습니다.
+
+`data`:
+
+```json
+{
+  "idleTimeoutSeconds": 7200,
+  "idleExpiresAt": "2026-09-20T06:15:00Z",
+  "absoluteExpiresAt": "2026-10-04T04:00:00Z"
+}
+```
+
+이 API는 access/refresh token을 발급하거나 회전하지 않고 cookie도 다시 설정하지 않습니다. 서버는 token과 세션의 폐기·idle·absolute 상태를 매번 검증하되 같은 세션의 DB UPDATE만 Caffeine으로 5분간 스로틀합니다. 일반 인증 API는 `auth_sessions`를 조회하거나 연장하지 않습니다. 주요 오류와 cookie 만료 규칙은 refresh와 같습니다.
 
 ### POST `/api/auth/logout`
 
-요청 body 없음 — `edupilot_refresh` 쿠키의 refresh를 폐기하고 쿠키를 만료(Max-Age=0)시킵니다. 이미 폐기됐거나 쿠키가 없어도 200을 반환합니다(멱등). access token은 서버가 무효화하지 않으며 만료(최대 1시간)로 소멸합니다 — FE는 로그아웃 시 메모리의 access를 즉시 삭제합니다.
+요청 body 없음 — `edupilot_refresh` 쿠키가 속한 현재 인증 세션과 그 세션의 활성 refresh token만 폐기하고 쿠키를 만료(Max-Age=0)시킵니다. 다른 기기의 인증 세션은 유지합니다. 이미 폐기됐거나 쿠키가 없어도 200을 반환합니다(멱등). access token은 서버가 무효화하지 않으며 만료(최대 15분)로 소멸합니다 — FE는 로그아웃 시 메모리의 access를 즉시 삭제합니다.
 
 ### GET `/api/users/me`
 
@@ -337,7 +371,7 @@ login의 `user`와 같은 사용자 필드를 반환합니다. 기존 계정은 
 
 `newPassword`에는 회원가입과 같은 비밀번호 정책(8~64자, 영문·숫자 각 1자 이상)을 적용합니다. `LOCAL` 계정만 사용할 수 있고, 현재 비밀번호가 일치해야 하며 현재 비밀번호와 같은 새 비밀번호는 거부합니다. 현재 비밀번호 검증에 5회 실패하면 마지막 실패부터 15분 동안 사용자 ID 기준으로 요청을 제한합니다. 성공하면 실패 횟수를 초기화합니다.
 
-이 요청에서는 현재 브라우저의 refresh token을 식별할 수 없으므로 성공 시 해당 사용자의 활성 refresh token을 **전량 폐기**합니다. `data`는 다음과 같으며, FE는 `reauthenticationRequired=true`를 받으면 보유 access token을 삭제하고 로그인 화면으로 이동해야 합니다. 기존 access token은 stateless JWT이므로 만료 전까지 서버에서 개별 폐기할 수 없습니다.
+이 요청에서는 현재 브라우저의 refresh token을 식별할 수 없으므로 성공 시 해당 사용자의 인증 세션과 활성 refresh token을 **전량 폐기**합니다. `data`는 다음과 같으며, FE는 `reauthenticationRequired=true`를 받으면 보유 access token을 삭제하고 로그인 화면으로 이동해야 합니다. 기존 access token은 stateless JWT이므로 만료 전까지(최대 15분) 서버에서 개별 폐기할 수 없습니다.
 
 ```json
 {
@@ -375,7 +409,7 @@ Bearer 인증 후 저장된 이미지의 실제 Media-Type으로 private/no-stor
 }
 ```
 
-회원 탈퇴(DEC-028). 비밀번호 재확인 후 `status=DELETED` 전환과 동시에 개인 식별 정보를 익명화합니다(email → `deleted_{id}`, name → 고정 문구, password_hash 무효화 — 재가입 허용). refresh token은 전부 폐기합니다. 소유 자료·세션은 함께 논리 삭제하고, 퀴즈 제출·평가·메모리 레코드는 익명 상태로 보존합니다. 복구는 지원하지 않으므로 FE는 확인 모달을 거쳐 호출합니다. 주요 오류: `INVALID_CREDENTIALS`.
+회원 탈퇴(DEC-028). 비밀번호 재확인 후 `status=DELETED` 전환과 동시에 개인 식별 정보를 익명화합니다(email → `deleted_{id}`, name → 고정 문구, password_hash 무효화 — 재가입 허용). 인증 세션과 refresh token은 전부 폐기합니다. 소유 자료·학습 세션은 함께 논리 삭제하고, 퀴즈 제출·평가·메모리 레코드는 익명 상태로 보존합니다. 복구는 지원하지 않으므로 FE는 확인 모달을 거쳐 호출합니다. 주요 오류: `INVALID_CREDENTIALS`.
 
 ## 4. 자료 API
 
@@ -2513,6 +2547,97 @@ AWS 설정과 무관하게 프로세스 내부 `MeterRegistry`와 readiness 결�
 타임아웃은 5초입니다. Actuator는 내부 계측에만 사용하고 `/actuator/**` 웹 엔드포인트는
 노출하지 않습니다.
 
+### GET `/api/admin/xai/credits`
+
+xAI Management API의 선불 잔액, 후불 월 한도, 당월 사용액과 잔여액을 반환합니다. 금액은
+부동소수점 손실을 막기 위해 JSON 문자열인 USD `BigDecimal`로 직렬화합니다. xAI의 선불
+원장 `total.val`은 구매 크레딧을 음수 센트로 표현하므로 Spring이 부호를 반전하고 100으로
+나눠 사용 가능한 양의 USD 잔액으로 정규화합니다.
+
+```json
+{
+  "success": true,
+  "data": {
+    "prepaidBalanceUsd": "125.00",
+    "postpaidLimitUsd": "300.00",
+    "postpaidUsedUsd": "75.00",
+    "postpaidRemainingUsd": "225.00",
+    "fetchedAt": "2026-09-20T08:00:00Z",
+    "lastSuccessfulSyncAt": "2026-09-20T08:00:00Z",
+    "stale": false,
+    "available": true
+  },
+  "message": "요청이 성공했습니다."
+}
+```
+
+`fetchedAt`은 조합한 값 중 가장 오래된 성공 조회 시각이고,
+`lastSuccessfulSyncAt`은 실제 xAI endpoint가 마지막으로 성공한 시각입니다. 후불 잔여액은
+`max(한도 - invoice preview 당월 비용, 0)`입니다.
+
+### GET `/api/admin/xai/status`
+
+외부 조회를 새로 발생시키지 않고 현재 연동 상태를 반환합니다.
+
+```json
+{
+  "success": true,
+  "data": {
+    "available": true,
+    "lastSuccessfulSyncAt": "2026-09-20T08:00:00Z",
+    "lastFailureAt": null,
+    "recentErrorClassification": null
+  },
+  "message": "요청이 성공했습니다."
+}
+```
+
+최근 오류 분류는 인증·팀 설정 문제인 `CONFIGURATION_ERROR` 또는 429·5xx·통신·타임아웃
+문제인 `TEMPORARY_FAILURE`입니다. Management Key와 team ID는 어떤 응답에도 포함하지
+않습니다.
+
+### GET `/api/admin/xai/overview`
+
+credits 원값에 다음 파생값을 더해 반환합니다.
+
+- `currentMonthCostUsd`: postpaid invoice preview의 `totalWithCorr`
+- `totalAvailableUsd`: 선불 잔액 + 후불 잔여액
+- `averageDailyCost7d`: **1차 구현에서는** 이름과 달리 내부 7일 비용 집계가 아니라 invoice
+  preview 당월 비용을 UTC 청구 월의 경과 일수로 나눈 일평균입니다. 2차에서
+  `ai_usage_log.cost_usd_ticks` 기반 최근 7일 값으로 교체합니다.
+- `projectedDepletionAt`: 일평균이 양수일 때 `현재 + totalAvailable / 일평균`이며, 일평균이
+  0 또는 없으면 null입니다.
+- `riskLevel`: 소진 예상이 7일 이내이거나 잔액이 `$10` 미만이면 `CRITICAL`, 30일 이내이거나
+  `$50` 미만이면 `WARNING`, 그 외 `NORMAL`입니다. 일수 경계는 포함하고 금액 경계는
+  미만 비교입니다.
+
+응답의 나머지 메타 필드는 credits와 같습니다.
+
+### POST `/api/admin/xai/sync`
+
+세 endpoint 캐시를 무효화하고 즉시 다시 조회한 뒤 overview와 같은 응답을 반환합니다.
+사용자별 1분에 한 번만 허용하며 초과하면 `RATE_LIMIT_EXCEEDED`(429)입니다. 강제 조회가
+실패해도 마지막 성공값은 폐기하지 않고 stale 강등에 사용합니다. 감사 로그에는
+`action=XAI_SYNC`, actor user ID, endpoint, 시각만 기록합니다.
+
+### 관리자 xAI Management 공통 가용성·캐시 정책
+
+`XAI_MANAGEMENT_API_KEY`와 `XAI_TEAM_ID` 중 하나라도 비어 있으면 외부 호출 없이 HTTP 200의
+`available:false`와 나머지 nullable 필드 null을 반환합니다. 설정은 있으나 최초 조회가
+실패하면 `available:true, stale:true`와 null 데이터를 반환합니다. 성공 이력이 있으면
+마지막 성공값과 `stale:true`로 강등합니다. prepaid balance와 spending limits는 2분,
+invoice preview는 5분 캐시하며 connect timeout은 2초, read timeout은 5초입니다.
+
+상위 응답 스키마는 xAI 공식
+[Billing Management](https://docs.x.ai/developers/rest-api-reference/management/billing)의
+`GET /prepaid/balance`, `GET /postpaid/spending-limits`,
+`GET /postpaid/invoice/preview`를 기준으로 합니다. xAI 값은 센트 문자열로 역직렬화하고
+`double`로 변환하지 않습니다.
+
+사용량 그래프·reconciliation·invoice/alert API와 `ai_usage_log` 비용 저장은 2차 범위입니다.
+AI 담당과 `usage.costUsdTicks` 내부 계약을 합의하고 ai-service 반영 릴리즈가 준비된 뒤
+착수합니다.
+
 ## 8. Spring → FastAPI 내부 API
 
 ### 호출 주체 원칙 (하이브리드)
@@ -2536,7 +2661,7 @@ AWS 설정과 무관하게 프로세스 내부 `MeterRegistry`와 readiness 결�
 | POST | `/internal/ai/diagnosis` | 진단 질문 생성 | 퀴즈 제출 파이프라인 3단계 (기준 점수 미달 시) |
 | POST | `/internal/ai/exams/draft` | 시험 문항 AI 초안 생성 | 소유 강사의 DRAFT 시험 초안 요청 시 동기 호출 |
 
-body가 없는 204를 제외한 내부 API 성공 응답은 최상위 optional `usage`를 사용합니다. wire 키는 `model`, `inputTokens`, `outputTokens`, `reasoningTokens`이고 `usage`와 각 하위 값은 nullable입니다. LLM을 여러 번 호출하면 재생성을 포함해 합산하되, 한 호출이라도 토큰 수를 확인할 수 없으면 불완전한 합계를 기록하지 않고 `usage=null`로 반환합니다. Spring은 확인 가능한 usage를 사용자별 `ai_usage_log`에 기록합니다.
+body가 없는 204를 제외한 내부 API 성공 응답은 최상위 optional `usage`를 사용합니다. 기존 wire 키 `model`, `inputTokens`, `outputTokens`, `reasoningTokens`는 유지하며 nullable integer `cost_usd_ticks`를 추가합니다. xAI의 `usage.cost_in_usd_ticks`를 그대로 전달하고 1 USD = 10^10 ticks입니다. 여러 호출·재생성 비용은 정수 합산하되 하나라도 미확인이면 비용은 null/생략하며 0으로 대체하지 않습니다. 토큰과 비용은 독립적으로 보존하며 둘 다 안전한 합계가 없으면 `usage=null`입니다. turn NDJSON은 `completed.result.usage`에만 한 번 실립니다. Spring은 확인 가능한 usage를 사용자별 `ai_usage_log`에 기록하며 비용 저장(V41)·멱등 처리는 Spring 소관입니다. 단위·실패 호출·배포 호환 상세는 [내부 계약 §3.3.2](ai-integration-contract.md#332-usage-비용-집계-cost_usd_ticks)를 따릅니다.
 
 `extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)과 nullable `xaiFileId`, 기본 빈 배열 `warnings: [{type,message}]`를 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `EDUPILOT_XAI_FILES_ENABLED=true`일 때만 추출 성공 원본을 xAI Files에 업로드합니다. 업로드 실패 또는 48MiB 초과는 `xaiFileId=null`과 `FILE_UPLOAD_FAILED` warning으로 강등하며 추출 응답은 200을 유지합니다. `FILE_UPLOAD_FAILED` 및 알 수 없는 warning type은 경고로만 기록하고 추출이 성공했다면 자료는 기존대로 READY가 됩니다. Spring은 non-blank `xaiFileId`만 내부 DB에 저장하고 외부 자료 응답에는 노출하지 않습니다. 기존 ACTIVE·READY 자료는 기본 OFF인 Spring bounded backfill이 `POST /internal/ai/files`로 원본만 업로드하며, 이 명시적 API는 `/extract` 자동 업로드 kill switch와 독립적으로 동작합니다. backfill은 claim과 file ID 반영을 각각 짧은 row-lock 트랜잭션으로 처리하고 외부 호출 중에는 트랜잭션을 유지하지 않으며, 실패 시 READY 유지·6시간 기본 backoff·경합 file ID 베스트에포트 삭제를 적용합니다. 자유 학습 턴 context에는 nullable `xaiFileId`를 포함하며 `includeCurrentPage=false`이면 null을 보냅니다. AI Service는 설명 Plan과 설명·QA·퀴즈의 실제 LLM 호출, 개요 생성에 파일을 첨부하고 그 밖의 Plan·결정적 안내·Repair·Note에는 첨부하지 않습니다. 퀴즈는 checkpoint가 있으면 `quizContext`의 coverage 페이지 범위, 없으면 현재 페이지 단일을 앵커로 사용하며 개요는 전달된 pages 범위를 유지합니다. file ID가 없으면 기존 텍스트 경로를 사용합니다(DEC-035·037·039). `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작하며 삭제 성공·xAI 404는 모두 204, 그 밖의 xAI 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)입니다. 자료 삭제나 file ID 교체 시 Spring은 트랜잭션 커밋 후 DELETE를 호출하며 실패해도 자료 삭제·READY 결과를 유지합니다. `captions`는 `{schemaVersion:"1.0", pages:[{pageNumber,imageBase64,extractedText}]}`를 최대 10페이지씩 받고 페이지별 nullable 캡션을 반환합니다. Spring은 캡션이 있으면 모든 페이지 텍스트 기반 AI 입력에 `\n\n[그림 설명] {caption}`을 읽기 시점에 병합하며 `material_pages.text_content` 원문은 유지합니다. 일부 청크 실패는 자료·개요 상태에 영향을 주지 않고 다음 청크 처리를 계속합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
 

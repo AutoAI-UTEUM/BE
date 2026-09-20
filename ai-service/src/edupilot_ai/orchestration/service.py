@@ -24,7 +24,7 @@ from edupilot_ai.models.stream import (
     ThoughtSummaryStreamEvent,
     TurnStreamEvent,
 )
-from edupilot_ai.models.turn import EventType, TurnRequest, TurnResponse
+from edupilot_ai.models.turn import Adjustment, EventType, TurnRequest, TurnResponse
 from edupilot_ai.orchestration.context import AgentContext, ContextBuilder
 from edupilot_ai.orchestration.dispatcher import (
     DispatchResult,
@@ -183,7 +183,7 @@ class TurnService:
         plan_candidate: TurnPlan | None = None
         try:
             plan_candidate, plan_usages = await self._resolve_plan(context, deadline)
-            plan, adjustments = self._policy.verify(plan_candidate, context)
+            plan, adjustments = self._verify_plan(plan_candidate, context)
             dispatched = await self._dispatcher.dispatch(
                 plan,
                 context,
@@ -257,7 +257,7 @@ class TurnService:
             yield StatusStreamEvent(stage="PLANNING")
             yield ThoughtSummaryStreamEvent(text="학습 계획을 세우는 중입니다")
             plan_candidate, plan_usages = await self._resolve_plan(context, deadline)
-            plan, adjustments = self._policy.verify(plan_candidate, context)
+            plan, adjustments = self._verify_plan(plan_candidate, context)
 
             if turn.event.event_type is EventType.EXPLAIN_CURRENT_PAGE:
                 yield StatusStreamEvent(stage="EXPLAINING")
@@ -331,11 +331,64 @@ class TurnService:
         context: AgentContext,
         deadline: TurnDeadline,
     ) -> tuple[TurnPlan, list[LlmUsage]]:
-        synthesized = synthesize_plan(context)
-        if synthesized is not None:
-            return synthesized, []
-        planned = await self._orchestrator.create_plan(context, deadline)
-        return planned.plan, [planned.usage]
+        started_at = time.perf_counter()
+        fields: dict[str, object] = {
+            "agent": "Orchestrator",
+            "turnId": context.turn_id,
+            "sessionId": context.session.session_id,
+            "eventType": context.event_type.value,
+        }
+        logger.info("turn planning started", extra=fields)
+        status = "FAILED"
+        try:
+            synthesized = synthesize_plan(context)
+            fields["planSource"] = "DETERMINISTIC" if synthesized is not None else "LLM"
+            if synthesized is not None:
+                fields["plannerAttempts"] = 0
+                status = "SUCCESS"
+                return synthesized, []
+            planned = await self._orchestrator.create_plan(context, deadline)
+            fields["plannerAttempts"] = planned.attempts
+            status = "SUCCESS"
+            return planned.plan, [planned.usage]
+        except GeneratorExit, asyncio.CancelledError:
+            status = "CANCELLED"
+            raise
+        except LlmBridgeError as error:
+            fields["errorCode"] = error.category.value
+            raise
+        finally:
+            logger.log(
+                logging.WARNING if status == "FAILED" else logging.INFO,
+                "turn planning finished",
+                extra={
+                    **fields,
+                    "status": status,
+                    "durationMs": round((time.perf_counter() - started_at) * 1000, 3),
+                },
+            )
+
+    def _verify_plan(
+        self, plan: TurnPlan, context: AgentContext
+    ) -> tuple[TurnPlan, list[Adjustment]]:
+        started_at = time.perf_counter()
+        status = "FAILED"
+        try:
+            verified = self._policy.verify(plan, context)
+            status = "SUCCESS"
+            return verified
+        finally:
+            logger.log(
+                logging.INFO if status == "SUCCESS" else logging.WARNING,
+                "turn policy verification finished",
+                extra={
+                    "agent": "PolicyVerifier",
+                    "turnId": context.turn_id,
+                    "eventType": context.event_type.value,
+                    "status": status,
+                    "durationMs": round((time.perf_counter() - started_at) * 1000, 3),
+                },
+            )
 
     def _deadline(self) -> TurnDeadline:
         return TurnDeadline.start(

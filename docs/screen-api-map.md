@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-09-09 |
+| 마지막 갱신 | 2026-09-20 |
 | 대상 | Frontend · Spring Backend |
 
 ## 1. 화면별 매핑
@@ -12,9 +12,10 @@
 | --- | --- | --- | --- | --- |
 | 회원가입 | 이메일 입력 중 중복 확인 | `GET /api/auth/email-availability?email={email}` | 사용 가능 여부 표시 | 이메일 누락·형식 오류 |
 | 회원가입 | 역할·선택 소속·수신 동의·약관 버전 제출 | `POST /api/auth/signup` | 확장 사용자 응답 확인 후 로그인 화면 또는 자동 로그인 정책에 따른 이동 | 역할/약관 버전 오류, 유효성, 이메일 중복 |
-| 로그인 | 제출 | `POST /api/auth/login` | 토큰 저장 후 자료 목록 이동 | 자격 증명 실패, 비활성 계정 |
-| 로그인 | Google 로그인 | `POST /api/auth/google` | 기존·연동 계정은 로그인 완료. 신규 계정은 `SIGNUP_REQUIRED` 시 역할·약관·선택 정보를 받은 뒤 같은 ID 토큰으로 재요청 | Google 토큰 오류, 추가 정보 필요, 비활성 계정 |
+| 로그인 | 제출 | `POST /api/auth/login` | access와 역할별 `session` 메타를 메모리에 보존한 뒤 자료 목록 이동. refresh는 HttpOnly cookie | 자격 증명 실패, 비활성 계정 |
+| 로그인 | Google 로그인 | `POST /api/auth/google` | 기존·연동 계정은 access와 `session` 메타를 받아 로그인 완료. 신규 계정은 `SIGNUP_REQUIRED` 시 역할·약관·선택 정보를 받은 뒤 같은 ID 토큰으로 재요청 | Google 토큰 오류, 추가 정보 필요, 비활성 계정 |
 | 앱 초기 진입 | 인증 상태 확인 | `GET /api/users/me` | 사용자 정보/권한 반영 | 토큰 만료 |
+| 앱 공통 인증 | 실제 pointer/key/touch/scroll 활동을 탭 전체 기준 최대 5분에 한 번 기록 | `POST /api/auth/session/activity` (Bearer + credentials 포함) | token 회전 없이 응답의 `idleExpiresAt` 갱신·탭 간 전파. background polling은 호출 근거가 아님 | cookie 누락·사용자 불일치 `TOKEN_INVALID`, idle·절대 만료 시 전체 탭 로그인 이동 |
 | 계정 설정 | 이름·소속 수정 | `PATCH /api/users/me` | 확장 사용자 정보 갱신 | 빈 변경, 길이 오류 |
 | 계정 설정 | 아바타 업로드·교체·삭제 | `POST·GET·DELETE /api/users/me/avatar` | 인증 fetch로 Blob object URL 생성·교체 | 형식/2MiB 초과, 인증 실패 |
 | 계정 설정 | 학습 환경설정 조회·수정 | `GET·PATCH /api/users/me/preferences` | 이메일 수신·학습 리마인더 설정과 AI 답변 스타일 저장 | 빈 변경, enum 오류 |
@@ -25,6 +26,7 @@
 | 관리자 강의실 현황 | 목록·정렬·상세 조회 | `GET /api/admin/classrooms`, `GET /api/admin/classrooms/{id}` | 개설자·상태·멤버 수와 상세 멤버 목록 표시 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 없는 강의실 404 |
 | 관리자 AI 사용량 | 기간별 요약·사용자 상위 N 조회 | `GET /api/admin/ai-usage/summary`, `GET /api/admin/ai-usage/users` | 최근 7일 기본, 최대 92일의 KST 일별·기능별·사용자별 집계 표시 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 날짜 범위·limit 400 |
 | 관리자 인프라 현황 | 환경·기간별 EC2 지표, AWS 비용, 앱 상태 조회 | `GET /api/admin/infra/metrics`, `GET /api/admin/infra/cost`, `GET /api/admin/infra/app` | CPU·네트워크·메모리·디스크·상태검사 시계열, 월/서비스/일별 비용, JVM·HTTP·DB·AI 상태 표시. AWS 실패 시 unavailable 또는 stale 안내 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, env·range 400, AWS 장애는 200 fail-soft |
+| 관리자 xAI 비용 현황 | 화면 진입·수동 동기화 | `GET /api/admin/xai/credits`, `GET /api/admin/xai/status`, `GET /api/admin/xai/overview`, `POST /api/admin/xai/sync` | 문자열 USD 금액, 마지막 동기화·stale 상태, 예상 소진 시각과 NORMAL/WARNING/CRITICAL 표시. 미설정은 available=false, 일시 장애는 마지막 성공값으로 표시 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, sync 사용자별 분당 1회 초과 429; 외부 장애는 200 fail-soft |
 | 강의실 목록 | 화면 진입·검색·정렬·페이지 이동 | `GET /api/classrooms` | 역할별 소유/참여 강의실, 진도·최근 학습 또는 승인 대기 수 표시 | 권한, 페이지네이션 |
 | 강의실 개설 | 생성 폼 제출 | `POST /api/classrooms` | 계산된 주차 수·초대 코드가 포함된 상세로 이동 | INSTRUCTOR 권한, 날짜·색상 검증 |
 | 강의실 상세 | 화면 진입 | `GET /api/classrooms/{id}` | 기간·현재 주차·인원·역할별 상세 표시 | `CLASSROOM_NOT_FOUND` |
@@ -57,8 +59,8 @@
 | 리포트 상세 `/reports/:reportId` | 생성 상태·실패 fallback·완료 결과 조회 | `GET /api/reports/{reportId}` | PROCESSING 표시, FAILED 사실 요약, COMPLETED 점수·단계·trend·근거 표시. 근거의 선택 `metrics`는 label/value로 표시하고 필드가 없으면 수치 영역을 숨김. trend는 같은 scope(FULL 또는 같은 주차 WEEK)의 직전 버전 대비이며 null score는 데이터 부족으로 표시 | `REPORT_NOT_FOUND`, AI failureCode |
 | 리포트 기준 `/classrooms/:classroomId/report-criteria` | 기본·커스텀 목록, 기준 생성·버전 변경·활성 토글·커스텀 삭제 | `GET·POST /api/classrooms/{classroomId}/report-criteria`, `PATCH·DELETE .../{criterionId}` | 기본 9종과 활성 커스텀을 표시. 삭제는 최신 ID로 해당 key 전 버전을 제거하며 진행 중 생성·과거 리포트에는 영향 없음 | 기준 20개 상한, 정규화 이름 중복, 소유권, 타 강의실·과거 버전 ID 404 |
 | 리포트 기준 `/classrooms/:classroomId/report-criteria` | AI 평가 지표 생성·상태 polling | `POST /api/classrooms/{classroomId}/report-criteria/generate`, `GET .../generation` | 202 후 `RUNNING`을 polling하고 `COMPLETED`면 목록 갱신, `FAILED`면 message 표시 | READY 개요 1개 이상, 여유 슬롯 3개 이상, 동시 실행 409, 소유권 |
-| 전역 | access 만료(401) 시 | `POST /api/auth/refresh` (credentials 포함) | 새 access로 원요청 재시도 | TOKEN_INVALID → 로그인 이동 |
-| 헤더/메뉴 | 로그아웃 버튼 | `POST /api/auth/logout` | 메모리 access 삭제 후 로그인 화면 | 없음(멱등) |
+| 전역 | access 만료 5분 전 최근 실제 활동이 있거나 일반 요청의 최초 401 시 | `POST /api/auth/refresh` (credentials 포함) | 탭 전체 single-flight로 같은 세션의 access/refresh를 1회 회전하고 원 요청은 최대 1회 재시도. `absoluteExpiresAt`은 유지 | `TOKEN_INVALID`, `AUTH_SESSION_IDLE_EXPIRED`, `AUTH_SESSION_ABSOLUTE_EXPIRED`, `USER_INACTIVE` → 전체 탭 로그인 이동; 5xx·통신 오류는 강제 로그아웃 금지 |
+| 헤더/메뉴 | 로그아웃 버튼 | `POST /api/auth/logout` | 현재 기기 인증 세션만 폐기하고 메모리 access 삭제 후 로그인 화면 | 없음(멱등) |
 | 계정 설정 | 현재·새 비밀번호 입력 후 변경 | `PATCH /api/users/me/password` | 성공 시 `reauthenticationRequired=true`를 확인하고 access 삭제 후 로그인 화면 이동 | GOOGLE 계정·동일 비밀번호 409, 현재 비밀번호 불일치·정책 위반 400, 5회 실패 후 429 |
 | 계정 설정 | 탈퇴 버튼 → 비밀번호 확인 모달 | `DELETE /api/users/me` | 토큰 정리 후 로그인 화면 이동 | 비밀번호 불일치 (DEC-028) |
 | 자료 목록 | 화면 진입/페이지 이동 | `GET /api/materials` | 자료 카드 목록. FAILED는 `failureReason`별 안내, null이면 일반 실패 문구, `traceId`가 있으면 문의 정보로 표시 | 권한, 네트워크 |
@@ -141,6 +143,8 @@ turn 응답의 `state.activeQuizId`는 nullable입니다. 퀴즈 생성 턴에�
 ## 4. FE가 의존하면 안 되는 정보
 
 - FastAPI 내부 엔드포인트
+- 내부 `usage.cost_usd_ticks`(10^10 ticks/USD): 서버 비용 집계 전용이며 학습 화면
+  응답·SSE에는 노출하지 않습니다. 관리자 비용 표시는 별도 Spring API 계약을 따릅니다.
 - Orchestrator의 세부 Plan 또는 비공개 reason
 - Grok 프롬프트와 내부 추론
 - 퀴즈 제출 전 정답·루브릭

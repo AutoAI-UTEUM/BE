@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-09-09 |
+| 마지막 갱신 | 2026-09-20 |
 | 코드 형식 | `UPPER_SNAKE_CASE` |
 
 ## 1. 응답 형식
@@ -62,6 +62,8 @@
 | `AUTHENTICATION_REQUIRED` | 401 | 인증 정보 없음 |
 | `TOKEN_INVALID` | 401 | 위조/형식 오류 토큰 |
 | `TOKEN_EXPIRED` | 401 | 만료된 토큰 |
+| `AUTH_SESSION_IDLE_EXPIRED` | 401 | 역할별 idle timeout 동안 실제 사용자 활동이 없어 인증 세션 종료 |
+| `AUTH_SESSION_ABSOLUTE_EXPIRED` | 401 | 최초 로그인 기준 14일 절대 만료로 인증 세션 종료 |
 | `ACCESS_DENIED` | 403 | 역할/권한 부족 |
 | `RESOURCE_NOT_FOUND` | 404 | 일반 리소스 없음 |
 | `RATE_LIMIT_EXCEEDED` | 429 | 호출 제한 초과 |

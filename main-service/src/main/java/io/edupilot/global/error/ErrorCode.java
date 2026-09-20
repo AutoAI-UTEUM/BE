@@ -18,6 +18,16 @@ public enum ErrorCode {
 	),
 	TOKEN_INVALID("TOKEN_INVALID", HttpStatus.UNAUTHORIZED, "유효하지 않은 인증 토큰입니다."),
 	TOKEN_EXPIRED("TOKEN_EXPIRED", HttpStatus.UNAUTHORIZED, "인증 토큰이 만료되었습니다."),
+	AUTH_SESSION_IDLE_EXPIRED(
+		"AUTH_SESSION_IDLE_EXPIRED",
+		HttpStatus.UNAUTHORIZED,
+		"일정 시간 활동이 없어 로그아웃되었습니다."
+	),
+	AUTH_SESSION_ABSOLUTE_EXPIRED(
+		"AUTH_SESSION_ABSOLUTE_EXPIRED",
+		HttpStatus.UNAUTHORIZED,
+		"로그인 유지 기간이 만료되었습니다."
+	),
 	ACCESS_DENIED("ACCESS_DENIED", HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
 	CLASSROOM_NOT_FOUND(
 		"CLASSROOM_NOT_FOUND",

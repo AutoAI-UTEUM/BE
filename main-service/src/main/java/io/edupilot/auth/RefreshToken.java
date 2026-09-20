@@ -27,6 +27,10 @@ public class RefreshToken {
 	@JoinColumn(name = "user_id", nullable = false)
 	private User user;
 
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "session_id")
+	private AuthSession authSession;
+
 	@Column(name = "token_hash", nullable = false, unique = true, length = 64)
 	private String tokenHash;
 
@@ -44,9 +48,25 @@ public class RefreshToken {
 	}
 
 	public RefreshToken(User user, String tokenHash, Instant expiresAt) {
+		this(user, null, tokenHash, expiresAt);
+	}
+
+	public RefreshToken(
+		User user,
+		AuthSession authSession,
+		String tokenHash,
+		Instant expiresAt
+	) {
 		this.user = user;
+		this.authSession = authSession;
 		this.tokenHash = tokenHash;
 		this.expiresAt = expiresAt;
+	}
+
+	public void attachSession(AuthSession authSession) {
+		if (this.authSession == null) {
+			this.authSession = authSession;
+		}
 	}
 
 	public void revoke(Instant revokedAt) {
@@ -61,6 +81,10 @@ public class RefreshToken {
 
 	public String getTokenHash() {
 		return tokenHash;
+	}
+
+	public AuthSession getAuthSession() {
+		return authSession;
 	}
 
 	public Instant getExpiresAt() {

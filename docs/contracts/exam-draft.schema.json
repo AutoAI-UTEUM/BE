@@ -724,7 +724,7 @@
         },
         "Usage": {
           "additionalProperties": false,
-          "description": "Optional provider token accounting shared by every internal response.",
+          "description": "Optional provider token and cost accounting shared by internal responses.",
           "properties": {
             "model": {
               "anyOf": [
@@ -776,6 +776,19 @@
               ],
               "default": null,
               "title": "Reasoningtokens"
+            },
+            "cost_usd_ticks": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Cost Usd Ticks"
             }
           },
           "title": "Usage",

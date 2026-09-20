@@ -18,6 +18,7 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
 		select token
 		from RefreshToken token
 		join fetch token.user
+		left join fetch token.authSession
 		where token.tokenHash = :tokenHash
 		""")
 	Optional<RefreshToken> findByTokenHashForUpdate(@Param("tokenHash") String tokenHash);
@@ -31,6 +32,18 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
 		""")
 	int revokeAllActiveByUserId(
 		@Param("userId") Long userId,
+		@Param("revokedAt") Instant revokedAt
+	);
+
+	@Modifying
+	@Query("""
+		update RefreshToken token
+		set token.revokedAt = :revokedAt
+		where token.authSession.id = :sessionId
+		  and token.revokedAt is null
+		""")
+	int revokeAllActiveBySessionId(
+		@Param("sessionId") Long sessionId,
 		@Param("revokedAt") Instant revokedAt
 	);
 }
