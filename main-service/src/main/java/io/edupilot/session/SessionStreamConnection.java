@@ -1,6 +1,7 @@
 package io.edupilot.session;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -87,6 +88,13 @@ final class SessionStreamConnection {
 		return closed.get();
 	}
 
+	synchronized void sendReady(Instant connectedAt) {
+		sendEvent("ready", Map.of(
+			"sessionId", sessionId,
+			"connectedAt", connectedAt.toString()
+		));
+	}
+
 	synchronized boolean begin(AiStreamCancellation streamCancellation) {
 		if (closed.get() || !running.compareAndSet(false, true)) {
 			return false;
@@ -125,14 +133,20 @@ final class SessionStreamConnection {
 		sendEvent("ui_action", Map.of("action", action));
 	}
 
-	synchronized void sendCompleted(TurnResponse response) {
+	synchronized void sendCompleted(
+		String requestId,
+		TurnResponse response
+	) {
 		if (!closed.compareAndSet(false, true)) {
 			throw interrupted(null);
 		}
 		try {
 			sendRaw(SseEmitter.event()
 				.name("completed")
-				.data(Map.of("result", response), MediaType.APPLICATION_JSON));
+				.data(Map.of(
+					"requestId", requestId,
+					"result", response
+				), MediaType.APPLICATION_JSON));
 			emitter.complete();
 		} finally {
 			finish(false);

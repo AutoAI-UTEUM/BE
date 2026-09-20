@@ -8,6 +8,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -20,6 +22,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import io.edupilot.ai.AiStreamCancellation;
 import io.edupilot.global.error.BusinessException;
@@ -54,6 +58,42 @@ class SessionStreamServiceTest {
 			() -> service.connect(1L, 101L),
 			ErrorCode.SESSION_NOT_ACTIVE
 		);
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	void connectImmediatelyEmitsReadyBeforeHeartbeat() {
+		LearningSession active = mock(LearningSession.class);
+		when(active.getStatus()).thenReturn(SessionStatus.ACTIVE);
+		when(repository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(active));
+
+		SseEmitter emitter = service.connect(1L, 100L);
+		Collection<ResponseBodyEmitter.DataWithMediaType> earlyEvents =
+			(Collection<ResponseBodyEmitter.DataWithMediaType>)
+				ReflectionTestUtils.getField(
+					emitter,
+					"earlySendAttempts"
+				);
+		assertThat(earlyEvents).isNotNull();
+		var eventParts = earlyEvents.stream()
+			.map(ResponseBodyEmitter.DataWithMediaType::getData)
+			.toList();
+
+		assertThat(eventParts.stream()
+			.filter(String.class::isInstance)
+			.map(String.class::cast))
+			.anyMatch(value -> value.contains("event:ready"))
+			.noneMatch(value -> value.contains(":heartbeat"));
+		Map<?, ?> ready = eventParts.stream()
+			.filter(Map.class::isInstance)
+			.map(Map.class::cast)
+			.findFirst()
+			.orElseThrow();
+		assertThat(ready.get("sessionId")).isEqualTo(100L);
+		String connectedAt = (String)ready.get("connectedAt");
+		assertThat(connectedAt).endsWith("Z");
+		assertThat(Instant.parse(connectedAt)).isBeforeOrEqualTo(Instant.now());
 	}
 
 	@Test

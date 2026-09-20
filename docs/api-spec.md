@@ -2646,14 +2646,15 @@ DTO 상세·타임아웃·재시도·`usage` 필드는 [docs/ai-integration-cont
 
 ## 9. SSE 스트리밍 계약 (확정)
 
-AI 응답 스트리밍은 SSE를 기본 전송 방식으로 사용합니다. 이벤트는 `status`,
-`thought_summary`, `content_delta`, `ui_action`, `completed`, `error`이며,
+AI 응답 스트리밍은 SSE를 기본 전송 방식으로 사용합니다. 이벤트는 `ready`,
+`status`, `thought_summary`, `content_delta`, `ui_action`, `completed`, `error`이며,
 `completed` 또는 `error`는 정확히 1회, 스트림의 마지막 이벤트입니다.
 
 ### 9.1 연결과 턴 호출 순서
 
 1. FE가 `GET /api/sessions/{sessionId}/stream`을 fetch로 먼저 연결합니다.
-2. 연결 성공 후 `POST /api/sessions/{sessionId}/turns`를 전송합니다.
+2. 연결 등록 직후 1회 전송되는 `ready`를 확인한 뒤
+   `POST /api/sessions/{sessionId}/turns`를 전송합니다.
 3. Spring은 활성 SSE 연결이 있으면 FastAPI의 내부 NDJSON 스트림을 중계하고,
    없으면 기존 동기 JSON 턴 응답을 반환합니다.
 
@@ -2675,10 +2676,15 @@ AI 응답 스트리밍은 SSE를 기본 전송 방식으로 사용합니다. 이
 
 ### 9.2 외부 SSE data 스키마
 
-`status`, `thought_summary`, `content_delta`는 내부 전용 `type` 필드를
+`ready`는 연결 등록과 heartbeat 예약이 완료된 직후 1회 전송합니다.
+`connectedAt`은 UTC ISO 8601 시각입니다. `status`, `thought_summary`,
+`content_delta`는 내부 전용 `type` 필드를
 제거하고 다음 JSON만 data로 전달합니다.
 
 ```text
+event: ready
+data: {"sessionId":100,"connectedAt":"2026-09-20T01:02:03Z"}
+
 event: status
 data: {"stage":"PLANNING"}
 
@@ -2709,12 +2715,13 @@ event: ui_action
 data: {"action":{"type":"DIAGNOSIS_QUESTION","content":"왜 역수를 곱하는지가 막혔나요?","diagnosisId":30}}
 ```
 
+`completed.requestId`는 해당 턴 POST의 `requestId`와 동일합니다.
 `completed.result`는 Spring 외부 턴 응답이며 내부 `statePatch`,
 `actionsExecuted`, `usage`, `memoryCandidates`를 포함하지 않습니다.
 
 ```text
 event: completed
-data: {"result":{"turnId":"turn-123","sessionId":100,"messages":[{"messageId":501,"senderType":"AI","messageType":"EXPLANATION","content":"편차는 평균과 관측값의 차이입니다.","pageNumber":3,"status":"COMPLETED","createdAt":"2026-07-28T09:00:00Z"}],"uiActions":[{"type":"BINARY_DECISION","content":"퀴즈를 진행할까요?","yesEvent":"SHOW_QUIZ_TYPE_SELECT","noEvent":"WAIT"}],"state":{"currentPage":3,"pageStatus":"EXPLAINED","activeQuizId":null}}}
+data: {"requestId":"request-123","result":{"turnId":"turn-123","sessionId":100,"messages":[{"messageId":501,"senderType":"AI","messageType":"EXPLANATION","content":"편차는 평균과 관측값의 차이입니다.","pageNumber":3,"status":"COMPLETED","createdAt":"2026-07-28T09:00:00Z"}],"uiActions":[{"type":"BINARY_DECISION","content":"퀴즈를 진행할까요?","yesEvent":"SHOW_QUIZ_TYPE_SELECT","noEvent":"WAIT"}],"state":{"currentPage":3,"pageStatus":"EXPLAINED","activeQuizId":null}}}
 ```
 
 오류 data는 Spring의 안정된 외부 오류 코드와 공개 메시지만 포함합니다.

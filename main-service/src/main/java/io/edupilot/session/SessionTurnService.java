@@ -306,7 +306,7 @@ public class SessionTurnService {
 		String requestId
 	) {
 		try {
-			streamService.complete(streamConnection, response);
+			streamService.complete(streamConnection, requestId, response);
 		} catch (RuntimeException exception) {
 			log.atWarn()
 				.addKeyValue("sessionId", sessionId)

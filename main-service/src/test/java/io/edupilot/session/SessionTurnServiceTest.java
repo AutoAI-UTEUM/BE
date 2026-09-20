@@ -831,6 +831,7 @@ class SessionTurnServiceTest {
 		);
 		order.verify(streamService).complete(
 			streamConnection,
+			"request-1",
 			publicResponse
 		);
 		assertThat(aiResponseCaptor.getValue().uiActions())
@@ -918,7 +919,11 @@ class SessionTurnServiceTest {
 			any(), anyString(), any(), any(), any(), any()
 		);
 		verify(preparationService, never()).markFailed(501L);
-		verify(streamService).complete(streamConnection, response);
+		verify(streamService).complete(
+			streamConnection,
+			"request-1",
+			response
+		);
 		verify(streamService, never()).fail(any(), any());
 		verify(claimService).release(100L, "request-1");
 	}
@@ -1084,7 +1089,11 @@ class SessionTurnServiceTest {
 			eq("MCQ"),
 			eq(java.util.Set.of(3))
 		);
-		verify(streamService).complete(streamConnection, publicResponse);
+		verify(streamService).complete(
+			streamConnection,
+			"request-quiz",
+			publicResponse
+		);
 	}
 
 	@Test
@@ -1714,7 +1723,11 @@ class SessionTurnServiceTest {
 			anyBoolean(),
 			any()
 		);
-		verify(streamService).complete(streamConnection, response);
+		verify(streamService).complete(
+			streamConnection,
+			"request-1",
+			response
+		);
 		verify(streamService, never()).fail(any(), any());
 	}
 
@@ -1749,7 +1762,11 @@ class SessionTurnServiceTest {
 			ErrorCode.AI_STREAM_INTERRUPTED,
 			true,
 			null
-		)).when(streamService).complete(streamConnection, response);
+		)).when(streamService).complete(
+			streamConnection,
+			"request-1",
+			response
+		);
 
 		assertThat(service().execute(1L, 100L, userQuestion()))
 			.isEqualTo(response);
@@ -1797,7 +1814,7 @@ class SessionTurnServiceTest {
 		)).isSameAs(failure);
 		verify(preparationService).markFailed(501L);
 		verify(streamService).fail(streamConnection, failure);
-		verify(streamService, never()).complete(any(), any());
+		verify(streamService, never()).complete(any(), anyString(), any());
 	}
 
 	@Test
