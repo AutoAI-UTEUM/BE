@@ -21,9 +21,17 @@ public interface XaiManagementClient {
 	}
 
 	record InvoicePreview(
-		BigDecimal currentMonthCostUsd,
+		BigDecimal postpaidUsedUsd,
+		BigDecimal prepaidUsedThisPeriodUsd,
 		YearMonth billingCycle
 	) {
+
+		public BigDecimal currentMonthCostUsd() {
+			if (postpaidUsedUsd == null || prepaidUsedThisPeriodUsd == null) {
+				return null;
+			}
+			return postpaidUsedUsd.add(prepaidUsedThisPeriodUsd);
+		}
 	}
 
 	record InvoiceSummary(

@@ -92,6 +92,8 @@ class AdminXaiServiceTest {
 		assertThat(stale.stale()).isTrue();
 		assertThat(stale.prepaidBalanceUsd())
 			.isEqualByComparingTo(first.prepaidBalanceUsd());
+		assertThat(stale.prepaidAvailableUsd())
+			.isEqualByComparingTo(first.prepaidAvailableUsd());
 		assertThat(stale.postpaidLimitUsd())
 			.isEqualByComparingTo(first.postpaidLimitUsd());
 		assertThat(stale.postpaidUsedUsd())
@@ -114,6 +116,7 @@ class AdminXaiServiceTest {
 		assertThat(response.available()).isTrue();
 		assertThat(response.stale()).isTrue();
 		assertThat(response.prepaidBalanceUsd()).isNull();
+		assertThat(response.prepaidAvailableUsd()).isNull();
 		assertThat(response.postpaidLimitUsd()).isNull();
 		assertThat(response.postpaidUsedUsd()).isNull();
 		assertThat(response.fetchedAt()).isNull();
@@ -143,13 +146,14 @@ class AdminXaiServiceTest {
 		when(client.fetchSpendingLimits())
 			.thenReturn(new SpendingLimits(new BigDecimal("200.00")));
 		when(client.fetchInvoicePreview()).thenReturn(new InvoicePreview(
-			new BigDecimal("100.00"),
+			new BigDecimal("60.00"),
+			new BigDecimal("40.00"),
 			YearMonth.of(2026, 9)
 		));
 
 		AdminXaiOverviewResponse response = service.overview();
 
-		assertThat(response.postpaidRemainingUsd()).isEqualByComparingTo("100.00");
+		assertThat(response.postpaidRemainingUsd()).isEqualByComparingTo("140.00");
 		assertThat(response.totalAvailableUsd()).isEqualByComparingTo("200.00");
 		assertThat(response.averageDailyCost7d()).isEqualByComparingTo("10.000000");
 		assertThat(response.costSource()).isEqualTo(XaiCostSource.INVOICE_PREVIEW);
@@ -162,6 +166,7 @@ class AdminXaiServiceTest {
 	void zeroAverageLeavesProjectionNullWhileBalanceStillDeterminesRisk() {
 		when(client.fetchInvoicePreview()).thenReturn(new InvoicePreview(
 			BigDecimal.ZERO,
+			BigDecimal.ZERO,
 			YearMonth.of(2026, 9)
 		));
 
@@ -170,6 +175,68 @@ class AdminXaiServiceTest {
 		assertThat(response.averageDailyCost7d()).isEqualByComparingTo(BigDecimal.ZERO);
 		assertThat(response.projectedDepletionAt()).isNull();
 		assertThat(response.riskLevel()).hasToString("NORMAL");
+	}
+
+	@Test
+	void separatesLedgerBalanceFromCurrentPrepaidDeductionForZeroLimitTeam() {
+		when(client.fetchPrepaidBalance())
+			.thenReturn(new PrepaidBalance(new BigDecimal("93.91")));
+		when(client.fetchSpendingLimits())
+			.thenReturn(new SpendingLimits(BigDecimal.ZERO));
+		when(client.fetchInvoicePreview()).thenReturn(new InvoicePreview(
+			BigDecimal.ZERO,
+			new BigDecimal("37.14"),
+			YearMonth.of(2026, 9)
+		));
+		when(alertConfigService.currentThresholds()).thenReturn(
+			new XaiAlertThresholds(
+				new BigDecimal("50.00"),
+				new BigDecimal("60.00"),
+				1,
+				2
+			)
+		);
+
+		AdminXaiCreditsResponse credits = service.credits();
+		AdminXaiOverviewResponse overview = service.overview();
+
+		assertThat(credits.prepaidBalanceUsd()).isEqualByComparingTo("93.91");
+		assertThat(credits.prepaidUsedThisPeriodUsd())
+			.isEqualByComparingTo("37.14");
+		assertThat(credits.prepaidAvailableUsd()).isEqualByComparingTo("56.77");
+		assertThat(credits.currentMonthCostUsd()).isEqualByComparingTo("37.14");
+		assertThat(credits.postpaidUsedUsd()).isEqualByComparingTo(BigDecimal.ZERO);
+		assertThat(credits.postpaidRemainingUsd())
+			.isEqualByComparingTo(BigDecimal.ZERO);
+		assertThat(overview.totalAvailableUsd()).isEqualByComparingTo("56.77");
+		assertThat(overview.projectedDepletionAt())
+			.isAfter(NOW.plus(Duration.ofDays(15)))
+			.isBefore(NOW.plus(Duration.ofDays(16)));
+		assertThat(overview.riskLevel()).hasToString("WARNING");
+	}
+
+	@Test
+	void missingPrepaidDeductionKeepsFreshLedgerButLeavesDerivedAmountsNull() {
+		when(client.fetchPrepaidBalance())
+			.thenReturn(new PrepaidBalance(new BigDecimal("93.91")));
+		when(client.fetchInvoicePreview()).thenReturn(new InvoicePreview(
+			BigDecimal.ZERO,
+			null,
+			YearMonth.of(2026, 9)
+		));
+
+		AdminXaiOverviewResponse response = service.overview();
+
+		assertThat(response.stale()).isFalse();
+		assertThat(response.prepaidBalanceUsd()).isEqualByComparingTo("93.91");
+		assertThat(response.currentMonthCostUsd()).isNull();
+		assertThat(response.prepaidUsedThisPeriodUsd()).isNull();
+		assertThat(response.prepaidAvailableUsd()).isNull();
+		assertThat(response.postpaidUsedUsd()).isEqualByComparingTo(BigDecimal.ZERO);
+		assertThat(response.postpaidRemainingUsd()).isEqualByComparingTo("200.00");
+		assertThat(response.totalAvailableUsd()).isNull();
+		assertThat(response.projectedDepletionAt()).isNull();
+		assertThat(response.riskLevel()).isNull();
 	}
 
 	@Test
@@ -257,7 +324,8 @@ class AdminXaiServiceTest {
 		when(client.fetchSpendingLimits())
 			.thenReturn(new SpendingLimits(new BigDecimal("200.00")));
 		when(client.fetchInvoicePreview()).thenReturn(new InvoicePreview(
-			new BigDecimal("20.00"),
+			new BigDecimal("10.00"),
+			new BigDecimal("10.00"),
 			YearMonth.of(2026, 9)
 		));
 	}

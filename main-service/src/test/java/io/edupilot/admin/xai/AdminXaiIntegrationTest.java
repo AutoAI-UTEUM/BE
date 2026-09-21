@@ -102,7 +102,8 @@ class AdminXaiIntegrationTest {
 			.thenReturn(new SpendingLimits(new BigDecimal("300.00")));
 		when(xaiManagementClient.fetchInvoicePreview()).thenReturn(
 			new InvoicePreview(
-				new BigDecimal("75.00"),
+				new BigDecimal("50.00"),
+				new BigDecimal("25.00"),
 				YearMonth.now()
 			)
 		);
@@ -286,9 +287,12 @@ class AdminXaiIntegrationTest {
 			.andExpect(jsonPath("$.data.available").value(true))
 			.andExpect(jsonPath("$.data.stale").value(false))
 			.andExpect(jsonPath("$.data.prepaidBalanceUsd").value("125.00"))
+			.andExpect(jsonPath("$.data.prepaidUsedThisPeriodUsd").value("25.00"))
+			.andExpect(jsonPath("$.data.prepaidAvailableUsd").value("100.00"))
+			.andExpect(jsonPath("$.data.currentMonthCostUsd").value("75.00"))
 			.andExpect(jsonPath("$.data.postpaidLimitUsd").value("300.00"))
-			.andExpect(jsonPath("$.data.postpaidUsedUsd").value("75.00"))
-			.andExpect(jsonPath("$.data.postpaidRemainingUsd").value("225.00"))
+			.andExpect(jsonPath("$.data.postpaidUsedUsd").value("50.00"))
+			.andExpect(jsonPath("$.data.postpaidRemainingUsd").value("250.00"))
 			.andReturn()
 			.getResponse()
 			.getContentAsString();

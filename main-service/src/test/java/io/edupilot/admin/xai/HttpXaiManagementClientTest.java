@@ -54,7 +54,8 @@ class HttpXaiManagementClientTest {
 		server.enqueue(json("""
 			{
 			  "coreInvoice": {
-			    "totalWithCorr": {"val": "4567"}
+			    "totalWithCorr": {"val": "4567"},
+			    "prepaidCreditsUsed": {"val": "1234"}
 			  },
 			  "effectiveSpendingLimit": "25000",
 			  "billingCycle": {"year": 2026, "month": 9}
@@ -67,8 +68,12 @@ class HttpXaiManagementClientTest {
 		assertThat(client.fetchSpendingLimits().effectiveLimitUsd())
 			.isEqualByComparingTo("250.00");
 		InvoicePreview invoice = client.fetchInvoicePreview();
-		assertThat(invoice.currentMonthCostUsd())
+		assertThat(invoice.postpaidUsedUsd())
 			.isEqualByComparingTo("45.67");
+		assertThat(invoice.prepaidUsedThisPeriodUsd())
+			.isEqualByComparingTo("12.34");
+		assertThat(invoice.currentMonthCostUsd())
+			.isEqualByComparingTo("58.01");
 		assertThat(invoice.billingCycle())
 			.isEqualTo(YearMonth.of(2026, 9));
 
@@ -84,6 +89,26 @@ class HttpXaiManagementClientTest {
 			server.takeRequest(),
 			"/v1/billing/teams/" + TEAM_ID + "/postpaid/invoice/preview"
 		);
+	}
+
+	@Test
+	void acceptsMissingPrepaidDeductionAsUnknownWithoutFailingPreview() {
+		server.enqueue(json("""
+			{
+			  "coreInvoice": {
+			    "totalWithCorr": {"val": "3714"}
+			  },
+			  "billingCycle": {"year": 2026, "month": 9}
+			}
+			"""));
+
+		InvoicePreview invoice = client(Duration.ofSeconds(1))
+			.fetchInvoicePreview();
+
+		assertThat(invoice.postpaidUsedUsd())
+			.isEqualByComparingTo("37.14");
+		assertThat(invoice.currentMonthCostUsd()).isNull();
+		assertThat(invoice.prepaidUsedThisPeriodUsd()).isNull();
 	}
 
 	@Test

@@ -121,20 +121,15 @@ public class AdminXaiService {
 		if (!snapshot.available()) {
 			return AdminXaiCreditsResponse.unavailable();
 		}
-		BigDecimal prepaid = value(snapshot.balance(), PrepaidBalance::balanceUsd);
-		BigDecimal limit = value(
-			snapshot.limits(),
-			SpendingLimits::effectiveLimitUsd
-		);
-		BigDecimal used = value(
-			snapshot.invoice(),
-			InvoicePreview::currentMonthCostUsd
-		);
+		BillingAmounts amounts = billingAmounts(snapshot);
 		return new AdminXaiCreditsResponse(
-			prepaid,
-			limit,
-			used,
-			remaining(limit, used),
+			amounts.prepaidBalanceUsd(),
+			amounts.prepaidUsedThisPeriodUsd(),
+			amounts.prepaidAvailableUsd(),
+			amounts.currentMonthCostUsd(),
+			amounts.postpaidLimitUsd(),
+			amounts.postpaidUsedUsd(),
+			amounts.postpaidRemainingUsd(),
 			snapshot.fetchedAt(),
 			snapshot.lastSuccessfulSyncAt(),
 			snapshot.stale(),
@@ -254,40 +249,31 @@ public class AdminXaiService {
 			return AdminXaiOverviewResponse.unavailable();
 		}
 		Instant now = clock.instant();
-		BigDecimal prepaid = value(snapshot.balance(), PrepaidBalance::balanceUsd);
-		BigDecimal limit = value(
-			snapshot.limits(),
-			SpendingLimits::effectiveLimitUsd
-		);
-		BigDecimal currentCost = value(
-			snapshot.invoice(),
-			InvoicePreview::currentMonthCostUsd
-		);
-		BigDecimal postpaidRemaining = remaining(limit, currentCost);
-		BigDecimal totalAvailable = prepaid == null || postpaidRemaining == null
-			? null
-			: prepaid.add(postpaidRemaining);
+		BillingAmounts amounts = billingAmounts(snapshot);
 		AverageCost averageCost = averageDailyCost(snapshot.invoice(), now);
 		BigDecimal averageDailyCost = averageCost.amount();
 		Instant projectedDepletionAt = projectedDepletionAt(
-			totalAvailable,
+			amounts.totalAvailableUsd(),
 			averageDailyCost,
 			now
 		);
-		XaiRiskLevel riskLevel = totalAvailable == null
+		XaiRiskLevel riskLevel = amounts.totalAvailableUsd() == null
 			? null
 			: riskPolicy.assess(
-				totalAvailable,
+				amounts.totalAvailableUsd(),
 				projectedDepletionAt,
 				now,
 				alertConfigService.currentThresholds()
 			);
 		return new AdminXaiOverviewResponse(
-			prepaid,
-			currentCost,
-			limit,
-			postpaidRemaining,
-			totalAvailable,
+			amounts.prepaidBalanceUsd(),
+			amounts.prepaidUsedThisPeriodUsd(),
+			amounts.prepaidAvailableUsd(),
+			amounts.currentMonthCostUsd(),
+			amounts.postpaidLimitUsd(),
+			amounts.postpaidUsedUsd(),
+			amounts.postpaidRemainingUsd(),
+			amounts.totalAvailableUsd(),
 			averageDailyCost,
 			averageCost.source(),
 			projectedDepletionAt,
@@ -351,6 +337,47 @@ public class AdminXaiService {
 			balance.stale() || limits.stale() || invoice.stale(),
 			oldestSuccess(balance, limits, invoice),
 			lastSuccessfulSyncAt
+		);
+	}
+
+	private BillingAmounts billingAmounts(Snapshot snapshot) {
+		BigDecimal prepaidBalance = value(
+			snapshot.balance(),
+			PrepaidBalance::balanceUsd
+		);
+		BigDecimal prepaidUsed = value(
+			snapshot.invoice(),
+			InvoicePreview::prepaidUsedThisPeriodUsd
+		);
+		BigDecimal currentCost = value(
+			snapshot.invoice(),
+			InvoicePreview::currentMonthCostUsd
+		);
+		BigDecimal postpaidLimit = value(
+			snapshot.limits(),
+			SpendingLimits::effectiveLimitUsd
+		);
+		BigDecimal postpaidUsed = value(
+			snapshot.invoice(),
+			InvoicePreview::postpaidUsedUsd
+		);
+		BigDecimal prepaidAvailable = prepaidBalance == null || prepaidUsed == null
+			? null
+			: prepaidBalance.subtract(prepaidUsed);
+		BigDecimal postpaidRemaining = remaining(postpaidLimit, postpaidUsed);
+		BigDecimal totalAvailable = prepaidAvailable == null
+			|| postpaidRemaining == null
+			? null
+			: prepaidAvailable.add(postpaidRemaining);
+		return new BillingAmounts(
+			prepaidBalance,
+			prepaidUsed,
+			prepaidAvailable,
+			currentCost,
+			postpaidLimit,
+			postpaidUsed,
+			postpaidRemaining,
+			totalAvailable
 		);
 	}
 
@@ -450,8 +477,12 @@ public class AdminXaiService {
 		if (elapsedDays <= 0) {
 			return new AverageCost(null, null);
 		}
+		BigDecimal currentMonthCost = invoice.value().currentMonthCostUsd();
+		if (currentMonthCost == null) {
+			return new AverageCost(null, null);
+		}
 		return new AverageCost(
-			invoice.value().currentMonthCostUsd()
+			currentMonthCost
 				.divide(
 					BigDecimal.valueOf(elapsedDays),
 					6,
@@ -481,9 +512,13 @@ public class AdminXaiService {
 					|| !preview.cachedValue().value().billingCycle().equals(month)) {
 					return new BillingTotal(null, true);
 				}
-				total = total.add(
-					preview.cachedValue().value().currentMonthCostUsd()
-				);
+				BigDecimal currentMonthCost = preview.cachedValue()
+					.value()
+					.currentMonthCostUsd();
+				if (currentMonthCost == null) {
+					return new BillingTotal(null, stale);
+				}
+				total = total.add(currentMonthCost);
 				continue;
 			}
 			Fetch<List<InvoiceSummary>> invoices = historicalInvoices(month);
@@ -628,6 +663,18 @@ public class AdminXaiService {
 	private record AverageCost(
 		BigDecimal amount,
 		XaiCostSource source
+	) {
+	}
+
+	private record BillingAmounts(
+		BigDecimal prepaidBalanceUsd,
+		BigDecimal prepaidUsedThisPeriodUsd,
+		BigDecimal prepaidAvailableUsd,
+		BigDecimal currentMonthCostUsd,
+		BigDecimal postpaidLimitUsd,
+		BigDecimal postpaidUsedUsd,
+		BigDecimal postpaidRemainingUsd,
+		BigDecimal totalAvailableUsd
 	) {
 	}
 

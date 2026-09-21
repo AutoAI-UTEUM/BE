@@ -2553,19 +2553,24 @@ AWS 설정과 무관하게 프로세스 내부 `MeterRegistry`와 readiness 결�
 
 ### GET `/api/admin/xai/credits`
 
-xAI Management API의 선불 잔액, 후불 월 한도, 당월 사용액과 잔여액을 반환합니다. 금액은
-부동소수점 손실을 막기 위해 JSON 문자열인 USD `BigDecimal`로 직렬화합니다. xAI의 선불
-원장 `total.val`은 구매 크레딧을 음수 센트로 표현하므로 Spring이 부호를 반전하고 100으로
-나눠 사용 가능한 양의 USD 잔액으로 정규화합니다.
+xAI Management API의 선불 원장잔액과 당기 차감액, 실제 선불 가용액, 당기 총비용, 후불
+월 한도·사용액·잔여액을 반환합니다. 금액은 부동소수점 손실을 막기 위해 JSON 문자열인
+USD `BigDecimal`로 직렬화합니다. xAI의 선불 원장 `total.val`은 구매 크레딧을 음수
+센트로 표현하므로 Spring이 부호를 반전하고 100으로 나눠 양의 USD 원장잔액으로
+정규화합니다. 이 값은 당기 미확정 사용액 차감 전 값이므로 화면 표시용 잔액으로 사용하지
+않습니다.
 
 ```json
 {
   "success": true,
   "data": {
-    "prepaidBalanceUsd": "125.00",
-    "postpaidLimitUsd": "300.00",
-    "postpaidUsedUsd": "75.00",
-    "postpaidRemainingUsd": "225.00",
+    "prepaidBalanceUsd": "93.91",
+    "prepaidUsedThisPeriodUsd": "37.14",
+    "prepaidAvailableUsd": "56.77",
+    "currentMonthCostUsd": "37.14",
+    "postpaidLimitUsd": "0.00",
+    "postpaidUsedUsd": "0.00",
+    "postpaidRemainingUsd": "0.00",
     "fetchedAt": "2026-09-20T08:00:00Z",
     "lastSuccessfulSyncAt": "2026-09-20T08:00:00Z",
     "stale": false,
@@ -2575,9 +2580,22 @@ xAI Management API의 선불 잔액, 후불 월 한도, 당월 사용액과 잔�
 }
 ```
 
-`fetchedAt`은 조합한 값 중 가장 오래된 성공 조회 시각이고,
-`lastSuccessfulSyncAt`은 실제 xAI endpoint가 마지막으로 성공한 시각입니다. 후불 잔여액은
-`max(한도 - invoice preview 당월 비용, 0)`입니다.
+필드 계산식은 다음과 같습니다.
+
+- `prepaidBalanceUsd`: `/prepaid/balance`의 당기 차감 전 원장잔액
+- `prepaidUsedThisPeriodUsd`: invoice preview의
+  `coreInvoice.prepaidCreditsUsed`
+- `prepaidAvailableUsd`: `prepaidBalanceUsd - prepaidUsedThisPeriodUsd`
+- `postpaidUsedUsd`: postpaid invoice preview의 `coreInvoice.totalWithCorr`
+- `currentMonthCostUsd`: `prepaidUsedThisPeriodUsd + postpaidUsedUsd`
+- `postpaidRemainingUsd`: `max(postpaidLimitUsd - postpaidUsedUsd, 0)`
+
+FE의 표시용 선불 잔액은 `prepaidAvailableUsd`를 사용합니다. `fetchedAt`은 조합한 값 중
+가장 오래된 성공 조회 시각이고, `lastSuccessfulSyncAt`은 실제 xAI endpoint가 마지막으로
+성공한 시각입니다. invoice preview에 `prepaidCreditsUsed`가 없으면 연동 실패로 취급하지
+않아 `stale:false`를 유지합니다. 이때 원장잔액·후불 사용액·후불 한도·후불 잔여액은
+반환하지만, `prepaidUsedThisPeriodUsd`, `prepaidAvailableUsd`, `currentMonthCostUsd`,
+`totalAvailableUsd`처럼 당기 선불 차감액이 필요한 값은 null입니다.
 
 ### GET `/api/admin/xai/status`
 
@@ -2602,20 +2620,21 @@ xAI Management API의 선불 잔액, 후불 월 한도, 당월 사용액과 잔�
 
 ### GET `/api/admin/xai/overview`
 
-credits 원값에 다음 파생값을 더해 반환합니다.
+credits 필드와 다음 파생값을 함께 반환합니다.
 
-- `currentMonthCostUsd`: postpaid invoice preview의 `totalWithCorr`
-- `totalAvailableUsd`: 선불 잔액 + 후불 잔여액
+- `totalAvailableUsd`: `prepaidAvailableUsd + postpaidRemainingUsd`. 둘 중 하나라도
+  계산할 수 없으면 null입니다.
 - `averageDailyCost7d`: 최근 7일 `ai_usage_log.cost_usd_ticks`가 한 건이라도 있으면 확인된
   비용 합을 7로 나눈 값입니다. 확인 비용이 한 건도 없으면 invoice preview 당월 비용을
   UTC 청구 월의 경과 일수로 나눈 일평균으로 폴백합니다.
 - `costSource`: 일평균의 출처인 `INTERNAL` 또는 `INVOICE_PREVIEW`입니다. 둘 다 계산할 수
   없으면 null입니다.
-- `projectedDepletionAt`: 일평균이 양수일 때 `현재 + totalAvailable / 일평균`이며, 일평균이
+- `projectedDepletionAt`: 일평균이 양수일 때
+  `현재 + totalAvailableUsd / averageDailyCost7d`이며, 가용액을 계산할 수 없거나 일평균이
   0 또는 없으면 null입니다.
 - `riskLevel`: `/alerts`에 저장된 잔액·소진 예상일 임계값으로 계산합니다. 설정 행이 없으면
   1차 기본값(7일/$10, 30일/$50)을 사용합니다. 일수 경계는 포함하고 금액 경계는 미만
-  비교입니다.
+  비교입니다. 잔액 기준은 원장잔액이 아니라 `totalAvailableUsd`입니다.
 
 응답의 나머지 메타 필드는 credits와 같습니다.
 
@@ -2638,8 +2657,10 @@ invoice preview는 5분 캐시하며 connect timeout은 2초, read timeout은 5�
 [Billing Management](https://docs.x.ai/developers/rest-api-reference/management/billing)의
 `GET /prepaid/balance`, `GET /postpaid/spending-limits`,
 `GET /postpaid/invoice/preview`, `GET /invoices`를 기준으로 합니다. xAI 값은 센트 문자열로
-역직렬화하고 `double`로 변환하지 않습니다. 확정 invoice는 월별로 1시간 캐시하며 실패 시
-같은 월의 마지막 성공값을 `stale:true`로 반환합니다.
+역직렬화하고 `double`로 변환하지 않습니다. invoice preview의 당기 선불 차감액은
+`coreInvoice.prepaidCreditsUsed`, 후불 사용액은 `coreInvoice.totalWithCorr`를 사용하며
+둘의 합을 당기 총비용으로 계산합니다. 확정 invoice는 월별로 1시간 캐시하며 실패 시 같은
+월의 마지막 성공값을 `stale:true`로 반환합니다.
 
 ### GET `/api/admin/xai/usage`
 
@@ -2674,8 +2695,9 @@ invoice preview는 5분 캐시하며 connect timeout은 2초, read timeout은 5�
 `TOKENS`는 input/output/reasoning 합, `CALLS`는 로그 행 수입니다. 선택한 metric에 해당하는
 item 필드만 채우고 나머지는 null입니다.
 
-이 2차 API와 비용 저장은 V42가 포함된 v0.5.0 배포 이후 사용해야 하며 별도 migration을
-추가하지 않습니다.
+이 2차 API와 비용 저장은 V42가 적용된 환경에서 사용하며 별도 migration을 추가하지
+않습니다. dev에는 V42와 Management API 설정이 적용되어 있어 머지 후 즉시 검증할 수
+있고, prod 반영은 v0.5.x 릴리스 일정에 따릅니다.
 
 ### GET `/api/admin/xai/reconciliation`
 
