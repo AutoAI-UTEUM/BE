@@ -2584,18 +2584,23 @@ USD `BigDecimal`로 직렬화합니다. xAI의 선불 원장 `total.val`은 구�
 
 - `prepaidBalanceUsd`: `/prepaid/balance`의 당기 차감 전 원장잔액
 - `prepaidUsedThisPeriodUsd`: invoice preview의
-  `coreInvoice.prepaidCreditsUsed`
+  `abs(coreInvoice.prepaidCreditsUsed)`. xAI의 음수 크레딧 차감 라인을 양수 사용액으로
+  정규화합니다.
 - `prepaidAvailableUsd`: `prepaidBalanceUsd - prepaidUsedThisPeriodUsd`
-- `postpaidUsedUsd`: postpaid invoice preview의 `coreInvoice.totalWithCorr`
-- `currentMonthCostUsd`: `prepaidUsedThisPeriodUsd + postpaidUsedUsd`
+- `currentMonthCostUsd`: 크레딧 적용 전 기간 총 사용액인
+  `coreInvoice.totalWithCorr`
+- `postpaidUsedUsd`: `max(currentMonthCostUsd - prepaidUsedThisPeriodUsd, 0)`
 - `postpaidRemainingUsd`: `max(postpaidLimitUsd - postpaidUsedUsd, 0)`
+
+정상 xAI 응답은
+`prepaidUsedThisPeriodUsd + postpaidUsedUsd == currentMonthCostUsd` 불변식을 만족합니다.
 
 FE의 표시용 선불 잔액은 `prepaidAvailableUsd`를 사용합니다. `fetchedAt`은 조합한 값 중
 가장 오래된 성공 조회 시각이고, `lastSuccessfulSyncAt`은 실제 xAI endpoint가 마지막으로
 성공한 시각입니다. invoice preview에 `prepaidCreditsUsed`가 없으면 연동 실패로 취급하지
-않아 `stale:false`를 유지합니다. 이때 원장잔액·후불 사용액·후불 한도·후불 잔여액은
-반환하지만, `prepaidUsedThisPeriodUsd`, `prepaidAvailableUsd`, `currentMonthCostUsd`,
-`totalAvailableUsd`처럼 당기 선불 차감액이 필요한 값은 null입니다.
+않아 `stale:false`를 유지합니다. 이때 원장잔액·당기 총비용·후불 한도는 반환하지만,
+`prepaidUsedThisPeriodUsd`, `prepaidAvailableUsd`, `postpaidUsedUsd`,
+`postpaidRemainingUsd`, `totalAvailableUsd`처럼 당기 선불 차감액이 필요한 값은 null입니다.
 
 ### GET `/api/admin/xai/status`
 
@@ -2658,9 +2663,10 @@ invoice preview는 5분 캐시하며 connect timeout은 2초, read timeout은 5�
 `GET /prepaid/balance`, `GET /postpaid/spending-limits`,
 `GET /postpaid/invoice/preview`, `GET /invoices`를 기준으로 합니다. xAI 값은 센트 문자열로
 역직렬화하고 `double`로 변환하지 않습니다. invoice preview의 당기 선불 차감액은
-`coreInvoice.prepaidCreditsUsed`, 후불 사용액은 `coreInvoice.totalWithCorr`를 사용하며
-둘의 합을 당기 총비용으로 계산합니다. 확정 invoice는 월별로 1시간 캐시하며 실패 시 같은
-월의 마지막 성공값을 `stale:true`로 반환합니다.
+`abs(coreInvoice.prepaidCreditsUsed)`, 크레딧 적용 전 당기 총비용은
+`coreInvoice.totalWithCorr`를 사용합니다. 후불 사용액은 두 값의 차액을 0 이상으로
+제한합니다. 확정 invoice는 월별로 1시간 캐시하며 실패 시 같은 월의 마지막 성공값을
+`stale:true`로 반환합니다.
 
 ### GET `/api/admin/xai/usage`
 
@@ -2725,7 +2731,9 @@ item 필드만 채우고 나머지는 null입니다.
 
 `differenceUsd = internalCostUsd - xaiBilledUsd`이고 `differenceRatio`도 xAI 금액 대비 같은
 부호를 사용합니다. xAI invoice가 월 단위이므로 부분 월 요청도 걸친 청구 월 전체에
-매핑하며 정밀한 일할 금액으로 위장하지 않습니다. xAI 금액이 0이면 ratio는 null입니다.
+매핑하며 정밀한 일할 금액으로 위장하지 않습니다. `xaiBilledUsd`는 현재 월에는 invoice
+preview의 크레딧 적용 전 `totalWithCorr`, 확정 월에는 invoice의 크레딧 적용 전
+`subtotal`을 사용합니다. xAI 금액이 0이면 ratio는 null입니다.
 
 ### GET `/api/admin/xai/invoices?year=2026&month=8`
 

@@ -71,7 +71,9 @@ public class HttpXaiManagementClient implements XaiManagementClient {
 		try {
 			return new InvoicePreview(
 				usdCents(response.coreInvoice().totalWithCorr()),
-				optionalUsdCents(response.coreInvoice().prepaidCreditsUsed()),
+				optionalAbsoluteUsdCents(
+					response.coreInvoice().prepaidCreditsUsed()
+				),
 				YearMonth.of(
 					response.billingCycle().year(),
 					response.billingCycle().month()
@@ -168,8 +170,8 @@ public class HttpXaiManagementClient implements XaiManagementClient {
 		}
 	}
 
-	private BigDecimal optionalUsdCents(Money money) {
-		return money == null ? null : usdCents(money);
+	private BigDecimal optionalAbsoluteUsdCents(Money money) {
+		return money == null ? null : usdCents(money).abs();
 	}
 
 	private InvoiceSummary invoiceSummary(InvoiceBody invoice) {
@@ -182,6 +184,7 @@ public class HttpXaiManagementClient implements XaiManagementClient {
 			return new InvoiceSummary(
 				YearMonth.of(cycle.year(), cycle.month()),
 				usdCents(invoice.total()),
+				usdCents(invoice.subtotal()),
 				invoice.invoiceStatus()
 			);
 		} catch (RuntimeException exception) {
@@ -257,6 +260,7 @@ public class HttpXaiManagementClient implements XaiManagementClient {
 
 	@JsonIgnoreProperties(ignoreUnknown = true)
 	private record InvoiceBody(
+		String subtotal,
 		String total,
 		String invoiceStatus,
 		MonthlyInvoice monthly
