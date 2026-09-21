@@ -21,22 +21,25 @@ public interface XaiManagementClient {
 	}
 
 	record InvoicePreview(
-		BigDecimal postpaidUsedUsd,
+		BigDecimal currentMonthCostUsd,
 		BigDecimal prepaidUsedThisPeriodUsd,
 		YearMonth billingCycle
 	) {
 
-		public BigDecimal currentMonthCostUsd() {
-			if (postpaidUsedUsd == null || prepaidUsedThisPeriodUsd == null) {
+		public BigDecimal postpaidUsedUsd() {
+			if (currentMonthCostUsd == null || prepaidUsedThisPeriodUsd == null) {
 				return null;
 			}
-			return postpaidUsedUsd.add(prepaidUsedThisPeriodUsd);
+			return currentMonthCostUsd
+				.subtract(prepaidUsedThisPeriodUsd)
+				.max(BigDecimal.ZERO);
 		}
 	}
 
 	record InvoiceSummary(
 		YearMonth billingPeriod,
 		BigDecimal amountUsd,
+		BigDecimal periodCostUsd,
 		String status
 	) {
 	}

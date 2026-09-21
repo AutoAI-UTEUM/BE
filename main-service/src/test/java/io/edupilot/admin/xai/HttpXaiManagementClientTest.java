@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.YearMonth;
 
@@ -55,7 +56,7 @@ class HttpXaiManagementClientTest {
 			{
 			  "coreInvoice": {
 			    "totalWithCorr": {"val": "4567"},
-			    "prepaidCreditsUsed": {"val": "1234"}
+			    "prepaidCreditsUsed": {"val": "-1234"}
 			  },
 			  "effectiveSpendingLimit": "25000",
 			  "billingCycle": {"year": 2026, "month": 9}
@@ -68,12 +69,15 @@ class HttpXaiManagementClientTest {
 		assertThat(client.fetchSpendingLimits().effectiveLimitUsd())
 			.isEqualByComparingTo("250.00");
 		InvoicePreview invoice = client.fetchInvoicePreview();
-		assertThat(invoice.postpaidUsedUsd())
+		assertThat(invoice.currentMonthCostUsd())
 			.isEqualByComparingTo("45.67");
 		assertThat(invoice.prepaidUsedThisPeriodUsd())
 			.isEqualByComparingTo("12.34");
-		assertThat(invoice.currentMonthCostUsd())
-			.isEqualByComparingTo("58.01");
+		assertThat(invoice.postpaidUsedUsd())
+			.isEqualByComparingTo("33.33");
+		assertThat(invoice.prepaidUsedThisPeriodUsd()
+			.add(invoice.postpaidUsedUsd()))
+			.isEqualByComparingTo(invoice.currentMonthCostUsd());
 		assertThat(invoice.billingCycle())
 			.isEqualTo(YearMonth.of(2026, 9));
 
@@ -92,6 +96,32 @@ class HttpXaiManagementClientTest {
 	}
 
 	@Test
+	void normalizesMeasuredNegativePrepaidCreditLine() {
+		server.enqueue(json("""
+			{
+			  "coreInvoice": {
+			    "totalWithCorr": {"val": "3714"},
+			    "prepaidCreditsUsed": {"val": "-3714"}
+			  },
+			  "billingCycle": {"year": 2026, "month": 9}
+			}
+			"""));
+
+		InvoicePreview invoice = client(Duration.ofSeconds(1))
+			.fetchInvoicePreview();
+
+		assertThat(invoice.currentMonthCostUsd())
+			.isEqualByComparingTo("37.14");
+		assertThat(invoice.prepaidUsedThisPeriodUsd())
+			.isEqualByComparingTo("37.14");
+		assertThat(invoice.postpaidUsedUsd())
+			.isEqualByComparingTo(BigDecimal.ZERO);
+		assertThat(invoice.prepaidUsedThisPeriodUsd()
+			.add(invoice.postpaidUsedUsd()))
+			.isEqualByComparingTo(invoice.currentMonthCostUsd());
+	}
+
+	@Test
 	void acceptsMissingPrepaidDeductionAsUnknownWithoutFailingPreview() {
 		server.enqueue(json("""
 			{
@@ -105,9 +135,9 @@ class HttpXaiManagementClientTest {
 		InvoicePreview invoice = client(Duration.ofSeconds(1))
 			.fetchInvoicePreview();
 
-		assertThat(invoice.postpaidUsedUsd())
+		assertThat(invoice.currentMonthCostUsd())
 			.isEqualByComparingTo("37.14");
-		assertThat(invoice.currentMonthCostUsd()).isNull();
+		assertThat(invoice.postpaidUsedUsd()).isNull();
 		assertThat(invoice.prepaidUsedThisPeriodUsd()).isNull();
 	}
 
@@ -120,6 +150,7 @@ class HttpXaiManagementClientTest {
 			    "teamId": "must-not-leak",
 			    "paymentMethodId": "must-not-leak",
 			    "billingAddress": {"line1": "must-not-leak"},
+			    "subtotal": "5678",
 			    "total": "1234",
 			    "invoiceStatus": "PAID",
 			    "monthly": {
@@ -135,6 +166,7 @@ class HttpXaiManagementClientTest {
 		assertThat(invoices).singleElement().satisfies(invoice -> {
 			assertThat(invoice.billingPeriod()).isEqualTo(YearMonth.of(2026, 8));
 			assertThat(invoice.amountUsd()).isEqualByComparingTo("12.34");
+			assertThat(invoice.periodCostUsd()).isEqualByComparingTo("56.78");
 			assertThat(invoice.status()).isEqualTo("PAID");
 		});
 		RecordedRequest request = server.takeRequest();

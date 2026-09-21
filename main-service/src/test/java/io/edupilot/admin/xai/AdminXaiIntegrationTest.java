@@ -102,7 +102,7 @@ class AdminXaiIntegrationTest {
 			.thenReturn(new SpendingLimits(new BigDecimal("300.00")));
 		when(xaiManagementClient.fetchInvoicePreview()).thenReturn(
 			new InvoicePreview(
-				new BigDecimal("50.00"),
+				new BigDecimal("75.00"),
 				new BigDecimal("25.00"),
 				YearMonth.now()
 			)
@@ -111,6 +111,7 @@ class AdminXaiIntegrationTest {
 			.thenReturn(List.of(new InvoiceSummary(
 				YearMonth.of(2026, 8),
 				new BigDecimal("42.50"),
+				new BigDecimal("50.00"),
 				"PAID"
 			)));
 		mockMvc = MockMvcBuilders.webAppContextSetup(context)

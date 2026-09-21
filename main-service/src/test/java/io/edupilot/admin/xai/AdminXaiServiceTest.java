@@ -146,7 +146,7 @@ class AdminXaiServiceTest {
 		when(client.fetchSpendingLimits())
 			.thenReturn(new SpendingLimits(new BigDecimal("200.00")));
 		when(client.fetchInvoicePreview()).thenReturn(new InvoicePreview(
-			new BigDecimal("60.00"),
+			new BigDecimal("100.00"),
 			new BigDecimal("40.00"),
 			YearMonth.of(2026, 9)
 		));
@@ -184,7 +184,7 @@ class AdminXaiServiceTest {
 		when(client.fetchSpendingLimits())
 			.thenReturn(new SpendingLimits(BigDecimal.ZERO));
 		when(client.fetchInvoicePreview()).thenReturn(new InvoicePreview(
-			BigDecimal.ZERO,
+			new BigDecimal("37.14"),
 			new BigDecimal("37.14"),
 			YearMonth.of(2026, 9)
 		));
@@ -206,6 +206,9 @@ class AdminXaiServiceTest {
 		assertThat(credits.prepaidAvailableUsd()).isEqualByComparingTo("56.77");
 		assertThat(credits.currentMonthCostUsd()).isEqualByComparingTo("37.14");
 		assertThat(credits.postpaidUsedUsd()).isEqualByComparingTo(BigDecimal.ZERO);
+		assertThat(credits.prepaidUsedThisPeriodUsd()
+			.add(credits.postpaidUsedUsd()))
+			.isEqualByComparingTo(credits.currentMonthCostUsd());
 		assertThat(credits.postpaidRemainingUsd())
 			.isEqualByComparingTo(BigDecimal.ZERO);
 		assertThat(overview.totalAvailableUsd()).isEqualByComparingTo("56.77");
@@ -220,7 +223,7 @@ class AdminXaiServiceTest {
 		when(client.fetchPrepaidBalance())
 			.thenReturn(new PrepaidBalance(new BigDecimal("93.91")));
 		when(client.fetchInvoicePreview()).thenReturn(new InvoicePreview(
-			BigDecimal.ZERO,
+			new BigDecimal("37.14"),
 			null,
 			YearMonth.of(2026, 9)
 		));
@@ -229,11 +232,11 @@ class AdminXaiServiceTest {
 
 		assertThat(response.stale()).isFalse();
 		assertThat(response.prepaidBalanceUsd()).isEqualByComparingTo("93.91");
-		assertThat(response.currentMonthCostUsd()).isNull();
+		assertThat(response.currentMonthCostUsd()).isEqualByComparingTo("37.14");
 		assertThat(response.prepaidUsedThisPeriodUsd()).isNull();
 		assertThat(response.prepaidAvailableUsd()).isNull();
-		assertThat(response.postpaidUsedUsd()).isEqualByComparingTo(BigDecimal.ZERO);
-		assertThat(response.postpaidRemainingUsd()).isEqualByComparingTo("200.00");
+		assertThat(response.postpaidUsedUsd()).isNull();
+		assertThat(response.postpaidRemainingUsd()).isNull();
 		assertThat(response.totalAvailableUsd()).isNull();
 		assertThat(response.projectedDepletionAt()).isNull();
 		assertThat(response.riskLevel()).isNull();
@@ -267,7 +270,12 @@ class AdminXaiServiceTest {
 	void invoicesUseOneHourCacheAndReturnLastSuccessAsStale() {
 		YearMonth period = YearMonth.of(2026, 8);
 		when(client.fetchInvoices(period)).thenReturn(List.of(
-			new InvoiceSummary(period, new BigDecimal("12.34"), "PAID")
+			new InvoiceSummary(
+				period,
+				new BigDecimal("12.34"),
+				new BigDecimal("56.78"),
+				"PAID"
+			)
 		));
 
 		service.invoices(period);
@@ -303,7 +311,12 @@ class AdminXaiServiceTest {
 			)
 		);
 		when(client.fetchInvoices(period)).thenReturn(List.of(
-			new InvoiceSummary(period, new BigDecimal("10.00"), "PAID")
+			new InvoiceSummary(
+				period,
+				new BigDecimal("4.00"),
+				new BigDecimal("10.00"),
+				"PAID"
+			)
 		));
 
 		var response = service.reconciliation(from, to);
@@ -324,7 +337,7 @@ class AdminXaiServiceTest {
 		when(client.fetchSpendingLimits())
 			.thenReturn(new SpendingLimits(new BigDecimal("200.00")));
 		when(client.fetchInvoicePreview()).thenReturn(new InvoicePreview(
-			new BigDecimal("10.00"),
+			new BigDecimal("20.00"),
 			new BigDecimal("10.00"),
 			YearMonth.of(2026, 9)
 		));

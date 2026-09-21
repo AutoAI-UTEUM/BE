@@ -530,7 +530,7 @@ public class AdminXaiService {
 				return new BillingTotal(null, true);
 			}
 			for (InvoiceSummary invoice : invoices.cachedValue().value()) {
-				total = total.add(invoice.amountUsd());
+				total = total.add(invoice.periodCostUsd());
 			}
 		}
 		return new BillingTotal(total, stale);
