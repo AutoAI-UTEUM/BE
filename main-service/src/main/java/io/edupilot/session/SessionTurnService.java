@@ -371,7 +371,8 @@ public class SessionTurnService {
 					userId,
 					AiFeature.TURN,
 					response == null ? null : response.usage(),
-					true
+					true,
+					request.requestId()
 				);
 				responseValidator.validate(
 					response,
@@ -479,7 +480,8 @@ public class SessionTurnService {
 					userId,
 					AiFeature.TURN,
 					response == null ? null : response.usage(),
-					true
+					true,
+					request.requestId()
 				);
 				responseValidator.validate(
 					response,

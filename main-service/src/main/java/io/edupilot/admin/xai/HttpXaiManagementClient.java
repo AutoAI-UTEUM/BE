@@ -2,6 +2,7 @@ package io.edupilot.admin.xai;
 
 import java.math.BigDecimal;
 import java.time.YearMonth;
+import java.util.List;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -22,6 +23,8 @@ public class HttpXaiManagementClient implements XaiManagementClient {
 		"/v1/billing/teams/{teamId}/postpaid/spending-limits";
 	private static final String INVOICE_PREVIEW_PATH =
 		"/v1/billing/teams/{teamId}/postpaid/invoice/preview";
+	private static final String INVOICES_PATH =
+		"/v1/billing/teams/{teamId}/invoices";
 
 	private final XaiManagementProperties properties;
 	private final RestClient restClient;
@@ -68,12 +71,47 @@ public class HttpXaiManagementClient implements XaiManagementClient {
 		try {
 			return new InvoicePreview(
 				usdCents(response.coreInvoice().totalWithCorr()),
+				optionalUsdCents(response.coreInvoice().prepaidCreditsUsed()),
 				YearMonth.of(
 					response.billingCycle().year(),
 					response.billingCycle().month()
 				)
 			);
 		} catch (RuntimeException exception) {
+			throw failure(XaiManagementFailureType.TEMPORARY_FAILURE);
+		}
+	}
+
+	@Override
+	public List<InvoiceSummary> fetchInvoices(YearMonth billingPeriod) {
+		if (restClient == null) {
+			throw failure(XaiManagementFailureType.CONFIGURATION_ERROR);
+		}
+		try {
+			InvoicesResponse response = restClient.get()
+				.uri(builder -> builder
+					.path(INVOICES_PATH)
+					.queryParam("billingCycle.year", billingPeriod.getYear())
+					.queryParam("billingCycle.month", billingPeriod.getMonthValue())
+					.build(properties.teamId()))
+				.retrieve()
+				.body(InvoicesResponse.class);
+			if (response == null || response.invoices() == null) {
+				throw failure(XaiManagementFailureType.TEMPORARY_FAILURE);
+			}
+			return response.invoices().stream()
+				.filter(invoice -> invoice.monthly() != null
+					&& invoice.monthly().billingCycle() != null)
+				.map(this::invoiceSummary)
+				.filter(invoice -> invoice.billingPeriod().equals(billingPeriod))
+				.toList();
+		} catch (XaiManagementClientException exception) {
+			throw exception;
+		} catch (RestClientResponseException exception) {
+			throw failure(classify(exception.getStatusCode().value()));
+		} catch (ResourceAccessException exception) {
+			throw failure(XaiManagementFailureType.TEMPORARY_FAILURE);
+		} catch (RestClientException | IllegalArgumentException exception) {
 			throw failure(XaiManagementFailureType.TEMPORARY_FAILURE);
 		}
 	}
@@ -130,6 +168,39 @@ public class HttpXaiManagementClient implements XaiManagementClient {
 		}
 	}
 
+	private BigDecimal optionalUsdCents(Money money) {
+		return money == null ? null : usdCents(money);
+	}
+
+	private InvoiceSummary invoiceSummary(InvoiceBody invoice) {
+		try {
+			if (invoice.invoiceStatus() == null
+				|| invoice.invoiceStatus().isBlank()) {
+				throw failure(XaiManagementFailureType.TEMPORARY_FAILURE);
+			}
+			BillingCycle cycle = invoice.monthly().billingCycle();
+			return new InvoiceSummary(
+				YearMonth.of(cycle.year(), cycle.month()),
+				usdCents(invoice.total()),
+				invoice.invoiceStatus()
+			);
+		} catch (RuntimeException exception) {
+			throw failure(XaiManagementFailureType.TEMPORARY_FAILURE);
+		}
+	}
+
+	private BigDecimal usdCents(String cents) {
+		// xAI Billing Management invoice totals use decimal strings in USD cents.
+		if (cents == null || cents.isBlank()) {
+			throw failure(XaiManagementFailureType.TEMPORARY_FAILURE);
+		}
+		try {
+			return new BigDecimal(cents).movePointLeft(2);
+		} catch (NumberFormatException exception) {
+			throw failure(XaiManagementFailureType.TEMPORARY_FAILURE);
+		}
+	}
+
 	private XaiManagementFailureType classify(int status) {
 		if (status == 401 || status == 403) {
 			return XaiManagementFailureType.CONFIGURATION_ERROR;
@@ -170,10 +241,29 @@ public class HttpXaiManagementClient implements XaiManagementClient {
 	}
 
 	@JsonIgnoreProperties(ignoreUnknown = true)
-	private record CoreInvoice(Money totalWithCorr) {
+	private record CoreInvoice(
+		Money totalWithCorr,
+		Money prepaidCreditsUsed
+	) {
 	}
 
 	@JsonIgnoreProperties(ignoreUnknown = true)
 	private record BillingCycle(int year, int month) {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	private record InvoicesResponse(List<InvoiceBody> invoices) {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	private record InvoiceBody(
+		String total,
+		String invoiceStatus,
+		MonthlyInvoice monthly
+	) {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	private record MonthlyInvoice(BillingCycle billingCycle) {
 	}
 }

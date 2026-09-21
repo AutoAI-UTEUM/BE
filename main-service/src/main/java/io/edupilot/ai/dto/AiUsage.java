@@ -9,6 +9,17 @@ public record AiUsage(
 	@JsonAlias("output_tokens")
 	Long outputTokens,
 	@JsonAlias("reasoning_tokens")
-	Long reasoningTokens
+	Long reasoningTokens,
+	@JsonAlias("cost_usd_ticks")
+	Long costUsdTicks
 ) {
+
+	public AiUsage(
+		String model,
+		Long inputTokens,
+		Long outputTokens,
+		Long reasoningTokens
+	) {
+		this(model, inputTokens, outputTokens, reasoningTokens, null);
+	}
 }

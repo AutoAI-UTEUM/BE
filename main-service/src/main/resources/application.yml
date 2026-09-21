@@ -61,6 +61,7 @@ edupilot:
       balance-cache-ttl: 2m
       limits-cache-ttl: 2m
       invoice-cache-ttl: 5m
+      historical-invoice-cache-ttl: 1h
       sync-rate-limit: 1m
   google:
     client-id: ${EDUPILOT_GOOGLE_CLIENT_ID:}

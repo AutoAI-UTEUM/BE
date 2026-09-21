@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 계약 초안 |
-| 마지막 갱신 | 2026-09-20 |
+| 마지막 갱신 | 2026-09-21 |
 | 외부 호출자 | Frontend |
 | 내부 호출자 | Spring → FastAPI |
 
@@ -128,6 +128,10 @@
 | GET | `/api/admin/xai/status` | 관리자 xAI Management 연동 상태 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/xai/overview` | 관리자 xAI 비용·소진 위험 요약 조회 | Y | ADMIN + DB role/status 재검증 |
 | POST | `/api/admin/xai/sync` | 관리자 xAI Management 캐시 즉시 동기화 | Y | ADMIN + DB role/status 재검증; 사용자별 분당 1회 |
+| GET | `/api/admin/xai/usage` | 내부 xAI 비용·토큰·호출 시계열 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/xai/reconciliation` | 내부 비용과 xAI 청구 금액 대조 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/xai/invoices` | xAI 월별 청구서 요약 조회 | Y | ADMIN + DB role/status 재검증 |
+| GET·PUT | `/api/admin/xai/alerts` | xAI 잔액·소진 위험 임계값 조회·수정 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/classrooms/{id}/analytics` | 강의자 학습 현황 집계 | Y | 소유 INSTRUCTOR |
 | GET | `/api/classrooms/{classroomId}/students/{studentId}/learning-analytics` | 학습자별 상세 학습 현황 | Y | 소유 INSTRUCTOR |
 | PATCH | `/api/classrooms/{id}` | 강의실 수정 | Y | 소유 INSTRUCTOR |
@@ -2549,19 +2553,24 @@ AWS 설정과 무관하게 프로세스 내부 `MeterRegistry`와 readiness 결�
 
 ### GET `/api/admin/xai/credits`
 
-xAI Management API의 선불 잔액, 후불 월 한도, 당월 사용액과 잔여액을 반환합니다. 금액은
-부동소수점 손실을 막기 위해 JSON 문자열인 USD `BigDecimal`로 직렬화합니다. xAI의 선불
-원장 `total.val`은 구매 크레딧을 음수 센트로 표현하므로 Spring이 부호를 반전하고 100으로
-나눠 사용 가능한 양의 USD 잔액으로 정규화합니다.
+xAI Management API의 선불 원장잔액과 당기 차감액, 실제 선불 가용액, 당기 총비용, 후불
+월 한도·사용액·잔여액을 반환합니다. 금액은 부동소수점 손실을 막기 위해 JSON 문자열인
+USD `BigDecimal`로 직렬화합니다. xAI의 선불 원장 `total.val`은 구매 크레딧을 음수
+센트로 표현하므로 Spring이 부호를 반전하고 100으로 나눠 양의 USD 원장잔액으로
+정규화합니다. 이 값은 당기 미확정 사용액 차감 전 값이므로 화면 표시용 잔액으로 사용하지
+않습니다.
 
 ```json
 {
   "success": true,
   "data": {
-    "prepaidBalanceUsd": "125.00",
-    "postpaidLimitUsd": "300.00",
-    "postpaidUsedUsd": "75.00",
-    "postpaidRemainingUsd": "225.00",
+    "prepaidBalanceUsd": "93.91",
+    "prepaidUsedThisPeriodUsd": "37.14",
+    "prepaidAvailableUsd": "56.77",
+    "currentMonthCostUsd": "37.14",
+    "postpaidLimitUsd": "0.00",
+    "postpaidUsedUsd": "0.00",
+    "postpaidRemainingUsd": "0.00",
     "fetchedAt": "2026-09-20T08:00:00Z",
     "lastSuccessfulSyncAt": "2026-09-20T08:00:00Z",
     "stale": false,
@@ -2571,9 +2580,22 @@ xAI Management API의 선불 잔액, 후불 월 한도, 당월 사용액과 잔�
 }
 ```
 
-`fetchedAt`은 조합한 값 중 가장 오래된 성공 조회 시각이고,
-`lastSuccessfulSyncAt`은 실제 xAI endpoint가 마지막으로 성공한 시각입니다. 후불 잔여액은
-`max(한도 - invoice preview 당월 비용, 0)`입니다.
+필드 계산식은 다음과 같습니다.
+
+- `prepaidBalanceUsd`: `/prepaid/balance`의 당기 차감 전 원장잔액
+- `prepaidUsedThisPeriodUsd`: invoice preview의
+  `coreInvoice.prepaidCreditsUsed`
+- `prepaidAvailableUsd`: `prepaidBalanceUsd - prepaidUsedThisPeriodUsd`
+- `postpaidUsedUsd`: postpaid invoice preview의 `coreInvoice.totalWithCorr`
+- `currentMonthCostUsd`: `prepaidUsedThisPeriodUsd + postpaidUsedUsd`
+- `postpaidRemainingUsd`: `max(postpaidLimitUsd - postpaidUsedUsd, 0)`
+
+FE의 표시용 선불 잔액은 `prepaidAvailableUsd`를 사용합니다. `fetchedAt`은 조합한 값 중
+가장 오래된 성공 조회 시각이고, `lastSuccessfulSyncAt`은 실제 xAI endpoint가 마지막으로
+성공한 시각입니다. invoice preview에 `prepaidCreditsUsed`가 없으면 연동 실패로 취급하지
+않아 `stale:false`를 유지합니다. 이때 원장잔액·후불 사용액·후불 한도·후불 잔여액은
+반환하지만, `prepaidUsedThisPeriodUsd`, `prepaidAvailableUsd`, `currentMonthCostUsd`,
+`totalAvailableUsd`처럼 당기 선불 차감액이 필요한 값은 null입니다.
 
 ### GET `/api/admin/xai/status`
 
@@ -2598,18 +2620,21 @@ xAI Management API의 선불 잔액, 후불 월 한도, 당월 사용액과 잔�
 
 ### GET `/api/admin/xai/overview`
 
-credits 원값에 다음 파생값을 더해 반환합니다.
+credits 필드와 다음 파생값을 함께 반환합니다.
 
-- `currentMonthCostUsd`: postpaid invoice preview의 `totalWithCorr`
-- `totalAvailableUsd`: 선불 잔액 + 후불 잔여액
-- `averageDailyCost7d`: **1차 구현에서는** 이름과 달리 내부 7일 비용 집계가 아니라 invoice
-  preview 당월 비용을 UTC 청구 월의 경과 일수로 나눈 일평균입니다. 2차에서
-  `ai_usage_log.cost_usd_ticks` 기반 최근 7일 값으로 교체합니다.
-- `projectedDepletionAt`: 일평균이 양수일 때 `현재 + totalAvailable / 일평균`이며, 일평균이
+- `totalAvailableUsd`: `prepaidAvailableUsd + postpaidRemainingUsd`. 둘 중 하나라도
+  계산할 수 없으면 null입니다.
+- `averageDailyCost7d`: 최근 7일 `ai_usage_log.cost_usd_ticks`가 한 건이라도 있으면 확인된
+  비용 합을 7로 나눈 값입니다. 확인 비용이 한 건도 없으면 invoice preview 당월 비용을
+  UTC 청구 월의 경과 일수로 나눈 일평균으로 폴백합니다.
+- `costSource`: 일평균의 출처인 `INTERNAL` 또는 `INVOICE_PREVIEW`입니다. 둘 다 계산할 수
+  없으면 null입니다.
+- `projectedDepletionAt`: 일평균이 양수일 때
+  `현재 + totalAvailableUsd / averageDailyCost7d`이며, 가용액을 계산할 수 없거나 일평균이
   0 또는 없으면 null입니다.
-- `riskLevel`: 소진 예상이 7일 이내이거나 잔액이 `$10` 미만이면 `CRITICAL`, 30일 이내이거나
-  `$50` 미만이면 `WARNING`, 그 외 `NORMAL`입니다. 일수 경계는 포함하고 금액 경계는
-  미만 비교입니다.
+- `riskLevel`: `/alerts`에 저장된 잔액·소진 예상일 임계값으로 계산합니다. 설정 행이 없으면
+  1차 기본값(7일/$10, 30일/$50)을 사용합니다. 일수 경계는 포함하고 금액 경계는 미만
+  비교입니다. 잔액 기준은 원장잔액이 아니라 `totalAvailableUsd`입니다.
 
 응답의 나머지 메타 필드는 credits와 같습니다.
 
@@ -2631,12 +2656,119 @@ invoice preview는 5분 캐시하며 connect timeout은 2초, read timeout은 5�
 상위 응답 스키마는 xAI 공식
 [Billing Management](https://docs.x.ai/developers/rest-api-reference/management/billing)의
 `GET /prepaid/balance`, `GET /postpaid/spending-limits`,
-`GET /postpaid/invoice/preview`를 기준으로 합니다. xAI 값은 센트 문자열로 역직렬화하고
-`double`로 변환하지 않습니다.
+`GET /postpaid/invoice/preview`, `GET /invoices`를 기준으로 합니다. xAI 값은 센트 문자열로
+역직렬화하고 `double`로 변환하지 않습니다. invoice preview의 당기 선불 차감액은
+`coreInvoice.prepaidCreditsUsed`, 후불 사용액은 `coreInvoice.totalWithCorr`를 사용하며
+둘의 합을 당기 총비용으로 계산합니다. 확정 invoice는 월별로 1시간 캐시하며 실패 시 같은
+월의 마지막 성공값을 `stale:true`로 반환합니다.
 
-사용량 그래프·reconciliation·invoice/alert API와 `ai_usage_log` 비용 저장은 2차 범위입니다.
-AI 담당과 `usage.costUsdTicks` 내부 계약을 합의하고 ai-service 반영 릴리즈가 준비된 뒤
-착수합니다.
+### GET `/api/admin/xai/usage`
+
+`from`, `to`는 필수 ISO date이며 KST 날짜의 양 끝을 UTC DB 범위로 변환합니다. 현재
+`granularity=DAY`만 지원합니다. `metric=COST|TOKENS|CALLS`,
+`groupBy=MODEL|FEATURE`를 지원하며 내부 `ai_usage_log`만 조회합니다.
+`groupBy=API_KEY`는 내부 로그에 키 구분이 없어 `UNSUPPORTED_GROUP_BY`(400)입니다.
+
+```json
+{
+  "success": true,
+  "data": {
+    "from": "2026-09-01",
+    "to": "2026-09-07",
+    "granularity": "DAY",
+    "metric": "COST",
+    "groupBy": "FEATURE",
+    "unknownCostCalls": 3,
+    "items": [{
+      "date": "2026-09-01",
+      "group": "TURN",
+      "costUsd": "1.25",
+      "tokenCount": null,
+      "callCount": null
+    }]
+  }
+}
+```
+
+`COST`는 `cost_usd_ticks` 합을 `10^10`으로 나눈 문자열 USD이고, NULL 비용은 합계에서
+제외합니다. `unknownCostCalls`는 비용을 확인할 수 없는 호출 수이며 0원 호출 수가 아닙니다.
+`TOKENS`는 input/output/reasoning 합, `CALLS`는 로그 행 수입니다. 선택한 metric에 해당하는
+item 필드만 채우고 나머지는 null입니다.
+
+이 2차 API와 비용 저장은 V42가 적용된 환경에서 사용하며 별도 migration을 추가하지
+않습니다. dev에는 V42와 Management API 설정이 적용되어 있어 머지 후 즉시 검증할 수
+있고, prod 반영은 v0.5.x 릴리스 일정에 따릅니다.
+
+### GET `/api/admin/xai/reconciliation`
+
+`from`, `to`(필수 ISO date)의 내부 확인 비용과 xAI 청구 금액을 비교합니다.
+
+```json
+{
+  "success": true,
+  "data": {
+    "requestedFrom": "2026-08-10",
+    "requestedTo": "2026-08-20",
+    "xaiPeriodFrom": "2026-08-01",
+    "xaiPeriodTo": "2026-08-31",
+    "internalCostUsd": "8.00",
+    "xaiBilledUsd": "10.00",
+    "differenceUsd": "-2.00",
+    "differenceRatio": "-0.20000000",
+    "unknownCostCalls": 1,
+    "coverageNote": "xAI 금액은 요청 기간이 걸친 과거 월의 확정 invoice와 현재 월의 invoice preview를 사용하며 일할 계산하지 않습니다.",
+    "stale": false,
+    "available": true
+  }
+}
+```
+
+`differenceUsd = internalCostUsd - xaiBilledUsd`이고 `differenceRatio`도 xAI 금액 대비 같은
+부호를 사용합니다. xAI invoice가 월 단위이므로 부분 월 요청도 걸친 청구 월 전체에
+매핑하며 정밀한 일할 금액으로 위장하지 않습니다. xAI 금액이 0이면 ratio는 null입니다.
+
+### GET `/api/admin/xai/invoices?year=2026&month=8`
+
+```json
+{
+  "success": true,
+  "data": {
+    "requestedPeriod": "2026-08",
+    "items": [{
+      "periodFrom": "2026-08-01",
+      "periodTo": "2026-08-31",
+      "amountUsd": "42.50",
+      "status": "PAID"
+    }],
+    "fetchedAt": "2026-09-21T00:00:00Z",
+    "lastSuccessfulSyncAt": "2026-09-21T00:00:00Z",
+    "stale": false,
+    "available": true
+  }
+}
+```
+
+결제수단, 청구 주소, Management Key, team ID, invoice 내부 식별자는 반환하지 않습니다.
+미설정·장애 의미는 credits와 같은 `available/stale` 정책을 따릅니다.
+
+### GET·PUT `/api/admin/xai/alerts`
+
+GET은 단일 임계값 설정을 반환하며 행이 없으면 1차 기본값을 반환합니다. PUT은 다음 네
+필드를 모두 받습니다.
+
+```json
+{
+  "balanceCriticalUsd": "20.0000",
+  "balanceWarningUsd": "80.0000",
+  "depletionCriticalDays": 5,
+  "depletionWarningDays": 20
+}
+```
+
+모든 값은 양수이고 CRITICAL 값은 WARNING 값보다 작아야 합니다. 응답에는 같은 네 필드와
+`updatedBy`, `updatedAt`이 포함됩니다. 이 쓰기 API는 관리자 인프라 조회 전용 원칙의
+명시적 예외이며, 운영 임계값을 코드 배포 없이 조정하기 위한 것입니다. 자동 충전이나
+외부 알림 발송은 하지 않습니다.
 
 ## 8. Spring → FastAPI 내부 API
 
@@ -2661,7 +2793,7 @@ AI 담당과 `usage.costUsdTicks` 내부 계약을 합의하고 ai-service 반�
 | POST | `/internal/ai/diagnosis` | 진단 질문 생성 | 퀴즈 제출 파이프라인 3단계 (기준 점수 미달 시) |
 | POST | `/internal/ai/exams/draft` | 시험 문항 AI 초안 생성 | 소유 강사의 DRAFT 시험 초안 요청 시 동기 호출 |
 
-body가 없는 204를 제외한 내부 API 성공 응답은 최상위 optional `usage`를 사용합니다. 기존 wire 키 `model`, `inputTokens`, `outputTokens`, `reasoningTokens`는 유지하며 nullable integer `cost_usd_ticks`를 추가합니다. xAI의 `usage.cost_in_usd_ticks`를 그대로 전달하고 1 USD = 10^10 ticks입니다. 여러 호출·재생성 비용은 정수 합산하되 하나라도 미확인이면 비용은 null/생략하며 0으로 대체하지 않습니다. 토큰과 비용은 독립적으로 보존하며 둘 다 안전한 합계가 없으면 `usage=null`입니다. turn NDJSON은 `completed.result.usage`에만 한 번 실립니다. Spring은 확인 가능한 usage를 사용자별 `ai_usage_log`에 기록하며 비용 저장(V41)·멱등 처리는 Spring 소관입니다. 단위·실패 호출·배포 호환 상세는 [내부 계약 §3.3.2](ai-integration-contract.md#332-usage-비용-집계-cost_usd_ticks)를 따릅니다.
+body가 없는 204를 제외한 내부 API 성공 응답은 최상위 optional `usage`를 사용합니다. 기존 wire 키 `model`, `inputTokens`, `outputTokens`, `reasoningTokens`는 유지하며 nullable integer `cost_usd_ticks`를 추가합니다. xAI의 `usage.cost_in_usd_ticks`를 그대로 전달하고 1 USD = 10^10 ticks입니다. 여러 호출·재생성 비용은 정수 합산하되 하나라도 미확인이면 비용은 null/생략하며 0으로 대체하지 않습니다. 토큰과 비용은 독립적으로 보존하며 둘 다 안전한 합계가 없으면 `usage=null`입니다. turn NDJSON은 `completed.result.usage`에만 한 번 실립니다. Spring은 확인 가능한 usage를 사용자별 `ai_usage_log`에 기록하며 비용 저장(V42)·멱등 처리는 Spring 소관입니다. 단위·실패 호출·배포 호환 상세는 [내부 계약 §3.3.2](ai-integration-contract.md#332-usage-비용-집계-cost_usd_ticks)를 따릅니다.
 
 `extract`는 멀티파트로 PDF 바이트를 받아 페이지별 텍스트 배열(`pages: [{ pageNumber, text }]`, `pageCount`)과 nullable `xaiFileId`, 기본 빈 배열 `warnings: [{type,message}]`를 반환하며, 저장과 상태 전이는 Spring이 수행합니다. `EDUPILOT_XAI_FILES_ENABLED=true`일 때만 추출 성공 원본을 xAI Files에 업로드합니다. 업로드 실패 또는 48MiB 초과는 `xaiFileId=null`과 `FILE_UPLOAD_FAILED` warning으로 강등하며 추출 응답은 200을 유지합니다. `FILE_UPLOAD_FAILED` 및 알 수 없는 warning type은 경고로만 기록하고 추출이 성공했다면 자료는 기존대로 READY가 됩니다. Spring은 non-blank `xaiFileId`만 내부 DB에 저장하고 외부 자료 응답에는 노출하지 않습니다. 기존 ACTIVE·READY 자료는 기본 OFF인 Spring bounded backfill이 `POST /internal/ai/files`로 원본만 업로드하며, 이 명시적 API는 `/extract` 자동 업로드 kill switch와 독립적으로 동작합니다. backfill은 claim과 file ID 반영을 각각 짧은 row-lock 트랜잭션으로 처리하고 외부 호출 중에는 트랜잭션을 유지하지 않으며, 실패 시 READY 유지·6시간 기본 backoff·경합 file ID 베스트에포트 삭제를 적용합니다. 자유 학습 턴 context에는 nullable `xaiFileId`를 포함하며 `includeCurrentPage=false`이면 null을 보냅니다. AI Service는 설명 Plan과 설명·QA·퀴즈의 실제 LLM 호출, 개요 생성에 파일을 첨부하고 그 밖의 Plan·결정적 안내·Repair·Note에는 첨부하지 않습니다. 퀴즈는 checkpoint가 있으면 `quizContext`의 coverage 페이지 범위, 없으면 현재 페이지 단일을 앵커로 사용하며 개요는 전달된 pages 범위를 유지합니다. file ID가 없으면 기존 텍스트 경로를 사용합니다(DEC-035·037·039). `DELETE /internal/ai/files/{fileId}`는 kill switch와 무관하게 동작하며 삭제 성공·xAI 404는 모두 204, 그 밖의 xAI 오류는 502 `FILE_DELETE_FAILED`(`INTERNAL`, `retryable=true`)입니다. 자료 삭제나 file ID 교체 시 Spring은 트랜잭션 커밋 후 DELETE를 호출하며 실패해도 자료 삭제·READY 결과를 유지합니다. `captions`는 `{schemaVersion:"1.0", pages:[{pageNumber,imageBase64,extractedText}]}`를 최대 10페이지씩 받고 페이지별 nullable 캡션을 반환합니다. Spring은 캡션이 있으면 모든 페이지 텍스트 기반 AI 입력에 `\n\n[그림 설명] {caption}`을 읽기 시점에 병합하며 `material_pages.text_content` 원문은 유지합니다. 일부 청크 실패는 자료·개요 상태에 영향을 주지 않고 다음 청크 처리를 계속합니다. `diagnosis` 요청에는 직전 단계에서 생성된 `quizAssessment`, 오답 문항, 학생 답안, 강의 문맥을 포함합니다. 오개념 교정과 메모리 후보·승격의 전용 엔드포인트는 두지 않습니다 — 교정은 `DIAGNOSIS_ANSWER_SUBMITTED` 턴에서, 메모리는 Orchestrator의 `memoryWrite` 판단으로 turn 내부에서 실행합니다.
 

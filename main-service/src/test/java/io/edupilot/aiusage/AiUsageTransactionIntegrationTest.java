@@ -68,6 +68,29 @@ class AiUsageTransactionIntegrationTest {
 		assertThat(repository.findAll()).isEmpty();
 	}
 
+	@Test
+	void duplicateRequestIdKeepsOriginalUsageRow() {
+		usageService.record(
+			1L,
+			AiFeature.TURN,
+			new AiUsage("grok-4", 10L, 20L, null, 100L),
+			true,
+			"request-1"
+		);
+		usageService.record(
+			1L,
+			AiFeature.TURN,
+			new AiUsage("grok-4", 30L, 40L, null, 200L),
+			true,
+			"request-1"
+		);
+
+		assertThat(repository.findAll()).singleElement().satisfies(log -> {
+			assertThat(log.getRequestId()).isEqualTo("request-1");
+			assertThat(log.getCostUsdTicks()).isEqualTo(100L);
+		});
+	}
+
 	@SpringBootConfiguration
 	@EnableAutoConfiguration
 	@EnableJpaRepositories(basePackageClasses = AiUsageLogRepository.class)

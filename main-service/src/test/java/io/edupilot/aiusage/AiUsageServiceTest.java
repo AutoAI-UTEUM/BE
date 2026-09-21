@@ -11,6 +11,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import io.edupilot.ai.dto.AiUsage;
 
@@ -21,14 +22,15 @@ class AiUsageServiceTest {
 	private AiUsageLogRepository repository;
 
 	@Test
-	void recordsUsageTokensAndModel() {
+	void recordsUsageTokensCostModelAndRequestId() {
 		AiUsageService service = new AiUsageService(repository);
 
 		service.record(
 			1L,
 			AiFeature.TURN,
-			new AiUsage("grok-4", 10L, 20L, 3L),
-			true
+			new AiUsage("grok-4", 10L, 20L, 3L, 25_000_000_000L),
+			true,
+			"request-1"
 		);
 
 		ArgumentCaptor<AiUsageLog> captor = ArgumentCaptor.forClass(
@@ -42,6 +44,8 @@ class AiUsageServiceTest {
 		assertThat(log.getInputTokens()).isEqualTo(10L);
 		assertThat(log.getOutputTokens()).isEqualTo(20L);
 		assertThat(log.getReasoningTokens()).isEqualTo(3L);
+		assertThat(log.getCostUsdTicks()).isEqualTo(25_000_000_000L);
+		assertThat(log.getRequestId()).isEqualTo("request-1");
 		assertThat(log.isSuccess()).isTrue();
 	}
 
@@ -60,6 +64,8 @@ class AiUsageServiceTest {
 		assertThat(log.getInputTokens()).isNull();
 		assertThat(log.getOutputTokens()).isNull();
 		assertThat(log.getReasoningTokens()).isNull();
+		assertThat(log.getCostUsdTicks()).isNull();
+		assertThat(log.getRequestId()).isNull();
 		assertThat(log.isSuccess()).isFalse();
 	}
 
@@ -75,5 +81,40 @@ class AiUsageServiceTest {
 			null,
 			true
 		)).doesNotThrowAnyException();
+	}
+
+	@Test
+	void skipsDuplicateRequestIdWithoutFailingCaller() {
+		AiUsageService service = new AiUsageService(repository);
+		when(repository.saveAndFlush(any()))
+			.thenThrow(new DataIntegrityViolationException("duplicate request"));
+
+		assertThatCode(() -> service.record(
+			1L,
+			AiFeature.TURN,
+			new AiUsage("grok-4", 10L, 20L, null, 1L),
+			true,
+			"request-duplicate"
+		)).doesNotThrowAnyException();
+	}
+
+	@Test
+	void overlongRequestIdDoesNotDiscardKnownCost() {
+		AiUsageService service = new AiUsageService(repository);
+
+		service.record(
+			1L,
+			AiFeature.TURN,
+			new AiUsage("grok-4", 10L, 20L, null, 1L),
+			true,
+			"x".repeat(65)
+		);
+
+		ArgumentCaptor<AiUsageLog> captor = ArgumentCaptor.forClass(
+			AiUsageLog.class
+		);
+		verify(repository).saveAndFlush(captor.capture());
+		assertThat(captor.getValue().getCostUsdTicks()).isEqualTo(1L);
+		assertThat(captor.getValue().getRequestId()).isNull();
 	}
 }

@@ -50,4 +50,27 @@ class XaiRiskPolicyTest {
 		assertThat(policy.assess(new BigDecimal("50.00"), null, NOW))
 			.isEqualTo(XaiRiskLevel.NORMAL);
 	}
+
+	@Test
+	void appliesPersistedThresholdValuesInsteadOfPhaseOneConstants() {
+		XaiAlertThresholds thresholds = new XaiAlertThresholds(
+			new BigDecimal("20"),
+			new BigDecimal("80"),
+			3,
+			14
+		);
+
+		assertThat(policy.assess(
+			new BigDecimal("19.99"),
+			null,
+			NOW,
+			thresholds
+		)).isEqualTo(XaiRiskLevel.CRITICAL);
+		assertThat(policy.assess(
+			new BigDecimal("100"),
+			NOW.plus(Duration.ofDays(14)),
+			NOW,
+			thresholds
+		)).isEqualTo(XaiRiskLevel.WARNING);
+	}
 }

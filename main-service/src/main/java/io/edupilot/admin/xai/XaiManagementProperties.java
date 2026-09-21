@@ -20,6 +20,7 @@ public record XaiManagementProperties(
 	@NotNull Duration balanceCacheTtl,
 	@NotNull Duration limitsCacheTtl,
 	@NotNull Duration invoiceCacheTtl,
+	@NotNull Duration historicalInvoiceCacheTtl,
 	@NotNull Duration syncRateLimit
 ) {
 
@@ -29,6 +30,10 @@ public record XaiManagementProperties(
 		requirePositive(balanceCacheTtl, "balanceCacheTtl");
 		requirePositive(limitsCacheTtl, "limitsCacheTtl");
 		requirePositive(invoiceCacheTtl, "invoiceCacheTtl");
+		requirePositive(
+			historicalInvoiceCacheTtl,
+			"historicalInvoiceCacheTtl"
+		);
 		requirePositive(syncRateLimit, "syncRateLimit");
 	}
 
@@ -46,6 +51,7 @@ public record XaiManagementProperties(
 			+ ", balanceCacheTtl=" + balanceCacheTtl
 			+ ", limitsCacheTtl=" + limitsCacheTtl
 			+ ", invoiceCacheTtl=" + invoiceCacheTtl
+			+ ", historicalInvoiceCacheTtl=" + historicalInvoiceCacheTtl
 			+ ", syncRateLimit=" + syncRateLimit + "]";
 	}
 

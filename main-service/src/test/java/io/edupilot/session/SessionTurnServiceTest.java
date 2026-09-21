@@ -36,6 +36,7 @@ import io.edupilot.ai.TurnStreamEvent;
 import io.edupilot.ai.dto.QuizGeneration;
 import io.edupilot.ai.dto.NoteDraft;
 import io.edupilot.aiusage.AiQuotaService;
+import io.edupilot.aiusage.AiFeature;
 import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -226,6 +227,13 @@ class SessionTurnServiceTest {
 			any()
 		);
 		assertThat(xaiFileAttached.getValue()).isTrue();
+		verify(aiUsageService).record(
+			eq(1L),
+			eq(AiFeature.TURN),
+			any(),
+			eq(true),
+			eq("request-1")
+		);
 		verify(claimService).claim(1L, 100L, "request-1");
 		verify(claimService).release(100L, "request-1");
 	}
