@@ -22,12 +22,14 @@ from edupilot_ai.llm.bridge import (
     LlmCompletion,
     LlmFileAttachment,
     LlmMessage,
+    LlmPromptCache,
     LlmTextDelta,
     LlmTextStreamCompleted,
     LlmTextStreamItem,
     LlmUsage,
     ModelT,
 )
+from edupilot_ai.llm.prompt_cache import stable_prefix_messages
 from edupilot_ai.settings import AgentLlmProfile
 
 XAI_BASE_URL = "https://api.x.ai/v1"
@@ -60,6 +62,8 @@ class _CallMetrics:
         attachments: Sequence[LlmFileAttachment],
         streaming: bool,
         response_model: str | None = None,
+        cache_layout: bool = False,
+        cache_routing: bool = False,
     ) -> _CallMetrics:
         text_chars = 0
         image_count = 0
@@ -90,6 +94,8 @@ class _CallMetrics:
                 "fileAttached": bool(attachments),
                 "fileCount": len(attachments),
                 "imageCount": image_count,
+                "promptCacheLayout": cache_layout,
+                "promptCacheRouting": cache_routing,
             },
         )
 
@@ -426,9 +432,13 @@ class XaiLlmBridge:
         *,
         client: httpx.AsyncClient,
         api_key: SecretStr,
+        prompt_cache_layout_enabled: bool = False,
+        prompt_cache_routing_enabled: bool = False,
     ) -> None:
         self._client = client
         self._api_key = api_key
+        self._cache_layout = prompt_cache_layout_enabled
+        self._cache_routing = prompt_cache_routing_enabled
 
     async def complete_json(
         self,
@@ -438,7 +448,10 @@ class XaiLlmBridge:
         profile: AgentLlmProfile,
         timeout_seconds: float,
         attachments: Sequence[LlmFileAttachment] = (),
+        prompt_cache: LlmPromptCache | None = None,
     ) -> LlmCompletion[ModelT]:
+        if self._cache_layout and prompt_cache is not None:
+            messages = stable_prefix_messages(messages, prompt_cache)
         if attachments:
             return await self._complete_json_with_files(
                 messages=messages,
@@ -446,6 +459,7 @@ class XaiLlmBridge:
                 profile=profile,
                 timeout_seconds=timeout_seconds,
                 attachments=attachments,
+                prompt_cache=prompt_cache,
             )
         started_at = perf_counter()
         metrics = _CallMetrics.start(
@@ -455,6 +469,8 @@ class XaiLlmBridge:
             attachments=attachments,
             streaming=False,
             response_model=response_model.__name__,
+            cache_layout=self._cache_layout and prompt_cache is not None,
+            cache_routing=self._cache_routing and prompt_cache is not None,
         )
         if timeout_seconds <= 0:
             _log_call(
@@ -508,7 +524,7 @@ class XaiLlmBridge:
                     async with self._client.stream(
                         "POST",
                         XAI_CHAT_COMPLETIONS_URL,
-                        headers=self._headers(),
+                        headers=self._headers(prompt_cache=prompt_cache),
                         json=payload,
                         timeout=self._timeout(remaining_seconds),
                     ) as attempt_response:
@@ -650,13 +666,17 @@ class XaiLlmBridge:
         profile: AgentLlmProfile,
         timeout_seconds: float,
         attachments: Sequence[LlmFileAttachment] = (),
+        prompt_cache: LlmPromptCache | None = None,
     ) -> AsyncIterator[LlmTextStreamItem]:
+        if self._cache_layout and prompt_cache is not None:
+            messages = stable_prefix_messages(messages, prompt_cache)
         if attachments:
             stream = self._complete_text_stream_with_files(
                 messages=messages,
                 profile=profile,
                 timeout_seconds=timeout_seconds,
                 attachments=attachments,
+                prompt_cache=prompt_cache,
             )
             async with closing_async_iterator(stream):
                 async for item in stream:
@@ -669,6 +689,8 @@ class XaiLlmBridge:
             profile=profile,
             attachments=attachments,
             streaming=True,
+            cache_layout=self._cache_layout and prompt_cache is not None,
+            cache_routing=self._cache_routing and prompt_cache is not None,
         )
         if timeout_seconds <= 0:
             _log_call(
@@ -720,7 +742,9 @@ class XaiLlmBridge:
                             self._client.stream(
                                 "POST",
                                 XAI_CHAT_COMPLETIONS_URL,
-                                headers=self._headers(accept_stream=True),
+                                headers=self._headers(
+                                    accept_stream=True, prompt_cache=prompt_cache
+                                ),
                                 json=payload,
                                 timeout=self._timeout(remaining_seconds),
                             )
@@ -892,6 +916,7 @@ class XaiLlmBridge:
         profile: AgentLlmProfile,
         timeout_seconds: float,
         attachments: Sequence[LlmFileAttachment],
+        prompt_cache: LlmPromptCache | None = None,
     ) -> LlmCompletion[ModelT]:
         started_at = perf_counter()
         metrics = _CallMetrics.start(
@@ -901,6 +926,8 @@ class XaiLlmBridge:
             attachments=attachments,
             streaming=False,
             response_model=response_model.__name__,
+            cache_layout=self._cache_layout and prompt_cache is not None,
+            cache_routing=self._cache_routing and prompt_cache is not None,
         )
         if timeout_seconds <= 0:
             _log_call(
@@ -919,6 +946,7 @@ class XaiLlmBridge:
             messages=messages,
             profile=profile,
             attachments=attachments,
+            prompt_cache=prompt_cache,
         )
         payload["text"] = {
             "format": {
@@ -1095,6 +1123,7 @@ class XaiLlmBridge:
         profile: AgentLlmProfile,
         timeout_seconds: float,
         attachments: Sequence[LlmFileAttachment],
+        prompt_cache: LlmPromptCache | None = None,
     ) -> AsyncIterator[LlmTextStreamItem]:
         started_at = perf_counter()
         metrics = _CallMetrics.start(
@@ -1103,6 +1132,8 @@ class XaiLlmBridge:
             profile=profile,
             attachments=attachments,
             streaming=True,
+            cache_layout=self._cache_layout and prompt_cache is not None,
+            cache_routing=self._cache_routing and prompt_cache is not None,
         )
         if timeout_seconds <= 0:
             _log_call(
@@ -1121,6 +1152,7 @@ class XaiLlmBridge:
             messages=messages,
             profile=profile,
             attachments=attachments,
+            prompt_cache=prompt_cache,
         )
         payload["stream"] = True
         loop = asyncio.get_running_loop()
@@ -1394,6 +1426,7 @@ class XaiLlmBridge:
         *,
         messages: Sequence[LlmMessage],
         attachments: Sequence[LlmFileAttachment],
+        files_first: bool = False,
     ) -> list[dict[str, Any]]:
         inputs = [dict(message) for message in messages]
         user_index = next(
@@ -1415,6 +1448,12 @@ class XaiLlmBridge:
             if not file_id:
                 raise ValueError("File attachment ID must not be blank")
             file_parts.append({"type": "input_file", "file_id": file_id})
+        if files_first:
+            first_user_index = next(
+                index for index, item in enumerate(inputs) if item.get("role") == "user"
+            )
+            inputs.insert(first_user_index, {"role": "user", "content": file_parts})
+            return inputs
         inputs[user_index]["content"] = [
             {"type": "input_text", "text": content},
             *file_parts,
@@ -1427,12 +1466,14 @@ class XaiLlmBridge:
         messages: Sequence[LlmMessage],
         profile: AgentLlmProfile,
         attachments: Sequence[LlmFileAttachment],
+        prompt_cache: LlmPromptCache | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": profile.model,
             "input": self._responses_input(
                 messages=messages,
                 attachments=attachments,
+                files_first=self._cache_layout and prompt_cache is not None,
             ),
             "reasoning": {"effort": profile.reasoning_effort.value},
             "max_output_tokens": profile.max_tokens,
@@ -1440,6 +1481,8 @@ class XaiLlmBridge:
         }
         if profile.temperature is not None:
             payload["temperature"] = profile.temperature
+        if self._cache_routing and prompt_cache is not None:
+            payload["prompt_cache_key"] = prompt_cache.key
         return payload
 
     @staticmethod
@@ -1467,13 +1510,17 @@ class XaiLlmBridge:
             payload["temperature"] = profile.temperature
         return payload
 
-    def _headers(self, *, accept_stream: bool = False) -> dict[str, str]:
+    def _headers(
+        self, *, accept_stream: bool = False, prompt_cache: LlmPromptCache | None = None
+    ) -> dict[str, str]:
         headers = {
             "Authorization": f"Bearer {self._api_key.get_secret_value()}",
             "Content-Type": "application/json",
         }
         if accept_stream:
             headers["Accept"] = "text/event-stream"
+        if self._cache_routing and prompt_cache is not None:
+            headers["x-grok-conv-id"] = prompt_cache.key
         return headers
 
     @staticmethod

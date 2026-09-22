@@ -14,6 +14,7 @@ from edupilot_ai.llm.bridge import (
 from edupilot_ai.models.plan import TurnPlan
 from edupilot_ai.models.turn import EventType
 from edupilot_ai.orchestration.context import AgentContext, PlanContext
+from edupilot_ai.orchestration.prompt_cache import turn_prompt_cache
 from edupilot_ai.orchestration.prompts import plan_messages
 from edupilot_ai.orchestration.timing import TurnDeadline
 from edupilot_ai.settings import AgentLlmProfile
@@ -62,6 +63,7 @@ class Orchestrator:
                     profile=self._profile,
                     timeout_seconds=deadline.remaining_seconds(),
                     attachments=attachments,
+                    prompt_cache=turn_prompt_cache(context, "planner"),
                 )
                 logger.info(
                     "planner attempt completed",

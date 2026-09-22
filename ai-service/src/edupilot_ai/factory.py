@@ -72,6 +72,8 @@ def create_app(
             bridge = XaiLlmBridge(
                 client=owned_http_client,
                 api_key=resolved_settings.xai_api_key,
+                prompt_cache_layout_enabled=resolved_settings.edupilot_prompt_cache_layout_enabled,
+                prompt_cache_routing_enabled=resolved_settings.edupilot_prompt_cache_routing_enabled,
             )
         if file_client is None:
             if owned_http_client is None:

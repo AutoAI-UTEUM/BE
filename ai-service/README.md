@@ -169,7 +169,63 @@ PDF/질문/답변/추론 원문, 파일 ID, base64, 인증 헤더는 새 계측�
 
 Spring의 requestId/바깥 재시도 번호·첫 본문 수신/전송 시각, FE의 실제 렌더 시각은
 각 담당의 후속 계측입니다. 이번 변경만으로 브라우저 체감 지연을 전부 측정했다고
-보고하지 않습니다. 운영 성능 측정·캐시 최적화·Planner 경량화는 아직 수행하지 않았습니다.
+보고하지 않습니다. 실제 운영 성능은 별도 실측으로 판정하며 Planner 경량화는 이 단계의 범위가 아닙니다.
+
+## 캐시 재사용 비교 (2단계: 내용 보존, dev opt-in)
+
+설명/QA Planner와 Explainer·QaAgent·QuizAgent 호출에 한해 두 독립 스위치를 제공합니다.
+기본값은 모두 `false`이며, 배포만으로 운영 프롬프트를 바꾸지 않습니다.
+이는 **답변 결과를 재사용하는 캐시가 아닙니다**. 매 턴 기존 LLM 호출·Policy 검증은
+그대로 수행하고 xAI가 동일한 입력 prefix를 재사용하기 쉽게 만드는 최적화입니다.
+
+| AI 환경 변수 | 기본값 | 켰을 때 변경 |
+| --- | --- | --- |
+| `EDUPILOT_PROMPT_CACHE_LAYOUT_ENABLED` | `false` | system 그대로 → 첨부 PDF → 고정 페이지 근거 → 질문·대화·학습자 상태 순서 |
+| `EDUPILOT_PROMPT_CACHE_ROUTING_ENABLED` | `false` | Chat Completions는 `x-grok-conv-id` 헤더, Responses는 `prompt_cache_key` 필드 추가 |
+
+입력 배치는 기존 user JSON을 서로 키가 겹치지 않는 두 user 메시지로 나눕니다.
+원래 객체의 모든 값·null·배열 순서·텍스트가 유지되고 system 지시문은 한 글자도 바꾸지
+않습니다. 질문·turnId·요약·메모리·진단 등 변하는 값은 뒤쪽에 매번 새로 전달합니다.
+PDF는 기존과 같은 file ID를 한 번만 첨부하며, `includeCurrentPage=false`에서는 여전히
+첨부하지 않습니다. PDF 검색 결과 자체의 캐시 여부는 xAI 내부 동작이므로 보장하지 않습니다.
+모델·추론 강도·출력 상한·문항 수·출제 범위·퀴즈 제안 판단·timeout·재시도·wire 계약은
+변경하지 않습니다. Note·Repair·outline 등 나머지 호출에는 이 실험을 적용하지 않습니다.
+
+키는 버전·사용자·세션·자료·첨부 file ID·에이전트 역할을 SHA-256으로 묶은 불투명 값입니다.
+turnId·질문·현재 페이지는 키에 넣지 않으며 세션/사용자/자료/파일 교체/역할이 달라지면
+다른 키를 씁니다. 다른 세션의 개인화 문맥을 합치거나 `previous_response_id`를 사용하는
+방식이 아니며 Responses의 `store=false`도 유지합니다. 키 원문·자료/질문은 로그에 넣지
+않고 `promptCacheLayout`, `promptCacheRouting` boolean만 기존 xAI 계측 로그에 추가합니다.
+
+### 비교·활성화 순서
+
+실제 호출 예산을 정한 후 **동일한 스냅샷을 재생**해 설명·QA·OX를 각각 비교합니다.
+자료/file ID·페이지·질문·대화/메모리·문항 수·모델/추론·동시성·스트리밍 여부는 고정하고,
+추적용 turnId/traceId만 호출마다 새로 발급합니다. 세션에서 계속 새 질문을 이어 가면
+대화 문맥도 변하므로 같은 조건의 비교가 아닙니다.
+
+| 비교군 | layout | routing | 목적 |
+| --- | --- | --- | --- |
+| A | false | false | 기존 provider 요청과 동일한 기준선 |
+| B | true | false | 배치 변경만의 효과 |
+| C | false | true | 라우팅 키만의 효과 |
+| D | true | true | 두 변경의 결합 효과 |
+
+각 군에서 최초 요청과 반복 요청을 나눠 기록하고, 가능한 한 군의 순서를 교차하여
+시간대 차이를 줄입니다. 프로세스 재시작은 provider 캐시를 비우지 않으므로 첫 요청을
+cold cache로 단정하지 않습니다. `sum(cachedInputTokens) / sum(inputTokens)`와 단계별
+Planner 시간·첫 본문 시간·완료 시간·오류/재시도·답변 근거/범위/퀴즈 판단을 함께 평가합니다.
+provider 캐시 상태를 통제할 수 없고 생성도 비결정적이므로 소수 표본을 개선율로 일반화하지
+않습니다. 입력 값 보존 테스트는 학습 품질이 동일하다는 실증을 대신하지 않습니다.
+
+dev에서 해당 AI 프로세스의 환경 변수만 변경하고 재기동하여 비교합니다. Compose 환경에서는
+`.env`에 적는 것만으로 충분하지 않으며 두 변수가 **ai-service 컨테이너 환경에 전달**되어야
+합니다(이 변경에는 Compose/Spring/FE 수정 없음). 문제가 생기면 두 값을 `false`로 되돌려
+재기동하면 기존 요청 배치·라우팅으로 복귀합니다. 실측 전에는 지연 단축이나 캐시 적중을
+보장하지 않고, 검증된 조합만 후속 배포에서 활성화합니다.
+
+근거: xAI [캐시 작동 원리](https://docs.x.ai/developers/advanced-api-usage/prompt-caching/how-it-works),
+[API별 라우팅 설정](https://docs.x.ai/developers/advanced-api-usage/prompt-caching/maximizing-cache-hits).
 
 ## CLI 데모 (설계자·비개발자용)
 
