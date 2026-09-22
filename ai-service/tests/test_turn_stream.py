@@ -23,6 +23,7 @@ from edupilot_ai.llm.bridge import (
     LlmBridgeError,
     LlmCompletion,
     LlmFileAttachment,
+    LlmPromptCache,
     LlmTextDelta,
     LlmTextStreamItem,
     LlmUsage,
@@ -74,6 +75,7 @@ class SlowFakeLlm(FakeLlm):
         profile: AgentLlmProfile,
         timeout_seconds: float,
         attachments: Sequence[LlmFileAttachment] = (),
+        prompt_cache: LlmPromptCache | None = None,
     ) -> LlmCompletion[ModelT]:
         await asyncio.sleep(self._delay_seconds)
         return await super().complete_json(
@@ -82,6 +84,7 @@ class SlowFakeLlm(FakeLlm):
             profile=profile,
             timeout_seconds=timeout_seconds,
             attachments=attachments,
+            prompt_cache=prompt_cache,
         )
 
 
@@ -97,9 +100,11 @@ class DisconnectAwareFakeLlm(FakeLlm):
         profile: AgentLlmProfile,
         timeout_seconds: float,
         attachments: Sequence[LlmFileAttachment] = (),
+        prompt_cache: LlmPromptCache | None = None,
     ) -> AsyncIterator[LlmTextStreamItem]:
         self.stream_calls.append((messages, profile, timeout_seconds))
         self.stream_file_attachments.append(tuple(attachments))
+        self.stream_prompt_caches.append(prompt_cache)
         try:
             yield LlmTextDelta(text="첫 델타")
             await asyncio.Event().wait()

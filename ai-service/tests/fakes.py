@@ -11,6 +11,7 @@ from edupilot_ai.llm.bridge import (
     LlmCompletion,
     LlmFileAttachment,
     LlmMessage,
+    LlmPromptCache,
     LlmTextDelta,
     LlmTextStreamCompleted,
     LlmTextStreamItem,
@@ -51,9 +52,11 @@ class FakeLlm:
         self._responses = list(responses)
         self.calls: list[tuple[Sequence[LlmMessage], AgentLlmProfile]] = []
         self.file_attachments: list[tuple[LlmFileAttachment, ...]] = []
+        self.prompt_caches: list[LlmPromptCache | None] = []
         self.timeouts: list[float] = []
         self.stream_calls: list[tuple[Sequence[LlmMessage], AgentLlmProfile, float]] = []
         self.stream_file_attachments: list[tuple[LlmFileAttachment, ...]] = []
+        self.stream_prompt_caches: list[LlmPromptCache | None] = []
 
     def queue(self, *responses: ScriptItem) -> None:
         self._responses.extend(responses)
@@ -76,9 +79,11 @@ class FakeLlm:
         profile: AgentLlmProfile,
         timeout_seconds: float,
         attachments: Sequence[LlmFileAttachment] = (),
+        prompt_cache: LlmPromptCache | None = None,
     ) -> LlmCompletion[ModelT]:
         self.calls.append((messages, profile))
         self.file_attachments.append(tuple(attachments))
+        self.prompt_caches.append(prompt_cache)
         self.timeouts.append(timeout_seconds)
         if not self._responses:
             raise AssertionError("Unexpected LLM call")
@@ -115,9 +120,11 @@ class FakeLlm:
         profile: AgentLlmProfile,
         timeout_seconds: float,
         attachments: Sequence[LlmFileAttachment] = (),
+        prompt_cache: LlmPromptCache | None = None,
     ) -> AsyncIterator[LlmTextStreamItem]:
         self.stream_calls.append((messages, profile, timeout_seconds))
         self.stream_file_attachments.append(tuple(attachments))
+        self.stream_prompt_caches.append(prompt_cache)
         if not self._responses:
             raise AssertionError("Unexpected LLM stream call")
         response = self._responses.pop(0)

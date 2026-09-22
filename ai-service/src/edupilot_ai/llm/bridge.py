@@ -32,6 +32,14 @@ class LlmFileAttachment:
 
 
 @dataclass(frozen=True, slots=True)
+class LlmPromptCache:
+    """Opt-in cache hint, never part of learner data or the response contract."""
+
+    key: str
+    stable_user_fields: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class LlmCompletion[OutputT: BaseModel]:
     """Validated structured output and its provider metadata."""
 
@@ -83,6 +91,7 @@ class LlmBridge(Protocol):
         profile: AgentLlmProfile,
         timeout_seconds: float,
         attachments: Sequence[LlmFileAttachment] = (),
+        prompt_cache: LlmPromptCache | None = None,
     ) -> LlmCompletion[ModelT]:
         """Return validated structured output plus provider usage."""
         ...
@@ -94,6 +103,7 @@ class LlmBridge(Protocol):
         profile: AgentLlmProfile,
         timeout_seconds: float,
         attachments: Sequence[LlmFileAttachment] = (),
+        prompt_cache: LlmPromptCache | None = None,
     ) -> AsyncIterator[LlmTextStreamItem]:
         """Yield Markdown deltas followed by exactly one usage item."""
         ...

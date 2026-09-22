@@ -64,6 +64,8 @@ _OPTIONAL_FIELDS = (
     "outputTokens",
     "reasoningTokens",
     "cachedInputTokens",
+    "promptCacheLayout",
+    "promptCacheRouting",
 )
 
 

@@ -21,6 +21,7 @@ from edupilot_ai.models.plan import AgentOutput
 from edupilot_ai.models.quiz import QuizGeneration, QuizType
 from edupilot_ai.models.turn import DetailLevel, Message, NoteDraft, QaThreadMode
 from edupilot_ai.orchestration.context import AgentContext
+from edupilot_ai.orchestration.prompt_cache import turn_prompt_cache
 from edupilot_ai.orchestration.prompts import (
     explainer_messages,
     note_messages,
@@ -151,6 +152,7 @@ class ExplainerAgent:
             profile=self._profile,
             timeout_seconds=timeout_seconds,
             attachments=_material_attachments(context),
+            prompt_cache=turn_prompt_cache(context, "explainer"),
         )
         return AgentResult(
             agent="ExplainerAgent",
@@ -181,6 +183,7 @@ class ExplainerAgent:
                 profile=self._profile,
                 timeout_seconds=timeout_seconds,
                 attachments=_material_attachments(context),
+                prompt_cache=turn_prompt_cache(context, "explainer"),
             )
         )
         return AgentTextStream(
@@ -248,6 +251,7 @@ class QaAgent:
             profile=self._profile,
             timeout_seconds=timeout_seconds,
             attachments=_material_attachments(context),
+            prompt_cache=turn_prompt_cache(context, "qa"),
         )
         return AgentResult(
             agent="QaAgent",
@@ -296,6 +300,7 @@ class QaAgent:
                 profile=self._profile,
                 timeout_seconds=timeout_seconds,
                 attachments=_material_attachments(context),
+                prompt_cache=turn_prompt_cache(context, "qa"),
             )
         return AgentTextStream(
             agent="QaAgent",
@@ -335,6 +340,7 @@ class QuizAgent:
             profile=self._profile,
             timeout_seconds=timeout_seconds,
             attachments=_material_attachments(context),
+            prompt_cache=turn_prompt_cache(context, "quiz"),
         )
         quiz = completion.output
         quiz_context = context.quiz_context
