@@ -3,12 +3,11 @@
 # - DEV_SSH_USER
 # - DEV_SSH_KEY
 # - DEV_SSH_PASSPHRASE (required for passphrase-protected SSH keys)
-# - GHCR_TOKEN (packages:write)
+# GHCR uses the automatically issued, job-scoped GITHUB_TOKEN (packages:write).
 #
 # Required GitHub Repository Variables:
 # - DEV_DOMAIN
 # - DEV_DEPLOY_PATH
-# - GHCR_USERNAME
 
 name: Deploy dev
 
@@ -42,12 +41,10 @@ jobs:
         env:
           DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
           DEV_DEPLOY_PATH: ${{ vars.DEV_DEPLOY_PATH }}
-          GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
         run: |
           set -euo pipefail
           test -n "$DEV_DOMAIN"
           test -n "$DEV_DEPLOY_PATH"
-          test -n "$GHCR_USERNAME"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -56,8 +53,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ vars.GHCR_USERNAME }}
-          password: ${{ secrets.GHCR_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push main-service image
         uses: docker/build-push-action@v6
@@ -95,8 +92,8 @@ jobs:
         env:
           DEPLOY_TAG: ${{ github.sha }}
           DEV_DEPLOY_PATH: ${{ vars.DEV_DEPLOY_PATH }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USERNAME: ${{ github.actor }}
         with:
           host: ${{ secrets.DEV_SSH_HOST }}
           username: ${{ secrets.DEV_SSH_USER }}
@@ -106,15 +103,19 @@ jobs:
           script: |
             set -eu
             cd "$DEV_DEPLOY_PATH"
+            # Do not overwrite the server's Docker credentials or retain the job token.
+            registry_auth_dir="$(mktemp -d /tmp/edupilot-dev-ghcr.XXXXXX)"
+            trap 'rm -f -- "$registry_auth_dir/config.json"; rmdir -- "$registry_auth_dir"' EXIT
             printf '%s' "$GHCR_TOKEN" |
-              docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
-            ENVIRONMENT=dev TAG="$DEPLOY_TAG" docker compose --env-file .env \
+              docker --config "$registry_auth_dir" login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+            unset GHCR_TOKEN
+            ENVIRONMENT=dev TAG="$DEPLOY_TAG" docker --config "$registry_auth_dir" compose --env-file .env \
               -f docker-compose.yml -f docker-compose.prod.yml pull
-            ENVIRONMENT=dev TAG="$DEPLOY_TAG" docker compose --env-file .env \
+            ENVIRONMENT=dev TAG="$DEPLOY_TAG" docker --config "$registry_auth_dir" compose --env-file .env \
               -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
-            ENVIRONMENT=dev TAG="$DEPLOY_TAG" docker compose --env-file .env \
+            ENVIRONMENT=dev TAG="$DEPLOY_TAG" docker --config "$registry_auth_dir" compose --env-file .env \
               -f docker-compose.yml -f docker-compose.prod.yml restart nginx
-            ENVIRONMENT=dev TAG="$DEPLOY_TAG" docker compose --env-file .env \
+            ENVIRONMENT=dev TAG="$DEPLOY_TAG" docker --config "$registry_auth_dir" compose --env-file .env \
               -f docker-compose.yml -f docker-compose.prod.yml ps
 
       - name: Smoke test
