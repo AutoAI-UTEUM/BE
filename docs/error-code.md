@@ -161,7 +161,7 @@
 | `EXAM_NOT_FOUND` | 404 | 시험이 없거나 접근할 수 없음. 학생의 DRAFT 목록·상세·제출 접근도 이 코드로 은닉 |
 | `EXAM_NOT_PUBLISHED` | 409 | 학생이 CLOSED 시험에 제출하거나 강사가 DRAFT 시험을 close하는 등 공개 상태가 아닌 대상에 상태 작업을 요청 |
 | `EXAM_NOT_EDITABLE` | 409 | CLOSED 시험을 publish하거나 공개 이후 수정·삭제하는 등 편집 가능한 상태가 아님 |
-| `EXAM_ALREADY_SUBMITTED` | 409 | 제출 시에는 재응시 불가 GRADED 또는 채점 중 SUBMITTED의 새 `requestId`를 거부. 임시저장 PUT에서는 상태·재응시 허용 여부와 무관하게 기존 제출이 하나라도 있으면 거부 |
+| `EXAM_ALREADY_SUBMITTED` | 409 | 제출 시에는 재응시 불가 GRADED 또는 채점 중 SUBMITTED의 새 `requestId`를 거부. 임시저장 PUT에서는 미소비 응시 시작 기록이 없거나 `allowRetake=false`이고 기존 제출이 있으면 거부 |
 | `INVALID_EXAM_ANSWER` | 400 | 알 수 없거나 중복된 문항 ID 또는 문항 유형과 맞지 않는 답안 |
 | `DRAFT_VERSION_CONFLICT` | 409 | 임시저장 `version` 불일치 또는 동시 최초 생성. 응답 최상위 `latestDraft`로 서버 버전과 답안 전달 |
 | `DRAFT_TOO_LARGE` | 400 | 임시저장 요청의 직렬화된 JSON이 256KB를 초과 |

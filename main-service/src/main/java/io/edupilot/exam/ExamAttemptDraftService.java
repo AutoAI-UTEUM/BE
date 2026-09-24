@@ -33,6 +33,7 @@ public class ExamAttemptDraftService {
 	private final ExamAttemptDraftRepository draftRepository;
 	private final ExamQuestionRepository questionRepository;
 	private final ExamSubmissionRepository submissionRepository;
+	private final ExamAttemptStartRepository attemptStartRepository;
 	private final UserRepository userRepository;
 	private final ExamDraftRateLimiter rateLimiter;
 	private final ObjectMapper objectMapper;
@@ -43,6 +44,7 @@ public class ExamAttemptDraftService {
 		ExamAttemptDraftRepository draftRepository,
 		ExamQuestionRepository questionRepository,
 		ExamSubmissionRepository submissionRepository,
+		ExamAttemptStartRepository attemptStartRepository,
 		UserRepository userRepository,
 		ExamDraftRateLimiter rateLimiter,
 		ObjectMapper objectMapper,
@@ -52,6 +54,7 @@ public class ExamAttemptDraftService {
 		this.draftRepository = draftRepository;
 		this.questionRepository = questionRepository;
 		this.submissionRepository = submissionRepository;
+		this.attemptStartRepository = attemptStartRepository;
 		this.userRepository = userRepository;
 		this.rateLimiter = rateLimiter;
 		this.objectMapper = objectMapper;
@@ -65,7 +68,11 @@ public class ExamAttemptDraftService {
 		SaveExamAttemptDraftRequest request
 	) {
 		Exam exam = studentExamService.requirePublishedExam(userId, role, examId);
-		if (submissionRepository.existsByExam_IdAndUser_Id(examId, userId)) {
+		if (!exam.isAllowRetake()
+			&& submissionRepository.existsByExam_IdAndUser_Id(examId, userId)) {
+			throw new BusinessException(ErrorCode.EXAM_ALREADY_SUBMITTED);
+		}
+		if (attemptStartRepository.countByExam_IdAndUser_Id(examId, userId) == 0) {
 			throw new BusinessException(ErrorCode.EXAM_ALREADY_SUBMITTED);
 		}
 		if (!rateLimiter.allow(userId, examId)) {

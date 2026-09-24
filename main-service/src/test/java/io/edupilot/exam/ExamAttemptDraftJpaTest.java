@@ -198,6 +198,44 @@ class ExamAttemptDraftJpaTest {
 	}
 
 	@Test
+	void retakeDraftRequiresANewUnconsumedAttemptStart() {
+		Fixture fixture = fixture(true, true);
+		Long userId = fixture.learner().getId();
+		Long examId = fixture.exam().getId();
+		draftService.save(userId, UserRole.LEARNER, examId, request(0, "first"));
+		var submitted = studentExamService.submit(
+			userId, UserRole.LEARNER, examId,
+			new SubmitExamRequest("first-attempt", List.of(new ExamAnswerRequest("q1", "a")))
+		);
+		assertThat(submitted.status()).isEqualTo(SubmissionStatus.GRADED);
+		assertError(() -> draftService.save(
+			userId, UserRole.LEARNER, examId, request(0, "before new start")
+		), ErrorCode.EXAM_ALREADY_SUBMITTED);
+
+		studentExamService.startAttempt(userId, UserRole.LEARNER, examId);
+		assertThat(draftService.save(
+			userId, UserRole.LEARNER, examId, request(0, "retake")
+		).version()).isOne();
+		assertThat(draftService.get(userId, UserRole.LEARNER, examId).answers())
+			.containsExactly(new ExamAnswerRequest("q1", "retake"));
+	}
+
+	@Test
+	void nonRetakeExamRejectsDraftAfterSubmissionEvenWithNewAttemptStart() {
+		Fixture fixture = fixture(false, true);
+		Long userId = fixture.learner().getId();
+		Long examId = fixture.exam().getId();
+		studentExamService.submit(
+			userId, UserRole.LEARNER, examId,
+			new SubmitExamRequest("non-retake", List.of(new ExamAnswerRequest("q1", "a")))
+		);
+		studentExamService.startAttempt(userId, UserRole.LEARNER, examId);
+		assertError(() -> draftService.save(
+			userId, UserRole.LEARNER, examId, request(0, "blocked")
+		), ErrorCode.EXAM_ALREADY_SUBMITTED);
+	}
+
+	@Test
 	void rejectsNonMemberInstructorClosedAndInvalidQuestionOrOversizedDraft() {
 		Fixture fixture = fixture(true, true);
 		User outsider = user("outsider", UserRole.LEARNER);
@@ -329,6 +367,9 @@ class ExamAttemptDraftJpaTest {
 			new ExamPublicQuestion("문항", List.of(new QuizOption("a", "정답"))),
 			new ExamPrivateAnswer("a", null, "해설", null, null, List.of()), "1.0"
 		));
+		if (published) {
+			studentExamService.startAttempt(learner.getId(), UserRole.LEARNER, exam.getId());
+		}
 		return new Fixture(instructor, learner, classroom, exam);
 	}
 

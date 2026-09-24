@@ -1367,7 +1367,7 @@ AI 응답의 `usage`는 서버 비용 기록에만 사용하며 외부 API 응�
 
 성공 시 `data: {"version": 1, "savedAt": "2026-08-02T12:00:00Z"}`를 반환합니다. GET은 `data: {"version": 1, "answers": [{"questionId": "q1", "answer": "a"}], "savedAt": "2026-08-02T12:00:00Z"}`를 반환합니다. 기존 버전으로 PUT하면 409 `DRAFT_VERSION_CONFLICT`이며 일반 오류 봉투에 최상위 `latestDraft`(GET의 `data`와 같은 구조, 현재 행이 없으면 null)를 추가합니다. FE는 서버 답안과 로컬 답안을 비교해 선택한 뒤 반환된 버전으로 재시도해야 하며 서버가 답안을 자동 병합하지 않습니다.
 
-승인 LEARNER 멤버와 PUBLISHED 시험만 사용할 수 있습니다. DRAFT는 `EXAM_NOT_FOUND`(404), CLOSED는 `EXAM_NOT_PUBLISHED`(409)입니다. 기존 제출이 하나라도 있으면 상태·`allowRetake`와 관계없이 PUT은 `EXAM_ALREADY_SUBMITTED`(409)로 차단합니다. 따라서 재응시 답안의 서버 임시저장은 현재 지원하지 않으며, GET에 남은 기존 임시 답안이 있다면 읽을 수 있습니다. 제출 성공 시 같은 트랜잭션에서 임시 답안을 삭제하고, 제출 본문의 답안만 사용합니다. `dueAt` 경과 자체는 저장이나 제출을 막지 않습니다. 30일 이상 갱신되지 않은 임시 답안은 매일 03:30 KST 정리합니다.
+승인 LEARNER 멤버와 PUBLISHED 시험만 사용할 수 있습니다. DRAFT는 `EXAM_NOT_FOUND`(404), CLOSED는 `EXAM_NOT_PUBLISHED`(409)입니다. PUT에는 해당 시험·학습자의 미소비 `attempts/start` 기록이 필요하며, 없으면 `EXAM_ALREADY_SUBMITTED`(409)로 거부합니다. 기존 제출이 있어도 `allowRetake=true`이고 새 응시 시작 기록이 있으면 재응시 draft를 저장할 수 있지만, `allowRetake=false`인 시험의 제출 완료 후 PUT은 409로 차단합니다. 제출 성공 시 같은 트랜잭션에서 임시 답안을 삭제하고, 제출 본문의 답안만 사용합니다. `dueAt` 경과 자체는 저장이나 제출을 막지 않습니다. 30일 이상 갱신되지 않은 임시 답안은 매일 03:30 KST 정리합니다.
 
 FE는 응시 화면 진입 시 GET하고 204이면 `sessionStorage` 답안을 폴백으로 사용합니다. 답안 변경 후 2초 디바운스와 30초 주기 저장을 권장합니다. 제출 시 draft 삭제 API를 별도로 호출할 필요가 없습니다.
 
