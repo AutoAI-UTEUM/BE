@@ -15,6 +15,8 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: ${ENVIRONMENT:-${EDUPILOT_ENVIRONMENT:-prod}}
       EDUPILOT_STORAGE_DIR: /var/lib/edupilot/storage
+      EDUPILOT_MAIL_PROVIDER: ${EDUPILOT_MAIL_PROVIDER:-ses}
+      EDUPILOT_MAIL_BASE_URL: ${EDUPILOT_MAIL_BASE_URL:-https://www.uteum.com}
     logging:
       driver: awslogs
       options:

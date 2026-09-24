@@ -29,6 +29,7 @@
 | `notifications` | id, user_id, type, title, body, link_json, read_at(nullable), dedup_key(nullable), created_at | `FK(user_id)`, `IDX(user_id,created_at)`, `UK(dedup_key)`, type CHECK |
 | `user_schedules` | id, user_id, title, starts_at, ends_at, has_time, timestamps | `FK(user_id)`, `IDX(user_id,starts_at)`, `CHECK(ends_at >= starts_at)` |
 | `ai_usage_log` | id, user_id, feature, model(nullable), input/output/reasoning tokens(nullable), success, cost_usd_ticks(nullable), request_id(nullable), created_at | FK 없음, `UK(request_id)`, `IDX(user_id,created_at)`, `IDX(feature,created_at)` |
+| `email_deliveries` | id, recipient, type, status, subject, provider_message_id(nullable), error_summary(nullable), attempt_count, created_at, sent_at(nullable) | `IDX(recipient,created_at)`, `IDX(status,created_at)`, type/status CHECK; 본문 미저장 |
 | `xai_alert_config` | 단일 id, 잔액·일비용·예상 소진 임계값, updated_by(nullable), updated_at | `PK/CHECK(id=1)`, `FK(updated_by)`; 2차 alerts 설정 선반영 |
 | `exams` | id, classroom_id, week_number(nullable), title, description(nullable), status, allow_retake, total_score, published_at(nullable), closed_at(nullable), due_at(nullable), timestamps | `FK(classroom_id)`, `IDX(classroom_id,status)`, 상태·총점 CHECK |
 | `exam_questions` | id, exam_id, question_no, question_type, points, public_question_json, private_answer_json, schema_version, timestamps | `FK(exam_id)`, `UK(exam_id,question_no)`, 유형·점수 CHECK |
@@ -234,6 +235,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V40__exam_answer_manual_scores.sql`은 답안별 nullable 수동 점수와 조정 강사·시각 감사 필드, 수동 점수 범위 CHECK를 추가합니다. 기존 AI 원점수는 그대로 유지합니다.
 - `V41__auth_sessions.sql`은 브라우저·기기별 인증 세션과 역할별 idle·최초 로그인 기준 absolute 만료를 저장하고, `refresh_tokens.session_id` nullable FK를 추가합니다. 기존 refresh는 강제 로그아웃이나 일괄 백필 없이 최초 사용 시 애플리케이션에서 지연 전환합니다.
 - `V42__xai_management_monitoring.sql`은 `ai_usage_log`에 nullable `cost_usd_ticks`·`request_id`와 request ID 유일성을 추가하고 단일 행 `xai_alert_config`를 생성합니다. 2차 모니터링은 이 스키마를 그대로 사용해 비용 저장·KST usage 집계·reconciliation과 설정 기반 riskLevel을 제공하며 추가 migration은 만들지 않습니다.
+- `V43__email_deliveries.sql`은 SES/로깅 공통 발송 이력과 수신자별 시간·전체 KST 일별 상한 집계를 위한 인덱스를 추가합니다. 토큰 링크가 담길 수 있는 메일 본문은 저장하지 않습니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.
