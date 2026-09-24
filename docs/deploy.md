@@ -248,7 +248,7 @@ GitHub `dev` Environment와 다음 Secrets를 등록합니다.
 | `DEV_SSH_HOST` | EC2 주소 |
 | `DEV_SSH_USER` | 배포 사용자 |
 | `DEV_SSH_KEY` | 배포용 SSH private key |
-| `GHCR_TOKEN` | private GHCR push/pull용 `packages:write` token |
+| `DEV_SSH_PASSPHRASE` | 암호화된 SSH key의 passphrase (사용 시) |
 
 다음 값은 Repository Variables로 등록합니다.
 
@@ -256,14 +256,30 @@ GitHub `dev` Environment와 다음 Secrets를 등록합니다.
 | --- | --- |
 | `DEV_DOMAIN` | `dev.example.com` |
 | `DEV_DEPLOY_PATH` | `/opt/edupilot` |
-| `GHCR_USERNAME` | GHCR token 소유 GitHub 사용자 |
+
+dev의 GHCR push/pull은 Actions가 실행마다 발급하는 `GITHUB_TOKEN`과 `github.actor`를
+사용합니다. 별도 GHCR 비밀값은 필요하지 않으며 기존 `contents: read`, `packages: write`
+권한을 사용합니다. 기존 `ai-service`·`main-service` 패키지에는 BE 저장소의 Actions
+접근 권한이 있어야 합니다. 인증/패키지 접근이 거부되면 배포를 중단하고 패키지 관리자에게
+연결·권한 확인을 요청합니다. 패키지를 공개하거나 조직 권한을 임의로 확대하지 않습니다.
+
+서버 pull에서도 같은 작업 수명의 토큰을 SSH로 전달하되 배포 전용 임시 Docker config를
+사용하고 성공·실패 종료 시 삭제합니다. 서버의 기존 Docker config와 `.env`는 변경하지
+않습니다. 강제 종료 등으로 정리되지 못한 경우에도 이 토큰은 job 종료 시 만료됩니다.
+수동 pull/롤백에는 별도 승인된 로그인이나 실행 중인 배포 job의 인증이 필요합니다.
+이 변경은 dev만 해당하며 **prod workflow가 사용하는 기존 `GHCR_TOKEN`과
+`GHCR_USERNAME` 설정은 삭제하지 않습니다.**
+
+근거: [GitHub Actions의 GHCR 인증](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images),
+[기존 패키지의 Actions 접근 권한](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility).
 
 ## 6. dev 배포
 
-`deploy-dev.yml`은 `develop` 브랜치에서 `workflow_dispatch`로만 실행됩니다.
+`deploy-dev.yml`은 `develop` push 시 자동 실행되며, 같은 브랜치에서
+`workflow_dispatch`로 수동 실행할 수도 있습니다.
 
 1. 대상 `develop` SHA를 확인합니다.
-2. Actions의 `Deploy dev`를 수동 실행합니다.
+2. 해당 SHA의 자동 배포를 확인합니다. 수동 재배포가 필요할 때만 `Deploy dev`를 실행합니다.
 3. Main Service와 AI Service 이미지에 SHA와 `latest` 태그가 push됐는지 확인합니다.
 4. SCP, Compose pull/up, smoke test가 순서대로 성공했는지 확인합니다.
 5. `https://DEV_DOMAIN/api/health`가 200인지 다시 확인합니다.
