@@ -37,6 +37,15 @@ public interface ClassroomPermanentDeleteRepository
 
 	@Modifying(flushAutomatically = true)
 	@Query(value = """
+		delete from exam_attempt_drafts
+		where exam_id in (
+			select id from exams where classroom_id = :classroomId
+		)
+		""", nativeQuery = true)
+	int deleteExamAttemptDrafts(@Param("classroomId") Long classroomId);
+
+	@Modifying(flushAutomatically = true)
+	@Query(value = """
 		delete from exam_submissions
 		where exam_id in (
 			select id from exams where classroom_id = :classroomId

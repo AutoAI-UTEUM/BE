@@ -218,7 +218,7 @@ public class StudentExamService {
 		return exam;
 	}
 
-	private Exam requirePublishedExam(Long userId, UserRole role, Long examId) {
+	Exam requirePublishedExam(Long userId, UserRole role, Long examId) {
 		Exam exam = requireVisibleExam(userId, role, examId);
 		if (exam.getStatus() != ExamStatus.PUBLISHED) {
 			throw new BusinessException(ErrorCode.EXAM_NOT_PUBLISHED);

@@ -55,6 +55,7 @@
 | 시험 결과 관리 | 실패 제출 재채점 | `POST /api/exams/{examId}/submissions/{submissionId}/regrade` | `GRADING_FAILED`에만 버튼 노출. 202/SUBMITTED 후 결과 조회로 전환하며 저장 답안을 재사용 | 비소유·부재 404, 상태 충돌 409. executor 포화는 202 후 scheduler 회수 |
 | 시험 응시 | 공개·마감 시험 목록과 상세 조회 | `GET /api/classrooms/{classroomId}/exams`, `GET /api/exams/{examId}` | PUBLISHED는 응시 UI, CLOSED는 읽기 전용 결과 UI. `dueAt`은 표시용이며 경과 자체로 응시를 막지 않음 | DRAFT는 `EXAM_NOT_FOUND`로 은닉 |
 | 시험 응시 | 응시 화면 진입 | `POST /api/exams/{examId}/attempts/start` | 화면 진입 시 1회 호출하고 반환된 `startedAt`을 표시 기준으로 사용. 새로고침·재진입도 같은 미소비 시각 반환 | 비멤버·강사·DRAFT/CLOSED·완료 강의실 |
+| 시험 응시 | 답안 임시저장·다른 기기 이어풀기 | `GET·PUT /api/exams/{examId}/attempts/draft` | 진입 시 GET(204면 sessionStorage 폴백), 답안 변경 2초 디바운스+30초 주기 PUT. 버전 409 시 `latestDraft`와 로컬 답안 선택 후 재시도. 제출 시 별도 삭제 불필요 | 승인 학습자·PUBLISHED만; 기존 제출이 있으면 재응시라도 PUT 409, 256KB/분당 30회 상한 |
 | 시험 응시 | 답안 제출·통신 재시도·재응시 | `POST /api/exams/{examId}/submissions` | 응답 `status`로 분기. 같은 제출 재시도는 같은 `requestId`, 재응시·GRADING_FAILED 재제출은 새 `requestId` | CLOSED, SUBMITTED 중복, 재응시 불가, 답안 형식 오류 |
 | 시험 결과 | 내 최신 또는 지정 시도 조회 | `GET /api/exams/{examId}/submissions/me?attemptNo=` | `reviewAvailable`로 정답·해설 영역을 토글하고 `durationSeconds=null`은 `-`로 표시. SUBMITTED는 2초 polling→30초 뒤 5초, terminal에서 중단. 31분부터 지연 안내, 최대 3개 채점 창을 반영해 91분 초과 시 마지막 조회 후 문의 안내 | 접근 권한, 시도 없음 |
 | 리포트 학생 선택 `/classrooms/:classroomId/reports` | 수강생 목록·검색·정렬·제외 | `GET·DELETE /api/classrooms/{classroomId}/students[/{studentId}]` | 프로필·가입일·최근 학습 시각·평균 진도·최근 7일 AI 질문 수 표시. 이름 검색과 최근 활동/이름/낮은 진도 정렬 지원 | 강의실 관리 권한, 잘못된 정렬값, 제외된 학생 404 |

@@ -256,6 +256,7 @@ public class ClassroomService {
 
 		permanentDeleteRepository.deleteExamAnswers(classroomId);
 		permanentDeleteRepository.deleteExamAttemptStarts(classroomId);
+		permanentDeleteRepository.deleteExamAttemptDrafts(classroomId);
 		permanentDeleteRepository.deleteExamSubmissions(classroomId);
 		permanentDeleteRepository.deleteExamQuestions(classroomId);
 		permanentDeleteRepository.deleteExams(classroomId);

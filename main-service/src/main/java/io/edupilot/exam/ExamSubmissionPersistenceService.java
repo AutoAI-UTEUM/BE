@@ -51,6 +51,7 @@ public class ExamSubmissionPersistenceService {
 	private final ExamSubmissionRepository submissionRepository;
 	private final ExamAnswerRepository answerRepository;
 	private final ExamAttemptStartRepository attemptStartRepository;
+	private final ExamAttemptDraftRepository attemptDraftRepository;
 	private final UserRepository userRepository;
 	private final DeterministicAnswerGrader deterministicAnswerGrader;
 	private final ExamSubmissionScoreCalculator scoreCalculator;
@@ -65,6 +66,7 @@ public class ExamSubmissionPersistenceService {
 		ExamSubmissionRepository submissionRepository,
 		ExamAnswerRepository answerRepository,
 		ExamAttemptStartRepository attemptStartRepository,
+		ExamAttemptDraftRepository attemptDraftRepository,
 		UserRepository userRepository,
 		DeterministicAnswerGrader deterministicAnswerGrader,
 		ExamSubmissionScoreCalculator scoreCalculator,
@@ -78,6 +80,7 @@ public class ExamSubmissionPersistenceService {
 		this.submissionRepository = submissionRepository;
 		this.answerRepository = answerRepository;
 		this.attemptStartRepository = attemptStartRepository;
+		this.attemptDraftRepository = attemptDraftRepository;
 		this.userRepository = userRepository;
 		this.deterministicAnswerGrader = deterministicAnswerGrader;
 		this.scoreCalculator = scoreCalculator;
@@ -152,6 +155,8 @@ public class ExamSubmissionPersistenceService {
 			// A successful submission consumes the pending start; rollback preserves it.
 			attemptStartRepository.delete(attemptStart);
 		}
+		// The submitted request body wins; a successful submission only discards the draft.
+		attemptDraftRepository.deleteByExamAndUser(examId, userId);
 
 		List<ExamAnswer> answers = new ArrayList<>();
 		boolean hasAnsweredSubjective = false;

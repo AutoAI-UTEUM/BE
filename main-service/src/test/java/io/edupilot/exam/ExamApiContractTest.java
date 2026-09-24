@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -44,6 +45,9 @@ import io.edupilot.auth.JwtTokenProvider;
 import io.edupilot.auth.RefreshTokenRepository;
 import io.edupilot.exam.dto.ExamAnswerResultResponse;
 import io.edupilot.exam.dto.ExamAttemptStartResponse;
+import io.edupilot.exam.dto.ExamAnswerRequest;
+import io.edupilot.exam.dto.ExamAttemptDraftResponse;
+import io.edupilot.exam.dto.ExamAttemptDraftSaveResponse;
 import io.edupilot.exam.dto.ExamOptionResponse;
 import io.edupilot.exam.dto.ExamSubmissionResponse;
 import io.edupilot.exam.dto.ExamSubmissionSummaryResponse;
@@ -85,6 +89,7 @@ class ExamApiContractTest {
 	@Autowired private JwtTokenProvider jwtTokenProvider;
 	@Autowired private InstructorExamService instructorExamService;
 	@Autowired private StudentExamService studentExamService;
+	@Autowired private ExamAttemptDraftService draftService;
 	private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
 	@MockitoBean private UserRepository userRepository;
@@ -237,6 +242,58 @@ class ExamApiContractTest {
 			.andExpect(jsonPath("$.data.startedAt").value(NOW.toString()));
 
 		verify(studentExamService).startAttempt(2L, UserRole.LEARNER, 30L);
+	}
+
+	@Test
+	void draftSaveAndGetFollowAuthenticatedLearnerContract() throws Exception {
+		when(draftService.save(eq(2L), eq(UserRole.LEARNER), eq(30L), any()))
+			.thenReturn(new ExamAttemptDraftSaveResponse(1, NOW));
+		when(draftService.get(2L, UserRole.LEARNER, 30L))
+			.thenReturn(new ExamAttemptDraftResponse(
+				1, List.of(new ExamAnswerRequest("q1", "a")), NOW
+			));
+
+		mockMvc.perform(put("/api/exams/30/attempts/draft")
+				.header(HttpHeaders.AUTHORIZATION, bearer(learnerToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"version\":0,\"answers\":[{\"questionId\":\"q1\",\"answer\":\"a\"}]}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.version").value(1))
+			.andExpect(jsonPath("$.data.savedAt").value(NOW.toString()));
+		mockMvc.perform(get("/api/exams/30/attempts/draft")
+				.header(HttpHeaders.AUTHORIZATION, bearer(learnerToken)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.answers[0].answer").value("a"));
+		when(draftService.get(2L, UserRole.LEARNER, 30L)).thenReturn(null);
+		mockMvc.perform(get("/api/exams/30/attempts/draft")
+				.header(HttpHeaders.AUTHORIZATION, bearer(learnerToken)))
+			.andExpect(status().isNoContent());
+	}
+
+	@Test
+	void draftConflictIncludesLatestServerAnswersAndRoutesRequireAuthentication() throws Exception {
+		var latest = new ExamAttemptDraftResponse(
+			2, List.of(new ExamAnswerRequest("q1", "server")), NOW
+		);
+		when(draftService.save(eq(2L), eq(UserRole.LEARNER), eq(30L), any()))
+			.thenThrow(new ExamDraftVersionConflictException(latest));
+		mockMvc.perform(put("/api/exams/30/attempts/draft")
+				.header(HttpHeaders.AUTHORIZATION, bearer(learnerToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"version\":1,\"answers\":[{\"questionId\":\"q1\",\"answer\":\"local\"}]}"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.error.code").value("DRAFT_VERSION_CONFLICT"))
+			.andExpect(jsonPath("$.latestDraft.version").value(2))
+			.andExpect(jsonPath("$.latestDraft.answers[0].answer").value("server"));
+		mockMvc.perform(get("/api/exams/30/attempts/draft"))
+			.andExpect(status().isUnauthorized());
+		when(draftService.save(eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), any()))
+			.thenThrow(new BusinessException(ErrorCode.ACCESS_DENIED));
+		mockMvc.perform(put("/api/exams/30/attempts/draft")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"version\":0,\"answers\":[]}"))
+			.andExpect(status().isForbidden());
 	}
 
 	@Test
