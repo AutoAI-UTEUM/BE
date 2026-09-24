@@ -57,4 +57,7 @@
 			<appender-ref ref="CONSOLE_JSON"/>
 		</root>
 	</springProfile>
+	<logger name="org.apache.pdfbox" level="ERROR"/>
+	<logger name="org.apache.fontbox" level="ERROR"/>
+	<logger name="org.apache.tomcat.util.http.parser.Cookie" level="WARN"/>
 </configuration>
