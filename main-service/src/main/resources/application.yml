@@ -120,6 +120,9 @@ edupilot:
         retry-backoff: ${EDUPILOT_XAI_FILE_BACKFILL_RETRY_BACKOFF:PT6H}
     page-text-api-enabled: false
   exam:
+    draft:
+      cleanup:
+        enabled: ${EDUPILOT_EXAM_DRAFT_CLEANUP_ENABLED:true}
     grading:
       lease-duration: PT5M
       executor:

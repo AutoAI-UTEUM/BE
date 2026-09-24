@@ -105,6 +105,8 @@
 | POST | `/api/exams/{examId}/close` | 시험 마감 | Y | 소유 INSTRUCTOR |
 | DELETE | `/api/exams/{examId}` | DRAFT 시험 삭제 | Y | 소유 INSTRUCTOR |
 | POST | `/api/exams/{examId}/attempts/start` | 시험 응시 시작 시각 기록 | Y | 승인 LEARNER 멤버 |
+| PUT | `/api/exams/{examId}/attempts/draft` | 시험 답안 임시저장 | Y | 승인 LEARNER 멤버 |
+| GET | `/api/exams/{examId}/attempts/draft` | 시험 답안 임시저장 조회 | Y | 승인 LEARNER 멤버 |
 | POST | `/api/exams/{examId}/submissions` | 별도 시험 제출 | Y | 승인 멤버 |
 | GET | `/api/exams/{examId}/submissions` | 시험별 최신 대표 제출 목록 | Y | 소유 INSTRUCTOR |
 | GET | `/api/exams/{examId}/submissions/{submissionId}` | 특정 시험 제출 상세 | Y | 소유 INSTRUCTOR |
@@ -1332,6 +1334,8 @@ AI 응답의 `usage`는 서버 비용 기록에만 사용하며 외부 API 응�
 | GET | `/api/classrooms/{classroomId}/exams?page&size` | PUBLISHED·CLOSED 목록, nullable `dueAt`, 본인 최신 제출 요약·`submittable`을 반환합니다. GRADING_FAILED 최신 시도는 재제출 가능으로 계산합니다. |
 | GET | `/api/exams/{examId}` | 공개 문항, nullable `dueAt`, `submittable`만 반환합니다. |
 | POST | `/api/exams/{examId}/attempts/start` | PUBLISHED 시험의 응시 시작 시각을 기록합니다. 동일 시험·사용자의 미소비 기록이 있으면 같은 `startedAt`을 반환합니다. |
+| PUT | `/api/exams/{examId}/attempts/draft` | 제출 요청과 같은 `answers[{questionId,answer}]` 형식으로 전체 임시 답안을 저장합니다. `version` 일치 시 증가시키며 충돌 시 최신 서버 답안을 반환합니다. |
+| GET | `/api/exams/{examId}/attempts/draft` | 본인 임시 답안이 있으면 `version`, `answers`, `savedAt`을 반환하고 없으면 204입니다. |
 | POST | `/api/exams/{examId}/submissions` | PUBLISHED 시험을 제출합니다. 주관식 AI 채점이 필요하면 `SUBMITTED`/202, 아니면 `GRADED`/200입니다. 두 응답은 같은 봉투와 `ExamSubmissionResponse` 스키마입니다. |
 | GET | `/api/exams/{examId}/submissions/me?attemptNo=` | 본인 결과를 조회하며 attemptNo 생략 시 최신 시도입니다. 공개 정책과 응시 시간 필드를 포함합니다. |
 
@@ -1351,6 +1355,21 @@ AI 응답의 `usage`는 서버 비용 기록에만 사용하며 외부 API 응�
 
 - LEARNER 승인 멤버와 PUBLISHED 시험만 시작할 수 있습니다. DRAFT는 `EXAM_NOT_FOUND`(404)로 은닉하고 CLOSED는 `EXAM_NOT_PUBLISHED`(409)로 거부합니다.
 - 시작 API를 호출하지 않은 구버전 클라이언트도 제출할 수 있으며, 이 경우 결과의 `startedAt`, `durationSeconds`는 null입니다.
+
+임시저장은 시험·학습자당 1행이며 서버에 저장되므로 같은 계정의 다른 기기에서도 이어풀 수 있습니다. 최초 PUT은 `version: 0` 또는 `null`, 이후 PUT은 마지막 응답의 `version`을 전송합니다. `answers`는 제출 요청과 동일한 문항 ID·답안 구조이고, 미응답 문항은 생략하거나 `answer: null`로 보낼 수 있습니다. 임시저장에서는 답안 유형의 정답 형식을 검사하지 않으며, 시험에 없는/중복된 `questionId`는 `INVALID_EXAM_ANSWER`(400)입니다. 직렬화한 요청 크기는 최대 256KB(`DRAFT_TOO_LARGE`, 400)이고 사용자·시험당 분당 30회 초과는 `RATE_LIMIT_EXCEEDED`(429)입니다.
+
+```json
+{
+  "version": 0,
+  "answers": [{"questionId": "q1", "answer": "a"}]
+}
+```
+
+성공 시 `data: {"version": 1, "savedAt": "2026-08-02T12:00:00Z"}`를 반환합니다. GET은 `data: {"version": 1, "answers": [{"questionId": "q1", "answer": "a"}], "savedAt": "2026-08-02T12:00:00Z"}`를 반환합니다. 기존 버전으로 PUT하면 409 `DRAFT_VERSION_CONFLICT`이며 일반 오류 봉투에 최상위 `latestDraft`(GET의 `data`와 같은 구조, 현재 행이 없으면 null)를 추가합니다. FE는 서버 답안과 로컬 답안을 비교해 선택한 뒤 반환된 버전으로 재시도해야 하며 서버가 답안을 자동 병합하지 않습니다.
+
+승인 LEARNER 멤버와 PUBLISHED 시험만 사용할 수 있습니다. DRAFT는 `EXAM_NOT_FOUND`(404), CLOSED는 `EXAM_NOT_PUBLISHED`(409)입니다. PUT에는 해당 시험·학습자의 미소비 `attempts/start` 기록이 필요하며, 없으면 `EXAM_ALREADY_SUBMITTED`(409)로 거부합니다. 기존 제출이 있어도 `allowRetake=true`이고 새 응시 시작 기록이 있으면 재응시 draft를 저장할 수 있지만, `allowRetake=false`인 시험의 제출 완료 후 PUT은 409로 차단합니다. 제출 성공 시 같은 트랜잭션에서 임시 답안을 삭제하고, 제출 본문의 답안만 사용합니다. `dueAt` 경과 자체는 저장이나 제출을 막지 않습니다. 30일 이상 갱신되지 않은 임시 답안은 매일 03:30 KST 정리합니다.
+
+FE는 응시 화면 진입 시 GET하고 204이면 `sessionStorage` 답안을 폴백으로 사용합니다. 답안 변경 후 2초 디바운스와 30초 주기 저장을 권장합니다. 제출 시 draft 삭제 API를 별도로 호출할 필요가 없습니다.
 
 제출 요청:
 
@@ -1831,7 +1850,7 @@ Query:
 
 한 트랜잭션에서 다음 강의실 소속 데이터를 FK 역순으로 일괄 삭제합니다.
 
-- 별도 시험: `exam_answers`, `exam_submissions`, `exam_questions`, `exams`
+- 별도 시험: `exam_answers`, `exam_attempt_starts`, `exam_attempt_drafts`, `exam_submissions`, `exam_questions`, `exams`
 - 리포트: `report_criterion_results`, `student_reports`, `report_evidence_snapshots`, `report_generations`, `report_criteria`
 - 강의실 운영: `classroom_resource`, `classroom_notices`, `classroom_week_materials`, `classroom_weeks`, `classroom_join_requests`, `classroom_members`, `classrooms`
 

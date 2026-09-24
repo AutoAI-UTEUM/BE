@@ -256,6 +256,16 @@ public enum ErrorCode {
 		HttpStatus.CONFLICT,
 		"이미 제출한 시험입니다."
 	),
+	DRAFT_VERSION_CONFLICT(
+		"DRAFT_VERSION_CONFLICT",
+		HttpStatus.CONFLICT,
+		"다른 기기에서 저장한 답안이 있습니다."
+	),
+	DRAFT_TOO_LARGE(
+		"DRAFT_TOO_LARGE",
+		HttpStatus.BAD_REQUEST,
+		"시험 임시저장 답안 크기는 256KB를 초과할 수 없습니다."
+	),
 	INVALID_EXAM_ANSWER(
 		"INVALID_EXAM_ANSWER",
 		HttpStatus.BAD_REQUEST,

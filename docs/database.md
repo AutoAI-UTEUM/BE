@@ -35,6 +35,7 @@
 | `exams` | id, classroom_id, week_number(nullable), title, description(nullable), status, allow_retake, total_score, published_at(nullable), closed_at(nullable), due_at(nullable), timestamps | `FK(classroom_id)`, `IDX(classroom_id,status)`, 상태·총점 CHECK |
 | `exam_questions` | id, exam_id, question_no, question_type, points, public_question_json, private_answer_json, schema_version, timestamps | `FK(exam_id)`, `UK(exam_id,question_no)`, 유형·점수 CHECK |
 | `exam_attempt_starts` | id, exam_id, user_id, started_at | `FK(exam_id)`, `FK(user_id)`, `UK(exam_id,user_id)` |
+| `exam_attempt_drafts` | id, exam_id, user_id, answers(JSON), version, created_at, updated_at | `FK(exam_id)`, `FK(user_id)`, `UK(exam_id,user_id)`, `IDX(updated_at)` |
 | `exam_submissions` | id, exam_id, user_id, attempt_no, request_id, status, started_at(nullable), duration_seconds(nullable), submitted_at, graded_at(nullable), score(nullable), max_score, normalized_score(nullable), grading_lease_token(nullable), grading_lease_until, grading_retry_count, timestamps | `FK(exam_id)`, `FK(user_id)`, 시도·멱등 UK, 상태·점수·소요 시간·재시도 CHECK, 상태+lease·제출시각 인덱스 |
 | `exam_answers` | id, submission_id, question_id, answer(nullable), score(nullable), manual_score(nullable), adjusted_by(nullable), adjusted_at(nullable), max_score, verdict(nullable), feedback(nullable), timestamps | `FK(submission_id)`, `FK(question_id)`, `UK(submission_id,question_id)`, 원점수·수동점수·판정 CHECK |
 | `report_criteria` | id, classroom_id, criterion_key, name, description(nullable), rubric_json, allowed_sources_json, min_evidence, weight, version, active, timestamps | `FK(classroom_id)`, `UK(classroom_id,criterion_key,version)`, `IDX(classroom_id,active)`, 최소 근거·weight·version CHECK |
@@ -83,6 +84,7 @@
 - DRAFT 시험은 문항 0개와 `total_score=0`을 허용하므로 DB 제약은 `total_score >= 0`입니다. 공개 시 애플리케이션이 문항 1개 이상과 `total_score > 0`을 검증하며, 문항 전체 교체 시 합계를 다시 계산합니다. 공개 이후 문항과 설정은 변경하지 않습니다.
 - `exam_questions`는 `question_no`를 1부터 부여하고 외부 `questionId`를 `q{question_no}`로 파생합니다. 공개 JSON과 정답·모범 답안·rubric이 담긴 비공개 JSON을 분리하며 학생 DTO에는 비공개 JSON을 매핑하지 않습니다. SHORT/ESSAY rubric 키가 없거나 빈 배열이면 grade 호출 시 서버 기본 rubric을 주입합니다.
 - `exam_submissions`는 모든 재응시를 보존합니다. `(exam_id,user_id,attempt_no)`와 `(exam_id,user_id,request_id)`를 각각 UNIQUE로 둡니다. 운영 조회·polling의 최신 제출은 `MAX(attempt_no)`, 성적·리포트 대표 제출은 `MAX(attempt_no WHERE status='GRADED')`로 파생합니다. `GRADING_FAILED` 뒤에도 이전 GRADED 시도가 있으면 이전 점수가 대표값이며, GRADED 시도가 없으면 집계에서 제외합니다. `max_score`는 제출 시점 총점 스냅샷이며 `normalized_score=ROUND(score/max_score*100,2)`는 완전한 채점 후 Spring이 계산합니다.
+- `exam_attempt_drafts`는 시험·사용자당 JSON 답안 한 행을 보관하고 조건부 `version` UPDATE와 유일 제약으로 동시 저장을 제어합니다. 제출 성공 시 시작 기록과 함께 같은 트랜잭션에서 삭제하며, 강의실 영구 삭제 시에도 시험보다 먼저 삭제합니다. 30일 이상 갱신되지 않은 행은 03:30 KST 정리합니다.
 - 비동기 채점 lease는 `grading_lease_token VARCHAR(36) NULL`과 `grading_lease_until DATETIME(6) NOT NULL`을 사용합니다. lease 없음은 token null과 epoch 시각으로 표현합니다. claim은 `status=SUBMITTED AND grading_lease_until < now`, 결과 반영은 `status=SUBMITTED AND grading_lease_token=:token` 조건입니다. terminal 전환 시 lease를 초기화합니다.
 - `grading_retry_count INT NOT NULL DEFAULT 0`은 30분 채점 창 소진 횟수이며 0 이상입니다. `SUBMITTED` 상태의 `updated_at`은 마지막 채점 시도 시작 시각으로만 갱신하고, 최초 제출·lease claim·컷오프 재큐잉·강사 재채점 외 경로에서 제출을 수정하지 않습니다. `updated_at <= now-30분`이면 active lease보다 우선해 첫 두 컷오프는 카운트를 1·2로 증가시켜 재큐잉하고, 세 번째 컷오프는 카운트 3과 `GRADING_FAILED`를 확정합니다. 강사 재채점은 저장 답안을 유지한 채 상태를 `SUBMITTED`, 카운트를 0으로 되돌립니다.
 - AI 채점 전·실패 상태에서는 제출 `score`, `normalized_score`, `graded_at`과 해당 AI 답안의 `score`, `verdict`, `feedback`이 NULL입니다. 결정적 MCQ/OX 결과는 즉시 저장하고, 미응답은 `answer=NULL`, `score=0`, `verdict=WRONG`, `feedback=NULL`로 확정합니다. 따라서 답안 점수 제약은 `score IS NULL OR (score >= 0 AND score <= max_score)` 형태입니다.
@@ -135,6 +137,7 @@
 - `exam_questions.question_no >= 1`, `exam_questions.points > 0`
 - `exam_submissions.attempt_no >= 1`, `exam_submissions.max_score > 0`
 - `exam_attempt_starts`는 `(exam_id,user_id)`당 한 행
+- `exam_attempt_drafts`는 `(exam_id,user_id)`당 한 행이며 애플리케이션이 `version >= 1`을 유지
 - `exam_submissions.duration_seconds IS NULL OR duration_seconds >= 0`
 - `exam_submissions.score IS NULL OR (score >= 0 AND score <= max_score)`
 - `exam_submissions.normalized_score IS NULL OR (normalized_score >= 0 AND normalized_score <= 100)`
@@ -195,6 +198,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - 내 인앱 알림: `notifications(user_id, created_at)`
 - 강의실 시험 목록: `exams(classroom_id, status, created_at, id)`
 - 시험별 미소비 응시 시작: `exam_attempt_starts(exam_id, user_id)` UNIQUE
+- 시험별 임시 답안: `exam_attempt_drafts(exam_id, user_id)` UNIQUE; 오래된 답안 정리: `exam_attempt_drafts(updated_at)`
 - 학생별 시험 시도: `exam_submissions(exam_id, user_id, attempt_no)` UNIQUE
 - 시험 제출 멱등성: `exam_submissions(exam_id, user_id, request_id)` UNIQUE
 - 시험 채점 회수: `exam_submissions(status, grading_lease_until)`
@@ -238,6 +242,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V42__xai_management_monitoring.sql`은 `ai_usage_log`에 nullable `cost_usd_ticks`·`request_id`와 request ID 유일성을 추가하고 단일 행 `xai_alert_config`를 생성합니다. 2차 모니터링은 이 스키마를 그대로 사용해 비용 저장·KST usage 집계·reconciliation과 설정 기반 riskLevel을 제공하며 추가 migration은 만들지 않습니다.
 - `V43__email_deliveries.sql`은 SES/로깅 공통 발송 이력과 수신자별 시간·전체 KST 일별 상한 집계를 위한 인덱스를 추가합니다. 토큰 링크가 담길 수 있는 메일 본문은 저장하지 않습니다.
 - `V44__password_reset_tokens.sql`은 30분짜리 단일 사용 비밀번호 재설정 링크의 SHA-256 해시와 요청 IP를 저장합니다. 재요청 시 기존 미사용 토큰을 사용 처리하고, 만료 7일이 지난 행은 매일 03:00 KST 정리합니다. 기존 사용자·세션 데이터는 백필하지 않으며 prod 적용 전 DB 스냅샷이 필요합니다.
+- `V45__exam_attempt_drafts.sql`은 시험·사용자별 답안 JSON과 낙관적 버전, 갱신 시각을 저장합니다. 기존 제출은 백필하지 않으며 prod 적용 전 DB 스냅샷이 필요합니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.
