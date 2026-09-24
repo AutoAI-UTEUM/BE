@@ -241,14 +241,11 @@ def test_plan_prompt_declares_policy_value_contracts(
     assert "START_NEW requires threadRef=null" in system_prompt
     assert "FOLLOW_UP requires the exact snapshot qaThreadDigest.threadRef" in system_prompt
     assert "if qaThreadDigest is absent, choose START_NEW" in system_prompt
-    assert "quizType must equal the event payload value" in system_prompt
     assert "PROMOTE_MEMORY={candidateIds}" in system_prompt
     assert "memory.temporaryCandidates" in system_prompt
     assert "never invent a new candidateId" in system_prompt
     assert "confidence is at least 0.7" in system_prompt
     assert "unique evidenceRefs total at least 2" in system_prompt
-    assert "one of MCQ, OX, SHORT, ESSAY" in system_prompt
-    assert "diagnosisId must equal snapshot pendingDiagnosis.diagnosisId" in system_prompt
     assert "type must be one of STRENGTH, WEAKNESS, MISCONCEPTION, PREFERENCE" in (system_prompt)
     assert "confidence must be a number from 0 to 1" in system_prompt
 
@@ -256,7 +253,12 @@ def test_plan_prompt_declares_policy_value_contracts(
 def test_plan_prompt_declares_runtime_quiz_decision_contract(
     turn_payload: dict[str, object],
 ) -> None:
-    agent_context = ContextBuilder().build(TurnRequest.model_validate(turn_payload))
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "EXPLAIN_CURRENT_PAGE",
+        "payload": {"detailLevel": "NORMAL"},
+    }
+    agent_context = ContextBuilder().build(TurnRequest.model_validate(payload))
     context = PlanContext.from_agent_context(agent_context)
 
     system_prompt = plan_messages(context, retry=False)[0]["content"]
@@ -270,9 +272,6 @@ def test_plan_prompt_declares_runtime_quiz_decision_contract(
     assert "independently testable foundational concept" in system_prompt
     assert "not page length, outline-section boundaries" in system_prompt
     assert "EXPLAIN_CURRENT_PAGE->EXPLAIN_PAGE" in system_prompt
-    assert "USER_QUESTION->ANSWER_QUESTION" in system_prompt
-    assert "QUIZ_TYPE_SELECTED->GENERATE_QUIZ_{type}" in system_prompt
-    assert "DIAGNOSIS_ANSWER_SUBMITTED->REPAIR_MISCONCEPTION" in system_prompt
 
 
 def test_explain_policy_accepts_exact_runtime_quiz_decision(

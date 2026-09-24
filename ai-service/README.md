@@ -263,6 +263,38 @@ dev에서 해당 AI 프로세스의 환경 변수만 변경하고 재기동하�
 근거: xAI [캐시 작동 원리](https://docs.x.ai/developers/advanced-api-usage/prompt-caching/how-it-works),
 [API별 라우팅 설정](https://docs.x.ai/developers/advanced-api-usage/prompt-caching/maximizing-cache-hits).
 
+## Planner 지시 경량화와 조건 보존 (3단계)
+
+Planner의 시스템 프롬프트는 공통 안전·메모리 규칙과 현재 이벤트의 도구 지시만
+조합합니다. QA에는 설명 턴의 퀴즈 제안 판단이나 Repair/Quiz 생성 args 설명을 보내지
+않고, 설명 턴에는 QA thread mode 등 다른 이벤트 전용 지시를 보내지 않습니다.
+사용자 메시지의 문구가 아니라 검증된 `eventType`으로 선택하며, 모든 Plan은 기존
+`PolicyVerifier`를 그대로 통과해야 합니다.
+
+기준 commit `5838926`의 시스템 지시 3,897자는 설명 2,816자(27.7% 감소),
+QA 1,636자(58.0% 감소)로 줄었습니다. 이는 **지시 문자열 길이** 비교입니다.
+PDF를 포함한 실제 입력 토큰이나 응답 지연의 감소율이 아니며, 실측 전에는
+속도 개선을 확정하지 않습니다.
+
+유지되는 것:
+
+- 설명 Planner의 전체 PDF 검토와 학습적으로 필요한 퀴즈 제안 판단, 표지/목차/미완성 설명 제외 규칙.
+- `PlanContext` 입력 전체, 학습자 수준·확신도·평가·메모리·최근 대화·대화 요약.
+- QA 후속질문·노트 제안, 메모리 후보 생성 및 승격 조건.
+- Planner 호출 경로, 출력 스키마, 모델·reasoning effort·출력 상한·타임아웃·재시도.
+- 캐시 스위치 기본값 `false`, JSON/NDJSON 응답 및 usage 계약. Spring/FE 변경 불필요.
+
+Explainer/QA에는 조건·가정·예외를 보존하고 가능성을 보장으로 바꾸지 않는 공통
+지침도 추가합니다. 특정 그림을 모든 경우의 성질로 일반화하지 않고, 이전 문맥과
+충돌하는 단정을 피하며, 근거에 없는 조건을 만들거나 면책 문구를 반복하지 않도록 합니다.
+자료·답변을 결정적으로 삭제하거나 다시 쓰는 후처리는 추가하지 않습니다.
+
+`test_planner_prompt_scope.py`는 이벤트별 지시·입력 보존·크기 상한을,
+`test_explanation_grounding.py`는 수렴 조건·상관관계·독립 사건 사례의 근거 및 지침이
+JSON/NDJSON 양쪽으로 전달됨을 FakeLlm으로 검증합니다. **FakeLlm은 실제 모델이
+오개념을 만들지 않는다는 증명이 아닙니다.** 후속 live 비교에서는 같은 자료·질문으로
+첫 본문/완료 시간, 퀴즈 제안, 조건 보존, 오류·재생성 빈도를 함께 확인해야 합니다.
+
 ## CLI 데모 (설계자·비개발자용)
 
 [uv 설치 안내](https://docs.astral.sh/uv/getting-started/installation/)에 따라 `uv`를
