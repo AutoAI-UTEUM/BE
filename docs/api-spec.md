@@ -132,6 +132,8 @@
 | GET | `/api/admin/xai/reconciliation` | 내부 비용과 xAI 청구 금액 대조 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/xai/invoices` | xAI 월별 청구서 요약 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET·PUT | `/api/admin/xai/alerts` | xAI 잔액·소진 위험 임계값 조회·수정 | Y | ADMIN + DB role/status 재검증 |
+| POST | `/api/admin/mail/test` | 관리자 시스템 메일 발송 테스트 | Y | ADMIN + DB role/status 재검증; 사용자별 분당 1회 |
+| GET | `/api/admin/mail/deliveries` | 관리자 메일 발송 이력 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/classrooms/{id}/analytics` | 강의자 학습 현황 집계 | Y | 소유 INSTRUCTOR |
 | GET | `/api/classrooms/{classroomId}/students/{studentId}/learning-analytics` | 학습자별 상세 학습 현황 | Y | 소유 INSTRUCTOR |
 | PATCH | `/api/classrooms/{id}` | 강의실 수정 | Y | 소유 INSTRUCTOR |
@@ -2777,6 +2779,26 @@ GET은 단일 임계값 설정을 반환하며 행이 없으면 1차 기본값�
 `updatedBy`, `updatedAt`이 포함됩니다. 이 쓰기 API는 관리자 인프라 조회 전용 원칙의
 명시적 예외이며, 운영 임계값을 코드 배포 없이 조정하기 위한 것입니다. 자동 충전이나
 외부 알림 발송은 하지 않습니다.
+
+### 관리자 시스템 메일 (#410)
+
+`POST /api/admin/mail/test` 요청은 `{"to":"verified@example.com"}`이며, 응답
+`data`는 `{"deliveryId":123}`입니다. 수신자 형식을 검사하고 관리자별 분당 1회로
+제한합니다(초과 `RATE_LIMIT_EXCEEDED`, 429). `deliveryId`는 이력 생성 실패 시 null일 수
+있습니다. 요청은 발송 완료를 기다리지 않으므로 이력의 최종 상태를 별도 조회합니다.
+호출측 트랜잭션이 있으면 실제 발송은 커밋 뒤에 시작하며, 롤백 시 이력은
+`FAILED`/`CALLER_TRANSACTION_ROLLED_BACK`으로 남습니다.
+
+`GET /api/admin/mail/deliveries?from=&to=&status=&page=0&size=20`은 ISO 8601 UTC
+`from` 포함·`to` 제외, `status=QUEUED|SENT|FAILED|RATE_LIMITED`, `size` 최대 100을
+지원합니다. 응답은 `items`, `page`, `size`, `totalElements`, `totalPages`이며 각 항목은
+`id`, `recipient`, `type`, `status`, `subject`, `providerMessageId`, `errorSummary`,
+`attemptCount`, `createdAt`, `sentAt`을 포함합니다. `type`은
+`PASSWORD_RESET|EMAIL_VERIFY|NOTIFICATION|TEST`입니다. 본문은 이력·응답에 포함하지
+않습니다. `enabled=false`일 때는 `FAILED`/`errorSummary=DISABLED`입니다.
+
+이 이슈는 발송 기반과 관리자 검증 API만 제공합니다. 비밀번호 재설정·가입 이메일 인증·
+알림 메일 연결은 후속 이슈이며, 기존 인앱 알림은 변경되지 않습니다.
 
 ## 8. Spring → FastAPI 내부 API
 

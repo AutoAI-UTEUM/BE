@@ -8,6 +8,9 @@ spring:
     password: ${EDUPILOT_DB_PASSWORD}
 
 edupilot:
+  mail:
+    provider: ${EDUPILOT_MAIL_PROVIDER:ses}
+    base-url: ${EDUPILOT_MAIL_BASE_URL:https://www.uteum.com}
   ai:
     base-url: ${EDUPILOT_AI_BASE_URL}
   storage:
