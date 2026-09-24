@@ -103,6 +103,14 @@ class Settings(BaseSettings):
         default=False,
         validation_alias="EDUPILOT_XAI_FILES_ENABLED",
     )
+    edupilot_prompt_cache_layout_enabled: bool = Field(
+        default=False,
+        validation_alias="EDUPILOT_PROMPT_CACHE_LAYOUT_ENABLED",
+    )
+    edupilot_prompt_cache_routing_enabled: bool = Field(
+        default=False,
+        validation_alias="EDUPILOT_PROMPT_CACHE_ROUTING_ENABLED",
+    )
     report_timeout_seconds: PositiveInt = Field(
         default=180,
         validation_alias="REPORT_TIMEOUT_SECONDS",

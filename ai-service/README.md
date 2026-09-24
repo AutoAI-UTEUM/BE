@@ -100,6 +100,133 @@ curl --fail \
 이 호출은 설정된 xAI endpoint를 사용합니다. 개발·CI 검증은 `FakeLlm` 또는
 `respx` mock만 사용하며 실제 provider 호출을 포함하지 않습니다.
 
+## 지연 측정 (1단계: 로그 계측)
+
+모델·프롬프트·출력 상한·캐시 설정·재시도 정책을 바꾸지 않고 기준선을 수집합니다.
+아래 값은 내부 JSON 로그에만 추가되며 API 응답과 NDJSON 6이벤트 계약은 그대로입니다.
+PDF/질문/답변/추론 원문, 파일 ID, base64, 인증 헤더는 새 계측에 기록하지 않습니다.
+
+| 로그 `message` | 측정 범위 / 주요 필드 |
+| --- | --- |
+| `turn planning started` / `turn planning finished` | ContextBuilder 이후 Plan 해석 시작부터 종료. `planSource=LLM/DETERMINISTIC`, `durationMs`, 성공 시 `plannerAttempts`(합성은 0). 정책 검증은 제외 |
+| `planner attempt completed` / `planner attempt failed` | Planner의 개별 스키마 생성 시도. `attempt`, `durationMs`, `status`, `errorCode`. 재생성 시 첫 실패는 `RETRYING` |
+| `turn policy verification finished` | 기존 Policy 검증만의 `durationMs`, `status`. 검증 규칙 자체는 변경하지 않음 |
+| `xAI first content available` | LLM 브리지 호출 시작부터 첫 유효 본문 델타까지 `firstContentMs`. 논리 호출당 최대 1줄 |
+| `xAI chat completion finished` | 기존 호출 결과 로그. `durationMs`, `attemptDurationMs`, `providerStatusCode`, 입력/출력/추론/캐시 토큰, 요청 규모, 스트림 본문 시각 추가 |
+| `turn first content available` | API의 턴 스트림 소비 시작부터 첫 유효 `content_delta`가 Spring으로 나가기 직전까지 `firstContentMs` |
+| `turn stream completed` / `turn stream failed` / `turn stream cancelled by client` | 턴 전체 `durationMs`, `eventType`, `streaming=true`, 관측한 본문 시각. `completed`를 관측했으면 전송 직전 `resultReadyMs`도 기록 |
+| `turn completed` / `turn failed` | JSON 턴의 처리 완료 시간 `durationMs`, `eventType`, `streaming=false`. 첫 본문 시각은 없음 |
+
+### 시간과 호출 연결
+
+- 모든 경과 시간은 프로세스의 단조 시계 기준 ms입니다. `firstContentMs`,
+  `lastContentMs`는 각 로그 범위의 시작점 기준이며, `contentSpanMs`는 첫/마지막
+  유효 본문 델타 관측 사이의 시간입니다. 상태·heartbeat·thought·빈/공백 델타는
+  제외합니다. 관측하지 못한 시각은 0으로 만들지 않고 생략합니다.
+- 이 시각은 AI가 본문을 확인한 시점이지 FE가 화면에 그린 시점이 아닙니다. 본문
+  관측 구간에는 네트워크와 소비자의 처리 지연도 포함될 수 있으므로 순수 모델
+  디코딩 시간으로 해석하지 않습니다. 실패·취소 로그의 마지막 본문은 **부분 결과**입니다.
+- 퀴즈/노트처럼 `content_delta`가 없는 NDJSON 턴은 `resultReadyMs`로 준비 완료를
+  측정합니다. heartbeat를 첫 답변으로 세지 않습니다. 퀴즈의 API는 NDJSON이어도
+  xAI 생성 호출 자체의 `streaming`은 false일 수 있습니다.
+- `traceId`, `turnId`, `llmCallId`와 있는 경우 `actionId`로 연결합니다. Planner는
+  `responseModel=TurnPlan`과 Planner 시도 로그로 식별합니다. 기존 스트림 경로는
+  공급자 로그에 actionId를 바인딩하지 않으므로 해당 turn의 `eventType`과 에이전트
+  완료 로그를 함께 대조합니다. 없는 연결 필드를 있다고 가정하지 않습니다.
+  비동기 대화 요약은 `responseModel`과 별도 호출 ID로 구분하고 턴 시간에 더하지 않습니다.
+- `llmCallId`는 브리지 논리 호출당 하나입니다. 내부 전송 재시도는 같은 ID와 증가한
+  `attempt`를 씁니다. 기존 `durationMs`는 논리 호출 시작부터 누적, `attemptDurationMs`는
+  해당 전송 시도부터의 경과입니다. 재시도 로그들의 누적 duration을 합산하지 않습니다.
+  스키마 재생성은 새 논리 호출 ID이며, Spring 재시도는 별도의 turnId 연결이 필요합니다.
+- xAI·Planner·에이전트·턴의 시간은 중첩되므로 모두 더하지 않습니다. 각 범위별로
+  비교하고, `SUCCESS/FAILED/CANCELLED`와 내부 HTTP 상태도 구분합니다.
+
+### 토큰과 입력 규모
+
+- `inputTokens`, `outputTokens`, `reasoningTokens`, `cachedInputTokens`는
+  `xAI chat completion finished`에 각 공급자 시도에서 실제 받은 usage만 기록합니다.
+  첫 본문 로그에 usage를 중복 기록하지 않으며 재시도 전체의 합계가 아닙니다.
+  미제공·잘못된 값은 생략하며 명시된 정수 0만 0으로 기록합니다. 캐시 토큰이
+  알려진 전체 입력 토큰보다 크면 캐시 값만 생략합니다. 본 기능의 성공/실패는 바꾸지 않습니다.
+- 캐시 원본은 Chat Completions의 `usage.prompt_tokens_details.cached_tokens`,
+  Responses의 `usage.input_tokens_details.cached_tokens`입니다.
+  [xAI 공식 usage 문서](https://docs.x.ai/developers/advanced-api-usage/prompt-caching/usage-and-pricing)를
+  기준으로 하며 공용 응답 usage 스키마에는 캐시 필드를 추가하지 않습니다.
+- `inputTextChars`는 system/user/history 등 전달 메시지 텍스트의 문자 수입니다.
+  서비스가 JSON으로 직렬화한 문맥의 문법 문자도 포함하고, 파일 ID가 가리키는 PDF
+  본문·이미지/base64는 포함하지 않습니다. **문자 수를 공급자 입력 토큰 수로 해석하지 않습니다.**
+- `fileAttached`, `fileCount`, `imageCount`, `messageCount`, `responseModel`,
+  `requestedModel`, `reasoningEffort`, `maxOutputTokens`로 호출 조건을 기록합니다.
+  성공 로그의 기존 `model`은 공급자가 반환한 모델이며, 실패 시에는 요청 모델일 수 있습니다.
+
+### 새 기준선 수집
+
+계측만 배포한 뒤 설명·QA·OX·MCQ를 구분하여 같은 자료·페이지·문맥·모델·추론 설정·
+출력 상한·문항 수·동시 요청 수에서 반복 관측합니다. 실제 LLM 재호출은 별도 승인된
+호출 예산 안에서 수행합니다. 과거 로그에 누락된 값은 소급 복원되지 않습니다.
+첫 호출이라고 cold cache로 단정하지 말고 실제 cachedInputTokens로 구분합니다.
+소수 표본은 중앙값·범위를 제시하고 개선율이나 p95를 확정하지 않습니다.
+
+Spring의 requestId/바깥 재시도 번호·첫 본문 수신/전송 시각, FE의 실제 렌더 시각은
+각 담당의 후속 계측입니다. 이번 변경만으로 브라우저 체감 지연을 전부 측정했다고
+보고하지 않습니다. 실제 운영 성능은 별도 실측으로 판정하며 Planner 경량화는 이 단계의 범위가 아닙니다.
+
+## 캐시 재사용 비교 (2단계: 내용 보존, dev opt-in)
+
+설명/QA Planner와 Explainer·QaAgent·QuizAgent 호출에 한해 두 독립 스위치를 제공합니다.
+기본값은 모두 `false`이며, 배포만으로 운영 프롬프트를 바꾸지 않습니다.
+이는 **답변 결과를 재사용하는 캐시가 아닙니다**. 매 턴 기존 LLM 호출·Policy 검증은
+그대로 수행하고 xAI가 동일한 입력 prefix를 재사용하기 쉽게 만드는 최적화입니다.
+
+| AI 환경 변수 | 기본값 | 켰을 때 변경 |
+| --- | --- | --- |
+| `EDUPILOT_PROMPT_CACHE_LAYOUT_ENABLED` | `false` | system 그대로 → 첨부 PDF → 고정 페이지 근거 → 질문·대화·학습자 상태 순서 |
+| `EDUPILOT_PROMPT_CACHE_ROUTING_ENABLED` | `false` | Chat Completions는 `x-grok-conv-id` 헤더, Responses는 `prompt_cache_key` 필드 추가 |
+
+입력 배치는 기존 user JSON을 서로 키가 겹치지 않는 두 user 메시지로 나눕니다.
+원래 객체의 모든 값·null·배열 순서·텍스트가 유지되고 system 지시문은 한 글자도 바꾸지
+않습니다. 질문·turnId·요약·메모리·진단 등 변하는 값은 뒤쪽에 매번 새로 전달합니다.
+PDF는 기존과 같은 file ID를 한 번만 첨부하며, `includeCurrentPage=false`에서는 여전히
+첨부하지 않습니다. PDF 검색 결과 자체의 캐시 여부는 xAI 내부 동작이므로 보장하지 않습니다.
+모델·추론 강도·출력 상한·문항 수·출제 범위·퀴즈 제안 판단·timeout·재시도·wire 계약은
+변경하지 않습니다. Note·Repair·outline 등 나머지 호출에는 이 실험을 적용하지 않습니다.
+
+키는 버전·사용자·세션·자료·첨부 file ID·에이전트 역할을 SHA-256으로 묶은 불투명 값입니다.
+turnId·질문·현재 페이지는 키에 넣지 않으며 세션/사용자/자료/파일 교체/역할이 달라지면
+다른 키를 씁니다. 다른 세션의 개인화 문맥을 합치거나 `previous_response_id`를 사용하는
+방식이 아니며 Responses의 `store=false`도 유지합니다. 키 원문·자료/질문은 로그에 넣지
+않고 `promptCacheLayout`, `promptCacheRouting` boolean만 기존 xAI 계측 로그에 추가합니다.
+
+### 비교·활성화 순서
+
+실제 호출 예산을 정한 후 **동일한 스냅샷을 재생**해 설명·QA·OX를 각각 비교합니다.
+자료/file ID·페이지·질문·대화/메모리·문항 수·모델/추론·동시성·스트리밍 여부는 고정하고,
+추적용 turnId/traceId만 호출마다 새로 발급합니다. 세션에서 계속 새 질문을 이어 가면
+대화 문맥도 변하므로 같은 조건의 비교가 아닙니다.
+
+| 비교군 | layout | routing | 목적 |
+| --- | --- | --- | --- |
+| A | false | false | 기존 provider 요청과 동일한 기준선 |
+| B | true | false | 배치 변경만의 효과 |
+| C | false | true | 라우팅 키만의 효과 |
+| D | true | true | 두 변경의 결합 효과 |
+
+각 군에서 최초 요청과 반복 요청을 나눠 기록하고, 가능한 한 군의 순서를 교차하여
+시간대 차이를 줄입니다. 프로세스 재시작은 provider 캐시를 비우지 않으므로 첫 요청을
+cold cache로 단정하지 않습니다. `sum(cachedInputTokens) / sum(inputTokens)`와 단계별
+Planner 시간·첫 본문 시간·완료 시간·오류/재시도·답변 근거/범위/퀴즈 판단을 함께 평가합니다.
+provider 캐시 상태를 통제할 수 없고 생성도 비결정적이므로 소수 표본을 개선율로 일반화하지
+않습니다. 입력 값 보존 테스트는 학습 품질이 동일하다는 실증을 대신하지 않습니다.
+
+dev에서 해당 AI 프로세스의 환경 변수만 변경하고 재기동하여 비교합니다. Compose 환경에서는
+`.env`에 적는 것만으로 충분하지 않으며 두 변수가 **ai-service 컨테이너 환경에 전달**되어야
+합니다(이 변경에는 Compose/Spring/FE 수정 없음). 문제가 생기면 두 값을 `false`로 되돌려
+재기동하면 기존 요청 배치·라우팅으로 복귀합니다. 실측 전에는 지연 단축이나 캐시 적중을
+보장하지 않고, 검증된 조합만 후속 배포에서 활성화합니다.
+
+근거: xAI [캐시 작동 원리](https://docs.x.ai/developers/advanced-api-usage/prompt-caching/how-it-works),
+[API별 라우팅 설정](https://docs.x.ai/developers/advanced-api-usage/prompt-caching/maximizing-cache-hits).
+
 ## CLI 데모 (설계자·비개발자용)
 
 [uv 설치 안내](https://docs.astral.sh/uv/getting-started/installation/)에 따라 `uv`를

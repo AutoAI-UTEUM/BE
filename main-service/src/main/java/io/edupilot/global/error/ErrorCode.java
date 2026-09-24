@@ -18,6 +18,16 @@ public enum ErrorCode {
 	),
 	TOKEN_INVALID("TOKEN_INVALID", HttpStatus.UNAUTHORIZED, "유효하지 않은 인증 토큰입니다."),
 	TOKEN_EXPIRED("TOKEN_EXPIRED", HttpStatus.UNAUTHORIZED, "인증 토큰이 만료되었습니다."),
+	AUTH_SESSION_IDLE_EXPIRED(
+		"AUTH_SESSION_IDLE_EXPIRED",
+		HttpStatus.UNAUTHORIZED,
+		"일정 시간 활동이 없어 로그아웃되었습니다."
+	),
+	AUTH_SESSION_ABSOLUTE_EXPIRED(
+		"AUTH_SESSION_ABSOLUTE_EXPIRED",
+		HttpStatus.UNAUTHORIZED,
+		"로그인 유지 기간이 만료되었습니다."
+	),
 	ACCESS_DENIED("ACCESS_DENIED", HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
 	CLASSROOM_NOT_FOUND(
 		"CLASSROOM_NOT_FOUND",
@@ -301,6 +311,11 @@ public enum ErrorCode {
 		"RATE_LIMIT_EXCEEDED",
 		HttpStatus.TOO_MANY_REQUESTS,
 		"요청 한도를 초과했습니다."
+	),
+	UNSUPPORTED_GROUP_BY(
+		"UNSUPPORTED_GROUP_BY",
+		HttpStatus.BAD_REQUEST,
+		"지원하지 않는 사용량 그룹 기준입니다."
 	),
 	AI_QUOTA_EXCEEDED(
 		"AI_QUOTA_EXCEEDED",

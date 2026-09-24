@@ -12,7 +12,6 @@ import jakarta.validation.constraints.NotNull;
 @ConfigurationProperties(prefix = "edupilot.jwt")
 public record JwtProperties(
 	@NotBlank String secret,
-	@NotNull Duration accessTokenTtl,
-	@NotNull Duration refreshTokenTtl
+	@NotNull Duration accessTokenTtl
 ) {
 }

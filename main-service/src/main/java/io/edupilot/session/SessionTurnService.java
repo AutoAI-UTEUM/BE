@@ -306,7 +306,7 @@ public class SessionTurnService {
 		String requestId
 	) {
 		try {
-			streamService.complete(streamConnection, response);
+			streamService.complete(streamConnection, requestId, response);
 		} catch (RuntimeException exception) {
 			log.atWarn()
 				.addKeyValue("sessionId", sessionId)
@@ -371,7 +371,8 @@ public class SessionTurnService {
 					userId,
 					AiFeature.TURN,
 					response == null ? null : response.usage(),
-					true
+					true,
+					request.requestId()
 				);
 				responseValidator.validate(
 					response,
@@ -479,7 +480,8 @@ public class SessionTurnService {
 					userId,
 					AiFeature.TURN,
 					response == null ? null : response.usage(),
-					true
+					true,
+					request.requestId()
 				);
 				responseValidator.validate(
 					response,

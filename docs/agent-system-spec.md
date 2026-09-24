@@ -650,15 +650,21 @@ ToolDispatcher는 액션별 사용자 출력 봉투를 만들지 않습니다. �
   "memoryWrite": null,
   "usage": {
     "model": "grok-4.5-<date>",
-    "input_tokens": 0,
-    "output_tokens": 0,
-    "reasoning_tokens": 0
+    "inputTokens": 1234,
+    "outputTokens": 567,
+    "reasoningTokens": 89,
+    "cost_usd_ticks": 37756001
   }
 }
 ```
 
-`usage`는 모든 내부 AI 응답의 optional 필드입니다. 순차 배포 동안 Spring은
-기존 camelCase 토큰 키도 함께 수신하며, 비용 기록 후 외부 API 응답에서는 제외합니다.
+`usage`는 모든 내부 AI 성공 응답의 optional 필드입니다(204 제외).
+기존 camelCase 토큰 키는 유지하고 비용만 `cost_usd_ticks`로 추가합니다.
+Spring은 snake_case 토큰 키도 수신하며 비용 기록 후 외부 API 응답에서는 제외합니다.
+브리지는 xAI `cost_in_usd_ticks`를 정수 그대로 전달하며 1 USD = 10^10 ticks입니다.
+한 턴의 플래너·본문·재생성 비용을 합산하되 하나라도 비용이 미확인이면
+비용 필드를 생략/null 처리하고 토큰은 유지합니다. NDJSON은 completed에서만
+한 번 방출합니다. 자세한 합산·null 의미는 내부 계약 §3.3.2를 따릅니다.
 
 ### 오류와 fallback
 

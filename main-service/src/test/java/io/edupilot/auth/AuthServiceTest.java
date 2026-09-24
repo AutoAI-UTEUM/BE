@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
@@ -20,6 +21,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.edupilot.auth.RefreshTokenService.ActivityResult;
+import io.edupilot.auth.RefreshTokenService.IssueResult;
 import io.edupilot.auth.RefreshTokenService.RotationResult;
 import io.edupilot.auth.dto.LoginRequest;
 import io.edupilot.auth.dto.GoogleLoginRequest;
@@ -231,10 +234,15 @@ class AuthServiceTest {
 	@Test
 	void loginReturnsAccessAndRefreshForActiveUser() {
 		User user = user(1L, "user@example.com", "password123");
+		AuthSession session = authSession(user);
 		when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
 		when(jwtTokenProvider.createAccessToken(user)).thenReturn("access-token");
-		when(jwtTokenProvider.accessTokenExpiresInSeconds()).thenReturn(3600L);
-		when(refreshTokenService.issue(user)).thenReturn("refresh-token");
+		when(jwtTokenProvider.accessTokenExpiresInSeconds()).thenReturn(900L);
+		when(refreshTokenService.issue(user)).thenReturn(new IssueResult(
+			"refresh-token",
+			session,
+			Duration.ofHours(2)
+		));
 
 		var result = authService.login(new LoginRequest(
 			"USER@example.com",
@@ -242,8 +250,11 @@ class AuthServiceTest {
 		));
 
 		assertThat(result.response().accessToken()).isEqualTo("access-token");
+		assertThat(result.response().expiresIn()).isEqualTo(900L);
 		assertThat(result.response().user().id()).isEqualTo(1L);
+		assertThat(result.response().session().idleTimeoutSeconds()).isEqualTo(7200L);
 		assertThat(result.refreshToken()).isEqualTo("refresh-token");
+		assertThat(result.cookieMaxAge()).isEqualTo(Duration.ofDays(14));
 	}
 
 	@Test
@@ -262,11 +273,16 @@ class AuthServiceTest {
 			"구글 사용자"
 		);
 		User user = user(5L, "user@example.com", "unused-password");
+		AuthSession session = authSession(user);
 		when(googleIdTokenVerifier.verify("id-token")).thenReturn(profile);
 		when(googleAccountService.resolve(request, profile)).thenReturn(user);
 		when(jwtTokenProvider.createAccessToken(user)).thenReturn("access-token");
-		when(jwtTokenProvider.accessTokenExpiresInSeconds()).thenReturn(3600L);
-		when(refreshTokenService.issue(user)).thenReturn("refresh-token");
+		when(jwtTokenProvider.accessTokenExpiresInSeconds()).thenReturn(900L);
+		when(refreshTokenService.issue(user)).thenReturn(new IssueResult(
+			"refresh-token",
+			session,
+			Duration.ofHours(2)
+		));
 
 		var result = authService.googleLogin(request);
 
@@ -351,25 +367,75 @@ class AuthServiceTest {
 			() -> authService.refresh("inactive"),
 			ErrorCode.USER_INACTIVE
 		);
+
+		when(refreshTokenService.rotate("idle"))
+			.thenReturn(RotationResult.idleExpired());
+		assertBusinessError(
+			() -> authService.refresh("idle"),
+			ErrorCode.AUTH_SESSION_IDLE_EXPIRED
+		);
+
+		when(refreshTokenService.rotate("absolute"))
+			.thenReturn(RotationResult.absoluteExpired());
+		assertBusinessError(
+			() -> authService.refresh("absolute"),
+			ErrorCode.AUTH_SESSION_ABSOLUTE_EXPIRED
+		);
 	}
 
 	@Test
 	void refreshTracksActivityAfterSuccessfulRotation() {
 		User user = user(7L, "refresh@example.com", "password123");
+		AuthSession session = authSession(user);
 		when(refreshTokenService.rotate("valid"))
-			.thenReturn(RotationResult.success(user, "rotated"));
+			.thenReturn(RotationResult.success(
+				user,
+				"rotated",
+				session,
+				Duration.ofHours(2)
+			));
 		when(jwtTokenProvider.createAccessToken(user)).thenReturn("access-token");
-		when(jwtTokenProvider.accessTokenExpiresInSeconds()).thenReturn(3600L);
+		when(jwtTokenProvider.accessTokenExpiresInSeconds()).thenReturn(900L);
 
 		authService.refresh("valid");
 
 		verify(userActivityTracker).track(7L);
 	}
 
+	@Test
+	void activityUsesTheSameSessionStatusMappingAsRefresh() {
+		AuthSession session = authSession(user(8L, "activity@example.com", "password123"));
+		when(refreshTokenService.recordActivity(8L, "valid"))
+			.thenReturn(ActivityResult.success(session, Duration.ofHours(2)));
+
+		var response = authService.recordActivity(8L, "valid");
+
+		assertThat(response.idleTimeoutSeconds()).isEqualTo(7200L);
+		assertThat(response.idleExpiresAt()).isEqualTo(session.getIdleExpiresAt());
+
+		when(refreshTokenService.recordActivity(8L, "expired"))
+			.thenReturn(ActivityResult.idleExpired());
+		assertBusinessError(
+			() -> authService.recordActivity(8L, "expired"),
+			ErrorCode.AUTH_SESSION_IDLE_EXPIRED
+		);
+	}
+
 	private User user(Long id, String email, String password) {
 		User user = User.create(email, passwordEncoder.encode(password), "홍길동");
 		ReflectionTestUtils.setField(user, "id", id);
 		return user;
+	}
+
+	private AuthSession authSession(User user) {
+		AuthSession session = AuthSession.create(
+			user,
+			NOW,
+			Duration.ofHours(2),
+			Duration.ofDays(14)
+		);
+		ReflectionTestUtils.setField(session, "id", 10L);
+		return session;
 	}
 
 	private void assertBusinessError(Runnable action, ErrorCode expected) {

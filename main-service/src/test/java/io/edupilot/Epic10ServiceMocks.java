@@ -10,6 +10,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import io.edupilot.admin.AdminAiUsageService;
 import io.edupilot.admin.AdminClassroomService;
 import io.edupilot.admin.AdminUserService;
+import io.edupilot.admin.xai.AdminXaiUsageService;
+import io.edupilot.admin.xai.XaiAlertConfigService;
+import io.edupilot.auth.AuthSessionRepository;
 import io.edupilot.classroom.ClassroomService;
 import io.edupilot.aiusage.AiQuotaService;
 import io.edupilot.aiusage.AiUsageService;
@@ -51,6 +54,9 @@ import io.edupilot.schedule.PersonalScheduleService;
 	AdminAiUsageService.class,
 	AdminClassroomService.class,
 	AdminUserService.class,
+	AdminXaiUsageService.class,
+	XaiAlertConfigService.class,
+	AuthSessionRepository.class,
 	AiUsageService.class,
 	AiQuotaService.class,
 	ClassroomService.class,

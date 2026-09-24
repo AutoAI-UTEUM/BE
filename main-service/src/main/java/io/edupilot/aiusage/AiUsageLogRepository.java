@@ -1,5 +1,6 @@
 package io.edupilot.aiusage;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -74,6 +75,64 @@ public interface AiUsageLogRepository extends JpaRepository<AiUsageLog, Long> {
 		@Param("limit") int limit
 	);
 
+	@Query(value = """
+		select date(convert_tz(created_at, '+00:00', '+09:00')) as usageDate,
+		       feature as groupKey,
+		       count(*) as callCount,
+		       sum(coalesce(input_tokens, 0)
+		           + coalesce(output_tokens, 0)
+		           + coalesce(reasoning_tokens, 0)) as tokenCount,
+		       sum(cost_usd_ticks) as costUsdTicks,
+		       sum(case when cost_usd_ticks is null then 1 else 0 end)
+		           as unknownCostCalls
+		from ai_usage_log
+		where created_at >= :from
+		  and created_at < :toExclusive
+		group by date(convert_tz(created_at, '+00:00', '+09:00')), feature
+		order by usageDate, groupKey
+		""", nativeQuery = true)
+	List<XaiUsageProjection> aggregateXaiUsageByFeature(
+		@Param("from") LocalDateTime from,
+		@Param("toExclusive") LocalDateTime toExclusive
+	);
+
+	@Query(value = """
+		select date(convert_tz(created_at, '+00:00', '+09:00')) as usageDate,
+		       coalesce(model, 'UNKNOWN') as groupKey,
+		       count(*) as callCount,
+		       sum(coalesce(input_tokens, 0)
+		           + coalesce(output_tokens, 0)
+		           + coalesce(reasoning_tokens, 0)) as tokenCount,
+		       sum(cost_usd_ticks) as costUsdTicks,
+		       sum(case when cost_usd_ticks is null then 1 else 0 end)
+		           as unknownCostCalls
+		from ai_usage_log
+		where created_at >= :from
+		  and created_at < :toExclusive
+		group by date(convert_tz(created_at, '+00:00', '+09:00')),
+		         coalesce(model, 'UNKNOWN')
+		order by usageDate, groupKey
+		""", nativeQuery = true)
+	List<XaiUsageProjection> aggregateXaiUsageByModel(
+		@Param("from") LocalDateTime from,
+		@Param("toExclusive") LocalDateTime toExclusive
+	);
+
+	@Query(value = """
+		select sum(cost_usd_ticks) as costUsdTicks,
+		       sum(case when cost_usd_ticks is not null then 1 else 0 end)
+		           as knownCostCalls,
+		       sum(case when cost_usd_ticks is null then 1 else 0 end)
+		           as unknownCostCalls
+		from ai_usage_log
+		where created_at >= :from
+		  and created_at < :toExclusive
+		""", nativeQuery = true)
+	XaiCostSummaryProjection summarizeXaiCost(
+		@Param("from") LocalDateTime from,
+		@Param("toExclusive") LocalDateTime toExclusive
+	);
+
 	interface DailyUsageProjection {
 		LocalDate getUsageDate();
 		Long getCallCount();
@@ -101,5 +160,20 @@ public interface AiUsageLogRepository extends JpaRepository<AiUsageLog, Long> {
 		Long getInputTokens();
 		Long getOutputTokens();
 		Long getReasoningTokens();
+	}
+
+	interface XaiUsageProjection {
+		LocalDate getUsageDate();
+		String getGroupKey();
+		Long getCallCount();
+		Long getTokenCount();
+		BigDecimal getCostUsdTicks();
+		Long getUnknownCostCalls();
+	}
+
+	interface XaiCostSummaryProjection {
+		BigDecimal getCostUsdTicks();
+		Long getKnownCostCalls();
+		Long getUnknownCostCalls();
 	}
 }

@@ -41,6 +41,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.aiusage.AiFeature;
 import io.edupilot.aiusage.AiUsageLogRepository;
+import io.edupilot.auth.AuthSessionRepository;
 import io.edupilot.auth.JwtTokenProvider;
 import io.edupilot.auth.RefreshTokenRepository;
 import io.edupilot.auth.RefreshTokenService;
@@ -89,6 +90,7 @@ class AdminApiIntegrationTest {
 	@Autowired private PasswordEncoder passwordEncoder;
 	@Autowired private RefreshTokenService refreshTokenService;
 	@Autowired private RefreshTokenRepository refreshTokenRepository;
+	@Autowired private AuthSessionRepository authSessionRepository;
 	@Autowired private UserRepository userRepository;
 	@Autowired private ClassroomRepository classroomRepository;
 	@Autowired private ClassroomMemberRepository memberRepository;
@@ -117,6 +119,7 @@ class AdminApiIntegrationTest {
 		memberRepository.deleteAll();
 		classroomRepository.deleteAll();
 		refreshTokenRepository.deleteAll();
+		authSessionRepository.deleteAll();
 		userRepository.deleteAll();
 
 		admin = saveUser("admin@example.com", "관리자", UserRole.ADMIN);
@@ -225,6 +228,9 @@ class AdminApiIntegrationTest {
 		assertThat(refreshTokenRepository.findAll())
 			.hasSize(2)
 			.allSatisfy(token -> assertThat(token.getRevokedAt()).isNotNull());
+		assertThat(authSessionRepository.findAll())
+			.hasSize(2)
+			.allSatisfy(session -> assertThat(session.getRevokedAt()).isNotNull());
 		assertThat(appender.list)
 			.anySatisfy(event -> assertThat(logText(event))
 				.contains(

@@ -46,6 +46,12 @@ def test_every_internal_json_response_exposes_optional_usage(
 
     assert field.default is None
     assert not field.is_required()
+    schema = response_model.model_json_schema(by_alias=True)
+    usage_schema = schema["$defs"]["Usage"]
+    cost_schema = usage_schema["properties"]["cost_usd_ticks"]
+    assert cost_schema["default"] is None
+    assert cost_schema["anyOf"] == [{"minimum": 0, "type": "integer"}, {"type": "null"}]
+    assert "cost_usd_ticks" not in usage_schema.get("required", [])
 
 
 def test_usage_serializes_with_existing_camel_case_wire_keys() -> None:

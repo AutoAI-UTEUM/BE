@@ -14,6 +14,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
 @Entity
 @Table(
@@ -27,7 +28,11 @@ import jakarta.persistence.Table;
 			name = "idx_ai_usage_feature",
 			columnList = "feature, created_at"
 		)
-	}
+	},
+	uniqueConstraints = @UniqueConstraint(
+		name = "uk_ai_usage_log_request_id",
+		columnNames = "request_id"
+	)
 )
 public class AiUsageLog {
 
@@ -54,6 +59,12 @@ public class AiUsageLog {
 	@Column(name = "reasoning_tokens")
 	private Long reasoningTokens;
 
+	@Column(name = "cost_usd_ticks")
+	private Long costUsdTicks;
+
+	@Column(name = "request_id", length = 64)
+	private String requestId;
+
 	@Column(nullable = false)
 	private boolean success;
 
@@ -68,7 +79,8 @@ public class AiUsageLog {
 		Long userId,
 		AiFeature feature,
 		AiUsage usage,
-		boolean success
+		boolean success,
+		String requestId
 	) {
 		this.userId = userId;
 		this.feature = feature;
@@ -76,6 +88,8 @@ public class AiUsageLog {
 		this.inputTokens = usage == null ? null : usage.inputTokens();
 		this.outputTokens = usage == null ? null : usage.outputTokens();
 		this.reasoningTokens = usage == null ? null : usage.reasoningTokens();
+		this.costUsdTicks = usage == null ? null : usage.costUsdTicks();
+		this.requestId = requestId;
 		this.success = success;
 	}
 
@@ -83,9 +97,10 @@ public class AiUsageLog {
 		Long userId,
 		AiFeature feature,
 		AiUsage usage,
-		boolean success
+		boolean success,
+		String requestId
 	) {
-		return new AiUsageLog(userId, feature, usage, success);
+		return new AiUsageLog(userId, feature, usage, success, requestId);
 	}
 
 	public Long getId() {
@@ -114,6 +129,14 @@ public class AiUsageLog {
 
 	public Long getReasoningTokens() {
 		return reasoningTokens;
+	}
+
+	public Long getCostUsdTicks() {
+		return costUsdTicks;
+	}
+
+	public String getRequestId() {
+		return requestId;
 	}
 
 	public boolean isSuccess() {

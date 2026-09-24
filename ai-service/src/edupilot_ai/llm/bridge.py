@@ -21,6 +21,7 @@ class LlmUsage:
     input_tokens: int | None
     output_tokens: int | None
     reasoning_tokens: int | None
+    cost_usd_ticks: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +29,14 @@ class LlmFileAttachment:
     """Provider-neutral reference to one previously uploaded private file."""
 
     file_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class LlmPromptCache:
+    """Opt-in cache hint, never part of learner data or the response contract."""
+
+    key: str
+    stable_user_fields: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +91,7 @@ class LlmBridge(Protocol):
         profile: AgentLlmProfile,
         timeout_seconds: float,
         attachments: Sequence[LlmFileAttachment] = (),
+        prompt_cache: LlmPromptCache | None = None,
     ) -> LlmCompletion[ModelT]:
         """Return validated structured output plus provider usage."""
         ...
@@ -93,6 +103,7 @@ class LlmBridge(Protocol):
         profile: AgentLlmProfile,
         timeout_seconds: float,
         attachments: Sequence[LlmFileAttachment] = (),
+        prompt_cache: LlmPromptCache | None = None,
     ) -> AsyncIterator[LlmTextStreamItem]:
         """Yield Markdown deltas followed by exactly one usage item."""
         ...
