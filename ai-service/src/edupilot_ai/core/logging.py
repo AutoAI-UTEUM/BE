@@ -47,6 +47,8 @@ _OPTIONAL_FIELDS = (
     "llmCallId",
     "responseModel",
     "requestedModel",
+    "providerModel",
+    "providerUsageFinal",
     "reasoningEffort",
     "maxOutputTokens",
     "inputTextChars",
@@ -64,6 +66,9 @@ _OPTIONAL_FIELDS = (
     "outputTokens",
     "reasoningTokens",
     "cachedInputTokens",
+    "numServerSideToolsUsed",
+    "serverSideToolUsageDetails",
+    "costUsdTicks",
     "promptCacheLayout",
     "promptCacheRouting",
 )

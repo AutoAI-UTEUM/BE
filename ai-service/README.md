@@ -159,6 +159,42 @@ PDF/질문/답변/추론 원문, 파일 ID, base64, 인증 헤더는 새 계측�
   `requestedModel`, `reasoningEffort`, `maxOutputTokens`로 호출 조건을 기록합니다.
   성공 로그의 기존 `model`은 공급자가 반환한 모델이며, 실패 시에는 요청 모델일 수 있습니다.
 
+### 첨부 문서 처리·비용 계측
+
+추가 계측도 로그 전용입니다. API 응답 usage·프롬프트·Planner 판단·모델·출력 상한·
+재시도·캐시 스위치 기본값을 바꾸지 않습니다.
+
+| 필드 | 의미 |
+| --- | --- |
+| `requestedModel` / `providerModel` | 요청 모델 / xAI 응답에 실제 보고된 모델 식별자. 응답값이 없거나 올바른 식별자 형식이 아니면 `providerModel` 생략. `responseModel`은 `TurnPlan` 같은 출력 DTO 이름이며 모델명이 아님 |
+| `numServerSideToolsUsed` | 해당 xAI usage의 `num_server_side_tools_used` 원값. 첨부 파일 수나 output 항목 수로 추정하지 않음 |
+| `serverSideToolUsageDetails` | `server_side_tool_usage_details`에서 허용한 종류별 호출 수만 복사. 미제공 종류는 0으로 채우지 않음 |
+| `costUsdTicks` | `usage.cost_in_usd_ticks` 정수 원값. 1 USD = 10^10 ticks. 환산·반올림·토큰 기반 추정 없이 기록 |
+| `providerUsageFinal` | 관측한 usage가 단일 JSON 응답 또는 스트림 종료 이벤트까지 확인된 값인지 표시. 중간 스냅샷만 있으면 false, 관측한 usage 자체가 없으면 생략 |
+
+- 종류별 카운터는 `web_search_calls`, `x_search_calls`, `code_interpreter_calls`,
+  `file_search_calls`, `mcp_calls`, `document_search_calls`, `image_generation_calls`만
+  허용합니다. 각 값은 음이 아닌 정수여야 하며 bool·문자열·소수는 무시합니다.
+  도구 인자·검색어·검색 결과·페이지 본문은 기록하지 않습니다.
+- xAI의 파일 첨부는 내부 문서 검색을 동반할 수 있습니다. **파일 1개 첨부 = 검색 1회가
+  아닙니다.** 검색 횟수와 지연의 관계는 실측으로 확인하며, 입력 토큰 증가만으로 원인을
+  확정하지 않습니다. 공급자가 보고한 요청 비용에는 내부 도구 작업이 포함되므로 이를
+  별도 비용으로 다시 더하지 않습니다.
+- 값은 `xAI chat completion finished`에 전송 시도당 한 번만 기록합니다. 스트림 usage는
+  누적 스냅샷이므로 덧셈하지 않고 교체하며 첫 본문 로그에는 usage를 싣지 않습니다.
+  집계 시 `(llmCallId, attempt)`로 중복을 제거합니다. 스키마 재생성은 다른 `llmCallId`입니다.
+- `providerUsageFinal=true`는 턴 성공이나 전체 재시도의 비용 확보를 뜻하지 않습니다.
+  완결된 공급자 응답이 로컬 스키마 검증에서 실패해도 해당 시도의 보고값은 남습니다.
+  이전 시도에 usage가 없으면 전체 요청 비용은 미상이며, 알려진 값만 더한 결과를 전체
+  비용으로 보고하지 않습니다. 기존 응답 `cost_usd_ticks`의 보수적인 null 처리는 유지합니다.
+- 응답 중단으로 최종 usage를 못 받으면 도구 수·비용이 여전히 미수집일 수 있습니다.
+  미수집/잘못된 값은 생략하고 명시된 정수 0만 0으로 기록합니다. 과거 측정의 누락된
+  값은 이 변경으로 소급 복원되지 않습니다.
+
+근거: xAI [비용 추적](https://docs.x.ai/developers/cost-tracking),
+[도구 사용량](https://docs.x.ai/developers/tools/tool-usage-details),
+[문서 첨부](https://docs.x.ai/developers/model-capabilities/files/chat-with-files).
+
 ### 새 기준선 수집
 
 계측만 배포한 뒤 설명·QA·OX·MCQ를 구분하여 같은 자료·페이지·문맥·모델·추론 설정·
