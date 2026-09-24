@@ -124,6 +124,11 @@ public enum ErrorCode {
 		HttpStatus.CONFLICT,
 		"이 사용자의 비밀번호를 초기화할 수 없습니다."
 	),
+	RESET_TOKEN_INVALID(
+		"RESET_TOKEN_INVALID",
+		HttpStatus.BAD_REQUEST,
+		"재설정 링크가 만료되었거나 유효하지 않습니다."
+	),
 	USER_INACTIVE("USER_INACTIVE", HttpStatus.FORBIDDEN, "비활성화된 사용자입니다."),
 	USER_NOT_FOUND("USER_NOT_FOUND", HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."),
 	MATERIAL_NOT_FOUND(

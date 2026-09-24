@@ -14,6 +14,8 @@
 | 회원가입 | 역할·선택 소속·수신 동의·약관 버전 제출 | `POST /api/auth/signup` | 확장 사용자 응답 확인 후 로그인 화면 또는 자동 로그인 정책에 따른 이동 | 역할/약관 버전 오류, 유효성, 이메일 중복 |
 | 로그인 | 제출 | `POST /api/auth/login` | access와 역할별 `session` 메타를 메모리에 보존한 뒤 자료 목록 이동. refresh는 HttpOnly cookie | 자격 증명 실패, 비활성 계정 |
 | 로그인 | Google 로그인 | `POST /api/auth/google` | 기존·연동 계정은 access와 `session` 메타를 받아 로그인 완료. 신규 계정은 `SIGNUP_REQUIRED` 시 역할·약관·선택 정보를 받은 뒤 같은 ID 토큰으로 재요청 | Google 토큰 오류, 추가 정보 필요, 비활성 계정 |
+| 비밀번호 찾기 | 이메일 제출 | `POST /api/auth/password-reset/request` | 202면 가입 여부와 무관하게 "등록된 이메일이면 재설정 안내를 발송했습니다." 표시 | 요청 상한·미가입·비활성 계정도 동일 202 |
+| 비밀번호 재설정 | `/reset-password?token=` 링크에서 새 비밀번호 제출 | `POST /api/auth/password-reset/confirm` | 성공 시 보유 access 삭제 후 로그인 화면 이동 | `RESET_TOKEN_INVALID` 400은 "링크가 만료되었거나 유효하지 않습니다 — 다시 요청" 단일 문구; 비밀번호 정책 오류와 429 구분 |
 | 앱 초기 진입 | 인증 상태 확인 | `GET /api/users/me` | 사용자 정보/권한 반영 | 토큰 만료 |
 | 앱 공통 인증 | 실제 pointer/key/touch/scroll 활동을 탭 전체 기준 최대 5분에 한 번 기록 | `POST /api/auth/session/activity` (Bearer + credentials 포함) | token 회전 없이 응답의 `idleExpiresAt` 갱신·탭 간 전파. background polling은 호출 근거가 아님 | cookie 누락·사용자 불일치 `TOKEN_INVALID`, idle·절대 만료 시 전체 탭 로그인 이동 |
 | 계정 설정 | 이름·소속 수정 | `PATCH /api/users/me` | 확장 사용자 정보 갱신 | 빈 변경, 길이 오류 |

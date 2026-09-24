@@ -83,6 +83,7 @@
 | `PASSWORD_REUSE_NOT_ALLOWED` | 409 | 현재 비밀번호와 같은 새 비밀번호 사용 시도 |
 | `PASSWORD_CHANGE_RATE_LIMITED` | 429 | 15분 내 현재 비밀번호 검증 실패 한도 도달 |
 | `PASSWORD_RESET_NOT_ALLOWED` | 409 | 비활성 사용자 또는 관리자 자신의 비밀번호 초기화 시도 |
+| `RESET_TOKEN_INVALID` | 400 | 재설정 링크 미존재·만료·사용 완료를 구분하지 않는 공통 오류 |
 | `USER_INACTIVE` | 403 | 비활성/삭제 계정 |
 | `USER_NOT_FOUND` | 404 | 사용자 없음 |
 

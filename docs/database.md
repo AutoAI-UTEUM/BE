@@ -16,6 +16,7 @@
 | `users` | id, email, password_hash, auth_provider, google_sub(nullable), name, affiliation, avatar_key, learning_email_opt_in, 약관 버전·동의 시각, notification preferences, ai_answer_style, role, status, last_active_at(nullable), timestamps | `UK(email)`, `UK(google_sub)`, `IDX(status)`, `IDX(last_active_at)`, role·ai_answer_style CHECK |
 | `auth_sessions` | id, user_id, last_activity_at, idle_expires_at, absolute_expires_at, revoked_at(nullable), timestamps | `FK(user_id)`, `IDX(user_id,revoked_at)`, 만료 순서 CHECK |
 | `refresh_tokens` | id, user_id, session_id(nullable), token_hash, expires_at, revoked_at, created_at | `FK(user_id)`, `FK(session_id)`, `UK(token_hash)`, `IDX(user_id)`, `IDX(session_id,revoked_at)` |
+| `password_reset_tokens` | id, user_id, token_hash(SHA-256 hex), expires_at, used_at(nullable), requested_ip, created_at | `FK(user_id)`, `UK(token_hash)`, `IDX(user_id,created_at)`; 원문 미저장 |
 | `learning_materials` | id, owner_id, title, storage_key, page_count, processing_status, failure_reason(nullable), failure_trace_id(nullable), captions_completed_at(nullable), xai_file_id(nullable), xai_file_upload_attempted_at(nullable), status, timestamps | `FK(owner_id)`, `UK(storage_key)`, `IDX(owner_id,status)`, `IDX(status,processing_status,xai_file_id,xai_file_upload_attempted_at,id)`, 상태·실패 사유·page_count CHECK |
 | `material_pages` | id, material_id, page_number, text_content, caption(nullable), created_at | `FK(material_id)`, `UK(material_id,page_number)`, `CHECK(page_number >= 1)` |
 | `material_overviews` | id, material_id, content(nullable), outline_json(nullable), status, timestamps | `FK(material_id)`, `UK(material_id)`, status CHECK |
@@ -236,6 +237,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V41__auth_sessions.sql`은 브라우저·기기별 인증 세션과 역할별 idle·최초 로그인 기준 absolute 만료를 저장하고, `refresh_tokens.session_id` nullable FK를 추가합니다. 기존 refresh는 강제 로그아웃이나 일괄 백필 없이 최초 사용 시 애플리케이션에서 지연 전환합니다.
 - `V42__xai_management_monitoring.sql`은 `ai_usage_log`에 nullable `cost_usd_ticks`·`request_id`와 request ID 유일성을 추가하고 단일 행 `xai_alert_config`를 생성합니다. 2차 모니터링은 이 스키마를 그대로 사용해 비용 저장·KST usage 집계·reconciliation과 설정 기반 riskLevel을 제공하며 추가 migration은 만들지 않습니다.
 - `V43__email_deliveries.sql`은 SES/로깅 공통 발송 이력과 수신자별 시간·전체 KST 일별 상한 집계를 위한 인덱스를 추가합니다. 토큰 링크가 담길 수 있는 메일 본문은 저장하지 않습니다.
+- `V44__password_reset_tokens.sql`은 30분짜리 단일 사용 비밀번호 재설정 링크의 SHA-256 해시와 요청 IP를 저장합니다. 재요청 시 기존 미사용 토큰을 사용 처리하고, 만료 7일이 지난 행은 매일 03:00 KST 정리합니다. 기존 사용자·세션 데이터는 백필하지 않으며 prod 적용 전 DB 스냅샷이 필요합니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.

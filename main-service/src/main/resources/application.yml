@@ -149,6 +149,9 @@ edupilot:
     secret: ${EDUPILOT_JWT_SECRET}
     access-token-ttl: ${EDUPILOT_JWT_ACCESS_TOKEN_TTL:15m}
   auth:
+    password-reset:
+      cleanup:
+        enabled: ${EDUPILOT_PASSWORD_RESET_CLEANUP_ENABLED:true}
     session:
       absolute-ttl: ${EDUPILOT_AUTH_SESSION_ABSOLUTE_TTL:14d}
       admin-idle-ttl: ${EDUPILOT_AUTH_SESSION_ADMIN_IDLE_TTL:30m}

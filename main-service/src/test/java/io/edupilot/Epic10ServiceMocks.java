@@ -13,6 +13,7 @@ import io.edupilot.admin.AdminUserService;
 import io.edupilot.admin.xai.AdminXaiUsageService;
 import io.edupilot.admin.xai.XaiAlertConfigService;
 import io.edupilot.auth.AuthSessionRepository;
+import io.edupilot.auth.PasswordResetTokenRepository;
 import io.edupilot.classroom.ClassroomService;
 import io.edupilot.aiusage.AiQuotaService;
 import io.edupilot.aiusage.AiUsageService;
@@ -58,6 +59,7 @@ import io.edupilot.schedule.PersonalScheduleService;
 	AdminXaiUsageService.class,
 	XaiAlertConfigService.class,
 	AuthSessionRepository.class,
+	PasswordResetTokenRepository.class,
 	AiUsageService.class,
 	AiQuotaService.class,
 	ClassroomService.class,

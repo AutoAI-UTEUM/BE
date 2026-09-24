@@ -55,6 +55,8 @@
 | GET | `/api/auth/email-availability?email={email}` | 회원가입 이메일 중복 확인 | N | 전체 |
 | POST | `/api/auth/login` | 로그인 | N | 전체 |
 | POST | `/api/auth/google` | Google ID 토큰 로그인·가입 | N | 전체 |
+| POST | `/api/auth/password-reset/request` | 비밀번호 재설정 안내 요청 | N | 전체 (계정 존재 여부 비노출) |
+| POST | `/api/auth/password-reset/confirm` | 재설정 토큰으로 비밀번호 변경 | N | 유효한 일회용 링크 보유자 |
 | POST | `/api/auth/refresh` | access 재발급 (refresh 쿠키 회전) | 쿠키 | refresh 쿠키 보유자 |
 | POST | `/api/auth/session/activity` | 실제 사용자 활동으로 현재 인증 세션 idle 만료 연장 | Y+쿠키 | Bearer 사용자와 refresh 쿠키 사용자가 같은 현재 세션 |
 | POST | `/api/auth/logout` | 로그아웃 (refresh 폐기·쿠키 만료) | 쿠키 | refresh 쿠키 보유자 (멱등) |
@@ -306,6 +308,28 @@ Google ID 토큰을 검증해 기존 계정으로 로그인하거나 신규 계�
 - 서버에 Google Client ID가 설정되지 않은 경우 기동은 허용하지만 요청은 `VALIDATION_FAILED`(400)로 거부하고 설정 오류만 서버 로그에 기록합니다.
 - Google 최초 가입 계정의 비밀번호 sentinel은 일반 비밀번호 검증을 통과하지 않으므로 비밀번호 로그인은 `INVALID_CREDENTIALS`입니다.
 - 주요 오류: `SIGNUP_REQUIRED`, `TOKEN_INVALID`, `USER_INACTIVE`, `VALIDATION_FAILED`.
+
+### POST `/api/auth/password-reset/request`
+
+요청: `{"email":"user@example.com"}`. 정상적으로 해석되는 요청은 가입 여부·계정 상태·발송 성공 여부·요청 상한과 무관하게 항상 202와 동일한 `data`를 반환합니다.
+
+```json
+{"message":"등록된 이메일이면 재설정 안내를 발송했습니다."}
+```
+
+활성 `LOCAL` 계정에만 `/reset-password?token=...` 링크를 발송합니다. 링크는 30분 유효하며 재요청하면 이전 미사용 링크가 무효화됩니다. 이메일당 시간 3회, IP당 시간 10회 초과 시 내부 발송·토큰 생성만 생략합니다. 운영 감사 로그에는 이메일·토큰 원문을 남기지 않습니다. dev의 `logging` 메일 provider는 링크 확인을 위해 본문을 출력하므로 실사용자 정보를 넣지 않습니다.
+
+### POST `/api/auth/password-reset/confirm`
+
+요청: `{"token":"일회용-링크의-token","newPassword":"newPassword123"}`. `newPassword`는 가입/본인 변경과 같은 정책(8~64자, 영문·숫자 각 1자 이상)을 따릅니다. 성공 시 200의 `data`는 다음과 같습니다.
+
+```json
+{"message":"비밀번호가 변경되었습니다. 다시 로그인해주세요."}
+```
+
+링크 미존재·만료·재사용은 모두 `RESET_TOKEN_INVALID`(400)로 통일합니다. 정책 미달은 `VALIDATION_FAILED`(400), 이전 비밀번호 재사용은 `PASSWORD_REUSE_NOT_ALLOWED`(409)이며 둘 다 링크를 소비하지 않습니다. IP당 15분 10회 초과는 기존 `RATE_LIMIT_EXCEEDED`(429)를 사용합니다. 성공 시 해당 사용자의 모든 refresh token·인증 세션을 폐기하고 새 토큰은 발급하지 않습니다. 기존 stateless access token은 최대 15분의 자체 만료 전까지 유효할 수 있으므로 FE는 성공 즉시 메모리의 access token을 버리고 로그인 화면으로 이동해야 합니다.
+
+만료 7일이 지난 재설정 토큰 행은 매일 03:00 KST에 정리하며 `EDUPILOT_PASSWORD_RESET_CLEANUP_ENABLED=false`로 정리 작업만 중지할 수 있습니다.
 
 ### POST `/api/auth/refresh`
 

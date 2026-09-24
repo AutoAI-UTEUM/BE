@@ -88,6 +88,7 @@ erDiagram
 - refresh와 `POST /api/auth/session/activity`만 성공 시 idle을 연장합니다. 일반 Bearer API와 background polling은 인증 session을 조회하거나 연장하지 않습니다. 동일 session의 연속 활동 쓰기는 5분 동안 스로틀하지만 폐기·만료 검증은 매번 수행합니다.
 - refresh token 회전은 같은 `AuthSession`을 유지하고 token 행만 교체합니다. 폐기 token 재사용은 현재 session family만 폐기하며, family를 알 수 없는 V41 이전 legacy token만 사용자 전체를 폐기합니다.
 - 로그아웃은 현재 session만 폐기합니다. 비밀번호 변경·관리자 초기화·회원 탈퇴는 해당 사용자의 모든 `AuthSession`과 refresh token을 폐기합니다. stateless access token은 최대 15분의 자체 만료까지 유효할 수 있습니다.
+- 이메일 비밀번호 재설정은 활성 `LOCAL` 사용자에게만 30분 유효한 단일 사용 링크를 발급합니다. 원문은 메일에만 싣고 DB에는 SHA-256 해시만 저장하며 재요청 시 이전 링크를 무효화합니다. 확정 성공 시 비밀번호 변경과 모든 `AuthSession`·refresh token 폐기를 한 트랜잭션에서 처리합니다.
 
 ### LearningMaterial
 
