@@ -9,6 +9,7 @@ import pytest
 from edupilot_ai.models.plan import AgentOutput, ToolName
 from edupilot_ai.models.turn import TurnRequest
 from tests.fakes import FakeLlm
+from tests.planner_fixtures import planner_output
 from tests.test_turn_contract import make_explain_plan, make_plan
 
 
@@ -71,7 +72,7 @@ async def test_evidence_and_qualification_reach_agents_in_both_transports(
             "후속 질문에 답하기",
         )
     )
-    fake_llm.queue(plan)
+    fake_llm.queue(planner_output(plan))
     # This answer is deliberately scripted. The checks below prove instructions,
     # evidence and wire plumbing, not the real model's reasoning or factuality.
     answer = "조건을 함께 확인하는 답변입니다."
@@ -110,6 +111,12 @@ async def test_evidence_and_qualification_reach_agents_in_both_transports(
         "조건·가정·적용 범위와 예외를 보존하라",
         "가능성과 보장을 구분",
         "모든 경우로 일반화하지 마라",
+        "대상의 성질, 그 대상을 다루는 절차의 성공 조건",
+        "결과의 유일성까지 보장하지 마라",
+        "그 결론과 필요한 조건이 근거에 있는지 먼저 확인하라",
+        "자료가 직접 뒷받침하는 성질까지만 설명하라",
+        "이전 페이지·이전 문맥의 조건은 현재 범위 설명에 포함할 수 있다",
+        "다른 페이지를 새로 가르치지는 말되",
         "이전 문맥의 관련 조건과 충돌하는 단정을 하지 마라",
         "자료에 없는 조건이나 수치를 지어내지 마라",
         "일반적인 면책 문구를 반복하지 마라",
