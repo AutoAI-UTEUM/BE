@@ -327,6 +327,28 @@ QA Plan 409→300자입니다. 내부 JSON Schema는 1,961→1,759자입니다.
 `test_planner_output.py`와 기존 턴·메모리·노트·스트림 테스트로 복원 및 거부 경로를
 검증하며, 실제 모델의 판단과 속도 비교는 후속 일괄 측정으로 남깁니다.
 
+### 퀴즈 유형별 생성 스키마 (#428)
+
+`QUIZ_TYPE_SELECTED`는 이미 결정적 Plan으로 LLM을 한 번만 호출합니다. QuizAgent는
+선택된 유형의 `McqQuizOutput`/`OxQuizOutput`/`ShortQuizOutput`/`EssayQuizOutput`만
+provider에 전달합니다. `QuizGeneration`을 상속하고 questions 타입만 한 종류로
+좁히므로 제목·점수 정규화, 문항 5~10개, questionCount, ID 유일성, 정답 참조,
+루브릭 합 검증을 재사용합니다. Spring 응답은 기존 `QuizGeneration` 구조 그대로입니다.
+
+| JSON Schema 길이(공백 없는 직렬화 문자 수) | 전체 4유형 → 선택 유형 |
+| --- | --- |
+| MCQ | 4,354 → 1,964 |
+| OX | 4,354 → 1,526 |
+| SHORT | 4,354 → 1,610 |
+| ESSAY | 4,354 → 1,933 |
+
+이는 스키마 문자열만 줄인 결과입니다. **문제·정답·해설·루브릭의 출력 양을 줄이거나
+속도 개선을 실증한 수치가 아닙니다.** PDF·출제 범위·개인화 문맥·문항 수·난이도
+지침·출력 상한·모델/추론 강도·호출 횟수·캐시 기본값은 유지합니다.
+`test_quiz_output.py`는 4종의 정규화/거부 규칙과 JSON/NDJSON 동일 응답을 검증합니다.
+모델 로그를 유형별로 모을 때는 위 네 `responseModel` 이름을 함께 집계합니다
+(변경 전 로그는 `QuizGeneration`). 실제 지연·내용 품질 비교는 후속 일괄 측정 대상입니다.
+
 ## CLI 데모 (설계자·비개발자용)
 
 [uv 설치 안내](https://docs.astral.sh/uv/getting-started/installation/)에 따라 `uv`를

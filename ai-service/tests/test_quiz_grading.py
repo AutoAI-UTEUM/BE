@@ -31,6 +31,7 @@ from edupilot_ai.models.quiz import (
 from edupilot_ai.models.turn import TurnRequest
 from edupilot_ai.orchestration.context import ContextBuilder, PlanContext
 from edupilot_ai.orchestration.prompts import quiz_messages
+from edupilot_ai.orchestration.quiz_output import quiz_output_model
 from edupilot_ai.settings import ReasoningEffort, Settings
 from tests.fakes import FakeLlm
 from tests.test_turn_contract import post_turn
@@ -94,7 +95,7 @@ def make_questions(
 
 
 def make_quiz(quiz_type: QuizType) -> QuizGeneration:
-    return QuizGeneration(
+    return quiz_output_model(quiz_type)(
         generation_id=f"generation-{quiz_type.value.lower()}",
         quiz_type=quiz_type,
         coverage=QuizCoverage(start_page=3, end_page=3),
