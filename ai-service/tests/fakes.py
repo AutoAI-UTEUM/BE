@@ -51,6 +51,7 @@ class FakeLlm:
     def __init__(self, responses: Sequence[ScriptItem] = ()) -> None:
         self._responses = list(responses)
         self.calls: list[tuple[Sequence[LlmMessage], AgentLlmProfile]] = []
+        self.response_models: list[type[BaseModel]] = []
         self.file_attachments: list[tuple[LlmFileAttachment, ...]] = []
         self.prompt_caches: list[LlmPromptCache | None] = []
         self.timeouts: list[float] = []
@@ -82,6 +83,7 @@ class FakeLlm:
         prompt_cache: LlmPromptCache | None = None,
     ) -> LlmCompletion[ModelT]:
         self.calls.append((messages, profile))
+        self.response_models.append(response_model)
         self.file_attachments.append(tuple(attachments))
         self.prompt_caches.append(prompt_cache)
         self.timeouts.append(timeout_seconds)

@@ -4,6 +4,7 @@ import asyncio
 import codecs
 import json
 import logging
+import re
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field, replace
@@ -37,6 +38,17 @@ XAI_CHAT_COMPLETIONS_URL = f"{XAI_BASE_URL}/chat/completions"
 XAI_RESPONSES_URL = f"{XAI_BASE_URL}/responses"
 _MAX_NETWORK_ATTEMPTS = 3
 _RETRYABLE_NETWORK_ERRORS = (httpx.NetworkError, httpx.RemoteProtocolError)
+# Provider-defined counters only; never copy tool names/arguments or search results.
+_SERVER_SIDE_TOOL_COUNTERS = (
+    "web_search_calls",
+    "x_search_calls",
+    "code_interpreter_calls",
+    "file_search_calls",
+    "mcp_calls",
+    "document_search_calls",
+    "image_generation_calls",
+)
+_MODEL_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +60,9 @@ class _CallMetrics:
     timing: ContentTiming
     request_fields: dict[str, object]
     call_id: str = field(default_factory=lambda: str(uuid4()))
-    usage_fields: dict[str, int] = field(default_factory=dict)
+    usage_fields: dict[str, int | dict[str, int]] = field(default_factory=dict)
+    provider_model: str | None = None
+    provider_usage_final: bool = False
     provider_status_code: int | None = None
     attempt_started_at: float | None = None
 
@@ -103,10 +117,24 @@ class _CallMetrics:
         self.attempt_started_at = perf_counter()
         self.provider_status_code = None
         self.usage_fields.clear()
+        self.provider_model = None
+        self.provider_usage_final = False
 
-    def observe_usage(self, raw: Any, *, responses_api: bool = False) -> None:
+    def observe_model(self, raw: Any) -> None:
+        if isinstance(raw, str) and _MODEL_IDENTIFIER.fullmatch(raw):
+            self.provider_model = raw
+
+    def observe_response(self, raw: Any, *, responses_api: bool = False) -> None:
+        """Observe a terminal envelope independently of answer/schema validation."""
+        if isinstance(raw, dict):
+            self.observe_model(raw.get("model"))
+            self.observe_usage(raw.get("usage"), responses_api=responses_api, final=True)
+
+    def observe_usage(self, raw: Any, *, responses_api: bool = False, final: bool = False) -> None:
         # Parse each metric independently: optional/bad metadata must not affect output.
+        # Streaming values are running snapshots, not increments to add together.
         self.usage_fields.clear()
+        self.provider_usage_final = final
         if not isinstance(raw, dict):
             return
         prefix = "input" if responses_api else "prompt"
@@ -122,20 +150,33 @@ class _CallMetrics:
             "cachedInputTokens": (
                 input_details.get("cached_tokens") if isinstance(input_details, dict) else None
             ),
+            "numServerSideToolsUsed": raw.get("num_server_side_tools_used"),
+            "costUsdTicks": _cost_usd_ticks(raw),
         }
         self.usage_fields = {
             key: value for key, value in candidates.items() if type(value) is int and value >= 0
         }
         cached = self.usage_fields.get("cachedInputTokens")
         total = self.usage_fields.get("inputTokens")
-        if cached is not None and total is not None and cached > total:
+        if isinstance(cached, int) and isinstance(total, int) and cached > total:
             self.usage_fields.pop("cachedInputTokens")
+        details = raw.get("server_side_tool_usage_details")
+        if isinstance(details, dict):
+            counts = {
+                key: value
+                for key in _SERVER_SIDE_TOOL_COUNTERS
+                if type(value := details.get(key)) is int and value >= 0
+            }
+            if counts:
+                self.usage_fields["serverSideToolUsageDetails"] = counts
 
     def fields(self) -> dict[str, object]:
         return {
             **self.request_fields,
             **self.timing.fields(),
             **self.usage_fields,
+            "providerModel": self.provider_model,
+            "providerUsageFinal": self.provider_usage_final if self.usage_fields else None,
             "llmCallId": self.call_id,
             "providerStatusCode": self.provider_status_code,
             "attemptDurationMs": (
@@ -157,6 +198,7 @@ def _observe_content(
                 **metrics.timing.fields(),
                 "llmCallId": metrics.call_id,
                 "providerStatusCode": metrics.provider_status_code,
+                "providerModel": metrics.provider_model,
                 "agent": "Grok",
                 "tool": tool,
                 "model": model,
@@ -581,8 +623,7 @@ class XaiLlmBridge:
             raw_body = response.json()
         except json.JSONDecodeError, UnicodeDecodeError:
             raw_body = None
-        if isinstance(raw_body, dict):
-            metrics.observe_usage(raw_body.get("usage"), responses_api=False)
+        metrics.observe_response(raw_body)
 
         if response.is_error:
             _log_call(
@@ -790,6 +831,7 @@ class XaiLlmBridge:
                         except StopAsyncIteration:
                             break
                         if data == "[DONE]":
+                            metrics.provider_usage_final = True
                             completed = True
                             break
                         try:
@@ -809,6 +851,7 @@ class XaiLlmBridge:
                                 retryable=False,
                             ) from exception
                         provider_model = chunk.model
+                        metrics.observe_model(chunk.model)
                         if chunk.usage is not None:
                             metrics.observe_usage(chunk.usage)
                             provider_usage = _completion_usage(chunk.model, chunk.usage)
@@ -1041,8 +1084,7 @@ class XaiLlmBridge:
             raw_body = response.json()
         except json.JSONDecodeError, UnicodeDecodeError:
             raw_body = None
-        if isinstance(raw_body, dict):
-            metrics.observe_usage(raw_body.get("usage"), responses_api=True)
+        metrics.observe_response(raw_body, responses_api=True)
 
         if response.is_error:
             _log_call(
@@ -1239,6 +1281,16 @@ class XaiLlmBridge:
                             event_type = event.get("type")
                             if not isinstance(event_type, str):
                                 raise ValueError("Responses event type is missing")
+                            if event_type in {"response.created", "response.in_progress"}:
+                                envelope = event.get("response")
+                                if isinstance(envelope, dict):
+                                    metrics.observe_model(envelope.get("model"))
+                            elif event_type in {
+                                "response.completed",
+                                "response.failed",
+                                "response.incomplete",
+                            }:
+                                metrics.observe_response(event.get("response"), responses_api=True)
                             if event_type == "response.output_text.delta":
                                 delta = event.get("delta")
                                 if not isinstance(delta, str):
@@ -1257,7 +1309,6 @@ class XaiLlmBridge:
                                 provider_response = _ResponsesResponse.model_validate(
                                     event.get("response")
                                 )
-                                metrics.observe_usage(provider_response.usage, responses_api=True)
                                 # Responses streams terminate with this event. Unlike
                                 # Chat Completions, a trailing ``[DONE]`` may be absent;
                                 # keep draining when present so the connection is reusable.

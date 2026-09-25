@@ -52,6 +52,10 @@ import io.edupilot.global.logging.AccessLogFilter;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.note.NoteRepository;
+import io.edupilot.policy.PolicyConsentRepository;
+import io.edupilot.policy.PolicyDocument;
+import io.edupilot.policy.PolicyDocumentRepository;
+import io.edupilot.policy.PolicyType;
 import io.edupilot.material.storage.FileStorage;
 import io.edupilot.quiz.QuizRepository;
 import io.edupilot.quiz.QuizSubmissionRepository;
@@ -91,6 +95,12 @@ class AuthApiContractTest {
 
 	@MockitoBean
 	private UserRepository userRepository;
+
+	@Autowired
+	private PolicyDocumentRepository policyDocumentRepository;
+
+	@Autowired
+	private PolicyConsentRepository policyConsentRepository;
 
 	@MockitoBean
 	private RefreshTokenRepository refreshTokenRepository;
@@ -136,10 +146,24 @@ class AuthApiContractTest {
 	void setUp() {
 		reset(
 			userRepository,
+			policyDocumentRepository,
+			policyConsentRepository,
 			refreshTokenRepository,
 			authSessionRepository,
 			googleIdTokenVerifier
 		);
+		for (PolicyType type : PolicyType.values()) {
+			when(policyDocumentRepository
+				.findFirstByTypeAndEffectiveAtLessThanEqualOrderByEffectiveAtDescIdDesc(
+					org.mockito.ArgumentMatchers.eq(type), any(Instant.class)))
+				.thenReturn(Optional.of(PolicyDocument.create(
+					type, "0.9", type.name(), "draft", null,
+					Instant.EPOCH, 0L, Instant.EPOCH)));
+			when(policyConsentRepository.existsByUser_IdAndPolicyTypeAndPolicyVersion(
+				org.mockito.ArgumentMatchers.eq(1L),
+				org.mockito.ArgumentMatchers.eq(type),
+				org.mockito.ArgumentMatchers.eq("0.9"))).thenReturn(true);
+		}
 		when(authSessionRepository.saveAndFlush(any(AuthSession.class)))
 			.thenAnswer(invocation -> {
 				AuthSession session = invocation.getArgument(0);
@@ -182,6 +206,7 @@ class AuthApiContractTest {
 			.andExpect(jsonPath("$.data.tokenType").value("Bearer"))
 			.andExpect(jsonPath("$.data.expiresIn").value(900))
 			.andExpect(jsonPath("$.data.user.id").value(1))
+			.andExpect(jsonPath("$.data.pendingConsents").isEmpty())
 			.andExpect(jsonPath("$.data.session.idleTimeoutSeconds").value(7200))
 			.andExpect(jsonPath("$.data.session.idleExpiresAt").isString())
 			.andExpect(jsonPath("$.data.session.absoluteExpiresAt").isString())
@@ -267,7 +292,9 @@ class AuthApiContractTest {
 					  "email":"instructor@example.com",
 					  "password":"password123",
 					  "name":"강사",
-					  "role":"INSTRUCTOR"
+					  "role":"INSTRUCTOR",
+					  "consents":[{"type":"TERMS","version":"0.9"},
+					    {"type":"PRIVACY","version":"0.9"}]
 					}
 					"""))
 			.andExpect(status().isOk())
@@ -324,8 +351,8 @@ class AuthApiContractTest {
 					  "role":"LEARNER",
 					  "affiliation":"EduPilot University",
 					  "learningEmailOptIn":true,
-					  "termsVersion":"2026-07-01",
-					  "privacyVersion":"2026-07-01"
+					  "consents":[{"type":"TERMS","version":"0.9"},
+					    {"type":"PRIVACY","version":"0.9"}]
 					}
 					"""))
 			.andExpect(status().isOk())
@@ -340,8 +367,8 @@ class AuthApiContractTest {
 		when(userRepository.existsByEmail(any())).thenReturn(false);
 
 		for (String consentFields : java.util.List.of(
-			"\"termsVersion\":\"2026-08-01\",\"privacyVersion\":\"2026-08-01\"",
-			"\"termsVersion\":\"2026-07-01\""
+			"\"consents\":[{\"type\":\"TERMS\",\"version\":\"1.0\"},{\"type\":\"PRIVACY\",\"version\":\"1.0\"}]",
+			"\"consents\":[{\"type\":\"TERMS\",\"version\":\"0.9\"}]"
 		)) {
 			mockMvc.perform(post("/api/auth/signup")
 					.contentType(MediaType.APPLICATION_JSON)
@@ -355,7 +382,7 @@ class AuthApiContractTest {
 						}
 						""".formatted(consentFields)))
 				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+				.andExpect(jsonPath("$.error.code").value("POLICY_CONSENT_REQUIRED"));
 		}
 	}
 

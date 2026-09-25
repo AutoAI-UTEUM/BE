@@ -1,17 +1,17 @@
 package io.edupilot.auth;
 
-import java.time.Clock;
 import java.util.Locale;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import io.edupilot.auth.AuthService.Consent;
 import io.edupilot.auth.dto.GoogleLoginRequest;
 import io.edupilot.auth.dto.SignupRole;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.policy.PolicyService;
+import io.edupilot.policy.PolicyService.SignupSelection;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 
@@ -21,15 +21,17 @@ public class GoogleAccountService {
 	private static final String GOOGLE_PASSWORD_SENTINEL = "!oauth:google";
 
 	private final UserRepository userRepository;
-	private final Clock clock;
+	private final PolicyService policyService;
 
-	public GoogleAccountService(UserRepository userRepository, Clock clock) {
+	public GoogleAccountService(UserRepository userRepository, PolicyService policyService) {
 		this.userRepository = userRepository;
-		this.clock = clock;
+		this.policyService = policyService;
 	}
 
 	@Transactional
-	public User resolve(GoogleLoginRequest request, GoogleProfile profile) {
+	public User resolve(
+		GoogleLoginRequest request, GoogleProfile profile, String ip, String userAgent
+	) {
 		User user = userRepository.findByGoogleSub(profile.sub()).orElse(null);
 		if (user != null) {
 			assertActive(user);
@@ -50,11 +52,7 @@ public class GoogleAccountService {
 		}
 
 		SignupRole role = requiredSignupRole(request);
-		Consent consent = AuthService.validateConsent(
-			request.termsVersion(),
-			request.privacyVersion(),
-			clock
-		);
+		SignupSelection consent = policyService.validateSignup(request.consents());
 		User newUser = User.createGoogle(
 			normalizedEmail,
 			GOOGLE_PASSWORD_SENTINEL,
@@ -64,20 +62,21 @@ public class GoogleAccountService {
 			Boolean.TRUE.equals(request.learningEmailOptIn()),
 			consent.termsVersion(),
 			consent.privacyVersion(),
-			consent.consentedAt(),
+			consent.agreedAt(),
 			profile.sub()
 		);
+		User saved;
 		try {
-			return userRepository.saveAndFlush(newUser);
+			saved = userRepository.saveAndFlush(newUser);
 		} catch (DataIntegrityViolationException exception) {
 			throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);
 		}
+		policyService.recordSignup(saved, consent, ip, userAgent);
+		return saved;
 	}
 
 	private SignupRole requiredSignupRole(GoogleLoginRequest request) {
-		if (!hasText(request.role())
-			|| !hasText(request.termsVersion())
-			|| !hasText(request.privacyVersion())) {
+		if (!hasText(request.role())) {
 			throw new BusinessException(ErrorCode.SIGNUP_REQUIRED);
 		}
 		try {
@@ -92,6 +91,9 @@ public class GoogleAccountService {
 	}
 
 	private void assertActive(User user) {
+		if (user.getStatus() == io.edupilot.user.UserStatus.SUSPENDED) {
+			throw new BusinessException(ErrorCode.ACCOUNT_SUSPENDED);
+		}
 		if (!user.isActive()) {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}

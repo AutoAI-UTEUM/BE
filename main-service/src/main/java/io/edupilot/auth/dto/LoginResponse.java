@@ -1,5 +1,8 @@
 package io.edupilot.auth.dto;
 
+import java.util.List;
+
+import io.edupilot.policy.dto.PendingPolicyVersion;
 import io.edupilot.user.dto.UserResponse;
 
 public record LoginResponse(
@@ -7,6 +10,7 @@ public record LoginResponse(
 	String tokenType,
 	long expiresIn,
 	UserResponse user,
-	AuthSessionResponse session
+	AuthSessionResponse session,
+	List<PendingPolicyVersion> pendingConsents
 ) {
 }

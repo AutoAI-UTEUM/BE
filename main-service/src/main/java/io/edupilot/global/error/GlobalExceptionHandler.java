@@ -22,6 +22,7 @@ import org.springframework.web.context.request.async.AsyncRequestNotUsableExcept
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import io.edupilot.auth.RefreshTokenCookie;
+import io.edupilot.auth.LoginRateLimitedException;
 import io.edupilot.global.response.ErrorDetail;
 import io.edupilot.global.response.ErrorResponse;
 import io.edupilot.global.security.TraceIdFilter;
@@ -100,6 +101,11 @@ public class GlobalExceptionHandler {
 			List.of(),
 			request
 		);
+		if (exception instanceof LoginRateLimitedException limited) {
+			return ResponseEntity.status(response.getStatusCode())
+				.header(HttpHeaders.RETRY_AFTER, Long.toString(limited.retryAfterSeconds()))
+				.body(response.getBody());
+		}
 		if (!shouldExpireRefreshCookie(exception.errorCode(), request)) {
 			return response;
 		}
@@ -205,6 +211,7 @@ public class GlobalExceptionHandler {
 		}
 		return errorCode == ErrorCode.TOKEN_INVALID
 			|| errorCode == ErrorCode.USER_INACTIVE
+			|| errorCode == ErrorCode.ACCOUNT_SUSPENDED
 			|| errorCode == ErrorCode.AUTH_SESSION_IDLE_EXPIRED
 			|| errorCode == ErrorCode.AUTH_SESSION_ABSOLUTE_EXPIRED;
 	}

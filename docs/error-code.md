@@ -78,13 +78,22 @@
 | `EMAIL_ALREADY_EXISTS` | 409 | 이메일 중복 |
 | `SIGNUP_REQUIRED` | 409 | Google 신규 가입을 위한 역할·약관 추가 정보 필요 |
 | `INVALID_CREDENTIALS` | 401 | 이메일/비밀번호 불일치 |
+| `LOGIN_RATE_LIMITED` | 429 | 계정 5회/15분 또는 IP 20회/15분 실패 후 로그인 차단, `Retry-After` 초 제공 |
+| `ACCOUNT_SUSPENDED` | 401 | 정지 계정의 올바른 자격증명 로그인 또는 기존 인증 사용 차단 |
+| `ADMIN_SELF_MODIFICATION` | 400 | 관리자의 자기 정지·강등 거부 |
+| `LAST_ADMIN_PROTECTED` | 400 | 마지막 활성 관리자의 정지·강등 거부 |
 | `PASSWORD_NOT_SUPPORTED` | 409 | LOCAL 비밀번호를 사용하지 않는 계정 |
 | `CURRENT_PASSWORD_MISMATCH` | 400 | 본인 비밀번호 변경 시 현재 비밀번호 불일치 |
 | `PASSWORD_REUSE_NOT_ALLOWED` | 409 | 현재 비밀번호와 같은 새 비밀번호 사용 시도 |
 | `PASSWORD_CHANGE_RATE_LIMITED` | 429 | 15분 내 현재 비밀번호 검증 실패 한도 도달 |
 | `PASSWORD_RESET_NOT_ALLOWED` | 409 | 비활성 사용자 또는 관리자 자신의 비밀번호 초기화 시도 |
+| `RESET_TOKEN_INVALID` | 400 | 재설정 링크 미존재·만료·사용 완료를 구분하지 않는 공통 오류 |
 | `USER_INACTIVE` | 403 | 비활성/삭제 계정 |
 | `USER_NOT_FOUND` | 404 | 사용자 없음 |
+| `POLICY_NOT_FOUND` | 404 | 요청한 유형·버전의 정책 문서 없음 |
+| `POLICY_CONSENT_REQUIRED` | 400 | 가입 시 현재 이용약관·개인정보처리방침 동의 누락·중복·버전 불일치 |
+| `POLICY_VERSION_MISMATCH` | 400 | 기존 사용자가 현재 유효 버전이 아닌 정책에 동의 시도 |
+| `POLICY_VERSION_EXISTS` | 409 | 같은 유형·버전의 정책 문서 중복 등록 |
 
 ### 자료
 
@@ -133,6 +142,9 @@
 | code | HTTP | 의미 |
 | --- | ---: | --- |
 | `NOTE_NOT_FOUND` | 404 | 노트가 없거나 현재 사용자의 노트가 아님 |
+| `NOTE_TOO_LARGE` | 400 | 새 수동 노트 본문이 UTF-8 기준 1MiB 초과 |
+| `NOTE_LIMIT_EXCEEDED` | 400 | 사용자 활성 수동 노트 2,000개 상한 초과 |
+| `WRONG_ANSWER_NOTE_NOT_FOUND` | 404 | 오답 노트가 없거나 현재 사용자의 항목이 아님 |
 
 ### 일정
 
@@ -160,8 +172,10 @@
 | `EXAM_NOT_FOUND` | 404 | 시험이 없거나 접근할 수 없음. 학생의 DRAFT 목록·상세·제출 접근도 이 코드로 은닉 |
 | `EXAM_NOT_PUBLISHED` | 409 | 학생이 CLOSED 시험에 제출하거나 강사가 DRAFT 시험을 close하는 등 공개 상태가 아닌 대상에 상태 작업을 요청 |
 | `EXAM_NOT_EDITABLE` | 409 | CLOSED 시험을 publish하거나 공개 이후 수정·삭제하는 등 편집 가능한 상태가 아님 |
-| `EXAM_ALREADY_SUBMITTED` | 409 | 재응시가 허용되지 않은 GRADED 시험 또는 채점 중인 SUBMITTED 시험에 새 `requestId`로 다시 제출. SUBMITTED일 수 있으므로 FE는 기존 결과·polling 화면으로 유도 |
+| `EXAM_ALREADY_SUBMITTED` | 409 | 제출 시에는 재응시 불가 GRADED 또는 채점 중 SUBMITTED의 새 `requestId`를 거부. 임시저장 PUT에서는 미소비 응시 시작 기록이 없거나 `allowRetake=false`이고 기존 제출이 있으면 거부 |
 | `INVALID_EXAM_ANSWER` | 400 | 알 수 없거나 중복된 문항 ID 또는 문항 유형과 맞지 않는 답안 |
+| `DRAFT_VERSION_CONFLICT` | 409 | 임시저장 `version` 불일치 또는 동시 최초 생성. 응답 최상위 `latestDraft`로 서버 버전과 답안 전달 |
+| `DRAFT_TOO_LARGE` | 400 | 임시저장 요청의 직렬화된 JSON이 256KB를 초과 |
 | `INVALID_EXAM_DUE_AT` | 400 | 생성·수정 요청에 명시한 `dueAt`이 현재 시각보다 미래가 아님. 수정에서 필드를 생략하거나 null로 제거하는 것은 허용 |
 | `SCORE_OUT_OF_RANGE` | 400 | 수동 점수가 0 미만이거나 해당 문항의 `maxScore`를 초과함 |
 | `SUBMISSION_NOT_ADJUSTABLE` | 409 | 수동 점수 수정 대상 제출이 `GRADED` 상태가 아님. FE는 채점 완료 후 재시도를 안내 |

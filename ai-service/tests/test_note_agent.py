@@ -24,6 +24,7 @@ from edupilot_ai.orchestration.policy import PolicyVerifier, PolicyViolation
 from edupilot_ai.orchestration.timing import TurnDeadline
 from edupilot_ai.settings import Settings
 from tests.fakes import FakeLlm
+from tests.planner_fixtures import planner_output
 
 
 def _plan(
@@ -374,10 +375,12 @@ async def test_planner_note_proposal_widget(
     propose_note: bool,
 ) -> None:
     fake_llm.queue(
-        _plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "START_NEW", "threadRef": None},
-            propose_note=propose_note,
+        planner_output(
+            _plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "START_NEW", "threadRef": None},
+                propose_note=propose_note,
+            )
         ),
         AgentOutput(markdown="편차는 평균과 값의 차이를 뜻합니다."),
     )

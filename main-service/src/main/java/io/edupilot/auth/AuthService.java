@@ -2,9 +2,7 @@ package io.edupilot.auth;
 
 import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Locale;
-import java.util.Set;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -25,6 +23,8 @@ import io.edupilot.auth.dto.SignupRequest;
 import io.edupilot.auth.dto.SignupResponse;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.policy.PolicyService;
+import io.edupilot.policy.PolicyService.SignupSelection;
 import io.edupilot.user.User;
 import io.edupilot.user.UserActivityTracker;
 import io.edupilot.user.UserRepository;
@@ -34,8 +34,7 @@ import io.edupilot.user.dto.UserResponse;
 public class AuthService {
 
 	private static final String TOKEN_TYPE = "Bearer";
-	private static final Set<String> SUPPORTED_TERMS_VERSIONS = Set.of("2026-07-01");
-	private static final Set<String> SUPPORTED_PRIVACY_VERSIONS = Set.of("2026-07-01");
+	private static final String DUMMY_PASSWORD = "login-missing-account";
 
 	private final UserRepository userRepository;
 	private final PasswordEncoder passwordEncoder;
@@ -44,6 +43,9 @@ public class AuthService {
 	private final GoogleIdTokenVerifier googleIdTokenVerifier;
 	private final GoogleAccountService googleAccountService;
 	private final UserActivityTracker userActivityTracker;
+	private final LoginAttemptLimiter loginAttemptLimiter;
+	private final PolicyService policyService;
+	private final String dummyPasswordHash;
 	private final Clock clock;
 
 	public AuthService(
@@ -54,6 +56,8 @@ public class AuthService {
 		GoogleIdTokenVerifier googleIdTokenVerifier,
 		GoogleAccountService googleAccountService,
 		UserActivityTracker userActivityTracker,
+		LoginAttemptLimiter loginAttemptLimiter,
+		PolicyService policyService,
 		Clock clock
 	) {
 		this.userRepository = userRepository;
@@ -63,21 +67,20 @@ public class AuthService {
 		this.googleIdTokenVerifier = googleIdTokenVerifier;
 		this.googleAccountService = googleAccountService;
 		this.userActivityTracker = userActivityTracker;
+		this.loginAttemptLimiter = loginAttemptLimiter;
+		this.policyService = policyService;
+		this.dummyPasswordHash = passwordEncoder.encode(DUMMY_PASSWORD);
 		this.clock = clock;
 	}
 
 	@Transactional
-	public SignupResponse signup(SignupRequest request) {
+	public SignupResponse signup(SignupRequest request, String ip, String userAgent) {
 		String email = normalizeEmail(request.email());
 		if (!isEmailAvailable(email)) {
 			throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);
 		}
 
-		Consent consent = validateConsent(
-			request.termsVersion(),
-			request.privacyVersion(),
-			clock
-		);
+		SignupSelection consent = policyService.validateSignup(request.consents());
 		User user = User.create(
 			email,
 			passwordEncoder.encode(request.password()),
@@ -87,37 +90,49 @@ public class AuthService {
 			Boolean.TRUE.equals(request.learningEmailOptIn()),
 			consent.termsVersion(),
 			consent.privacyVersion(),
-			consent.consentedAt()
+			consent.agreedAt()
 		);
+		User savedUser;
 		try {
-			User savedUser = userRepository.saveAndFlush(user);
-			return SignupResponse.from(savedUser);
+			savedUser = userRepository.saveAndFlush(user);
 		} catch (DataIntegrityViolationException exception) {
 			throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);
 		}
+		policyService.recordSignup(savedUser, consent, ip, userAgent);
+		return SignupResponse.from(savedUser);
 	}
 
 	@Transactional
-	public LoginResult login(LoginRequest request) {
-		User user = userRepository.findByEmail(normalizeEmail(request.email()))
-			.orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
+	public LoginResult login(LoginRequest request, String ip) {
+		String email = normalizeEmail(request.email());
+		loginAttemptLimiter.checkLogin(email, ip);
+		User user = userRepository.findByEmail(email).orElse(null);
+		String passwordHash = user == null ? dummyPasswordHash : user.getPasswordHash();
+		if (!passwordEncoder.matches(request.password(), passwordHash) || user == null) {
+			loginAttemptLimiter.recordLoginFailure(email, ip);
+			throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
+		}
+		if (user.getStatus() == io.edupilot.user.UserStatus.SUSPENDED) {
+			throw new BusinessException(ErrorCode.ACCOUNT_SUSPENDED);
+		}
 		if (!user.isActive()) {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}
-		if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
-			throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
-		}
-
+		loginAttemptLimiter.recordLoginSuccess(email);
 		return issueLogin(user);
 	}
 
-	public LoginResult googleLogin(GoogleLoginRequest request) {
+	public LoginResult googleLogin(GoogleLoginRequest request, String ip, String userAgent) {
 		GoogleProfile profile = googleIdTokenVerifier.verify(request.idToken());
-		return issueLogin(googleAccountService.resolve(request, profile));
+		return issueLogin(googleAccountService.resolve(request, profile, ip, userAgent));
 	}
 
-	public RefreshResult refresh(String rawToken) {
+	public RefreshResult refresh(String rawToken, String ip) {
+		loginAttemptLimiter.checkRefresh(ip);
 		RotationResult rotation = refreshTokenService.rotate(rawToken);
+		if (rotation.status() != SessionStatus.SUCCESS) {
+			loginAttemptLimiter.recordRefreshFailure(ip);
+		}
 		throwIfSessionUnavailable(rotation.status());
 
 		String accessToken = jwtTokenProvider.createAccessToken(rotation.user());
@@ -163,7 +178,8 @@ public class AuthService {
 			TOKEN_TYPE,
 			jwtTokenProvider.accessTokenExpiresInSeconds(),
 			UserResponse.from(user),
-			AuthSessionResponse.from(issue.session(), issue.idleTtl())
+			AuthSessionResponse.from(issue.session(), issue.idleTtl()),
+			policyService.pendingForLogin(user.getId())
 		);
 		return new LoginResult(
 			response,
@@ -181,6 +197,7 @@ public class AuthService {
 				return;
 			}
 			case INACTIVE -> throw new BusinessException(ErrorCode.USER_INACTIVE);
+			case SUSPENDED -> throw new BusinessException(ErrorCode.ACCOUNT_SUSPENDED);
 			case IDLE_EXPIRED -> throw new BusinessException(
 				ErrorCode.AUTH_SESSION_IDLE_EXPIRED
 			);
@@ -200,39 +217,12 @@ public class AuthService {
 		return email.trim().toLowerCase(Locale.ROOT);
 	}
 
-	static Consent validateConsent(
-		String termsVersion,
-		String privacyVersion,
-		Clock clock
-	) {
-		String normalizedTerms = normalizeOptional(termsVersion);
-		String normalizedPrivacy = normalizeOptional(privacyVersion);
-		if ((normalizedTerms == null) != (normalizedPrivacy == null)) {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
-		}
-		if (normalizedTerms == null) {
-			return new Consent(null, null, null);
-		}
-		if (!SUPPORTED_TERMS_VERSIONS.contains(normalizedTerms)
-			|| !SUPPORTED_PRIVACY_VERSIONS.contains(normalizedPrivacy)) {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
-		}
-		return new Consent(normalizedTerms, normalizedPrivacy, clock.instant());
-	}
-
 	static String normalizeOptional(String value) {
 		if (value == null) {
 			return null;
 		}
 		String normalized = value.trim();
 		return normalized.isEmpty() ? null : normalized;
-	}
-
-	record Consent(
-		String termsVersion,
-		String privacyVersion,
-		Instant consentedAt
-	) {
 	}
 
 	public record LoginResult(

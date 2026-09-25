@@ -1,11 +1,8 @@
 package io.edupilot.admin.xai;
 
-import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
@@ -29,7 +26,9 @@ import io.edupilot.admin.xai.dto.XaiUsageGranularity;
 import io.edupilot.admin.xai.dto.XaiUsageGroupBy;
 import io.edupilot.admin.xai.dto.XaiUsageMetric;
 import io.edupilot.auth.AuthenticatedUser;
+import io.edupilot.admin.AdminAction;
 import io.edupilot.global.response.ApiResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -45,68 +44,62 @@ import jakarta.validation.constraints.Min;
 @Validated
 public class AdminXaiController {
 
-	private static final Logger log = LoggerFactory.getLogger(
-		AdminXaiController.class
-	);
-
 	private final AdminXaiService service;
 	private final AdminXaiUsageService usageService;
 	private final XaiAlertConfigService alertConfigService;
 	private final XaiSyncRateLimiter syncRateLimiter;
-	private final Clock clock;
 
 	public AdminXaiController(
 		AdminXaiService service,
 		AdminXaiUsageService usageService,
 		XaiAlertConfigService alertConfigService,
-		XaiSyncRateLimiter syncRateLimiter,
-		Clock clock
+		XaiSyncRateLimiter syncRateLimiter
 	) {
 		this.service = service;
 		this.usageService = usageService;
 		this.alertConfigService = alertConfigService;
 		this.syncRateLimiter = syncRateLimiter;
-		this.clock = clock;
 	}
 
 	@GetMapping("/credits")
+	@AdminAction("XAI_CREDITS_VIEWED")
 	@Operation(summary = "관리자 xAI 크레딧 조회")
 	public ApiResponse<AdminXaiCreditsResponse> credits(
 		@AuthenticationPrincipal AuthenticatedUser user
 	) {
-		audit(user.userId(), "XAI_CREDITS_VIEWED", "/api/admin/xai/credits");
 		return ApiResponse.success(service.credits());
 	}
 
 	@GetMapping("/status")
+	@AdminAction("XAI_STATUS_VIEWED")
 	@Operation(summary = "관리자 xAI 연동 상태 조회")
 	public ApiResponse<AdminXaiStatusResponse> status(
 		@AuthenticationPrincipal AuthenticatedUser user
 	) {
-		audit(user.userId(), "XAI_STATUS_VIEWED", "/api/admin/xai/status");
 		return ApiResponse.success(service.status());
 	}
 
 	@GetMapping("/overview")
+	@AdminAction("XAI_OVERVIEW_VIEWED")
 	@Operation(summary = "관리자 xAI 비용·잔액 요약 조회")
 	public ApiResponse<AdminXaiOverviewResponse> overview(
 		@AuthenticationPrincipal AuthenticatedUser user
 	) {
-		audit(user.userId(), "XAI_OVERVIEW_VIEWED", "/api/admin/xai/overview");
 		return ApiResponse.success(service.overview());
 	}
 
 	@PostMapping("/sync")
+	@AdminAction("XAI_SYNC")
 	@Operation(summary = "관리자 xAI 비용·잔액 즉시 동기화")
 	public ApiResponse<AdminXaiOverviewResponse> sync(
 		@AuthenticationPrincipal AuthenticatedUser user
 	) {
-		audit(user.userId(), "XAI_SYNC", "/api/admin/xai/sync");
 		syncRateLimiter.acquire(user.userId());
 		return ApiResponse.success(service.sync());
 	}
 
 	@GetMapping("/usage")
+	@AdminAction("XAI_USAGE_VIEWED")
 	@Operation(summary = "관리자 xAI 내부 사용량 시계열 조회")
 	public ApiResponse<AdminXaiUsageResponse> usage(
 		@RequestParam LocalDate from,
@@ -116,7 +109,6 @@ public class AdminXaiController {
 		@RequestParam(defaultValue = "FEATURE") XaiUsageGroupBy groupBy,
 		@AuthenticationPrincipal AuthenticatedUser user
 	) {
-		audit(user.userId(), "XAI_USAGE_VIEWED", "/api/admin/xai/usage");
 		return ApiResponse.success(usageService.usage(
 			from,
 			to,
@@ -127,59 +119,51 @@ public class AdminXaiController {
 	}
 
 	@GetMapping("/reconciliation")
+	@AdminAction("XAI_RECONCILIATION_VIEWED")
 	@Operation(summary = "관리자 내부 비용과 xAI 청구액 대조")
 	public ApiResponse<AdminXaiReconciliationResponse> reconciliation(
 		@RequestParam LocalDate from,
 		@RequestParam LocalDate to,
 		@AuthenticationPrincipal AuthenticatedUser user
 	) {
-		audit(
-			user.userId(),
-			"XAI_RECONCILIATION_VIEWED",
-			"/api/admin/xai/reconciliation"
-		);
 		return ApiResponse.success(service.reconciliation(from, to));
 	}
 
 	@GetMapping("/invoices")
+	@AdminAction("XAI_INVOICES_VIEWED")
 	@Operation(summary = "관리자 xAI 월별 청구서 조회")
 	public ApiResponse<AdminXaiInvoicesResponse> invoices(
 		@RequestParam @Min(1) int year,
 		@RequestParam @Min(1) @Max(12) int month,
 		@AuthenticationPrincipal AuthenticatedUser user
 	) {
-		audit(user.userId(), "XAI_INVOICES_VIEWED", "/api/admin/xai/invoices");
 		return ApiResponse.success(service.invoices(YearMonth.of(year, month)));
 	}
 
 	@GetMapping("/alerts")
+	@AdminAction("XAI_ALERTS_VIEWED")
 	@Operation(summary = "관리자 xAI 위험 임계값 조회")
 	public ApiResponse<AdminXaiAlertsResponse> alerts(
 		@AuthenticationPrincipal AuthenticatedUser user
 	) {
-		audit(user.userId(), "XAI_ALERTS_VIEWED", "/api/admin/xai/alerts");
 		return ApiResponse.success(alertConfigService.get());
 	}
 
 	@PutMapping("/alerts")
+	@AdminAction("XAI_ALERT_UPDATED")
 	@Operation(summary = "관리자 xAI 위험 임계값 수정")
 	// 관리자 인프라 조회 전용 원칙의 예외: 운영 임계값을 안전한 API로 조정한다.
 	public ApiResponse<AdminXaiAlertsResponse> updateAlerts(
 		@Valid @RequestBody UpdateXaiAlertsRequest request,
-		@AuthenticationPrincipal AuthenticatedUser user
+		@AuthenticationPrincipal AuthenticatedUser user,
+		HttpServletRequest servletRequest
 	) {
-		return ApiResponse.success(alertConfigService.update(
-			user.userId(),
-			request
-		));
+		XaiAlertConfigService.UpdateResult updated = alertConfigService.update(
+			user.userId(), request
+		);
+		servletRequest.setAttribute("adminAuditBefore", updated.before());
+		servletRequest.setAttribute("adminAuditAfter", updated.after());
+		return ApiResponse.success(updated.response());
 	}
 
-	private void audit(Long actorUserId, String action, String endpoint) {
-		log.atInfo()
-			.addKeyValue("actorUserId", actorUserId)
-			.addKeyValue("action", action)
-			.addKeyValue("endpoint", endpoint)
-			.addKeyValue("occurredAt", clock.instant())
-			.log("Admin xAI Management API accessed");
-	}
 }

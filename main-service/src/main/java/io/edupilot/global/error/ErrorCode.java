@@ -99,6 +99,39 @@ public enum ErrorCode {
 		HttpStatus.UNAUTHORIZED,
 		"이메일 또는 비밀번호가 올바르지 않습니다."
 	),
+	LOGIN_RATE_LIMITED(
+		"LOGIN_RATE_LIMITED",
+		HttpStatus.TOO_MANY_REQUESTS,
+		"로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요."
+	),
+	ACCOUNT_SUSPENDED(
+		"ACCOUNT_SUSPENDED",
+		HttpStatus.UNAUTHORIZED,
+		"정지된 계정입니다. 관리자에게 문의해 주세요."
+	),
+	ADMIN_SELF_MODIFICATION(
+		"ADMIN_SELF_MODIFICATION",
+		HttpStatus.BAD_REQUEST,
+		"자기 자신의 관리자 권한은 변경할 수 없습니다."
+	),
+	LAST_ADMIN_PROTECTED(
+		"LAST_ADMIN_PROTECTED",
+		HttpStatus.BAD_REQUEST,
+		"마지막 활성 관리자는 정지하거나 강등할 수 없습니다."
+	),
+	POLICY_NOT_FOUND("POLICY_NOT_FOUND", HttpStatus.NOT_FOUND, "정책 버전을 찾을 수 없습니다."),
+	POLICY_CONSENT_REQUIRED(
+		"POLICY_CONSENT_REQUIRED", HttpStatus.BAD_REQUEST,
+		"현재 이용약관과 개인정보처리방침에 모두 동의해 주세요."
+	),
+	POLICY_VERSION_MISMATCH(
+		"POLICY_VERSION_MISMATCH", HttpStatus.BAD_REQUEST,
+		"현재 유효한 정책 버전에만 동의할 수 있습니다."
+	),
+	POLICY_VERSION_EXISTS(
+		"POLICY_VERSION_EXISTS", HttpStatus.CONFLICT,
+		"이미 등록된 정책 버전입니다."
+	),
 	PASSWORD_NOT_SUPPORTED(
 		"PASSWORD_NOT_SUPPORTED",
 		HttpStatus.CONFLICT,
@@ -123,6 +156,11 @@ public enum ErrorCode {
 		"PASSWORD_RESET_NOT_ALLOWED",
 		HttpStatus.CONFLICT,
 		"이 사용자의 비밀번호를 초기화할 수 없습니다."
+	),
+	RESET_TOKEN_INVALID(
+		"RESET_TOKEN_INVALID",
+		HttpStatus.BAD_REQUEST,
+		"재설정 링크가 만료되었거나 유효하지 않습니다."
 	),
 	USER_INACTIVE("USER_INACTIVE", HttpStatus.FORBIDDEN, "비활성화된 사용자입니다."),
 	USER_NOT_FOUND("USER_NOT_FOUND", HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."),
@@ -180,6 +218,21 @@ public enum ErrorCode {
 		"NOTE_NOT_FOUND",
 		HttpStatus.NOT_FOUND,
 		"노트를 찾을 수 없습니다."
+	),
+	NOTE_TOO_LARGE(
+		"NOTE_TOO_LARGE",
+		HttpStatus.BAD_REQUEST,
+		"노트 내용은 1MB를 초과할 수 없습니다."
+	),
+	NOTE_LIMIT_EXCEEDED(
+		"NOTE_LIMIT_EXCEEDED",
+		HttpStatus.BAD_REQUEST,
+		"활성 노트는 2,000개를 초과할 수 없습니다."
+	),
+	WRONG_ANSWER_NOTE_NOT_FOUND(
+		"WRONG_ANSWER_NOTE_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"오답 노트를 찾을 수 없습니다."
 	),
 	SCHEDULE_NOT_FOUND(
 		"SCHEDULE_NOT_FOUND",
@@ -250,6 +303,16 @@ public enum ErrorCode {
 		"EXAM_ALREADY_SUBMITTED",
 		HttpStatus.CONFLICT,
 		"이미 제출한 시험입니다."
+	),
+	DRAFT_VERSION_CONFLICT(
+		"DRAFT_VERSION_CONFLICT",
+		HttpStatus.CONFLICT,
+		"다른 기기에서 저장한 답안이 있습니다."
+	),
+	DRAFT_TOO_LARGE(
+		"DRAFT_TOO_LARGE",
+		HttpStatus.BAD_REQUEST,
+		"시험 임시저장 답안 크기는 256KB를 초과할 수 없습니다."
 	),
 	INVALID_EXAM_ANSWER(
 		"INVALID_EXAM_ANSWER",

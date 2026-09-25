@@ -13,8 +13,20 @@ services:
     build: !reset null
     image: ghcr.io/autoai-uteum/main-service:${TAG}
     environment:
-      SPRING_PROFILES_ACTIVE: ${ENVIRONMENT:-prod}
+      SPRING_PROFILES_ACTIVE: ${ENVIRONMENT:-${EDUPILOT_ENVIRONMENT:-prod}}
       EDUPILOT_STORAGE_DIR: /var/lib/edupilot/storage
+      EDUPILOT_MAIL_PROVIDER: ${EDUPILOT_MAIL_PROVIDER:-ses}
+      EDUPILOT_MAIL_BASE_URL: ${EDUPILOT_MAIL_BASE_URL:-https://www.uteum.com}
+    logging:
+      driver: awslogs
+      options:
+        max-size: !reset null
+        max-file: !reset null
+        awslogs-region: ap-northeast-2
+        awslogs-group: /edupilot/${ENVIRONMENT:-${EDUPILOT_ENVIRONMENT:-prod}}/main
+        awslogs-create-group: "true"
+        awslogs-stream: main-service
+        cache-disabled: "false"
     ports: !reset []
     restart: unless-stopped
 
@@ -23,9 +35,19 @@ services:
     build: !reset null
     image: ghcr.io/autoai-uteum/ai-service:${TAG}
     environment:
-      ENVIRONMENT: ${ENVIRONMENT:-prod}
+      ENVIRONMENT: ${ENVIRONMENT:-${EDUPILOT_ENVIRONMENT:-prod}}
       EDUPILOT_XAI_FILES_ENABLED: ${XAI_FILES_ENABLED:-false}
       EDUPILOT_XAI_FILE_UPLOAD_TIMEOUT_SECONDS: 60
+    logging:
+      driver: awslogs
+      options:
+        max-size: !reset null
+        max-file: !reset null
+        awslogs-region: ap-northeast-2
+        awslogs-group: /edupilot/${ENVIRONMENT:-${EDUPILOT_ENVIRONMENT:-prod}}/ai
+        awslogs-create-group: "true"
+        awslogs-stream: ai-service
+        cache-disabled: "false"
     restart: unless-stopped
 
   nginx:

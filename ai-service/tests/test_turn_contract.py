@@ -25,6 +25,7 @@ from edupilot_ai.orchestration.prompts import plan_messages
 from edupilot_ai.orchestration.timing import TurnDeadline
 from edupilot_ai.settings import Settings
 from tests.fakes import FakeLlm
+from tests.planner_fixtures import planner_output
 
 
 def make_plan(tool: ToolName, args: dict[str, object], goal: str) -> TurnPlan:
@@ -99,7 +100,7 @@ async def test_explain_current_page_turn(
     context["learnerConfidence"] = "HIGH"
     context["xaiFileId"] = "file-explain-json"
     fake_llm.queue_completion(
-        make_explain_plan(propose_quiz=True),
+        planner_output(make_explain_plan(propose_quiz=True)),
         LlmUsage("grok-4.5-live", 7, 3, 2),
     )
     fake_llm.queue_completion(
@@ -168,7 +169,7 @@ async def test_explain_runtime_plan_can_decline_quiz_proposal(
     assert isinstance(context, dict)
     context["xaiFileId"] = "file-explain-no-quiz"
     fake_llm.queue(
-        make_explain_plan(propose_quiz=False),
+        planner_output(make_explain_plan(propose_quiz=False)),
         AgentOutput(markdown="현재 흐름을 이어서 설명합니다."),
     )
 
@@ -238,17 +239,14 @@ def test_plan_prompt_declares_policy_value_contracts(
     system_prompt = plan_messages(context, retry=False)[0]["content"]
 
     assert "qaThreadMode must be exactly START_NEW or FOLLOW_UP" in system_prompt
-    assert "START_NEW requires threadRef=null" in system_prompt
-    assert "FOLLOW_UP requires the exact snapshot qaThreadDigest.threadRef" in system_prompt
-    assert "if qaThreadDigest is absent, choose START_NEW" in system_prompt
-    assert "quizType must equal the event payload value" in system_prompt
+    assert "The server fills threadRef=null for START_NEW" in system_prompt
+    assert "the exact snapshot qaThreadDigest.threadRef for FOLLOW_UP" in system_prompt
+    assert "If that threadRef is absent, choose START_NEW" in system_prompt
     assert "PROMOTE_MEMORY={candidateIds}" in system_prompt
     assert "memory.temporaryCandidates" in system_prompt
     assert "never invent a new candidateId" in system_prompt
     assert "confidence is at least 0.7" in system_prompt
     assert "unique evidenceRefs total at least 2" in system_prompt
-    assert "one of MCQ, OX, SHORT, ESSAY" in system_prompt
-    assert "diagnosisId must equal snapshot pendingDiagnosis.diagnosisId" in system_prompt
     assert "type must be one of STRENGTH, WEAKNESS, MISCONCEPTION, PREFERENCE" in (system_prompt)
     assert "confidence must be a number from 0 to 1" in system_prompt
 
@@ -256,23 +254,24 @@ def test_plan_prompt_declares_policy_value_contracts(
 def test_plan_prompt_declares_runtime_quiz_decision_contract(
     turn_payload: dict[str, object],
 ) -> None:
-    agent_context = ContextBuilder().build(TurnRequest.model_validate(turn_payload))
+    payload = deepcopy(turn_payload)
+    payload["event"] = {
+        "eventType": "EXPLAIN_CURRENT_PAGE",
+        "payload": {"detailLevel": "NORMAL"},
+    }
+    agent_context = ContextBuilder().build(TurnRequest.model_validate(payload))
     context = PlanContext.from_agent_context(agent_context)
 
     system_prompt = plan_messages(context, retry=False)[0]["content"]
 
     assert "PROMPT_BINARY_DECISION" in system_prompt
     assert "PROMPT_QUIZ_TYPE_SELECTION" in system_prompt
-    assert "PROMPT_BINARY_DECISION={contentMarkdown,decisionType}" in system_prompt
-    assert "contentMarkdown exactly '퀴즈를 진행할까요?'" in system_prompt
-    assert "decisionType exactly QUIZ_DECISION" in system_prompt
+    assert "PROMPT_BINARY_DECISION={}" in system_prompt
+    assert "server fills the fixed QUIZ_DECISION prompt '퀴즈를 진행할까요?'" in system_prompt
     assert "attached PDF as the complete learning flow" in system_prompt
     assert "independently testable foundational concept" in system_prompt
     assert "not page length, outline-section boundaries" in system_prompt
     assert "EXPLAIN_CURRENT_PAGE->EXPLAIN_PAGE" in system_prompt
-    assert "USER_QUESTION->ANSWER_QUESTION" in system_prompt
-    assert "QUIZ_TYPE_SELECTED->GENERATE_QUIZ_{type}" in system_prompt
-    assert "DIAGNOSIS_ANSWER_SUBMITTED->REPAIR_MISCONCEPTION" in system_prompt
 
 
 def test_explain_policy_accepts_exact_runtime_quiz_decision(
@@ -485,10 +484,12 @@ async def test_policy_rejection_logs_reason_and_plan_actions(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "START_NEW", "content": "PRIVATE-STUDENT-ANSWER"},
-            "ANSWER_USER_QUESTION",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "PRIVATE-STUDENT-ANSWER"},
+                "ANSWER_USER_QUESTION",
+            )
         )
     )
 
@@ -499,7 +500,7 @@ async def test_policy_rejection_logs_reason_and_plan_actions(
         response = await post_turn(client, auth_headers, turn_payload)
 
     assert response.status_code == 502
-    assert "tool args do not match policy" in caplog.text
+    assert "invalid qaThreadMode" in caplog.text
     assert "ANSWER_QUESTION" in caplog.text
     assert "qaThreadMode" in caplog.text
     assert "PRIVATE-STUDENT-ANSWER" not in caplog.text
@@ -517,10 +518,12 @@ async def test_user_question_start_new(
     context["learnerConfidence"] = "LOW"
     context["xaiFileId"] = "file-qa-json"
     fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "START_NEW", "threadRef": None},
-            "ANSWER_USER_QUESTION",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "START_NEW", "threadRef": None},
+                "ANSWER_USER_QUESTION",
+            )
         ),
         AgentOutput(markdown="편차는 평균에서 떨어진 정도입니다."),
     )
@@ -557,10 +560,12 @@ async def test_conversation_summary_reaches_planner_and_qa_payloads(
     assert isinstance(context, dict)
     context["conversationSummary"] = "학생은 그림 예시를 선호하며 편차를 복습 중입니다."
     fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "START_NEW", "threadRef": None},
-            "ANSWER_USER_QUESTION",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "START_NEW", "threadRef": None},
+                "ANSWER_USER_QUESTION",
+            )
         ),
         AgentOutput(markdown="편차를 그림 예시로 다시 설명하겠습니다."),
     )
@@ -577,7 +582,7 @@ async def test_conversation_summary_reaches_planner_and_qa_payloads(
 
 
 @pytest.mark.parametrize("mode_alias", ["NEW", "new"])
-async def test_user_question_new_alias_strips_invented_thread_ref(
+async def test_user_question_new_alias_restores_null_thread_ref(
     client: httpx.AsyncClient,
     fake_llm: FakeLlm,
     auth_headers: dict[str, str],
@@ -585,10 +590,12 @@ async def test_user_question_new_alias_strips_invented_thread_ref(
     mode_alias: str,
 ) -> None:
     fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": mode_alias, "threadRef": "qa-invented"},
-            "ANSWER_USER_QUESTION",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": mode_alias},
+                "ANSWER_USER_QUESTION",
+            )
         ),
         AgentOutput(markdown="편차는 평균과의 차이입니다."),
     )
@@ -613,10 +620,12 @@ async def test_user_question_follow_up_includes_thread_and_latest_repair(
     context["qaThreadDigest"] = {"threadRef": "qa-7", "summary": "편차 질문"}
     context["latestRepair"] = {"content": "평균부터 다시 설명"}
     fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "FOLLOW_UP", "threadRef": "qa-7"},
-            "ANSWER_FOLLOW_UP",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "FOLLOW_UP", "threadRef": "qa-7"},
+                "ANSWER_FOLLOW_UP",
+            )
         ),
         AgentOutput(markdown="앞선 설명과 연결하면..."),
     )
@@ -658,7 +667,9 @@ async def test_pipeline_tool_is_rejected_by_policy(
     auth_headers: dict[str, str],
     turn_payload: dict[str, object],
 ) -> None:
-    fake_llm.queue(make_plan(ToolName.GRADE_OPEN_RESPONSE, {}, "INVALID_PIPELINE_TOOL"))
+    fake_llm.queue(
+        planner_output(make_plan(ToolName.GRADE_OPEN_RESPONSE, {}, "INVALID_PIPELINE_TOOL"))
+    )
 
     response = await post_turn(client, auth_headers, turn_payload)
 
@@ -675,28 +686,30 @@ async def test_ui_prompt_tool_is_rejected_by_policy(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue(
-        TurnPlan(
-            turn_goal="ANSWER_USER_QUESTION",
-            pedagogy_policy=PedagogyPolicy(
-                mode="GROUND_FIRST",
-                reason="contract test",
-                allow_direct_answer=True,
-                hint_depth="MEDIUM",
-                intervention_budget=2,
-            ),
-            actions=[
-                PlanAction(
-                    action_id="action-1",
-                    tool=ToolName.ANSWER_QUESTION,
-                    args={"qaThreadMode": "START_NEW", "threadRef": None},
+        planner_output(
+            TurnPlan(
+                turn_goal="ANSWER_USER_QUESTION",
+                pedagogy_policy=PedagogyPolicy(
+                    mode="GROUND_FIRST",
+                    reason="contract test",
+                    allow_direct_answer=True,
+                    hint_depth="MEDIUM",
+                    intervention_budget=2,
                 ),
-                PlanAction(
-                    action_id="action-2",
-                    tool=ToolName.PROMPT_BINARY_DECISION,
-                    args={},
-                ),
-            ],
-            reason="contract test plan",
+                actions=[
+                    PlanAction(
+                        action_id="action-1",
+                        tool=ToolName.ANSWER_QUESTION,
+                        args={"qaThreadMode": "START_NEW", "threadRef": None},
+                    ),
+                    PlanAction(
+                        action_id="action-2",
+                        tool=ToolName.PROMPT_BINARY_DECISION,
+                        args={},
+                    ),
+                ],
+                reason="contract test plan",
+            )
         )
     )
 
@@ -723,10 +736,12 @@ async def test_plan_schema_failure_regenerates_once(
         ),
     )
     fake_llm.queue_completion(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "START_NEW", "threadRef": None},
-            "ANSWER_USER_QUESTION",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "START_NEW", "threadRef": None},
+                "ANSWER_USER_QUESTION",
+            )
         ),
         LlmUsage("grok-4.5", 20, 3, 2),
     )
@@ -775,10 +790,12 @@ async def test_agent_timeout_returns_retryable_timeout_envelope(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "START_NEW", "threadRef": None},
-            "ANSWER_USER_QUESTION",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "START_NEW", "threadRef": None},
+                "ANSWER_USER_QUESTION",
+            )
         ),
         LlmBridgeError(category=ErrorCategory.TIMEOUT, retryable=True),
     )
@@ -799,10 +816,12 @@ async def test_turn_aggregates_plan_and_agent_usage(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue_completion(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "START_NEW", "threadRef": None},
-            "ANSWER_USER_QUESTION",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "START_NEW", "threadRef": None},
+                "ANSWER_USER_QUESTION",
+            )
         ),
         LlmUsage("grok-4.5", 10, 4, 2),
     )
@@ -829,10 +848,12 @@ async def test_follow_up_without_digest_is_rejected(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "FOLLOW_UP", "threadRef": "qa-missing"},
-            "ANSWER_FOLLOW_UP",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "FOLLOW_UP", "threadRef": "qa-missing"},
+                "ANSWER_FOLLOW_UP",
+            )
         )
     )
 
@@ -842,29 +863,21 @@ async def test_follow_up_without_digest_is_rejected(
     assert response.json()["error"]["category"] == "POLICY"
 
 
-async def test_follow_up_forged_thread_ref_is_rejected(
-    client: httpx.AsyncClient,
-    fake_llm: FakeLlm,
-    auth_headers: dict[str, str],
+def test_follow_up_forged_thread_ref_is_still_rejected_by_policy(
     turn_payload: dict[str, object],
 ) -> None:
     payload = deepcopy(turn_payload)
     context = payload["context"]
     assert isinstance(context, dict)
     context["qaThreadDigest"] = {"threadRef": "qa-7", "summary": "편차 질문"}
-    fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "FOLLOW_UP", "threadRef": "qa-forged"},
-            "ANSWER_FOLLOW_UP",
-        )
+    plan = make_plan(
+        ToolName.ANSWER_QUESTION,
+        {"qaThreadMode": "FOLLOW_UP", "threadRef": "qa-forged"},
+        "ANSWER_FOLLOW_UP",
     )
-
-    response = await post_turn(client, auth_headers, payload)
-
-    assert response.status_code == 502
-    assert response.json()["error"]["category"] == "POLICY"
-    assert len(fake_llm.calls) == 1
+    # The LLM no longer echoes threadRef; retain the execution-Plan safety net.
+    with pytest.raises(PolicyViolation, match="threadRef mismatch"):
+        PolicyVerifier().verify(plan, ContextBuilder().build(TurnRequest.model_validate(payload)))
 
 
 @pytest.mark.parametrize("mode_alias", ["FOLLOWUP", "follow-up"])
@@ -902,10 +915,12 @@ async def test_unknown_qa_thread_mode_is_rejected(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "CONTINUE", "threadRef": None},
-            "ANSWER_USER_QUESTION",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "CONTINUE", "threadRef": None},
+                "ANSWER_USER_QUESTION",
+            )
         )
     )
 
@@ -928,17 +943,19 @@ async def test_intervention_budget_violation_is_rejected(
         args={"qaThreadMode": "START_NEW", "threadRef": None},
     )
     fake_llm.queue(
-        TurnPlan(
-            turn_goal="ANSWER_USER_QUESTION",
-            pedagogy_policy=PedagogyPolicy(
-                mode="GROUND_FIRST",
-                reason="budget test",
-                allow_direct_answer=True,
-                hint_depth="MEDIUM",
-                intervention_budget=1,
-            ),
-            actions=[first, first.model_copy(update={"action_id": "action-2"})],
-            reason="budget violation",
+        planner_output(
+            TurnPlan(
+                turn_goal="ANSWER_USER_QUESTION",
+                pedagogy_policy=PedagogyPolicy(
+                    mode="GROUND_FIRST",
+                    reason="budget test",
+                    allow_direct_answer=True,
+                    hint_depth="MEDIUM",
+                    intervention_budget=1,
+                ),
+                actions=[first, first.model_copy(update={"action_id": "action-2"})],
+                reason="budget violation",
+            )
         )
     )
 

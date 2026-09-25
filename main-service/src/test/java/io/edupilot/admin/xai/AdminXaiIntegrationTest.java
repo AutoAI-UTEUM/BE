@@ -20,6 +20,7 @@ import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
@@ -33,6 +34,10 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.admin.xai.XaiManagementClient.InvoicePreview;
+import io.edupilot.admin.AdminAuditInterceptor;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.edupilot.admin.xai.XaiManagementClient.InvoiceSummary;
 import io.edupilot.admin.xai.XaiManagementClient.PrepaidBalance;
 import io.edupilot.admin.xai.XaiManagementClient.SpendingLimits;
@@ -187,13 +192,25 @@ class AdminXaiIntegrationTest {
 			"integration-private-team"
 		);
 
-		mockMvc.perform(put("/api/admin/xai/alerts")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(alertBody())
-				.header(HttpHeaders.AUTHORIZATION, bearer(admin)))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.balanceCriticalUsd").value("20"))
-			.andExpect(jsonPath("$.data.balanceWarningUsd").value("80"));
+		Logger logger = (Logger)LoggerFactory.getLogger(AdminAuditInterceptor.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			mockMvc.perform(put("/api/admin/xai/alerts")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(alertBody())
+					.header(HttpHeaders.AUTHORIZATION, bearer(admin)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.balanceCriticalUsd").value("20"))
+				.andExpect(jsonPath("$.data.balanceWarningUsd").value("80"));
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+		assertThat(appender.list).hasSize(1);
+		assertThat(appender.list.getFirst().getKeyValuePairs().toString())
+			.contains("XAI_ALERT_UPDATED", "before", "after");
 	}
 
 	@Test

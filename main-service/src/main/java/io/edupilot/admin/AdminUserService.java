@@ -1,11 +1,8 @@
 package io.edupilot.admin;
 
 import java.time.Clock;
-import java.time.Instant;
 import java.util.Locale;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -18,6 +15,7 @@ import io.edupilot.admin.dto.AdminUserDetailResponse;
 import io.edupilot.admin.dto.AdminUserListResponse;
 import io.edupilot.admin.dto.AdminUserResponse;
 import io.edupilot.auth.RefreshTokenService;
+import io.edupilot.auth.UserAccessGuard;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.user.AuthProvider;
@@ -28,14 +26,13 @@ import io.edupilot.user.UserStatus;
 
 @Service
 public class AdminUserService {
-	private static final Logger log = LoggerFactory.getLogger(AdminUserService.class);
-	private static final String PASSWORD_RESET_ACTION = "ADMIN_PASSWORD_RESET";
 	private static final String PASSWORD_RESET_MESSAGE = "로그인 후 즉시 변경 안내";
 
 	private final UserRepository userRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final RefreshTokenService refreshTokenService;
 	private final TemporaryPasswordGenerator temporaryPasswordGenerator;
+	private final UserAccessGuard userAccessGuard;
 	private final Clock clock;
 
 	public AdminUserService(
@@ -43,12 +40,14 @@ public class AdminUserService {
 		PasswordEncoder passwordEncoder,
 		RefreshTokenService refreshTokenService,
 		TemporaryPasswordGenerator temporaryPasswordGenerator,
+		UserAccessGuard userAccessGuard,
 		Clock clock
 	) {
 		this.userRepository = userRepository;
 		this.passwordEncoder = passwordEncoder;
 		this.refreshTokenService = refreshTokenService;
 		this.temporaryPasswordGenerator = temporaryPasswordGenerator;
+		this.userAccessGuard = userAccessGuard;
 		this.clock = clock;
 	}
 
@@ -106,17 +105,76 @@ public class AdminUserService {
 		target.changePassword(passwordEncoder.encode(temporaryPassword));
 		userRepository.flush();
 		refreshTokenService.revokeAll(targetUserId);
-		Instant occurredAt = clock.instant();
-		log.atInfo()
-			.addKeyValue("actorUserId", actorUserId)
-			.addKeyValue("targetUserId", targetUserId)
-			.addKeyValue("action", PASSWORD_RESET_ACTION)
-			.addKeyValue("occurredAt", occurredAt)
-			.log("Administrator reset user password");
 		return new AdminPasswordResetResponse(
 			temporaryPassword,
 			PASSWORD_RESET_MESSAGE
 		);
+	}
+
+	/** 관리자 조회 전용 원칙의 예외: 계정 정지와 역할 변경을 감사 가능한 경로로 제한한다. */
+	@Transactional
+	public AdminUserDetailResponse suspend(Long actorUserId, Long targetUserId, String reason) {
+		if (actorUserId.equals(targetUserId)) {
+			throw new BusinessException(ErrorCode.ADMIN_SELF_MODIFICATION);
+		}
+		var activeAdmins = userRepository.findActiveAdminsForUpdate();
+		User target = lockedTarget(targetUserId);
+		if (!target.isActive()) {
+			throw new BusinessException(ErrorCode.USER_INACTIVE);
+		}
+		protectLastAdmin(target, activeAdmins.size());
+		target.suspend(reason.trim(), actorUserId, clock.instant());
+		refreshTokenService.revokeAll(targetUserId);
+		userAccessGuard.invalidateAfterCommit(targetUserId);
+		return AdminUserDetailResponse.from(target);
+	}
+
+	@Transactional
+	public AdminUserDetailResponse reinstate(Long targetUserId) {
+		User target = lockedTarget(targetUserId);
+		if (target.getStatus() != UserStatus.SUSPENDED) {
+			throw new BusinessException(ErrorCode.USER_INACTIVE);
+		}
+		target.reinstate();
+		userAccessGuard.invalidateAfterCommit(targetUserId);
+		return AdminUserDetailResponse.from(target);
+	}
+
+	@Transactional
+	public RoleChangeResult changeRole(Long actorUserId, Long targetUserId, UserRole role) {
+		if (actorUserId.equals(targetUserId) && role != UserRole.ADMIN) {
+			throw new BusinessException(ErrorCode.ADMIN_SELF_MODIFICATION);
+		}
+		var activeAdmins = userRepository.findActiveAdminsForUpdate();
+		User target = lockedTarget(targetUserId);
+		if (target.getStatus() == UserStatus.DELETED) {
+			throw new BusinessException(ErrorCode.USER_INACTIVE);
+		}
+		UserRole before = target.getRole();
+		if (before == role) {
+			return new RoleChangeResult(before, AdminUserDetailResponse.from(target));
+		}
+		if (role != UserRole.ADMIN && target.isActive()) {
+			protectLastAdmin(target, activeAdmins.size());
+		}
+		target.changeRole(role);
+		refreshTokenService.revokeAll(targetUserId);
+		userAccessGuard.invalidateAfterCommit(targetUserId);
+		return new RoleChangeResult(before, AdminUserDetailResponse.from(target));
+	}
+
+	private User lockedTarget(Long userId) {
+		return userRepository.findByIdForUpdate(userId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+	}
+
+	private void protectLastAdmin(User target, int activeAdminCount) {
+		if (target.getRole() == UserRole.ADMIN && activeAdminCount <= 1) {
+			throw new BusinessException(ErrorCode.LAST_ADMIN_PROTECTED);
+		}
+	}
+
+	public record RoleChangeResult(UserRole before, AdminUserDetailResponse user) {
 	}
 
 	private String normalizedQuery(String query) {

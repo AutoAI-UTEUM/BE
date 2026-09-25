@@ -74,6 +74,15 @@ public class User {
 	@Column(nullable = false, length = 20)
 	private UserStatus status;
 
+	@Column(name = "suspended_at")
+	private Instant suspendedAt;
+
+	@Column(name = "suspended_reason", length = 500)
+	private String suspendedReason;
+
+	@Column(name = "suspended_by")
+	private Long suspendedBy;
+
 	@Column(name = "last_active_at")
 	private Instant lastActiveAt;
 
@@ -201,6 +210,27 @@ public class User {
 		this.passwordHash = "!withdrawn:" + id;
 		this.googleSub = null;
 		this.status = UserStatus.DELETED;
+		this.suspendedAt = null;
+		this.suspendedReason = null;
+		this.suspendedBy = null;
+	}
+
+	public void suspend(String reason, Long actorUserId, Instant now) {
+		this.status = UserStatus.SUSPENDED;
+		this.suspendedReason = reason;
+		this.suspendedBy = actorUserId;
+		this.suspendedAt = now;
+	}
+
+	public void reinstate() {
+		this.status = UserStatus.ACTIVE;
+		this.suspendedAt = null;
+		this.suspendedReason = null;
+		this.suspendedBy = null;
+	}
+
+	public void changeRole(UserRole role) {
+		this.role = role;
 	}
 
 	public void updateProfile(String name, String affiliation) {
@@ -300,6 +330,18 @@ public class User {
 
 	public UserStatus getStatus() {
 		return status;
+	}
+
+	public Instant getSuspendedAt() {
+		return suspendedAt;
+	}
+
+	public String getSuspendedReason() {
+		return suspendedReason;
+	}
+
+	public Long getSuspendedBy() {
+		return suspendedBy;
 	}
 
 	public Instant getCreatedAt() {

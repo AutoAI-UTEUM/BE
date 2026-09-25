@@ -1,4 +1,4 @@
-"""Structured Plan generation with one schema regeneration."""
+"""Generate compact decisions, restore a Plan, and allow one schema regeneration."""
 
 import logging
 from dataclasses import dataclass
@@ -14,6 +14,7 @@ from edupilot_ai.llm.bridge import (
 from edupilot_ai.models.plan import TurnPlan
 from edupilot_ai.models.turn import EventType
 from edupilot_ai.orchestration.context import AgentContext, PlanContext
+from edupilot_ai.orchestration.planner_output import PlannerOutput, expand_planner_output
 from edupilot_ai.orchestration.prompt_cache import turn_prompt_cache
 from edupilot_ai.orchestration.prompts import plan_messages
 from edupilot_ai.orchestration.timing import TurnDeadline
@@ -59,7 +60,7 @@ class Orchestrator:
             try:
                 completion = await self._llm.complete_json(
                     messages=plan_messages(plan_context, retry=attempt == 1),
-                    response_model=TurnPlan,
+                    response_model=PlannerOutput,
                     profile=self._profile,
                     timeout_seconds=deadline.remaining_seconds(),
                     attachments=attachments,
@@ -75,7 +76,7 @@ class Orchestrator:
                 )
                 usages.append(completion.usage)
                 return PlanResult(
-                    plan=completion.output,
+                    plan=expand_planner_output(completion.output, context),
                     usage=combine_llm_usages(usages, default_model=self._profile.model),
                     attempts=attempt + 1,
                 )

@@ -16,7 +16,9 @@ public record AdminUserDetailResponse(
 	AuthProvider authProvider,
 	Instant createdAt,
 	String affiliation,
-	Instant consentedAt
+	Instant consentedAt,
+	Instant suspendedAt,
+	String suspendedReason
 ) {
 	public static AdminUserDetailResponse from(User user) {
 		return new AdminUserDetailResponse(
@@ -28,7 +30,9 @@ public record AdminUserDetailResponse(
 			user.getAuthProvider(),
 			user.getCreatedAt(),
 			user.getAffiliation(),
-			user.getConsentedAt()
+			user.getConsentedAt(),
+			user.getSuspendedAt(),
+			user.getSuspendedReason()
 		);
 	}
 }

@@ -78,16 +78,23 @@ erDiagram
 - 비밀번호 원문을 저장하지 않습니다.
 - 역할은 `LEARNER`, `INSTRUCTOR`, `ADMIN`입니다. 공개 가입은 `LEARNER | INSTRUCTOR`만 허용하고 `ADMIN`은 기능 미구현·예약 상태로 유지합니다(DEC-017, DEC-029 Accepted).
 - `LEARNER`와 `INSTRUCTOR`는 개인 PDF 업로드와 개인 통합학습을 사용할 수 있습니다. 강의실 개설·관리·자료 연결은 소유 `INSTRUCTOR`만 가능하고, `LEARNER`와 타 강의실에 참여한 `INSTRUCTOR`는 승인 멤버로서 공개 자료를 조회·학습할 수 있습니다(DEC-030).
-- 상태는 `ACTIVE`, `DELETED`입니다. 탈퇴(DEC-028)는 논리 삭제 + 즉시 익명화(email → `deleted_{id}`, name 고정 문구, password_hash 무효화)이며 복구는 MVP 미지원입니다. 유예 기간·물리 삭제 배치는 이후 개선안입니다.
+- 상태는 `ACTIVE`, `SUSPENDED`, `DELETED`입니다. 정지는 관리자만 수행하며 사유·시각·담당자 ID를 저장하고 모든 refresh token·인증 세션을 폐기합니다. 기존 access token은 1분 캐시를 사용하는 인증 필터의 상태 재검증과 상태 변경 직후 캐시 무효화로 차단합니다. 복구는 정지 메타를 지우지만 세션은 복구하지 않습니다. 탈퇴(DEC-028)는 논리 삭제 + 즉시 익명화(email → `deleted_{id}`, name 고정 문구, password_hash 무효화)이며 복구는 MVP 미지원입니다.
 - 인증 제공자는 최초 가입 기준 `LOCAL | GOOGLE`입니다. Google 로그인은 검증된 `google_sub`를 우선 사용하고, 미연동이면 검증된 이메일과 같은 로컬 계정에 자동 연결합니다. Google 최초 가입 계정은 비밀번호 로그인을 허용하지 않으며 탈퇴 시 `google_sub`를 제거합니다.
 - `lastActiveAt`은 관리자 회원 목록에 표시하는 사용자 단위 최근 인증 API 활동입니다. 인증 session의 idle 만료 정본으로 사용하지 않습니다.
+
+### PolicyDocument / PolicyConsent
+
+- `PolicyDocument`는 TERMS·PRIVACY 유형별 `(type, version)`으로 구분하는 불변 문서입니다. 시행 시각이 현재 이전인 문서 중 유형별 최신 버전이 현재 정책입니다. `0.9` 시드는 법무 검토 전 초안입니다.
+- `PolicyConsent`는 사용자·유형·버전별 동의 시각, IP, User-Agent의 변경 불가 이력입니다. LOCAL·Google 신규 가입은 당시 현재 TERMS·PRIVACY 모두 동의해야 하며 로그인 응답은 미동의 현재 버전 목록을 반환합니다. 기존 사용자 동의는 멱등이고 과거 이력은 유지합니다.
+- 정책 미동의는 현재 인증·일반 API의 서버 차단 조건이 아닙니다. FE 화면 게이팅만 이 이슈 범위이며 서버 강제는 후속 결정을 따릅니다. 탈퇴 후 동의 이력은 보존하지만 식별자 처리·보존 기한은 법무 검토 과제입니다.
 
 ### AuthSession / RefreshToken
 
 - `AuthSession`은 브라우저·기기별 refresh token family의 수명 정본입니다. 역할별 idle timeout은 `ADMIN=30분`, `INSTRUCTOR|LEARNER=2시간`이고 최초 로그인 기준 14일 absolute 만료는 refresh나 활동으로 바뀌지 않습니다(DEC-040).
 - refresh와 `POST /api/auth/session/activity`만 성공 시 idle을 연장합니다. 일반 Bearer API와 background polling은 인증 session을 조회하거나 연장하지 않습니다. 동일 session의 연속 활동 쓰기는 5분 동안 스로틀하지만 폐기·만료 검증은 매번 수행합니다.
 - refresh token 회전은 같은 `AuthSession`을 유지하고 token 행만 교체합니다. 폐기 token 재사용은 현재 session family만 폐기하며, family를 알 수 없는 V41 이전 legacy token만 사용자 전체를 폐기합니다.
-- 로그아웃은 현재 session만 폐기합니다. 비밀번호 변경·관리자 초기화·회원 탈퇴는 해당 사용자의 모든 `AuthSession`과 refresh token을 폐기합니다. stateless access token은 최대 15분의 자체 만료까지 유효할 수 있습니다.
+- 로그아웃은 현재 session만 폐기합니다. 비밀번호 변경·관리자 초기화·회원 탈퇴·관리자 정지·역할 변경은 해당 사용자의 모든 `AuthSession`과 refresh token을 폐기합니다. 정지·역할 변경 전 발급한 access token은 인증 필터의 계정 상태·역할 재검증으로 차단합니다.
+- 이메일 비밀번호 재설정은 활성 `LOCAL` 사용자에게만 30분 유효한 단일 사용 링크를 발급합니다. 원문은 메일에만 싣고 DB에는 SHA-256 해시만 저장하며 재요청 시 이전 링크를 무효화합니다. 확정 성공 시 비밀번호 변경과 모든 `AuthSession`·refresh token 폐기를 한 트랜잭션에서 처리합니다.
 
 ### LearningMaterial
 
@@ -192,6 +199,12 @@ erDiagram
 - 총점은 문항별 점수 합과 일치해야 하며 `0 <= score <= maxScore`입니다.
 - MVP는 1회 제출 제한(DEC-009)이며 `attempt_no`는 1로 고정합니다. 재제출 확장 시 attempt 관리와 정답 보호 규칙을 함께 도입합니다.
 
+### UserNote / WrongAnswerNote
+
+- `UserNote`는 기존 세션 귀속 `Note` 및 AI `noteDraft`와 별개인 사용자 소유 수동 노트입니다. 자료·페이지 연결은 선택이고, `deletedAt`으로 소프트 삭제합니다. 사용자별 clientId는 로컬 데이터 이관의 멱등 키입니다.
+- `WrongAnswerNote`는 통합학습 퀴즈 제출 문항(`submissionId:questionId`) 하나에 귀속합니다. 소유권은 서버가 퀴즈 제출 결과에서 검증하고, 문항·정답·내 답 snapshot은 서버에서만 만들어 저장합니다. 같은 결과 문항의 재등록은 기존 항목을 반환하며 시험 답안은 포함하지 않습니다.
+- import는 항목별 독립 트랜잭션으로 처리하여 한 항목의 검증 실패가 다른 노트 저장을 되돌리지 않습니다.
+
 ### QuizAssessment
 
 - 다음 턴 오케스트레이터용 내부 평가 메모입니다.
@@ -210,7 +223,9 @@ erDiagram
 ### ExamSubmission / ExamAnswer
 
 - `ExamAttemptStart`는 `(examId,userId)`당 미소비 시작 기록 하나를 유지합니다. PUBLISHED 시험의 승인 학습자가 응시 화면에 재진입해도 기존 `startedAt`을 반환하며, 동시 생성은 유일 제약 충돌 후 기존 행을 읽는 insert-or-get으로 처리합니다.
+- `ExamAttemptDraft`는 `(examId,userId)`당 JSON 답안과 버전을 한 행으로 보관합니다. 승인 학습자의 PUBLISHED 시험에서 미소비 응시 시작 기록이 있을 때만 임시저장하며, 조건부 버전 갱신 실패는 최신 서버 답안을 포함한 충돌로 반환하고 자동 병합하지 않습니다. 기존 제출 후에도 `allowRetake=true`이고 새 시작 기록이 있으면 재응시 임시저장을 허용하며, `allowRetake=false`의 제출 완료 후에는 차단합니다.
 - 제출 성공은 같은 트랜잭션에서 시작 기록을 소비·삭제하고 제출에 `startedAt`, `durationSeconds`를 스냅샷합니다. 시작 API를 호출하지 않은 제출과 기존 제출은 두 필드가 null이어도 유효합니다. 제출 시각이 시작 시각보다 빠르면 `durationSeconds`만 null로 두고 경고합니다.
+- 제출 성공 시 임시 답안도 같은 트랜잭션에서 소비·삭제합니다. 제출 본문의 답안이 유일한 제출 소스이며, 임시 답안과 병합하거나 자동 제출하지 않습니다.
 - 제출은 `(examId,userId,attemptNo)`로 시도를 보존합니다. attemptNo는 상태와 무관하게 증가합니다. 운영 조회·polling의 최신 시도는 전체 `MAX(attemptNo)`, 성적·리포트 대표값은 `MAX(attemptNo WHERE status=GRADED)`입니다. `GRADED 80점 → GRADING_FAILED`이면 이전 80점이 대표 성적입니다.
 - 같은 `requestId`는 같은 제출을 반환합니다. 새 재응시는 반드시 새 requestId를 사용합니다.
 - 상태는 `SUBMITTED → GRADED | GRADING_FAILED`입니다. 응답 있는 SHORT/ESSAY가 있으면 202/SUBMITTED로 먼저 반환하고, 결정적 채점만 필요하면 200/GRADED로 반환합니다. 두 응답의 DTO 스키마는 같습니다.
@@ -329,4 +344,5 @@ MVP는 세션 단일 `pageStatus`를 유지하고 페이지 이동 시 초기화
 14. 시험의 재응시는 전부 보존하고 최신 시도를 대표값으로 사용하며, 같은 제출 재시도와 새 attempt는 requestId로 구분합니다.
 15. 시험 AI 채점 실패를 오답으로 기록하지 않습니다. 미채점 결과는 null로 유지하고 미응답만 결정적 0점으로 처리합니다.
 16. 시험 응시 시작은 시험·사용자별 미소비 기록 하나로 멱등 처리하고, 성공한 제출만 같은 트랜잭션에서 이를 소비합니다.
+17. 시험 임시 답안은 시험·사용자당 한 행과 버전 조건부 갱신으로 보호하고, 미소비 응시 시작 기록이 있는 `allowRetake=true` 재응시에는 새 임시저장을 허용합니다.
 

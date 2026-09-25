@@ -2,8 +2,6 @@ package io.edupilot.admin.xai;
 
 import java.time.Clock;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,9 +13,6 @@ import io.edupilot.global.error.ErrorCode;
 @Service
 public class XaiAlertConfigService {
 
-	private static final Logger log = LoggerFactory.getLogger(
-		XaiAlertConfigService.class
-	);
 
 	private final XaiAlertConfigRepository repository;
 	private final Clock clock;
@@ -45,7 +40,7 @@ public class XaiAlertConfigService {
 	}
 
 	@Transactional
-	public AdminXaiAlertsResponse update(
+	public UpdateResult update(
 		Long actorUserId,
 		UpdateXaiAlertsRequest request
 	) {
@@ -66,15 +61,14 @@ public class XaiAlertConfigService {
 		XaiAlertThresholds before = config.thresholds();
 		config.apply(after, actorUserId, clock.instant());
 		XaiAlertConfig saved = repository.save(config);
-		log.atInfo()
-			.addKeyValue("action", "XAI_ALERT_UPDATED")
-			.addKeyValue("actorUserId", actorUserId)
-			.addKeyValue("endpoint", "/api/admin/xai/alerts")
-			.addKeyValue("before", before)
-			.addKeyValue("after", after)
-			.addKeyValue("occurredAt", clock.instant())
-			.log("Admin xAI alert thresholds updated");
-		return response(saved);
+		return new UpdateResult(response(saved), before, after);
+	}
+
+	public record UpdateResult(
+		AdminXaiAlertsResponse response,
+		XaiAlertThresholds before,
+		XaiAlertThresholds after
+	) {
 	}
 
 	private void validate(XaiAlertThresholds thresholds) {

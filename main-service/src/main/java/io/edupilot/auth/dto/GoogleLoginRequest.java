@@ -1,5 +1,8 @@
 package io.edupilot.auth.dto;
 
+import java.util.List;
+
+import io.edupilot.policy.dto.PolicyConsentChoice;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -13,13 +16,7 @@ public record GoogleLoginRequest(
 	@Schema(example = "LEARNER")
 	String role,
 
-	@Size(max = 50, message = "약관 버전은 50자 이하여야 합니다.")
-	@Schema(example = "2026-07-01")
-	String termsVersion,
-
-	@Size(max = 50, message = "개인정보 처리방침 버전은 50자 이하여야 합니다.")
-	@Schema(example = "2026-07-01")
-	String privacyVersion,
+	List<PolicyConsentChoice> consents,
 
 	@Schema(defaultValue = "false")
 	Boolean learningEmailOptIn,

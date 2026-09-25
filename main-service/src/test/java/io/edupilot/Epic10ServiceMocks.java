@@ -13,6 +13,8 @@ import io.edupilot.admin.AdminUserService;
 import io.edupilot.admin.xai.AdminXaiUsageService;
 import io.edupilot.admin.xai.XaiAlertConfigService;
 import io.edupilot.auth.AuthSessionRepository;
+import io.edupilot.auth.PasswordResetTokenRepository;
+import io.edupilot.auth.UserAccessGuard;
 import io.edupilot.classroom.ClassroomService;
 import io.edupilot.aiusage.AiQuotaService;
 import io.edupilot.aiusage.AiUsageService;
@@ -24,6 +26,8 @@ import io.edupilot.classroom.ClassroomNoticeService;
 import io.edupilot.classroom.ClassroomResourceService;
 import io.edupilot.exam.InstructorExamService;
 import io.edupilot.exam.ExamAiGradingService;
+import io.edupilot.exam.ExamAttemptDraftCleanupScheduler;
+import io.edupilot.exam.ExamAttemptDraftService;
 import io.edupilot.exam.ExamDraftService;
 import io.edupilot.exam.ExamDraftPreparationService;
 import io.edupilot.exam.ExamSubmissionPersistenceService;
@@ -32,9 +36,12 @@ import io.edupilot.material.MaterialAccessService;
 import io.edupilot.material.MaterialOutlinePersistenceService;
 import io.edupilot.material.MaterialOverviewRepository;
 import io.edupilot.material.MaterialOverviewService;
+import io.edupilot.mail.EmailDeliveryRepository;
 import io.edupilot.notification.NotificationBulkRepository;
 import io.edupilot.notification.NotificationService;
 import io.edupilot.notification.NotificationTriggerService;
+import io.edupilot.policy.PolicyConsentRepository;
+import io.edupilot.policy.PolicyDocumentRepository;
 import io.edupilot.report.ReportCriterionCatalog;
 import io.edupilot.report.ReportCriterionService;
 import io.edupilot.report.ReportCriterionGenerationService;
@@ -47,6 +54,9 @@ import io.edupilot.session.LearningProgressService;
 import io.edupilot.session.QuizProposalPolicy;
 import io.edupilot.schedule.ScheduleService;
 import io.edupilot.schedule.PersonalScheduleService;
+import io.edupilot.usernote.NoteImportService;
+import io.edupilot.usernote.UserNoteService;
+import io.edupilot.usernote.WrongAnswerNoteService;
 
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
@@ -57,6 +67,8 @@ import io.edupilot.schedule.PersonalScheduleService;
 	AdminXaiUsageService.class,
 	XaiAlertConfigService.class,
 	AuthSessionRepository.class,
+	PasswordResetTokenRepository.class,
+	UserAccessGuard.class,
 	AiUsageService.class,
 	AiQuotaService.class,
 	ClassroomService.class,
@@ -67,9 +79,12 @@ import io.edupilot.schedule.PersonalScheduleService;
 	MaterialOutlinePersistenceService.class,
 	MaterialOverviewRepository.class,
 	MaterialOverviewService.class,
+	EmailDeliveryRepository.class,
 	NotificationService.class,
 	NotificationTriggerService.class,
 	NotificationBulkRepository.class,
+	PolicyConsentRepository.class,
+	PolicyDocumentRepository.class,
 	LearningProgressService.class,
 	QuizProposalPolicy.class,
 	ClassroomWeekMaterialRepository.class,
@@ -80,9 +95,14 @@ import io.edupilot.schedule.PersonalScheduleService;
 	InstructorExamService.class,
 	StudentExamService.class,
 	ExamAiGradingService.class,
+	ExamAttemptDraftService.class,
+	ExamAttemptDraftCleanupScheduler.class,
 	ExamDraftService.class,
 	ExamDraftPreparationService.class,
 	ExamSubmissionPersistenceService.class,
+	NoteImportService.class,
+	UserNoteService.class,
+	WrongAnswerNoteService.class,
 	ReportCriterionCatalog.class,
 	ReportCriterionService.class,
 	ReportCriterionGenerationService.class,

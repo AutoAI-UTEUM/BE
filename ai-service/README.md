@@ -130,7 +130,8 @@ PDF/질문/답변/추론 원문, 파일 ID, base64, 인증 헤더는 새 계측�
   측정합니다. heartbeat를 첫 답변으로 세지 않습니다. 퀴즈의 API는 NDJSON이어도
   xAI 생성 호출 자체의 `streaming`은 false일 수 있습니다.
 - `traceId`, `turnId`, `llmCallId`와 있는 경우 `actionId`로 연결합니다. Planner는
-  `responseModel=TurnPlan`과 Planner 시도 로그로 식별합니다. 기존 스트림 경로는
+  `responseModel=PlannerOutput`(경량화 전 로그는 `TurnPlan`)과 Planner 시도 로그로
+  식별합니다. 기존 스트림 경로는
   공급자 로그에 actionId를 바인딩하지 않으므로 해당 turn의 `eventType`과 에이전트
   완료 로그를 함께 대조합니다. 없는 연결 필드를 있다고 가정하지 않습니다.
   비동기 대화 요약은 `responseModel`과 별도 호출 ID로 구분하고 턴 시간에 더하지 않습니다.
@@ -158,6 +159,42 @@ PDF/질문/답변/추론 원문, 파일 ID, base64, 인증 헤더는 새 계측�
 - `fileAttached`, `fileCount`, `imageCount`, `messageCount`, `responseModel`,
   `requestedModel`, `reasoningEffort`, `maxOutputTokens`로 호출 조건을 기록합니다.
   성공 로그의 기존 `model`은 공급자가 반환한 모델이며, 실패 시에는 요청 모델일 수 있습니다.
+
+### 첨부 문서 처리·비용 계측
+
+추가 계측도 로그 전용입니다. API 응답 usage·프롬프트·Planner 판단·모델·출력 상한·
+재시도·캐시 스위치 기본값을 바꾸지 않습니다.
+
+| 필드 | 의미 |
+| --- | --- |
+| `requestedModel` / `providerModel` | 요청 모델 / xAI 응답에 실제 보고된 모델 식별자. 응답값이 없거나 올바른 식별자 형식이 아니면 `providerModel` 생략. `responseModel`은 `TurnPlan` 같은 출력 DTO 이름이며 모델명이 아님 |
+| `numServerSideToolsUsed` | 해당 xAI usage의 `num_server_side_tools_used` 원값. 첨부 파일 수나 output 항목 수로 추정하지 않음 |
+| `serverSideToolUsageDetails` | `server_side_tool_usage_details`에서 허용한 종류별 호출 수만 복사. 미제공 종류는 0으로 채우지 않음 |
+| `costUsdTicks` | `usage.cost_in_usd_ticks` 정수 원값. 1 USD = 10^10 ticks. 환산·반올림·토큰 기반 추정 없이 기록 |
+| `providerUsageFinal` | 관측한 usage가 단일 JSON 응답 또는 스트림 종료 이벤트까지 확인된 값인지 표시. 중간 스냅샷만 있으면 false, 관측한 usage 자체가 없으면 생략 |
+
+- 종류별 카운터는 `web_search_calls`, `x_search_calls`, `code_interpreter_calls`,
+  `file_search_calls`, `mcp_calls`, `document_search_calls`, `image_generation_calls`만
+  허용합니다. 각 값은 음이 아닌 정수여야 하며 bool·문자열·소수는 무시합니다.
+  도구 인자·검색어·검색 결과·페이지 본문은 기록하지 않습니다.
+- xAI의 파일 첨부는 내부 문서 검색을 동반할 수 있습니다. **파일 1개 첨부 = 검색 1회가
+  아닙니다.** 검색 횟수와 지연의 관계는 실측으로 확인하며, 입력 토큰 증가만으로 원인을
+  확정하지 않습니다. 공급자가 보고한 요청 비용에는 내부 도구 작업이 포함되므로 이를
+  별도 비용으로 다시 더하지 않습니다.
+- 값은 `xAI chat completion finished`에 전송 시도당 한 번만 기록합니다. 스트림 usage는
+  누적 스냅샷이므로 덧셈하지 않고 교체하며 첫 본문 로그에는 usage를 싣지 않습니다.
+  집계 시 `(llmCallId, attempt)`로 중복을 제거합니다. 스키마 재생성은 다른 `llmCallId`입니다.
+- `providerUsageFinal=true`는 턴 성공이나 전체 재시도의 비용 확보를 뜻하지 않습니다.
+  완결된 공급자 응답이 로컬 스키마 검증에서 실패해도 해당 시도의 보고값은 남습니다.
+  이전 시도에 usage가 없으면 전체 요청 비용은 미상이며, 알려진 값만 더한 결과를 전체
+  비용으로 보고하지 않습니다. 기존 응답 `cost_usd_ticks`의 보수적인 null 처리는 유지합니다.
+- 응답 중단으로 최종 usage를 못 받으면 도구 수·비용이 여전히 미수집일 수 있습니다.
+  미수집/잘못된 값은 생략하고 명시된 정수 0만 0으로 기록합니다. 과거 측정의 누락된
+  값은 이 변경으로 소급 복원되지 않습니다.
+
+근거: xAI [비용 추적](https://docs.x.ai/developers/cost-tracking),
+[도구 사용량](https://docs.x.ai/developers/tools/tool-usage-details),
+[문서 첨부](https://docs.x.ai/developers/model-capabilities/files/chat-with-files).
 
 ### 새 기준선 수집
 
@@ -226,6 +263,98 @@ dev에서 해당 AI 프로세스의 환경 변수만 변경하고 재기동하�
 
 근거: xAI [캐시 작동 원리](https://docs.x.ai/developers/advanced-api-usage/prompt-caching/how-it-works),
 [API별 라우팅 설정](https://docs.x.ai/developers/advanced-api-usage/prompt-caching/maximizing-cache-hits).
+
+## Planner 지시 경량화와 조건 보존 (3단계)
+
+Planner의 시스템 프롬프트는 공통 안전·메모리 규칙과 현재 이벤트의 도구 지시만
+조합합니다. QA에는 설명 턴의 퀴즈 제안 판단이나 Repair/Quiz 생성 args 설명을 보내지
+않고, 설명 턴에는 QA thread mode 등 다른 이벤트 전용 지시를 보내지 않습니다.
+사용자 메시지의 문구가 아니라 검증된 `eventType`으로 선택하며, 모든 Plan은 기존
+`PolicyVerifier`를 그대로 통과해야 합니다.
+
+1차 지시 정리(#427)에서 기준 commit `5838926`의 시스템 지시 3,897자는
+설명 2,816자(27.7% 감소), QA 1,636자(58.0% 감소)로 줄었습니다.
+이는 해당 단계의 **지시 문자열 길이** 비교입니다.
+PDF를 포함한 실제 입력 토큰이나 응답 지연의 감소율이 아니며, 실측 전에는
+속도 개선을 확정하지 않습니다.
+
+유지되는 것:
+
+- 설명 Planner의 전체 PDF 검토와 학습적으로 필요한 퀴즈 제안 판단, 표지/목차/미완성 설명 제외 규칙.
+- `PlanContext` 입력 전체, 학습자 수준·확신도·평가·메모리·최근 대화·대화 요약.
+- QA 후속질문·노트 제안, 메모리 후보 생성 및 승격 조건.
+- Planner 호출 경로, 실행 `TurnPlan` 구조, 모델·reasoning effort·출력 상한·타임아웃·재시도.
+- 캐시 스위치 기본값 `false`, JSON/NDJSON 응답 및 usage 계약. Spring/FE 변경 불필요.
+
+Explainer/QA에는 조건·가정·예외를 보존하고 가능성을 보장으로 바꾸지 않는 공통
+지침도 추가합니다. 특정 그림을 모든 경우의 성질로 일반화하지 않고, 이전 문맥과
+충돌하는 단정을 피하며, 근거에 없는 조건을 만들거나 면책 문구를 반복하지 않도록 합니다.
+자료·답변을 결정적으로 삭제하거나 다시 쓰는 후처리는 추가하지 않습니다.
+
+조건 보존 후속 보강에서는 **대상의 성질 / 절차의 성공 조건 / 특정 예시의 특징**을
+분리하도록 요구합니다. 대상의 성질만으로 절차의 성공·수렴이나 결과의 유일성을
+보장하지 않으며, 보장 표현을 쓰기 전에 근거의 조건을 확인합니다. 현재 주장을
+한정하는 이전 페이지의 조건은 짧게 연결할 수 있지만 다른 페이지 전체를 새로
+가르치지 않습니다. 이는 특정 강의 정답 하드코딩이나 추가 LLM 호출이 아닌 지침
+보강이며, 조건 누락이 실제로 줄었는지는 후속 실측으로 확인해야 합니다.
+
+`test_planner_prompt_scope.py`는 이벤트별 지시·입력 보존·크기 상한을,
+`test_explanation_grounding.py`는 수렴 조건·상관관계·독립 사건 사례의 근거 및 지침이
+JSON/NDJSON 양쪽으로 전달됨을 FakeLlm으로 검증합니다. **FakeLlm은 실제 모델이
+오개념을 만들지 않는다는 증명이 아닙니다.** 후속 live 비교에서는 같은 자료·질문으로
+첫 본문/완료 시간, 퀴즈 제안, 조건 보존, 오류·재생성 빈도를 함께 확인해야 합니다.
+
+### Planner 출력 경량화 후속 (#428)
+
+LLM에는 `PlannerOutput`을 요청하고, 코드가 고정 필드를 채워 기존 실행 `TurnPlan`으로
+복원한 뒤 **기존 PolicyVerifier를 그대로** 적용합니다. Spring 요청/응답 모델은
+바뀌지 않습니다. LLM의 결정을 코드 규칙으로 대체하는 변경이 아닙니다.
+
+| LLM이 계속 판단하는 항목 | 코드가 복원하는 항목 |
+| --- | --- |
+| 자유 텍스트 `turnGoal`, 전체 `pedagogyPolicy`, `reason`, `stop` | `schemaVersion=1.0`, `memoryWrite=null` |
+| 도구 선택·순서·액션 수, 설명 뒤 퀴즈 제안 여부 | 액션 순서별 `action-1` 등 ID, `type=CALL_TOOL` |
+| QA `START_NEW`/`FOLLOW_UP`, `proposeNote` | QA threadRef는 선택 모드와 스냅샷에서만 복원 |
+| 메모리 후보 내용·근거·신뢰도, 승격 대상 IDs, 노트 지시 | 현재 페이지·detailLevel·quizType·diagnosisId, 고정 퀴즈 제안 문구 |
+
+고정 인자를 LLM이 다시 넣으면 스키마 오류로 처리합니다. 허용되지 않은 도구·없는
+QA thread·메모리 근거 부족·interventionBudget 초과를 복원 단계가 허용하거나
+보정하지 않습니다. Policy 거부와 1회 스키마 재생성·잔여 deadline·usage 합산은 유지합니다.
+
+동일한 합성 테스트 데이터의 compact JSON 길이는 설명+퀴즈 제안 Plan 591→374자,
+QA Plan 409→300자입니다. 내부 JSON Schema는 1,961→1,759자입니다.
+**실제 출력 토큰/전체 PDF 입력/응답 시간 감소율이 아닌 오프라인 직렬화 비교**입니다.
+`test_planner_output.py`와 기존 턴·메모리·노트·스트림 테스트로 복원 및 거부 경로를
+검증하며, 실제 모델의 판단과 속도 비교는 후속 일괄 측정으로 남깁니다.
+
+### 퀴즈 유형별 생성 스키마 (#428)
+
+`QUIZ_TYPE_SELECTED`는 이미 결정적 Plan으로 LLM을 한 번만 호출합니다. QuizAgent는
+선택된 유형의 `McqQuizOutput`/`OxQuizOutput`/`ShortQuizOutput`/`EssayQuizOutput`만
+provider에 전달합니다. `QuizGeneration`을 상속하고 questions 타입만 한 종류로
+좁히므로 제목·점수 정규화, 문항 5~10개, questionCount, ID 유일성, 정답 참조,
+루브릭 합 검증을 재사용합니다. Spring 응답은 기존 `QuizGeneration` 구조 그대로입니다.
+
+| JSON Schema 길이(공백 없는 직렬화 문자 수) | 전체 4유형 → 선택 유형 |
+| --- | --- |
+| MCQ | 4,354 → 1,964 |
+| OX | 4,354 → 1,526 |
+| SHORT | 4,354 → 1,610 |
+| ESSAY | 4,354 → 1,933 |
+
+이는 스키마 문자열만 줄인 결과입니다. **문제·정답·해설·루브릭의 출력 양을 줄이거나
+속도 개선을 실증한 수치가 아닙니다.** PDF·출제 범위·개인화 문맥·문항 수·난이도
+지침·출력 상한·모델/추론 강도·호출 횟수·캐시 기본값은 유지합니다.
+`test_quiz_output.py`는 4종의 정규화/거부 규칙과 JSON/NDJSON 동일 응답을 검증합니다.
+모델 로그를 유형별로 모을 때는 위 네 `responseModel` 이름을 함께 집계합니다
+(변경 전 로그는 `QuizGeneration`). 실제 지연·내용 품질 비교는 후속 일괄 측정 대상입니다.
+
+## 학습 턴 속도·품질 비교 준비
+
+학습 턴 속도/품질의 전후 비교는 별도의 [로컬 실측 준비 도구](tests/benchmarks/README.md)를
+사용합니다. 두 코드 버전을 격리하고 고정 입력을 교차 재생하며, `prepare`/`check`/`report`는
+외부 호출 없이 동작합니다. 실제 호출은 새 예산을 승인한 뒤 `run --live`로만 실행합니다.
+계약 PASS와 교육 품질 PASS는 구분합니다. 이 도구 준비를 실제 속도 개선의 증거로 보지 않습니다.
 
 ## CLI 데모 (설계자·비개발자용)
 

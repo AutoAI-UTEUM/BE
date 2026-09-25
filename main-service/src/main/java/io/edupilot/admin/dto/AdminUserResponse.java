@@ -15,7 +15,9 @@ public record AdminUserResponse(
 	UserStatus status,
 	AuthProvider authProvider,
 	Instant createdAt,
-	Instant lastActiveAt
+	Instant lastActiveAt,
+	Instant suspendedAt,
+	String suspendedReason
 ) {
 	public static AdminUserResponse from(User user) {
 		return new AdminUserResponse(
@@ -26,7 +28,9 @@ public record AdminUserResponse(
 			user.getStatus(),
 			user.getAuthProvider(),
 			user.getCreatedAt(),
-			user.getLastActiveAt()
+			user.getLastActiveAt(),
+			user.getSuspendedAt(),
+			user.getSuspendedReason()
 		);
 	}
 }

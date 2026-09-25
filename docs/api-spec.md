@@ -55,6 +55,12 @@
 | GET | `/api/auth/email-availability?email={email}` | 회원가입 이메일 중복 확인 | N | 전체 |
 | POST | `/api/auth/login` | 로그인 | N | 전체 |
 | POST | `/api/auth/google` | Google ID 토큰 로그인·가입 | N | 전체 |
+| GET | `/api/policies/current` | 현재 유효한 정책 버전·요약 조회 | N | 전체 |
+| GET | `/api/policies/{type}/{version}` | 정책 버전 본문 조회 | N | 전체 |
+| GET | `/api/users/me/consents` | 내 동의 이력·현재 미동의 버전 조회 | Y | 본인 |
+| POST | `/api/users/me/consents` | 현재 버전 동의 기록 | Y | 본인 |
+| POST | `/api/auth/password-reset/request` | 비밀번호 재설정 안내 요청 | N | 전체 (계정 존재 여부 비노출) |
+| POST | `/api/auth/password-reset/confirm` | 재설정 토큰으로 비밀번호 변경 | N | 유효한 일회용 링크 보유자 |
 | POST | `/api/auth/refresh` | access 재발급 (refresh 쿠키 회전) | 쿠키 | refresh 쿠키 보유자 |
 | POST | `/api/auth/session/activity` | 실제 사용자 활동으로 현재 인증 세션 idle 만료 연장 | Y+쿠키 | Bearer 사용자와 refresh 쿠키 사용자가 같은 현재 세션 |
 | POST | `/api/auth/logout` | 로그아웃 (refresh 폐기·쿠키 만료) | 쿠키 | refresh 쿠키 보유자 (멱등) |
@@ -103,6 +109,8 @@
 | POST | `/api/exams/{examId}/close` | 시험 마감 | Y | 소유 INSTRUCTOR |
 | DELETE | `/api/exams/{examId}` | DRAFT 시험 삭제 | Y | 소유 INSTRUCTOR |
 | POST | `/api/exams/{examId}/attempts/start` | 시험 응시 시작 시각 기록 | Y | 승인 LEARNER 멤버 |
+| PUT | `/api/exams/{examId}/attempts/draft` | 시험 답안 임시저장 | Y | 승인 LEARNER 멤버 |
+| GET | `/api/exams/{examId}/attempts/draft` | 시험 답안 임시저장 조회 | Y | 승인 LEARNER 멤버 |
 | POST | `/api/exams/{examId}/submissions` | 별도 시험 제출 | Y | 승인 멤버 |
 | GET | `/api/exams/{examId}/submissions` | 시험별 최신 대표 제출 목록 | Y | 소유 INSTRUCTOR |
 | GET | `/api/exams/{examId}/submissions/{submissionId}` | 특정 시험 제출 상세 | Y | 소유 INSTRUCTOR |
@@ -111,12 +119,23 @@
 | GET | `/api/exams/{examId}/submissions/me` | 본인 시험 제출 결과 조회 | Y | 제출한 승인 멤버 |
 | GET | `/api/users/me/memory?materialId={materialId}` | 학습자 메모리 조회(자료별) | Y | 본인 |
 | POST | `/api/sessions/{sessionId}/complete` | 세션 종료 | Y | 세션 소유자 |
+| GET·POST | `/api/user-notes` | 내 수동 노트 목록·생성 | Y | 본인; 자료 연결 시 자료 접근권 |
+| GET·PATCH·DELETE | `/api/user-notes/{noteId}` | 내 수동 노트 상세·수정·소프트 삭제 | Y | 본인 |
+| GET·POST | `/api/wrong-answer-notes` | 내 오답 노트 목록·생성 | Y | 본인 퀴즈 제출 문항 |
+| PATCH·DELETE | `/api/wrong-answer-notes/{noteId}` | 내 오답 노트 수정·소프트 삭제 | Y | 본인 |
+| POST | `/api/user-notes/import` | 로컬 수동·오답 노트 항목별 이관 | Y | 본인; 분당 5회 |
 | POST | `/api/classrooms` | 강의실 개설 | Y | INSTRUCTOR |
 | GET | `/api/classrooms` | 내 강의실 목록 | Y | 소유 또는 승인 멤버 관계 |
 | GET | `/api/classrooms/{id}` | 강의실 상세 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
 | GET | `/api/admin/users` | 관리자 회원 목록 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/users/{id}` | 관리자 회원 상세 조회 | Y | ADMIN + DB role/status 재검증 |
 | POST | `/api/admin/users/{id}/password-reset` | 관리자 사용자 비밀번호 초기화 | Y | ADMIN + DB role/status 재검증; 타 LOCAL/ACTIVE 사용자 |
+| POST | `/api/admin/users/{id}/suspend` | 관리자 사용자 정지 | Y | ADMIN + DB role/status 재검증; 본인·마지막 활성 ADMIN 제외 |
+| POST | `/api/admin/users/{id}/reinstate` | 관리자 사용자 복구 | Y | ADMIN + DB role/status 재검증; SUSPENDED 대상 |
+| PATCH | `/api/admin/users/{id}/role` | 관리자 사용자 역할 변경 | Y | ADMIN + DB role/status 재검증; 자기 강등·마지막 활성 ADMIN 강등 제외 |
+| POST | `/api/admin/policies` | 새 정책 버전 등록(불변) | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/policies` | 정책 전체 버전 목록 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/policies/consent-stats` | 현재 버전별 활성 회원 동의율 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/classrooms` | 관리자 강의실 목록 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/classrooms/{id}` | 관리자 강의실 상세 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/ai-usage/summary` | 관리자 AI 사용량 일별·기능별 집계 | Y | ADMIN + DB role/status 재검증 |
@@ -132,6 +151,8 @@
 | GET | `/api/admin/xai/reconciliation` | 내부 비용과 xAI 청구 금액 대조 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/xai/invoices` | xAI 월별 청구서 요약 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET·PUT | `/api/admin/xai/alerts` | xAI 잔액·소진 위험 임계값 조회·수정 | Y | ADMIN + DB role/status 재검증 |
+| POST | `/api/admin/mail/test` | 관리자 시스템 메일 발송 테스트 | Y | ADMIN + DB role/status 재검증; 사용자별 분당 1회 |
+| GET | `/api/admin/mail/deliveries` | 관리자 메일 발송 이력 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/classrooms/{id}/analytics` | 강의자 학습 현황 집계 | Y | 소유 INSTRUCTOR |
 | GET | `/api/classrooms/{classroomId}/students/{studentId}/learning-analytics` | 학습자별 상세 학습 현황 | Y | 소유 INSTRUCTOR |
 | PATCH | `/api/classrooms/{id}` | 강의실 수정 | Y | 소유 INSTRUCTOR |
@@ -177,8 +198,10 @@
   "role": "LEARNER",
   "affiliation": "EduPilot University",
   "learningEmailOptIn": true,
-  "termsVersion": "2026-07-01",
-  "privacyVersion": "2026-07-01"
+  "consents": [
+    {"type": "TERMS", "version": "0.9"},
+    {"type": "PRIVACY", "version": "0.9"}
+  ]
 }
 ```
 
@@ -198,11 +221,11 @@
 
 `role`은 필수이며 공개 가입에서는 `LEARNER | INSTRUCTOR`만 허용합니다. `ADMIN`, 기존 `USER`, 알 수 없는 enum 값은 요청 오류로 거부합니다. `ADMIN` 계정은 운영상 필요한 경우에만 DB에서 수동 설정합니다(DEC-017, DEC-029 Accepted).
 
-`affiliation`은 선택이며 공백을 제거한 뒤 최대 100자입니다. `learningEmailOptIn`은 생략 시 `false`입니다. `termsVersion`과 `privacyVersion`은 하위 호환을 위해 둘 다 생략할 수 있지만 하나만 보낼 수는 없습니다. 현재 서버 허용값은 두 필드 모두 `2026-07-01`이며, 함께 전송하면 서버가 동의 시각을 기록합니다. 알 수 없는 버전과 부분 전송은 `VALIDATION_FAILED`입니다. FE와 운영 약관의 실제 버전 문자열은 배포 전 다시 확정해야 합니다.
+`affiliation`은 선택이며 공백을 제거한 뒤 최대 100자입니다. `learningEmailOptIn`은 생략 시 `false`입니다. `consents`에는 가입 시점 `GET /api/policies/current`가 반환한 `TERMS`와 `PRIVACY`의 현재 버전을 정확히 한 번씩 보내야 합니다. 누락·중복·버전 불일치는 `POLICY_CONSENT_REQUIRED`(400)입니다. 가입 트랜잭션에서 동의 버전·시각·IP·User-Agent를 이력으로 저장합니다. V48 시드 `0.9`는 **법무 검토 전 초안**이며, 문구 확정 후 관리자 API로 `1.0`을 등록해야 합니다.
 
 비밀번호 정책(확정): **8~64자, 영문·숫자 각 1자 이상 포함**(특수문자 허용). 위반 시 `VALIDATION_FAILED` + `details: [{ "field": "password", "reason": "..." }]`.
 
-주요 오류: `VALIDATION_FAILED`, `EMAIL_ALREADY_EXISTS`.
+주요 오류: `VALIDATION_FAILED`, `POLICY_CONSENT_REQUIRED`, `EMAIL_ALREADY_EXISTS`.
 
 ### GET `/api/auth/email-availability?email={email}`
 
@@ -250,15 +273,19 @@
     "idleTimeoutSeconds": 7200,
     "idleExpiresAt": "2026-09-20T06:00:00Z",
     "absoluteExpiresAt": "2026-10-04T04:00:00Z"
-  }
+  },
+  "pendingConsents": []
 }
 ```
 
 응답과 JWT `role` claim은 `LEARNER | INSTRUCTOR | ADMIN` 중 저장된 계정 역할을 반환합니다. `LEARNER`와 `INSTRUCTOR`는 현재 동일한 인증·소유권 규칙을 적용합니다.
+`pendingConsents`는 현재 유효한 정책 중 해당 사용자가 동의하지 않은 `{type, version}` 배열입니다. 로그인과 토큰 발급은 미동의여도 성공하며, 이후 동의 화면 이동은 FE가 처리합니다. 서버는 미동의 사유로 일반 API 호출을 차단하지 않습니다.
 
 refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DEC-004, DEC-040 Accepted). 쿠키 계약(확정): 이름 `edupilot_refresh`, `HttpOnly`, `Secure`, `SameSite=Lax`, **`Path=/api/auth`**, `Domain` 미설정(host-only), Max-Age는 최초 로그인 기준 절대 만료까지 남은 시간(최대 14일)입니다. 서버는 refresh 해시를 브라우저·기기별 인증 세션에 연결하고 회전·재사용 감지·강제 폐기를 지원합니다. access token 만료는 15분이며 FE는 메모리에 보관합니다(localStorage 금지).
 
-`session.idleTimeoutSeconds`는 역할 정책 원값으로 `ADMIN=1800`, `INSTRUCTOR|LEARNER=7200`입니다. `idleExpiresAt`은 실제 현재 세션의 idle 만료이고 절대 만료에 가까우면 정책 원값보다 짧을 수 있습니다. `absoluteExpiresAt`은 최초 로그인 후 14일이며 refresh나 activity로 연장되지 않습니다. 모든 시각은 UTC ISO 8601입니다. 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
+`session.idleTimeoutSeconds`는 역할 정책 원값으로 `ADMIN=1800`, `INSTRUCTOR|LEARNER=7200`입니다. `idleExpiresAt`은 실제 현재 세션의 idle 만료이고 절대 만료에 가까우면 정책 원값보다 짧을 수 있습니다. `absoluteExpiresAt`은 최초 로그인 후 14일이며 refresh나 activity로 연장되지 않습니다. 모든 시각은 UTC ISO 8601입니다. 주요 오류: `INVALID_CREDENTIALS`, `ACCOUNT_SUSPENDED`.
+
+이메일(소문자 정규화)별 비밀번호 실패 5회/15분 또는 IP별 20회/15분이 누적되면 다음 로그인부터 `LOGIN_RATE_LIMITED`(429)와 `Retry-After`(재시도까지 초)를 반환합니다. 잠금 중에는 올바른 비밀번호도 429이며 미가입 이메일도 같은 방식으로 집계합니다. 성공 시 계정 카운트만 초기화하고 IP 카운트는 유지합니다. 정지 계정은 비밀번호가 맞는 경우에만 `ACCOUNT_SUSPENDED`(401), 틀리면 일반 `INVALID_CREDENTIALS`(401)입니다.
 
 ### POST `/api/auth/google`
 
@@ -292,18 +319,50 @@ Google ID 토큰을 검증해 기존 계정으로 로그인하거나 신규 계�
 {
   "idToken": "google-id-token",
   "role": "LEARNER",
-  "termsVersion": "2026-07-01",
-  "privacyVersion": "2026-07-01",
+  "consents": [
+    {"type": "TERMS", "version": "0.9"},
+    {"type": "PRIVACY", "version": "0.9"}
+  ],
   "learningEmailOptIn": true,
   "affiliation": "EduPilot University"
 }
 ```
 
-- 신규 가입의 `role`은 `LEARNER | INSTRUCTOR`이며 `termsVersion`과 `privacyVersion`은 모두 필수입니다. 약관 검증·소속 정규화·이메일 수신 동의는 일반 회원가입과 같은 규칙을 사용합니다.
+- 신규 가입의 `role`은 `LEARNER | INSTRUCTOR`이며 `consents`에 현재 `TERMS | PRIVACY` 버전이 모두 필수입니다. 기존 계정 로그인·연동에는 재전송하지 않아도 되며, 응답의 `pendingConsents`가 재동의 필요 여부를 나타냅니다.
 - Google ID 토큰은 서버가 Google tokeninfo 응답의 audience, issuer, 이메일 검증 여부를 확인합니다. 검증 실패·Google 통신 실패는 `TOKEN_INVALID`(401)로 통일합니다.
 - 서버에 Google Client ID가 설정되지 않은 경우 기동은 허용하지만 요청은 `VALIDATION_FAILED`(400)로 거부하고 설정 오류만 서버 로그에 기록합니다.
 - Google 최초 가입 계정의 비밀번호 sentinel은 일반 비밀번호 검증을 통과하지 않으므로 비밀번호 로그인은 `INVALID_CREDENTIALS`입니다.
-- 주요 오류: `SIGNUP_REQUIRED`, `TOKEN_INVALID`, `USER_INACTIVE`, `VALIDATION_FAILED`.
+- 주요 오류: `SIGNUP_REQUIRED`, `TOKEN_INVALID`, `ACCOUNT_SUSPENDED`, `USER_INACTIVE`, `VALIDATION_FAILED`.
+
+### 정책 버전·동의 (#415)
+
+- 공개 `GET /api/policies/current`: `data`는 `[{"type":"TERMS","version":"0.9","title":"...","effectiveAt":"2026-09-25T00:00:00Z","summary":"..."}, ...]`입니다. 각 유형에서 `effectiveAt <= 현재 시각`인 가장 최근 버전만 반환하며 본문은 포함하지 않습니다.
+- 공개 `GET /api/policies/{type}/{version}`: 위 메타데이터와 `content`를 반환합니다. 유형은 `TERMS | PRIVACY`; 없는 버전은 `POLICY_NOT_FOUND`(404)입니다.
+- 인증 `GET /api/users/me/consents`: `data`는 `{"pending":[{"type":"TERMS","version":"1.0","title":"..."}],"agreed":[{"type":"TERMS","version":"0.9","agreedAt":"2026-09-25T00:00:00Z"}]}` 형태입니다. `pending`은 현재 유효 버전 중 미동의만, `agreed`는 과거 버전을 포함한 전체 이력입니다.
+- 인증 `POST /api/users/me/consents`: 요청 `{"consents":[{"type":"TERMS","version":"1.0"}]}`. 현재 유효 버전만 허용하고 다른 버전은 `POLICY_VERSION_MISMATCH`(400)입니다. 이미 저장된 `(user,type,version)`은 건너뛰며 성공 응답은 GET과 동일합니다. IP·User-Agent(최대 255자)를 이력에 남기고 기존 이력은 수정·삭제하지 않습니다.
+- 미동의 상태에서도 인증 및 일반 API는 정상 처리됩니다. FE 게이팅만 범위에 포함되며 서버 강제 차단은 후속 정책 결정 사항입니다.
+
+### POST `/api/auth/password-reset/request`
+
+요청: `{"email":"user@example.com"}`. 정상적으로 해석되는 요청은 가입 여부·계정 상태·발송 성공 여부·요청 상한과 무관하게 항상 202와 동일한 `data`를 반환합니다.
+
+```json
+{"message":"등록된 이메일이면 재설정 안내를 발송했습니다."}
+```
+
+활성 `LOCAL` 계정에만 `/reset-password?token=...` 링크를 발송합니다. 링크는 30분 유효하며 재요청하면 이전 미사용 링크가 무효화됩니다. 이메일당 시간 3회, IP당 시간 10회 초과 시 내부 발송·토큰 생성만 생략합니다. 운영 감사 로그에는 이메일·토큰 원문을 남기지 않습니다. dev의 `logging` 메일 provider는 링크 확인을 위해 본문을 출력하므로 실사용자 정보를 넣지 않습니다.
+
+### POST `/api/auth/password-reset/confirm`
+
+요청: `{"token":"일회용-링크의-token","newPassword":"newPassword123"}`. `newPassword`는 가입/본인 변경과 같은 정책(8~64자, 영문·숫자 각 1자 이상)을 따릅니다. 성공 시 200의 `data`는 다음과 같습니다.
+
+```json
+{"message":"비밀번호가 변경되었습니다. 다시 로그인해주세요."}
+```
+
+링크 미존재·만료·재사용은 모두 `RESET_TOKEN_INVALID`(400)로 통일합니다. 정책 미달은 `VALIDATION_FAILED`(400), 이전 비밀번호 재사용은 `PASSWORD_REUSE_NOT_ALLOWED`(409)이며 둘 다 링크를 소비하지 않습니다. IP당 15분 10회 초과는 기존 `RATE_LIMIT_EXCEEDED`(429)를 사용합니다. 성공 시 해당 사용자의 모든 refresh token·인증 세션을 폐기하고 새 토큰은 발급하지 않습니다. 기존 stateless access token은 최대 15분의 자체 만료 전까지 유효할 수 있으므로 FE는 성공 즉시 메모리의 access token을 버리고 로그인 화면으로 이동해야 합니다.
+
+만료 7일이 지난 재설정 토큰 행은 매일 03:00 KST에 정리하며 `EDUPILOT_PASSWORD_RESET_CLEANUP_ENABLED=false`로 정리 작업만 중지할 수 있습니다.
 
 ### POST `/api/auth/refresh`
 
@@ -327,7 +386,7 @@ Google ID 토큰을 검증해 기존 계정으로 로그인하거나 신규 계�
 - **회전**: 성공 시 기존 refresh는 폐기되고 같은 인증 세션에 새 refresh 쿠키가 발급됩니다. 성공한 refresh는 현재 세션 활동으로 기록해 idle 만료를 역할별 시간만큼 연장하지만 `absoluteExpiresAt`과 새 token/cookie 만료는 최초 로그인 기준 절대 만료를 넘지 않습니다.
 - **재사용 감지**: 이미 폐기된 refresh가 재사용되면 연결된 인증 세션 family의 token만 전량 폐기합니다. V41 이전의 `sessionId=null`인 폐기 token은 family를 복원할 수 없어 사용자 전체 token/session을 폐기합니다. 오류는 `TOKEN_INVALID`로 통일합니다.
 - FE는 access 만료 5분 전 최근 실제 입력 활동이 있을 때 또는 일반 요청의 최초 401에서만 `credentials: "include"`로 호출하고, 탭 전체 single-flight로 중복 회전을 막습니다.
-- 주요 오류: `TOKEN_INVALID`(401 — 쿠키 없음·미존재·폐기·재사용 감지), `AUTH_SESSION_IDLE_EXPIRED`(401), `AUTH_SESSION_ABSOLUTE_EXPIRED`(401), `USER_INACTIVE`(403). 이 오류들은 refresh 쿠키도 만료합니다.
+- 주요 오류: `TOKEN_INVALID`(401 — 쿠키 없음·미존재·폐기·재사용 감지), `AUTH_SESSION_IDLE_EXPIRED`(401), `AUTH_SESSION_ABSOLUTE_EXPIRED`(401), `ACCOUNT_SUSPENDED`(401), `USER_INACTIVE`(403). 이 오류들은 refresh 쿠키도 만료합니다. 실패한 refresh는 IP별 5회/15분까지 허용하고 다음 요청부터 `RATE_LIMIT_EXCEEDED`(429, `Retry-After` 초)입니다. 성공한 refresh는 실패 카운트에 포함하지 않습니다.
 
 ### POST `/api/auth/session/activity`
 
@@ -998,6 +1057,40 @@ Query:
 
 본인 노트를 물리 삭제합니다. 존재하지 않거나 다른 사용자의 노트는 모두 `NOTE_NOT_FOUND`(404)로 은닉합니다.
 
+## 5.2 수동 노트·오답 노트 API
+
+이 API의 `user_notes`는 위 5.1의 기존 AI 노트 확정 저장용 `notes`와 별개입니다. 기존 `PATCH/DELETE /api/notes/{noteId}`가 이미 사용 중이므로 수동 노트 CRUD는 `/api/user-notes`로 분리합니다. 모든 응답은 공통 `ApiResponse` 봉투를 사용하며 Bearer 인증이 필요합니다. 목록 기본값은 `page=0`, `size=50`(최대 100), 정렬은 `updatedAt DESC, id DESC`입니다. 소프트 삭제된 항목은 목록·상세에서 제외합니다.
+
+### 수동 노트 `/api/user-notes`
+
+- `GET ?materialId=&page=&size=`: 본인 노트만 페이지 응답(`items`, `page`, `size`, `totalElements`, `totalPages`). 항목은 `id`, `materialId`, `pageNumber`, `title`, `content`, `createdAt`, `updatedAt`입니다.
+- `GET /{noteId}`: 본인 상세. 타인·삭제된 노트는 `NOTE_NOT_FOUND`(404)입니다.
+- `POST` 요청: `{"materialId":10,"pageNumber":3,"title":"핵심 정리","content":"내용","clientId":"UUID-v4"}`. 자료·페이지·clientId는 선택입니다. 자료를 지정하면 현재 접근 가능한 자료인지 확인하고, 타인·없는 자료는 `MATERIAL_NOT_FOUND`(404)입니다. 생성 201, 같은 `(userId,clientId)` 재전송은 기존 노트 200입니다.
+- `PATCH /{noteId}`: `title`, `content`, `pageNumber` 중 하나 이상. 미포함 필드는 유지하고 `pageNumber:null`은 페이지 연결을 제거합니다. 제목·본문의 명시적 null은 400입니다.
+- `DELETE /{noteId}`: 소프트 삭제 후 204. 본인 외 노트는 `NOTE_NOT_FOUND`(404)입니다.
+
+제목은 비공백 200자 이하, `content`는 UTF-8 기준 1MiB 이하(`NOTE_TOO_LARGE` 400), 활성 수동 노트는 사용자당 최대 2,000개(`NOTE_LIMIT_EXCEEDED` 400)입니다. 자료 없는 노트는 페이지 번호를 생략하거나 양수로 지정할 수 있습니다. 자료를 지정한 경우 페이지 번호는 자료 범위 안이어야 합니다.
+
+### 오답 노트 `/api/wrong-answer-notes`
+
+`quizResultRef`는 통합학습 퀴즈 결과의 `submissionId:questionId` 문자열입니다(예: `77:q1`). 시험 제출은 범위 밖입니다. 퀴즈 제출 결과 응답의 두 식별자로 FE가 조합하며, 서버는 해당 제출·문항이 본인 것인지 검증합니다. 타인·부재는 `QUIZ_NOT_FOUND`(404)입니다.
+
+- `GET ?page=&size=`: 본인 오답 노트 페이지 응답. 항목은 `id`, `quizResultRef`, `questionSnapshot`, `memo`, `createdAt`, `updatedAt`입니다.
+- `POST` 요청: `{"quizResultRef":"77:q1","memo":"개념 복습","clientId":"UUID-v4"}`. 새 항목 201, 같은 clientId 또는 같은 퀴즈 제출 문항은 기존 항목 200입니다. `questionSnapshot`은 요청에서 받지 않고 저장된 퀴즈 문항·제출 답안에서 서버가 생성합니다. snapshot에는 문항 ID·내용·유형·선택지·정답·내 답만 들어가고 rubric은 포함하지 않습니다.
+- `PATCH /{noteId}` 요청: `{"memo":"다시 풀기"}`. `memo:null`은 메모 제거입니다.
+- `DELETE /{noteId}`: 소프트 삭제 후 204. 타인·삭제된 항목은 `WRONG_ANSWER_NOTE_NOT_FOUND`(404)입니다.
+
+### POST `/api/user-notes/import`
+
+```json
+{
+  "notes": [{"clientId":"UUID-v4","materialId":10,"pageNumber":3,"title":"제목","content":"내용","createdAt":"2026-09-01T00:00:00Z"}],
+  "wrongAnswers": [{"clientId":"UUID-v4","quizResultRef":"77:q1","memo":"복습"}]
+}
+```
+
+각 배열 최대 200건, 사용자당 분당 5회입니다. `clientId`는 이관 항목마다 필수입니다. 항목별 독립 트랜잭션으로 저장하므로 일부 검증 실패가 나머지를 롤백하지 않습니다. 성공 데이터(`data`)는 `{"imported":1,"skipped":0,"failed":[{"clientId":"...","reason":"MATERIAL_NOT_FOUND"}]}` 형태입니다. 재호출 시 같은 clientId는 `skipped`에 집계됩니다. FE는 최초 로그인 시 UUID v4 clientId를 부여해 이관하고, 성공·skip 항목만 로컬에서 제거하며 실패 항목은 사유 표시 후 재시도해야 합니다. 이후 서버를 정본으로, 로컬 저장소는 오프라인 캐시로 사용합니다.
+
 ## 6. 퀴즈·시험 API
 
 ### 6.1 통합 학습 퀴즈
@@ -1306,6 +1399,8 @@ AI 응답의 `usage`는 서버 비용 기록에만 사용하며 외부 API 응�
 | GET | `/api/classrooms/{classroomId}/exams?page&size` | PUBLISHED·CLOSED 목록, nullable `dueAt`, 본인 최신 제출 요약·`submittable`을 반환합니다. GRADING_FAILED 최신 시도는 재제출 가능으로 계산합니다. |
 | GET | `/api/exams/{examId}` | 공개 문항, nullable `dueAt`, `submittable`만 반환합니다. |
 | POST | `/api/exams/{examId}/attempts/start` | PUBLISHED 시험의 응시 시작 시각을 기록합니다. 동일 시험·사용자의 미소비 기록이 있으면 같은 `startedAt`을 반환합니다. |
+| PUT | `/api/exams/{examId}/attempts/draft` | 제출 요청과 같은 `answers[{questionId,answer}]` 형식으로 전체 임시 답안을 저장합니다. `version` 일치 시 증가시키며 충돌 시 최신 서버 답안을 반환합니다. |
+| GET | `/api/exams/{examId}/attempts/draft` | 본인 임시 답안이 있으면 `version`, `answers`, `savedAt`을 반환하고 없으면 204입니다. |
 | POST | `/api/exams/{examId}/submissions` | PUBLISHED 시험을 제출합니다. 주관식 AI 채점이 필요하면 `SUBMITTED`/202, 아니면 `GRADED`/200입니다. 두 응답은 같은 봉투와 `ExamSubmissionResponse` 스키마입니다. |
 | GET | `/api/exams/{examId}/submissions/me?attemptNo=` | 본인 결과를 조회하며 attemptNo 생략 시 최신 시도입니다. 공개 정책과 응시 시간 필드를 포함합니다. |
 
@@ -1325,6 +1420,21 @@ AI 응답의 `usage`는 서버 비용 기록에만 사용하며 외부 API 응�
 
 - LEARNER 승인 멤버와 PUBLISHED 시험만 시작할 수 있습니다. DRAFT는 `EXAM_NOT_FOUND`(404)로 은닉하고 CLOSED는 `EXAM_NOT_PUBLISHED`(409)로 거부합니다.
 - 시작 API를 호출하지 않은 구버전 클라이언트도 제출할 수 있으며, 이 경우 결과의 `startedAt`, `durationSeconds`는 null입니다.
+
+임시저장은 시험·학습자당 1행이며 서버에 저장되므로 같은 계정의 다른 기기에서도 이어풀 수 있습니다. 최초 PUT은 `version: 0` 또는 `null`, 이후 PUT은 마지막 응답의 `version`을 전송합니다. `answers`는 제출 요청과 동일한 문항 ID·답안 구조이고, 미응답 문항은 생략하거나 `answer: null`로 보낼 수 있습니다. 임시저장에서는 답안 유형의 정답 형식을 검사하지 않으며, 시험에 없는/중복된 `questionId`는 `INVALID_EXAM_ANSWER`(400)입니다. 직렬화한 요청 크기는 최대 256KB(`DRAFT_TOO_LARGE`, 400)이고 사용자·시험당 분당 30회 초과는 `RATE_LIMIT_EXCEEDED`(429)입니다.
+
+```json
+{
+  "version": 0,
+  "answers": [{"questionId": "q1", "answer": "a"}]
+}
+```
+
+성공 시 `data: {"version": 1, "savedAt": "2026-08-02T12:00:00Z"}`를 반환합니다. GET은 `data: {"version": 1, "answers": [{"questionId": "q1", "answer": "a"}], "savedAt": "2026-08-02T12:00:00Z"}`를 반환합니다. 기존 버전으로 PUT하면 409 `DRAFT_VERSION_CONFLICT`이며 일반 오류 봉투에 최상위 `latestDraft`(GET의 `data`와 같은 구조, 현재 행이 없으면 null)를 추가합니다. FE는 서버 답안과 로컬 답안을 비교해 선택한 뒤 반환된 버전으로 재시도해야 하며 서버가 답안을 자동 병합하지 않습니다.
+
+승인 LEARNER 멤버와 PUBLISHED 시험만 사용할 수 있습니다. DRAFT는 `EXAM_NOT_FOUND`(404), CLOSED는 `EXAM_NOT_PUBLISHED`(409)입니다. PUT에는 해당 시험·학습자의 미소비 `attempts/start` 기록이 필요하며, 없으면 `EXAM_ALREADY_SUBMITTED`(409)로 거부합니다. 기존 제출이 있어도 `allowRetake=true`이고 새 응시 시작 기록이 있으면 재응시 draft를 저장할 수 있지만, `allowRetake=false`인 시험의 제출 완료 후 PUT은 409로 차단합니다. 제출 성공 시 같은 트랜잭션에서 임시 답안을 삭제하고, 제출 본문의 답안만 사용합니다. `dueAt` 경과 자체는 저장이나 제출을 막지 않습니다. 30일 이상 갱신되지 않은 임시 답안은 매일 03:30 KST 정리합니다.
+
+FE는 응시 화면 진입 시 GET하고 204이면 `sessionStorage` 답안을 폴백으로 사용합니다. 답안 변경 후 2초 디바운스와 30초 주기 저장을 권장합니다. 제출 시 draft 삭제 API를 별도로 호출할 필요가 없습니다.
 
 제출 요청:
 
@@ -1805,7 +1915,7 @@ Query:
 
 한 트랜잭션에서 다음 강의실 소속 데이터를 FK 역순으로 일괄 삭제합니다.
 
-- 별도 시험: `exam_answers`, `exam_submissions`, `exam_questions`, `exams`
+- 별도 시험: `exam_answers`, `exam_attempt_starts`, `exam_attempt_drafts`, `exam_submissions`, `exam_questions`, `exams`
 - 리포트: `report_criterion_results`, `student_reports`, `report_evidence_snapshots`, `report_generations`, `report_criteria`
 - 강의실 운영: `classroom_resource`, `classroom_notices`, `classroom_week_materials`, `classroom_weeks`, `classroom_join_requests`, `classroom_members`, `classrooms`
 
@@ -2407,23 +2517,31 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 
 모든 `/api/admin/**` 요청은 JWT의 `ROLE_ADMIN` URL 규칙, 컨트롤러의
 `@PreAuthorize("hasRole('ADMIN')")`, 요청 시점 DB의 `ADMIN/ACTIVE` 재검증을 모두
-통과해야 합니다. 관리자 API는 원칙적으로 읽기 전용이며 역할·상태 변경, 회원 탈퇴, 강의실
-조작 API는 제공하지 않습니다. 비밀번호 초기화는 이미 수행 중인 운영 수작업을 감사 가능한
-안전 경로로 바꾸고 대상자가 다음 로그인에서 즉시 인지하는 행위이므로 아래 한 개의 명시적
-쓰기 예외만 제공합니다.
+통과해야 합니다. 관리자 API는 원칙적으로 읽기 전용이나 기존 비밀번호 초기화, xAI 경보 임계값
+설정, 테스트 메일, 계정 정지·복구·역할 변경, 정책 새 버전 등록은 운영 수작업을 감사 가능한 경로로 대체하기 위한
+명시적 쓰기 예외입니다. 모든 관리자 MVC 요청은 완료 후 구조화 감사 로그 1줄에
+`actorUserId, action, targetType, targetId, method, endpoint, status, occurredAt`을 남기며
+본문·비밀번호·토큰은 남기지 않습니다.
+
+### 관리자 정책 버전 (#415)
+
+- `POST /api/admin/policies`: `{"type":"TERMS","version":"1.0","title":"...","content":"...","summary":"변경 요약","effectiveAt":"2026-10-01T00:00:00Z"}`. `effectiveAt`은 등록 시각보다 미래여야 합니다. 성공 시 전체 문서 DTO를 반환하며 `@AdminAction("POLICY_PUBLISHED")`로 감사합니다. 같은 유형·버전은 `POLICY_VERSION_EXISTS`(409), 과거 시행 시각은 `VALIDATION_FAILED`(400)입니다. 등록 후 수정·삭제 API는 없습니다.
+- `GET /api/admin/policies?type=TERMS`: 유형 필터는 선택이며 모든 버전의 메타데이터 목록을 시행 시각 역순으로 반환합니다.
+- `GET /api/admin/policies/consent-stats`: 현재 유효 버전별 `[{"type":"TERMS","version":"1.0","activeUsers":100,"agreedUsers":65,"consentRatePercent":65.00}]`. 분모는 활성 사용자 수, 분자는 해당 유형·현재 버전에 동의한 활성 사용자 수입니다. 현재 유효 문서가 없는 유형은 목록에서 빠집니다.
 
 ### GET `/api/admin/users?q=&role=&status=&sort=&page=&size=`
 
 - `q`: 이메일 또는 이름 부분일치, 대소문자 무시
 - `role`: 선택 `ADMIN | INSTRUCTOR | LEARNER`
-- `status`: 선택 `ACTIVE | DELETED`; 생략하면 탈퇴 사용자를 포함한 전체
+- `status`: 선택 `ACTIVE | SUSPENDED | DELETED`; 생략하면 정지·탈퇴 사용자를 포함한 전체
 - `sort`: `RECENT` 기본(`createdAt DESC, id DESC`), `NAME`,
   `RECENT_ACTIVITY_DESC`, `RECENT_ACTIVITY_ASC`
 - `page`/`size`: 기본 0/20, size 최대 100
 
 목록은 `items`, `page`, `size`, `totalElements`, `totalPages`를 반환합니다. 각 item은
 `id`, `email`, `name`, `role`, `status`, `authProvider`, `createdAt`,
-`lastActiveAt`을 포함합니다. `lastActiveAt`은 인증된 API 요청 시각이며
+`lastActiveAt`, `suspendedAt`, `suspendedReason`을 포함합니다. 정지 메타는 정지 중에만
+non-null입니다. `lastActiveAt`은 인증된 API 요청 시각이며
 `/api/auth/refresh` 성공도 활동에 포함합니다. 값은 ISO 8601 UTC이고, 활동 근거가 없으면
 `null`입니다. 같은 사용자의 DB 갱신은 5분에 한 번으로 제한하므로 상대 시간 표시는 최대
 5분의 오차가 있을 수 있습니다.
@@ -2439,7 +2557,7 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 ### GET `/api/admin/users/{id}`
 
 `id`, `email`, `name`, `role`, `status`, `authProvider`, `createdAt`,
-`affiliation`, `consentedAt`을 반환합니다. `lastActiveAt` 추가 범위는 회원 목록 item입니다.
+`affiliation`, `consentedAt`, `suspendedAt`, `suspendedReason`을 반환합니다. `lastActiveAt` 추가 범위는 회원 목록 item입니다.
 없는 사용자는 `USER_NOT_FOUND`(404)입니다.
 
 ### POST `/api/admin/users/{id}/password-reset`
@@ -2460,10 +2578,22 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 
 임시 비밀번호는 이 응답에서 한 번만 전달되며 DB 평문·감사 로그에 저장하지 않습니다. 응답은
 `Cache-Control: private, no-store`입니다. FE는 재조회가 불가능함을 알리는 모달에서 값을 한
-번 표시하고 복사 버튼을 제공해야 합니다. 감사 로그에는 `actorUserId`, `targetUserId`,
-`action=ADMIN_PASSWORD_RESET`, 시각만 INFO 구조화 필드로 남깁니다. 주요 오류:
+번 표시하고 복사 버튼을 제공해야 합니다. 공통 관리자 감사 로그에 `action=ADMIN_PASSWORD_RESET`과
+대상 사용자 ID를 남깁니다. 주요 오류:
 `USER_NOT_FOUND`(404), `PASSWORD_NOT_SUPPORTED`(409), `PASSWORD_RESET_NOT_ALLOWED`(409),
 비ADMIN 또는 요청 시점 DB의 비활성·비ADMIN actor는 `ACCESS_DENIED`(403).
+
+### POST `/api/admin/users/{id}/suspend`
+
+요청 `{"reason":"운영 정책 위반"}` (`reason` 필수·500자 이하). 성공 시 갱신된 관리자 사용자 상세 DTO를 반환하며 `status=SUSPENDED`, `suspendedAt`(UTC), `suspendedReason`을 포함합니다. 대상의 모든 refresh token·인증 세션을 폐기하고, 기존 access token도 인증 필터의 계정 상태 재검증으로 즉시 거부합니다. 자기 자신 정지는 `ADMIN_SELF_MODIFICATION`(400), 마지막 활성 관리자 정지는 `LAST_ADMIN_PROTECTED`(400)입니다.
+
+### POST `/api/admin/users/{id}/reinstate`
+
+요청 body 없음. `SUSPENDED` 계정만 `ACTIVE`로 복구하고 `suspendedAt`·`suspendedReason`을 null로 지웁니다. 기존 세션은 복구되지 않으므로 다시 로그인해야 합니다.
+
+### PATCH `/api/admin/users/{id}/role`
+
+요청 `{"role":"INSTRUCTOR"}` (`LEARNER | INSTRUCTOR | ADMIN`). 성공 시 갱신된 관리자 사용자 상세 DTO를 반환합니다. 실제 역할 변경 시 모든 refresh token·인증 세션을 폐기하고 기존 역할이 들어간 access token을 즉시 거부합니다. 자기 강등은 `ADMIN_SELF_MODIFICATION`(400), 마지막 활성 관리자 강등은 `LAST_ADMIN_PROTECTED`(400)입니다.
 
 ### GET `/api/admin/classrooms?sort=&page=&size=`
 
@@ -2777,6 +2907,27 @@ GET은 단일 임계값 설정을 반환하며 행이 없으면 1차 기본값�
 `updatedBy`, `updatedAt`이 포함됩니다. 이 쓰기 API는 관리자 인프라 조회 전용 원칙의
 명시적 예외이며, 운영 임계값을 코드 배포 없이 조정하기 위한 것입니다. 자동 충전이나
 외부 알림 발송은 하지 않습니다.
+
+### 관리자 시스템 메일 (#410)
+
+`POST /api/admin/mail/test` 요청은 `{"to":"verified@example.com"}`이며, 응답
+`data`는 `{"deliveryId":123}`입니다. 수신자 형식을 검사하고 관리자별 분당 1회로
+제한합니다(초과 `RATE_LIMIT_EXCEEDED`, 429). `deliveryId`는 이력 생성 실패 시 null일 수
+있습니다. 요청은 발송 완료를 기다리지 않으므로 이력의 최종 상태를 별도 조회합니다.
+호출측 트랜잭션이 있으면 실제 발송은 커밋 뒤에 시작하며, 롤백 시 이력은
+`FAILED`/`CALLER_TRANSACTION_ROLLED_BACK`으로 남습니다.
+
+`GET /api/admin/mail/deliveries?from=&to=&status=&page=0&size=20`은 ISO 8601 UTC
+`from` 포함·`to` 제외, `status=QUEUED|SENT|FAILED|RATE_LIMITED`, `size` 최대 100을
+지원합니다. 응답은 `items`, `page`, `size`, `totalElements`, `totalPages`이며 각 항목은
+`id`, `recipient`, `type`, `status`, `subject`, `providerMessageId`, `errorSummary`,
+`attemptCount`, `createdAt`, `sentAt`을 포함합니다. `type`은
+`PASSWORD_RESET|EMAIL_VERIFY|NOTIFICATION|TEST`입니다. 본문은 이력·응답에 포함하지
+않습니다. `enabled=false`일 때는 `FAILED`/`errorSummary=DISABLED`입니다.
+prod에서 메일 provider가 `logging`이면 기동을 거부하며, `EDUPILOT_MAIL_ALLOW_LOGGING_IN_PROD=true`를 명시한 경우에만 본문을 숨긴 채 발송 없이 기동합니다.
+
+이 이슈는 발송 기반과 관리자 검증 API만 제공합니다. 비밀번호 재설정·가입 이메일 인증·
+알림 메일 연결은 후속 이슈이며, 기존 인앱 알림은 변경되지 않습니다.
 
 ## 8. Spring → FastAPI 내부 API
 

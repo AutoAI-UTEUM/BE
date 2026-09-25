@@ -11,9 +11,13 @@
 | 화면/영역 | 사용자 행동/시점 | API | 성공 시 UI | 주요 오류 |
 | --- | --- | --- | --- | --- |
 | 회원가입 | 이메일 입력 중 중복 확인 | `GET /api/auth/email-availability?email={email}` | 사용 가능 여부 표시 | 이메일 누락·형식 오류 |
-| 회원가입 | 역할·선택 소속·수신 동의·약관 버전 제출 | `POST /api/auth/signup` | 확장 사용자 응답 확인 후 로그인 화면 또는 자동 로그인 정책에 따른 이동 | 역할/약관 버전 오류, 유효성, 이메일 중복 |
-| 로그인 | 제출 | `POST /api/auth/login` | access와 역할별 `session` 메타를 메모리에 보존한 뒤 자료 목록 이동. refresh는 HttpOnly cookie | 자격 증명 실패, 비활성 계정 |
-| 로그인 | Google 로그인 | `POST /api/auth/google` | 기존·연동 계정은 access와 `session` 메타를 받아 로그인 완료. 신규 계정은 `SIGNUP_REQUIRED` 시 역할·약관·선택 정보를 받은 뒤 같은 ID 토큰으로 재요청 | Google 토큰 오류, 추가 정보 필요, 비활성 계정 |
+| 회원가입 | 현재 약관·처리방침 표시와 필수 동의 후 역할·선택 소속·수신 동의 제출 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}`, `POST /api/auth/signup` | 현재 TERMS·PRIVACY `{type,version}`을 `consents` 배열로 제출한 뒤 로그인 화면 이동 | `POLICY_CONSENT_REQUIRED`, 유효성, 이메일 중복 |
+| 로그인 | 제출 | `POST /api/auth/login` | access와 역할별 `session` 메타를 메모리에 보존한 뒤 자료 목록 이동. refresh는 HttpOnly cookie | 자격 증명 실패, 정지 계정 `ACCOUNT_SUSPENDED` 안내, 429 `LOGIN_RATE_LIMITED`는 `Retry-After` 초 표시 |
+| 로그인 | Google 로그인 | `POST /api/auth/google` | 기존·연동 계정은 access·`session`·`pendingConsents`를 받아 로그인 완료. 신규 계정은 `SIGNUP_REQUIRED` 시 역할·현재 정책 동의·선택 정보를 받은 뒤 같은 ID 토큰으로 재요청 | Google 토큰 오류, 추가 정보 필요, 비활성 계정 |
+| 로그인 직후 | 미동의 정책 확인·재동의 | 로그인 `pendingConsents`, `GET·POST /api/users/me/consents`, `GET /api/policies/{type}/{version}` | pending이 있으면 FE 동의 화면으로 이동. 동의 후 pending 빈 배열 확인; 서버는 미동의 API 차단을 하지 않음 | `POLICY_VERSION_MISMATCH` 시 current 재조회 |
+| 정책 본문 | 현재 정책 문서 표시 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}` | `/policies/{type}`에서 current 버전의 본문 표시. 0.9는 법무 검토 전 초안이므로 운영 공개 시점 주의 | 없는 버전 404 |
+| 비밀번호 찾기 | 이메일 제출 | `POST /api/auth/password-reset/request` | 202면 가입 여부와 무관하게 "등록된 이메일이면 재설정 안내를 발송했습니다." 표시 | 요청 상한·미가입·비활성 계정도 동일 202 |
+| 비밀번호 재설정 | `/reset-password?token=` 링크에서 새 비밀번호 제출 | `POST /api/auth/password-reset/confirm` | 성공 시 보유 access 삭제 후 로그인 화면 이동 | `RESET_TOKEN_INVALID` 400은 "링크가 만료되었거나 유효하지 않습니다 — 다시 요청" 단일 문구; 비밀번호 정책 오류와 429 구분 |
 | 앱 초기 진입 | 인증 상태 확인 | `GET /api/users/me` | 사용자 정보/권한 반영 | 토큰 만료 |
 | 앱 공통 인증 | 실제 pointer/key/touch/scroll 활동을 탭 전체 기준 최대 5분에 한 번 기록 | `POST /api/auth/session/activity` (Bearer + credentials 포함) | token 회전 없이 응답의 `idleExpiresAt` 갱신·탭 간 전파. background polling은 호출 근거가 아님 | cookie 누락·사용자 불일치 `TOKEN_INVALID`, idle·절대 만료 시 전체 탭 로그인 이동 |
 | 계정 설정 | 이름·소속 수정 | `PATCH /api/users/me` | 확장 사용자 정보 갱신 | 빈 변경, 길이 오류 |
@@ -21,12 +25,15 @@
 | 계정 설정 | 학습 환경설정 조회·수정 | `GET·PATCH /api/users/me/preferences` | 이메일 수신·학습 리마인더 설정과 AI 답변 스타일 저장 | 빈 변경, enum 오류 |
 | 인앱 알림 | 목록 조회·읽음·삭제 | `GET /api/users/me/notifications`, `PATCH .../{notificationId}/read`, `DELETE .../{notificationId}` | `type`과 `link`로 자료·공지·입장 요청·시험 화면에 라우팅하고 읽음 상태 반영. 예약 공지와 시험 알림은 dedup 기준으로 한 번만 표시 | 비인증, 타인·부재 알림 404, 페이지네이션 |
 | 피드백 화면/모달 | 피드백 제출 | `POST /api/feedback` | 접수 ID·시각 확인 후 완료 표시 | 비인증, category·내용 길이 오류 |
-| 관리자 회원 현황 | 목록·검색·역할/상태 필터·상세 조회 | `GET /api/admin/users`, `GET /api/admin/users/{id}` | ACTIVE·DELETED 전체 회원의 비민감 프로필·가입일·최근 활동 표시. `lastActiveAt=null`은 `-` 처리하고 가입일/이름/최근 활동 양방향 정렬 지원 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 없는 회원 404 |
+| 관리자 회원 현황 | 목록·검색·역할/상태 필터·상세 조회 | `GET /api/admin/users`, `GET /api/admin/users/{id}` | ACTIVE·SUSPENDED·DELETED 전체 회원의 비민감 프로필·가입일·최근 활동·정지 사유 표시. `lastActiveAt=null`은 `-` 처리하고 가입일/이름/최근 활동 양방향 정렬 지원 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 없는 회원 404 |
+| 관리자 회원 현황 | 계정 정지·복구·역할 변경 | `POST /api/admin/users/{id}/suspend`, `POST /api/admin/users/{id}/reinstate`, `PATCH /api/admin/users/{id}/role` | 확인 후 실행하고 반환된 상세 DTO로 상태·역할 즉시 갱신. 기존 세션은 폐기되므로 대상자에게 재로그인 안내 | 비ADMIN 403, 자기 정지·강등 또는 마지막 활성 ADMIN 변경 400 |
 | 관리자 회원 현황 | 사용자 비밀번호 초기화 | `POST /api/admin/users/{id}/password-reset` | 확인 후 실행하고 `temporaryPassword`를 재조회 불가 안내와 함께 모달에 1회 표시하며 복사 버튼 제공 | 비ADMIN 403, 없는 회원 404, GOOGLE·DELETED·자기 자신 409 |
+| 관리자 정책 운영 | 버전 등록·목록·현재 동의율 | `POST·GET /api/admin/policies`, `GET /api/admin/policies/consent-stats` | 승인된 1.0 문구를 미래 시행 시각으로 불변 등록, 활성 사용자 대비 동의율 확인 | 비ADMIN 403, 중복 버전 409, 과거 시행 시각 400 |
 | 관리자 강의실 현황 | 목록·정렬·상세 조회 | `GET /api/admin/classrooms`, `GET /api/admin/classrooms/{id}` | 개설자·상태·멤버 수와 상세 멤버 목록 표시 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 없는 강의실 404 |
 | 관리자 AI 사용량 | 기간별 요약·사용자 상위 N 조회 | `GET /api/admin/ai-usage/summary`, `GET /api/admin/ai-usage/users` | 최근 7일 기본, 최대 92일의 KST 일별·기능별·사용자별 집계 표시 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 날짜 범위·limit 400 |
 | 관리자 인프라 현황 | 환경·기간별 EC2 지표, AWS 비용, 앱 상태 조회 | `GET /api/admin/infra/metrics`, `GET /api/admin/infra/cost`, `GET /api/admin/infra/app` | CPU·네트워크·메모리·디스크·상태검사 시계열, 월/서비스/일별 비용, JVM·HTTP·DB·AI 상태 표시. AWS 실패 시 unavailable 또는 stale 안내 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, env·range 400, AWS 장애는 200 fail-soft |
 | 관리자 xAI 비용 현황 | 화면 진입·기간/지표/그룹 변경·월 청구 조회·수동 동기화·임계값 수정 | `GET /api/admin/xai/credits`, `GET /api/admin/xai/status`, `GET /api/admin/xai/overview`, `GET /api/admin/xai/usage`, `GET /api/admin/xai/reconciliation`, `GET /api/admin/xai/invoices`, `GET·PUT /api/admin/xai/alerts`, `POST /api/admin/xai/sync` | 문자열 USD 금액, 내부 DAY 시계열, 비용 미확인 호출 수, 청구 월 기준 reconciliation, invoice 상태, 마지막 동기화·stale, `costSource`, 설정 기반 NORMAL/WARNING/CRITICAL 표시. 선불 표시값은 원장잔액인 `prepaidBalanceUsd`가 아니라 당기 차감 후 `prepaidAvailableUsd`를 사용하고 전체 표시값은 `totalAvailableUsd`를 사용. `unknownCostCalls`는 0원이 아니며 API_KEY 그룹은 제공하지 않음 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, API_KEY 그룹 400, alerts 관계 검증 400, sync 사용자별 분당 1회 초과 429; 외부 장애는 200 fail-soft |
+| 관리자 메일 발송 확인 | 테스트 발송·발송 이력 조회 | `POST /api/admin/mail/test`, `GET /api/admin/mail/deliveries` | 비동기 테스트 발송 ID와 QUEUED/SENT/FAILED/RATE_LIMITED 이력 표시; 본문은 제공하지 않음 | 비ADMIN 403, 테스트 사용자별 분당 1회 초과 429; 발송 실패는 이력에서 확인 |
 | 강의실 목록 | 화면 진입·검색·정렬·페이지 이동 | `GET /api/classrooms` | 역할별 소유/참여 강의실, 진도·최근 학습 또는 승인 대기 수 표시 | 권한, 페이지네이션 |
 | 강의실 개설 | 생성 폼 제출 | `POST /api/classrooms` | 계산된 주차 수·초대 코드가 포함된 상세로 이동 | INSTRUCTOR 권한, 날짜·색상 검증 |
 | 강의실 상세 | 화면 진입 | `GET /api/classrooms/{id}` | 기간·현재 주차·인원·역할별 상세 표시 | `CLASSROOM_NOT_FOUND` |
@@ -52,6 +59,7 @@
 | 시험 결과 관리 | 실패 제출 재채점 | `POST /api/exams/{examId}/submissions/{submissionId}/regrade` | `GRADING_FAILED`에만 버튼 노출. 202/SUBMITTED 후 결과 조회로 전환하며 저장 답안을 재사용 | 비소유·부재 404, 상태 충돌 409. executor 포화는 202 후 scheduler 회수 |
 | 시험 응시 | 공개·마감 시험 목록과 상세 조회 | `GET /api/classrooms/{classroomId}/exams`, `GET /api/exams/{examId}` | PUBLISHED는 응시 UI, CLOSED는 읽기 전용 결과 UI. `dueAt`은 표시용이며 경과 자체로 응시를 막지 않음 | DRAFT는 `EXAM_NOT_FOUND`로 은닉 |
 | 시험 응시 | 응시 화면 진입 | `POST /api/exams/{examId}/attempts/start` | 화면 진입 시 1회 호출하고 반환된 `startedAt`을 표시 기준으로 사용. 새로고침·재진입도 같은 미소비 시각 반환 | 비멤버·강사·DRAFT/CLOSED·완료 강의실 |
+| 시험 응시 | 답안 임시저장·다른 기기 이어풀기 | `GET·PUT /api/exams/{examId}/attempts/draft` | 진입 시 GET(204면 sessionStorage 폴백), 응시 시작 후 답안 변경 2초 디바운스+30초 주기 PUT. 버전 409 시 `latestDraft`와 로컬 답안 선택 후 재시도. 제출 시 별도 삭제 불필요 | 승인 학습자·PUBLISHED·미소비 시작 기록 필수; `allowRetake=true` 재응시의 새 시작 기록은 허용, `allowRetake=false` 제출 완료 후 409; 256KB/분당 30회 상한 |
 | 시험 응시 | 답안 제출·통신 재시도·재응시 | `POST /api/exams/{examId}/submissions` | 응답 `status`로 분기. 같은 제출 재시도는 같은 `requestId`, 재응시·GRADING_FAILED 재제출은 새 `requestId` | CLOSED, SUBMITTED 중복, 재응시 불가, 답안 형식 오류 |
 | 시험 결과 | 내 최신 또는 지정 시도 조회 | `GET /api/exams/{examId}/submissions/me?attemptNo=` | `reviewAvailable`로 정답·해설 영역을 토글하고 `durationSeconds=null`은 `-`로 표시. SUBMITTED는 2초 polling→30초 뒤 5초, terminal에서 중단. 31분부터 지연 안내, 최대 3개 채점 창을 반영해 91분 초과 시 마지막 조회 후 문의 안내 | 접근 권한, 시도 없음 |
 | 리포트 학생 선택 `/classrooms/:classroomId/reports` | 수강생 목록·검색·정렬·제외 | `GET·DELETE /api/classrooms/{classroomId}/students[/{studentId}]` | 프로필·가입일·최근 학습 시각·평균 진도·최근 7일 AI 질문 수 표시. 이름 검색과 최근 활동/이름/낮은 진도 정렬 지원 | 강의실 관리 권한, 잘못된 정렬값, 제외된 학생 404 |
@@ -59,7 +67,7 @@
 | 리포트 상세 `/reports/:reportId` | 생성 상태·실패 fallback·완료 결과 조회 | `GET /api/reports/{reportId}` | PROCESSING 표시, FAILED 사실 요약, COMPLETED 점수·단계·trend·근거 표시. 근거의 선택 `metrics`는 label/value로 표시하고 필드가 없으면 수치 영역을 숨김. trend는 같은 scope(FULL 또는 같은 주차 WEEK)의 직전 버전 대비이며 null score는 데이터 부족으로 표시 | `REPORT_NOT_FOUND`, AI failureCode |
 | 리포트 기준 `/classrooms/:classroomId/report-criteria` | 기본·커스텀 목록, 기준 생성·버전 변경·활성 토글·커스텀 삭제 | `GET·POST /api/classrooms/{classroomId}/report-criteria`, `PATCH·DELETE .../{criterionId}` | 기본 9종과 활성 커스텀을 표시. 삭제는 최신 ID로 해당 key 전 버전을 제거하며 진행 중 생성·과거 리포트에는 영향 없음 | 기준 20개 상한, 정규화 이름 중복, 소유권, 타 강의실·과거 버전 ID 404 |
 | 리포트 기준 `/classrooms/:classroomId/report-criteria` | AI 평가 지표 생성·상태 polling | `POST /api/classrooms/{classroomId}/report-criteria/generate`, `GET .../generation` | 202 후 `RUNNING`을 polling하고 `COMPLETED`면 목록 갱신, `FAILED`면 message 표시 | READY 개요 1개 이상, 여유 슬롯 3개 이상, 동시 실행 409, 소유권 |
-| 전역 | access 만료 5분 전 최근 실제 활동이 있거나 일반 요청의 최초 401 시 | `POST /api/auth/refresh` (credentials 포함) | 탭 전체 single-flight로 같은 세션의 access/refresh를 1회 회전하고 원 요청은 최대 1회 재시도. `absoluteExpiresAt`은 유지 | `TOKEN_INVALID`, `AUTH_SESSION_IDLE_EXPIRED`, `AUTH_SESSION_ABSOLUTE_EXPIRED`, `USER_INACTIVE` → 전체 탭 로그인 이동; 5xx·통신 오류는 강제 로그아웃 금지 |
+| 전역 | access 만료 5분 전 최근 실제 활동이 있거나 일반 요청의 최초 401 시 | `POST /api/auth/refresh` (credentials 포함) | 탭 전체 single-flight로 같은 세션의 access/refresh를 1회 회전하고 원 요청은 최대 1회 재시도. `absoluteExpiresAt`은 유지 | `TOKEN_INVALID`, `AUTH_SESSION_IDLE_EXPIRED`, `AUTH_SESSION_ABSOLUTE_EXPIRED`, `USER_INACTIVE`, `ACCOUNT_SUSPENDED` → 전체 탭 로그인 이동; 5xx·통신 오류는 강제 로그아웃 금지 |
 | 헤더/메뉴 | 로그아웃 버튼 | `POST /api/auth/logout` | 현재 기기 인증 세션만 폐기하고 메모리 access 삭제 후 로그인 화면 | 없음(멱등) |
 | 계정 설정 | 현재·새 비밀번호 입력 후 변경 | `PATCH /api/users/me/password` | 성공 시 `reauthenticationRequired=true`를 확인하고 access 삭제 후 로그인 화면 이동 | GOOGLE 계정·동일 비밀번호 409, 현재 비밀번호 불일치·정책 위반 400, 5회 실패 후 429 |
 | 계정 설정 | 탈퇴 버튼 → 비밀번호 확인 모달 | `DELETE /api/users/me` | 토큰 정리 후 로그인 화면 이동 | 비밀번호 불일치 (DEC-028) |
@@ -84,6 +92,9 @@
 | 학습 세션 | 자료 노트 진입·페이지 이동 | `GET /api/materials/{materialId}/notes?page&size` 또는 `GET /api/sessions/{sessionId}/notes?page&size` | 같은 자료 범위 노트를 최신순으로 표시 | 자료·세션 소유권, 페이지네이션 오류 |
 | 학습 세션 | 노트 내용 수정 | `PATCH /api/notes/{noteId}` | 수정된 내용·시각 반영 | `NOTE_NOT_FOUND`, 내용 길이 오류 |
 | 학습 세션 | 노트 삭제 | `DELETE /api/notes/{noteId}` | 목록에서 제거 | `NOTE_NOT_FOUND` |
+| 내 노트 | 수동 노트 목록·상세·작성·수정·삭제 | `GET·POST /api/user-notes`, `GET·PATCH·DELETE /api/user-notes/{noteId}` | 서버 노트를 정본으로 사용하고 자료·페이지 연결 및 소프트 삭제를 반영 | 자료 접근권, `NOTE_NOT_FOUND`, 1MiB·2,000개 상한 |
+| 오답 노트 | 퀴즈 제출 문항을 노트로 저장·조회·수정·삭제 | `GET·POST /api/wrong-answer-notes`, `PATCH·DELETE /api/wrong-answer-notes/{noteId}` | 제출 결과의 `submissionId:questionId`로 등록하고 서버 snapshot을 표시 | 타인·부재 결과 404, 중복 결과는 기존 항목 200 |
+| 최초 로그인 | 로컬 수동·오답 노트 1회 이관 | `POST /api/user-notes/import` | imported·skipped 항목만 로컬에서 제거하고 failed는 사유 표시 후 재시도 | 배열당 200건, 분당 5회, 항목별 부분 성공 |
 | PDF 뷰어 | 다음/이전/번호 입력 | `PATCH /api/sessions/{sessionId}/page` | 응답 페이지로 뷰어 동기화, 설명 여부 UI | 페이지 범위/상태 충돌 |
 | 채팅 | 스트림 선연결 | `GET /api/sessions/{sessionId}/stream` | fetch+Bearer로 SSE 연결 후 turns 호출 | 중복 연결/AI 스트림 중단 |
 | 채팅 | 설명 시작 선택 | `POST /api/sessions/{sessionId}/turns` | 설명 스트림/메시지 표시 | AI timeout/스키마 오류/일일 AI 쿼터 429 |
