@@ -349,6 +349,13 @@ provider에 전달합니다. `QuizGeneration`을 상속하고 questions 타입�
 모델 로그를 유형별로 모을 때는 위 네 `responseModel` 이름을 함께 집계합니다
 (변경 전 로그는 `QuizGeneration`). 실제 지연·내용 품질 비교는 후속 일괄 측정 대상입니다.
 
+## 학습 턴 속도·품질 비교 준비
+
+학습 턴 속도/품질의 전후 비교는 별도의 [로컬 실측 준비 도구](tests/benchmarks/README.md)를
+사용합니다. 두 코드 버전을 격리하고 고정 입력을 교차 재생하며, `prepare`/`check`/`report`는
+외부 호출 없이 동작합니다. 실제 호출은 새 예산을 승인한 뒤 `run --live`로만 실행합니다.
+계약 PASS와 교육 품질 PASS는 구분합니다. 이 도구 준비를 실제 속도 개선의 증거로 보지 않습니다.
+
 ## CLI 데모 (설계자·비개발자용)
 
 [uv 설치 안내](https://docs.astral.sh/uv/getting-started/installation/)에 따라 `uv`를
