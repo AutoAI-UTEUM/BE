@@ -115,6 +115,11 @@
 | GET | `/api/exams/{examId}/submissions/me` | 본인 시험 제출 결과 조회 | Y | 제출한 승인 멤버 |
 | GET | `/api/users/me/memory?materialId={materialId}` | 학습자 메모리 조회(자료별) | Y | 본인 |
 | POST | `/api/sessions/{sessionId}/complete` | 세션 종료 | Y | 세션 소유자 |
+| GET·POST | `/api/user-notes` | 내 수동 노트 목록·생성 | Y | 본인; 자료 연결 시 자료 접근권 |
+| GET·PATCH·DELETE | `/api/user-notes/{noteId}` | 내 수동 노트 상세·수정·소프트 삭제 | Y | 본인 |
+| GET·POST | `/api/wrong-answer-notes` | 내 오답 노트 목록·생성 | Y | 본인 퀴즈 제출 문항 |
+| PATCH·DELETE | `/api/wrong-answer-notes/{noteId}` | 내 오답 노트 수정·소프트 삭제 | Y | 본인 |
+| POST | `/api/notes/import` | 로컬 수동·오답 노트 항목별 이관 | Y | 본인; 분당 5회 |
 | POST | `/api/classrooms` | 강의실 개설 | Y | INSTRUCTOR |
 | GET | `/api/classrooms` | 내 강의실 목록 | Y | 소유 또는 승인 멤버 관계 |
 | GET | `/api/classrooms/{id}` | 강의실 상세 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
@@ -1025,6 +1030,40 @@ Query:
 ### DELETE `/api/notes/{noteId}`
 
 본인 노트를 물리 삭제합니다. 존재하지 않거나 다른 사용자의 노트는 모두 `NOTE_NOT_FOUND`(404)로 은닉합니다.
+
+## 5.2 수동 노트·오답 노트 API
+
+이 API의 `user_notes`는 위 5.1의 기존 AI 노트 확정 저장용 `notes`와 별개입니다. 기존 `PATCH/DELETE /api/notes/{noteId}`가 이미 사용 중이므로 수동 노트 CRUD는 `/api/user-notes`로 분리합니다. 모든 응답은 공통 `ApiResponse` 봉투를 사용하며 Bearer 인증이 필요합니다. 목록 기본값은 `page=0`, `size=50`(최대 100), 정렬은 `updatedAt DESC, id DESC`입니다. 소프트 삭제된 항목은 목록·상세에서 제외합니다.
+
+### 수동 노트 `/api/user-notes`
+
+- `GET ?materialId=&page=&size=`: 본인 노트만 페이지 응답(`items`, `page`, `size`, `totalElements`, `totalPages`). 항목은 `id`, `materialId`, `pageNumber`, `title`, `content`, `createdAt`, `updatedAt`입니다.
+- `GET /{noteId}`: 본인 상세. 타인·삭제된 노트는 `NOTE_NOT_FOUND`(404)입니다.
+- `POST` 요청: `{"materialId":10,"pageNumber":3,"title":"핵심 정리","content":"내용","clientId":"UUID-v4"}`. 자료·페이지·clientId는 선택입니다. 자료를 지정하면 현재 접근 가능한 자료인지 확인하고, 타인·없는 자료는 `MATERIAL_NOT_FOUND`(404)입니다. 생성 201, 같은 `(userId,clientId)` 재전송은 기존 노트 200입니다.
+- `PATCH /{noteId}`: `title`, `content`, `pageNumber` 중 하나 이상. 미포함 필드는 유지하고 `pageNumber:null`은 페이지 연결을 제거합니다. 제목·본문의 명시적 null은 400입니다.
+- `DELETE /{noteId}`: 소프트 삭제 후 204. 본인 외 노트는 `NOTE_NOT_FOUND`(404)입니다.
+
+제목은 비공백 200자 이하, `content`는 UTF-8 기준 1MiB 이하(`NOTE_TOO_LARGE` 400), 활성 수동 노트는 사용자당 최대 2,000개(`NOTE_LIMIT_EXCEEDED` 400)입니다. 자료 없는 노트는 페이지 번호를 생략하거나 양수로 지정할 수 있습니다. 자료를 지정한 경우 페이지 번호는 자료 범위 안이어야 합니다.
+
+### 오답 노트 `/api/wrong-answer-notes`
+
+`quizResultRef`는 통합학습 퀴즈 결과의 `submissionId:questionId` 문자열입니다(예: `77:q1`). 시험 제출은 범위 밖입니다. 퀴즈 제출 결과 응답의 두 식별자로 FE가 조합하며, 서버는 해당 제출·문항이 본인 것인지 검증합니다. 타인·부재는 `QUIZ_NOT_FOUND`(404)입니다.
+
+- `GET ?page=&size=`: 본인 오답 노트 페이지 응답. 항목은 `id`, `quizResultRef`, `questionSnapshot`, `memo`, `createdAt`, `updatedAt`입니다.
+- `POST` 요청: `{"quizResultRef":"77:q1","memo":"개념 복습","clientId":"UUID-v4"}`. 새 항목 201, 같은 clientId 또는 같은 퀴즈 제출 문항은 기존 항목 200입니다. `questionSnapshot`은 요청에서 받지 않고 저장된 퀴즈 문항·제출 답안에서 서버가 생성합니다. snapshot에는 문항 ID·내용·유형·선택지·정답·내 답만 들어가고 rubric은 포함하지 않습니다.
+- `PATCH /{noteId}` 요청: `{"memo":"다시 풀기"}`. `memo:null`은 메모 제거입니다.
+- `DELETE /{noteId}`: 소프트 삭제 후 204. 타인·삭제된 항목은 `WRONG_ANSWER_NOTE_NOT_FOUND`(404)입니다.
+
+### POST `/api/notes/import`
+
+```json
+{
+  "notes": [{"clientId":"UUID-v4","materialId":10,"pageNumber":3,"title":"제목","content":"내용","createdAt":"2026-09-01T00:00:00Z"}],
+  "wrongAnswers": [{"clientId":"UUID-v4","quizResultRef":"77:q1","memo":"복습"}]
+}
+```
+
+각 배열 최대 200건, 사용자당 분당 5회입니다. `clientId`는 이관 항목마다 필수입니다. 항목별 독립 트랜잭션으로 저장하므로 일부 검증 실패가 나머지를 롤백하지 않습니다. 성공 데이터(`data`)는 `{"imported":1,"skipped":0,"failed":[{"clientId":"...","reason":"MATERIAL_NOT_FOUND"}]}` 형태입니다. 재호출 시 같은 clientId는 `skipped`에 집계됩니다. FE는 최초 로그인 시 UUID v4 clientId를 부여해 이관하고, 성공·skip 항목만 로컬에서 제거하며 실패 항목은 사유 표시 후 재시도해야 합니다. 이후 서버를 정본으로, 로컬 저장소는 오프라인 캐시로 사용합니다.
 
 ## 6. 퀴즈·시험 API
 

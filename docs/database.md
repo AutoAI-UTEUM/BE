@@ -97,6 +97,8 @@
 - `classroom_join_requests`는 사용자×강의실당 한 행입니다. `REJECTED` 재요청은 같은 행을 `PENDING`으로 갱신하고 `requested_at`을 새로 기록하며 `processed_at=NULL`로 되돌립니다.
 - 강의실 자료 업로드 시 `learning_materials` 행과 `classroom_week_materials` 연결은 한 DB 트랜잭션으로 저장합니다. 파일 storage는 DB 트랜잭션에 참여하지 않으므로 DB 실패 시 저장 파일을 보상 삭제합니다.
 - `notes`는 사용자와 자료에 귀속하며 세션·페이지·원본 채팅 메시지는 nullable 참조입니다. 목록은 사용자×ACTIVE 자료 범위로 조회하므로 자료가 논리 삭제되면 노트 행은 보존하되 API 목록에서는 제외합니다. 최신순은 `(created_at DESC, id DESC)`로 고정합니다.
+- `user_notes`는 기존 AI 초안 확정용 `notes`와 별도로 수동 노트를 저장합니다. 선택 자료·페이지와 nullable clientId를 가지며 `(user_id, client_id)` 유일 제약으로 이관 재시도를 멱등화합니다. 자료 물리 삭제 시 연결만 NULL로 바뀌고 노트는 남습니다. `deleted_at`으로 소프트 삭제하며 목록은 `(updated_at DESC, id DESC)`입니다.
+- `wrong_answer_notes`는 통합학습 `quiz_submissions.id:questionId`를 문자열 `quiz_result_ref`로 저장합니다. `(user_id, quiz_result_ref)`·`(user_id, client_id)` 유일 제약을 두고 원본 문항·정답·내 답을 서버 생성 JSON snapshot으로 보관해 원본 삭제 후에도 내용을 유지합니다. 시험(exam) 답안은 포함하지 않습니다.
 - `feedbacks`는 인증 사용자를 작성자로 기록하고 `BUG | FEATURE_REQUEST | GENERAL` category와 최대 2,000자의 message를 저장합니다. 운영자 조회 API 없이 DB에서 직접 확인합니다.
 - `quiz_submissions.score`와 `max_score`는 AI 부분점수를 보존하기 위해 `DECIMAL(10,2)`를 사용합니다. API 응답도 소수 둘째 자리까지 포함할 수 있습니다.
 - refresh token 원문은 저장하지 않고 SHA-256 해시만 `refresh_tokens.token_hash`에 저장합니다. V41 이후 신규 token은 브라우저·기기별 `auth_sessions`에 연결하고 회전해도 같은 session과 최초 로그인 기준 `absolute_expires_at`을 유지합니다. 기존 token 호환을 위해 `session_id`는 nullable이며 활성 legacy token은 최초 refresh/activity에서 기존 token 만료를 absolute 만료로 채택해 지연 전환합니다.
@@ -183,6 +185,8 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - 페이지 설명 이력: `session_page_records(session_id, page_number)` UNIQUE 인덱스
 - 채팅 페이지네이션: `chat_messages(session_id, created_at, id)`
 - 학습 노트: `notes(user_id)`, `notes(material_id, created_at, id)`
+- 수동 노트: `user_notes(user_id, updated_at)`, `user_notes(user_id, material_id)`
+- 오답 노트: `wrong_answer_notes(user_id, updated_at)`
 - 피드백 작성자: `feedbacks(user_id)`
 - 활성 QA 스레드: `qa_threads(session_id, status)`
 - 최근 퀴즈: `quizzes(session_id, created_at)`
@@ -243,6 +247,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V43__email_deliveries.sql`은 SES/로깅 공통 발송 이력과 수신자별 시간·전체 KST 일별 상한 집계를 위한 인덱스를 추가합니다. 토큰 링크가 담길 수 있는 메일 본문은 저장하지 않습니다.
 - `V44__password_reset_tokens.sql`은 30분짜리 단일 사용 비밀번호 재설정 링크의 SHA-256 해시와 요청 IP를 저장합니다. 재요청 시 기존 미사용 토큰을 사용 처리하고, 만료 7일이 지난 행은 매일 03:00 KST 정리합니다. 기존 사용자·세션 데이터는 백필하지 않으며 prod 적용 전 DB 스냅샷이 필요합니다.
 - `V45__exam_attempt_drafts.sql`은 시험·사용자별 답안 JSON과 낙관적 버전, 갱신 시각을 저장합니다. 기존 제출은 백필하지 않으며 prod 적용 전 DB 스냅샷이 필요합니다.
+- `V46__user_notes_wrong_answer_notes.sql`은 수동 노트와 오답 노트 snapshot을 분리하고 clientId·퀴즈 결과 참조 유일 제약 및 소프트 삭제 시각을 추가합니다. 기존 `notes`와 AI 노트 턴은 변경하지 않으며 prod 적용 전 DB 스냅샷이 필요합니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.

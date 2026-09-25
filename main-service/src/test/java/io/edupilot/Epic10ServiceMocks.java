@@ -51,6 +51,9 @@ import io.edupilot.session.LearningProgressService;
 import io.edupilot.session.QuizProposalPolicy;
 import io.edupilot.schedule.ScheduleService;
 import io.edupilot.schedule.PersonalScheduleService;
+import io.edupilot.usernote.NoteImportService;
+import io.edupilot.usernote.UserNoteService;
+import io.edupilot.usernote.WrongAnswerNoteService;
 
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
@@ -91,6 +94,9 @@ import io.edupilot.schedule.PersonalScheduleService;
 	ExamDraftService.class,
 	ExamDraftPreparationService.class,
 	ExamSubmissionPersistenceService.class,
+	NoteImportService.class,
+	UserNoteService.class,
+	WrongAnswerNoteService.class,
 	ReportCriterionCatalog.class,
 	ReportCriterionService.class,
 	ReportCriterionGenerationService.class,

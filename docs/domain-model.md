@@ -193,6 +193,12 @@ erDiagram
 - 총점은 문항별 점수 합과 일치해야 하며 `0 <= score <= maxScore`입니다.
 - MVP는 1회 제출 제한(DEC-009)이며 `attempt_no`는 1로 고정합니다. 재제출 확장 시 attempt 관리와 정답 보호 규칙을 함께 도입합니다.
 
+### UserNote / WrongAnswerNote
+
+- `UserNote`는 기존 세션 귀속 `Note` 및 AI `noteDraft`와 별개인 사용자 소유 수동 노트입니다. 자료·페이지 연결은 선택이고, `deletedAt`으로 소프트 삭제합니다. 사용자별 clientId는 로컬 데이터 이관의 멱등 키입니다.
+- `WrongAnswerNote`는 통합학습 퀴즈 제출 문항(`submissionId:questionId`) 하나에 귀속합니다. 소유권은 서버가 퀴즈 제출 결과에서 검증하고, 문항·정답·내 답 snapshot은 서버에서만 만들어 저장합니다. 같은 결과 문항의 재등록은 기존 항목을 반환하며 시험 답안은 포함하지 않습니다.
+- import는 항목별 독립 트랜잭션으로 처리하여 한 항목의 검증 실패가 다른 노트 저장을 되돌리지 않습니다.
+
 ### QuizAssessment
 
 - 다음 턴 오케스트레이터용 내부 평가 메모입니다.
