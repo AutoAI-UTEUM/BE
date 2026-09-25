@@ -26,6 +26,7 @@ import io.edupilot.auth.validation.ValidEmail;
 import io.edupilot.global.response.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
 @RestController
@@ -59,9 +60,10 @@ public class AuthController {
 	@PostMapping("/login")
 	@Operation(summary = "로그인")
 	public ResponseEntity<ApiResponse<LoginResponse>> login(
-		@Valid @RequestBody LoginRequest request
+		@Valid @RequestBody LoginRequest request,
+		HttpServletRequest servletRequest
 	) {
-		LoginResult result = authService.login(request);
+		LoginResult result = authService.login(request, ClientIpResolver.resolve(servletRequest));
 		return ResponseEntity.ok()
 			.header(
 				HttpHeaders.SET_COOKIE,
@@ -93,9 +95,10 @@ public class AuthController {
 	@PostMapping("/refresh")
 	@Operation(summary = "Access token 갱신")
 	public ResponseEntity<ApiResponse<AccessTokenResponse>> refresh(
-		@CookieValue(name = RefreshTokenCookie.NAME, required = false) String rawToken
+		@CookieValue(name = RefreshTokenCookie.NAME, required = false) String rawToken,
+		HttpServletRequest servletRequest
 	) {
-		RefreshResult result = authService.refresh(rawToken);
+		RefreshResult result = authService.refresh(rawToken, ClientIpResolver.resolve(servletRequest));
 		return ResponseEntity.ok()
 			.header(
 				HttpHeaders.SET_COOKIE,

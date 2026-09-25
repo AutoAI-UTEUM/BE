@@ -105,7 +105,8 @@ public class RefreshTokenService {
 		User user = token.getUser();
 		if (!user.isActive()) {
 			revokeAll(user.getId(), now);
-			return RotationResult.inactive();
+			return user.getStatus() == io.edupilot.user.UserStatus.SUSPENDED
+				? RotationResult.suspended() : RotationResult.inactive();
 		}
 		if (token.isRevoked()) {
 			revokeReusedTokenFamily(token, now);
@@ -151,7 +152,8 @@ public class RefreshTokenService {
 		User user = token.getUser();
 		if (!user.isActive()) {
 			revokeAll(user.getId(), now);
-			return ActivityResult.inactive();
+			return user.getStatus() == io.edupilot.user.UserStatus.SUSPENDED
+				? ActivityResult.suspended() : ActivityResult.inactive();
 		}
 		if (token.isRevoked()) {
 			revokeReusedTokenFamily(token, now);
@@ -316,6 +318,7 @@ public class RefreshTokenService {
 		SUCCESS,
 		INVALID,
 		INACTIVE,
+		SUSPENDED,
 		IDLE_EXPIRED,
 		ABSOLUTE_EXPIRED
 	}
@@ -357,6 +360,10 @@ public class RefreshTokenService {
 			return failure(SessionStatus.INACTIVE);
 		}
 
+		static RotationResult suspended() {
+			return failure(SessionStatus.SUSPENDED);
+		}
+
 		static RotationResult idleExpired() {
 			return failure(SessionStatus.IDLE_EXPIRED);
 		}
@@ -385,6 +392,10 @@ public class RefreshTokenService {
 
 		static ActivityResult inactive() {
 			return failure(SessionStatus.INACTIVE);
+		}
+
+		static ActivityResult suspended() {
+			return failure(SessionStatus.SUSPENDED);
 		}
 
 		static ActivityResult idleExpired() {

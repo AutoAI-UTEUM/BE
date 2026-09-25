@@ -126,6 +126,9 @@
 | GET | `/api/admin/users` | 관리자 회원 목록 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/users/{id}` | 관리자 회원 상세 조회 | Y | ADMIN + DB role/status 재검증 |
 | POST | `/api/admin/users/{id}/password-reset` | 관리자 사용자 비밀번호 초기화 | Y | ADMIN + DB role/status 재검증; 타 LOCAL/ACTIVE 사용자 |
+| POST | `/api/admin/users/{id}/suspend` | 관리자 사용자 정지 | Y | ADMIN + DB role/status 재검증; 본인·마지막 활성 ADMIN 제외 |
+| POST | `/api/admin/users/{id}/reinstate` | 관리자 사용자 복구 | Y | ADMIN + DB role/status 재검증; SUSPENDED 대상 |
+| PATCH | `/api/admin/users/{id}/role` | 관리자 사용자 역할 변경 | Y | ADMIN + DB role/status 재검증; 자기 강등·마지막 활성 ADMIN 강등 제외 |
 | GET | `/api/admin/classrooms` | 관리자 강의실 목록 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/classrooms/{id}` | 관리자 강의실 상세 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/ai-usage/summary` | 관리자 AI 사용량 일별·기능별 집계 | Y | ADMIN + DB role/status 재검증 |
@@ -269,7 +272,9 @@
 
 refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DEC-004, DEC-040 Accepted). 쿠키 계약(확정): 이름 `edupilot_refresh`, `HttpOnly`, `Secure`, `SameSite=Lax`, **`Path=/api/auth`**, `Domain` 미설정(host-only), Max-Age는 최초 로그인 기준 절대 만료까지 남은 시간(최대 14일)입니다. 서버는 refresh 해시를 브라우저·기기별 인증 세션에 연결하고 회전·재사용 감지·강제 폐기를 지원합니다. access token 만료는 15분이며 FE는 메모리에 보관합니다(localStorage 금지).
 
-`session.idleTimeoutSeconds`는 역할 정책 원값으로 `ADMIN=1800`, `INSTRUCTOR|LEARNER=7200`입니다. `idleExpiresAt`은 실제 현재 세션의 idle 만료이고 절대 만료에 가까우면 정책 원값보다 짧을 수 있습니다. `absoluteExpiresAt`은 최초 로그인 후 14일이며 refresh나 activity로 연장되지 않습니다. 모든 시각은 UTC ISO 8601입니다. 주요 오류: `INVALID_CREDENTIALS`, `USER_INACTIVE`.
+`session.idleTimeoutSeconds`는 역할 정책 원값으로 `ADMIN=1800`, `INSTRUCTOR|LEARNER=7200`입니다. `idleExpiresAt`은 실제 현재 세션의 idle 만료이고 절대 만료에 가까우면 정책 원값보다 짧을 수 있습니다. `absoluteExpiresAt`은 최초 로그인 후 14일이며 refresh나 activity로 연장되지 않습니다. 모든 시각은 UTC ISO 8601입니다. 주요 오류: `INVALID_CREDENTIALS`, `ACCOUNT_SUSPENDED`.
+
+이메일(소문자 정규화)별 비밀번호 실패 5회/15분 또는 IP별 20회/15분이 누적되면 다음 로그인부터 `LOGIN_RATE_LIMITED`(429)와 `Retry-After`(재시도까지 초)를 반환합니다. 잠금 중에는 올바른 비밀번호도 429이며 미가입 이메일도 같은 방식으로 집계합니다. 성공 시 계정 카운트만 초기화하고 IP 카운트는 유지합니다. 정지 계정은 비밀번호가 맞는 경우에만 `ACCOUNT_SUSPENDED`(401), 틀리면 일반 `INVALID_CREDENTIALS`(401)입니다.
 
 ### POST `/api/auth/google`
 
@@ -314,7 +319,7 @@ Google ID 토큰을 검증해 기존 계정으로 로그인하거나 신규 계�
 - Google ID 토큰은 서버가 Google tokeninfo 응답의 audience, issuer, 이메일 검증 여부를 확인합니다. 검증 실패·Google 통신 실패는 `TOKEN_INVALID`(401)로 통일합니다.
 - 서버에 Google Client ID가 설정되지 않은 경우 기동은 허용하지만 요청은 `VALIDATION_FAILED`(400)로 거부하고 설정 오류만 서버 로그에 기록합니다.
 - Google 최초 가입 계정의 비밀번호 sentinel은 일반 비밀번호 검증을 통과하지 않으므로 비밀번호 로그인은 `INVALID_CREDENTIALS`입니다.
-- 주요 오류: `SIGNUP_REQUIRED`, `TOKEN_INVALID`, `USER_INACTIVE`, `VALIDATION_FAILED`.
+- 주요 오류: `SIGNUP_REQUIRED`, `TOKEN_INVALID`, `ACCOUNT_SUSPENDED`, `USER_INACTIVE`, `VALIDATION_FAILED`.
 
 ### POST `/api/auth/password-reset/request`
 
@@ -360,7 +365,7 @@ Google ID 토큰을 검증해 기존 계정으로 로그인하거나 신규 계�
 - **회전**: 성공 시 기존 refresh는 폐기되고 같은 인증 세션에 새 refresh 쿠키가 발급됩니다. 성공한 refresh는 현재 세션 활동으로 기록해 idle 만료를 역할별 시간만큼 연장하지만 `absoluteExpiresAt`과 새 token/cookie 만료는 최초 로그인 기준 절대 만료를 넘지 않습니다.
 - **재사용 감지**: 이미 폐기된 refresh가 재사용되면 연결된 인증 세션 family의 token만 전량 폐기합니다. V41 이전의 `sessionId=null`인 폐기 token은 family를 복원할 수 없어 사용자 전체 token/session을 폐기합니다. 오류는 `TOKEN_INVALID`로 통일합니다.
 - FE는 access 만료 5분 전 최근 실제 입력 활동이 있을 때 또는 일반 요청의 최초 401에서만 `credentials: "include"`로 호출하고, 탭 전체 single-flight로 중복 회전을 막습니다.
-- 주요 오류: `TOKEN_INVALID`(401 — 쿠키 없음·미존재·폐기·재사용 감지), `AUTH_SESSION_IDLE_EXPIRED`(401), `AUTH_SESSION_ABSOLUTE_EXPIRED`(401), `USER_INACTIVE`(403). 이 오류들은 refresh 쿠키도 만료합니다.
+- 주요 오류: `TOKEN_INVALID`(401 — 쿠키 없음·미존재·폐기·재사용 감지), `AUTH_SESSION_IDLE_EXPIRED`(401), `AUTH_SESSION_ABSOLUTE_EXPIRED`(401), `ACCOUNT_SUSPENDED`(401), `USER_INACTIVE`(403). 이 오류들은 refresh 쿠키도 만료합니다. 실패한 refresh는 IP별 5회/15분까지 허용하고 다음 요청부터 `RATE_LIMIT_EXCEEDED`(429, `Retry-After` 초)입니다. 성공한 refresh는 실패 카운트에 포함하지 않습니다.
 
 ### POST `/api/auth/session/activity`
 
@@ -2491,23 +2496,25 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 
 모든 `/api/admin/**` 요청은 JWT의 `ROLE_ADMIN` URL 규칙, 컨트롤러의
 `@PreAuthorize("hasRole('ADMIN')")`, 요청 시점 DB의 `ADMIN/ACTIVE` 재검증을 모두
-통과해야 합니다. 관리자 API는 원칙적으로 읽기 전용이며 역할·상태 변경, 회원 탈퇴, 강의실
-조작 API는 제공하지 않습니다. 비밀번호 초기화는 이미 수행 중인 운영 수작업을 감사 가능한
-안전 경로로 바꾸고 대상자가 다음 로그인에서 즉시 인지하는 행위이므로 아래 한 개의 명시적
-쓰기 예외만 제공합니다.
+통과해야 합니다. 관리자 API는 원칙적으로 읽기 전용이나 기존 비밀번호 초기화, xAI 경보 임계값
+설정, 테스트 메일, 계정 정지·복구·역할 변경은 운영 수작업을 감사 가능한 경로로 대체하기 위한
+명시적 쓰기 예외입니다. 모든 관리자 MVC 요청은 완료 후 구조화 감사 로그 1줄에
+`actorUserId, action, targetType, targetId, method, endpoint, status, occurredAt`을 남기며
+본문·비밀번호·토큰은 남기지 않습니다.
 
 ### GET `/api/admin/users?q=&role=&status=&sort=&page=&size=`
 
 - `q`: 이메일 또는 이름 부분일치, 대소문자 무시
 - `role`: 선택 `ADMIN | INSTRUCTOR | LEARNER`
-- `status`: 선택 `ACTIVE | DELETED`; 생략하면 탈퇴 사용자를 포함한 전체
+- `status`: 선택 `ACTIVE | SUSPENDED | DELETED`; 생략하면 정지·탈퇴 사용자를 포함한 전체
 - `sort`: `RECENT` 기본(`createdAt DESC, id DESC`), `NAME`,
   `RECENT_ACTIVITY_DESC`, `RECENT_ACTIVITY_ASC`
 - `page`/`size`: 기본 0/20, size 최대 100
 
 목록은 `items`, `page`, `size`, `totalElements`, `totalPages`를 반환합니다. 각 item은
 `id`, `email`, `name`, `role`, `status`, `authProvider`, `createdAt`,
-`lastActiveAt`을 포함합니다. `lastActiveAt`은 인증된 API 요청 시각이며
+`lastActiveAt`, `suspendedAt`, `suspendedReason`을 포함합니다. 정지 메타는 정지 중에만
+non-null입니다. `lastActiveAt`은 인증된 API 요청 시각이며
 `/api/auth/refresh` 성공도 활동에 포함합니다. 값은 ISO 8601 UTC이고, 활동 근거가 없으면
 `null`입니다. 같은 사용자의 DB 갱신은 5분에 한 번으로 제한하므로 상대 시간 표시는 최대
 5분의 오차가 있을 수 있습니다.
@@ -2523,7 +2530,7 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 ### GET `/api/admin/users/{id}`
 
 `id`, `email`, `name`, `role`, `status`, `authProvider`, `createdAt`,
-`affiliation`, `consentedAt`을 반환합니다. `lastActiveAt` 추가 범위는 회원 목록 item입니다.
+`affiliation`, `consentedAt`, `suspendedAt`, `suspendedReason`을 반환합니다. `lastActiveAt` 추가 범위는 회원 목록 item입니다.
 없는 사용자는 `USER_NOT_FOUND`(404)입니다.
 
 ### POST `/api/admin/users/{id}/password-reset`
@@ -2544,10 +2551,22 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 
 임시 비밀번호는 이 응답에서 한 번만 전달되며 DB 평문·감사 로그에 저장하지 않습니다. 응답은
 `Cache-Control: private, no-store`입니다. FE는 재조회가 불가능함을 알리는 모달에서 값을 한
-번 표시하고 복사 버튼을 제공해야 합니다. 감사 로그에는 `actorUserId`, `targetUserId`,
-`action=ADMIN_PASSWORD_RESET`, 시각만 INFO 구조화 필드로 남깁니다. 주요 오류:
+번 표시하고 복사 버튼을 제공해야 합니다. 공통 관리자 감사 로그에 `action=ADMIN_PASSWORD_RESET`과
+대상 사용자 ID를 남깁니다. 주요 오류:
 `USER_NOT_FOUND`(404), `PASSWORD_NOT_SUPPORTED`(409), `PASSWORD_RESET_NOT_ALLOWED`(409),
 비ADMIN 또는 요청 시점 DB의 비활성·비ADMIN actor는 `ACCESS_DENIED`(403).
+
+### POST `/api/admin/users/{id}/suspend`
+
+요청 `{"reason":"운영 정책 위반"}` (`reason` 필수·500자 이하). 성공 시 갱신된 관리자 사용자 상세 DTO를 반환하며 `status=SUSPENDED`, `suspendedAt`(UTC), `suspendedReason`을 포함합니다. 대상의 모든 refresh token·인증 세션을 폐기하고, 기존 access token도 인증 필터의 계정 상태 재검증으로 즉시 거부합니다. 자기 자신 정지는 `ADMIN_SELF_MODIFICATION`(400), 마지막 활성 관리자 정지는 `LAST_ADMIN_PROTECTED`(400)입니다.
+
+### POST `/api/admin/users/{id}/reinstate`
+
+요청 body 없음. `SUSPENDED` 계정만 `ACTIVE`로 복구하고 `suspendedAt`·`suspendedReason`을 null로 지웁니다. 기존 세션은 복구되지 않으므로 다시 로그인해야 합니다.
+
+### PATCH `/api/admin/users/{id}/role`
+
+요청 `{"role":"INSTRUCTOR"}` (`LEARNER | INSTRUCTOR | ADMIN`). 성공 시 갱신된 관리자 사용자 상세 DTO를 반환합니다. 실제 역할 변경 시 모든 refresh token·인증 세션을 폐기하고 기존 역할이 들어간 access token을 즉시 거부합니다. 자기 강등은 `ADMIN_SELF_MODIFICATION`(400), 마지막 활성 관리자 강등은 `LAST_ADMIN_PROTECTED`(400)입니다.
 
 ### GET `/api/admin/classrooms?sort=&page=&size=`
 

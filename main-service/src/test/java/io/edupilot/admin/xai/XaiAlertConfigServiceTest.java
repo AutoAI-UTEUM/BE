@@ -10,17 +10,10 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.slf4j.LoggerFactory;
-
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.read.ListAppender;
 import io.edupilot.admin.xai.dto.UpdateXaiAlertsRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -56,44 +49,29 @@ class XaiAlertConfigServiceTest {
 	}
 
 	@Test
-	void updatesThresholdsAndWritesStructuredAuditWithoutSecrets() {
+	void updatesThresholds() {
 		when(repository.findById(XaiAlertConfig.SINGLETON_ID))
 			.thenReturn(Optional.empty());
 		when(repository.save(any())).thenAnswer(invocation ->
 			invocation.getArgument(0)
 		);
-		Logger logger = (Logger) LoggerFactory.getLogger(
-			XaiAlertConfigService.class
+		var result = service.update(
+			99L,
+			new UpdateXaiAlertsRequest(
+				new BigDecimal("20"),
+				new BigDecimal("80"),
+				5,
+				20
+			)
 		);
-		ListAppender<ILoggingEvent> appender = new ListAppender<>();
-		appender.start();
-		logger.addAppender(appender);
-		try {
-			var response = service.update(
-				99L,
-				new UpdateXaiAlertsRequest(
-					new BigDecimal("20"),
-					new BigDecimal("80"),
-					5,
-					20
-				)
-			);
 
-			assertThat(response.balanceCriticalUsd())
-				.isEqualByComparingTo("20");
-			assertThat(response.updatedBy()).isEqualTo(99L);
-			assertThat(response.updatedAt()).isEqualTo(NOW);
-			Map<String, Object> fields = appender.list.getLast()
-				.getKeyValuePairs().stream()
-				.collect(Collectors.toMap(pair -> pair.key, pair -> pair.value));
-			assertThat(fields)
-				.containsEntry("action", "XAI_ALERT_UPDATED")
-				.containsEntry("actorUserId", 99L)
-				.containsKeys("before", "after", "occurredAt");
-		} finally {
-			logger.detachAppender(appender);
-			appender.stop();
-		}
+		var response = result.response();
+		assertThat(response.balanceCriticalUsd())
+			.isEqualByComparingTo("20");
+		assertThat(response.updatedBy()).isEqualTo(99L);
+		assertThat(response.updatedAt()).isEqualTo(NOW);
+		assertThat(result.before().balanceCriticalUsd()).isEqualByComparingTo("10");
+		assertThat(result.after().balanceCriticalUsd()).isEqualByComparingTo("20");
 	}
 
 	@Test

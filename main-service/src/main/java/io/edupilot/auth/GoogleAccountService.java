@@ -92,6 +92,9 @@ public class GoogleAccountService {
 	}
 
 	private void assertActive(User user) {
+		if (user.getStatus() == io.edupilot.user.UserStatus.SUSPENDED) {
+			throw new BusinessException(ErrorCode.ACCOUNT_SUSPENDED);
+		}
 		if (!user.isActive()) {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}

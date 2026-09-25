@@ -78,7 +78,7 @@ erDiagram
 - 비밀번호 원문을 저장하지 않습니다.
 - 역할은 `LEARNER`, `INSTRUCTOR`, `ADMIN`입니다. 공개 가입은 `LEARNER | INSTRUCTOR`만 허용하고 `ADMIN`은 기능 미구현·예약 상태로 유지합니다(DEC-017, DEC-029 Accepted).
 - `LEARNER`와 `INSTRUCTOR`는 개인 PDF 업로드와 개인 통합학습을 사용할 수 있습니다. 강의실 개설·관리·자료 연결은 소유 `INSTRUCTOR`만 가능하고, `LEARNER`와 타 강의실에 참여한 `INSTRUCTOR`는 승인 멤버로서 공개 자료를 조회·학습할 수 있습니다(DEC-030).
-- 상태는 `ACTIVE`, `DELETED`입니다. 탈퇴(DEC-028)는 논리 삭제 + 즉시 익명화(email → `deleted_{id}`, name 고정 문구, password_hash 무효화)이며 복구는 MVP 미지원입니다. 유예 기간·물리 삭제 배치는 이후 개선안입니다.
+- 상태는 `ACTIVE`, `SUSPENDED`, `DELETED`입니다. 정지는 관리자만 수행하며 사유·시각·담당자 ID를 저장하고 모든 refresh token·인증 세션을 폐기합니다. 기존 access token은 1분 캐시를 사용하는 인증 필터의 상태 재검증과 상태 변경 직후 캐시 무효화로 차단합니다. 복구는 정지 메타를 지우지만 세션은 복구하지 않습니다. 탈퇴(DEC-028)는 논리 삭제 + 즉시 익명화(email → `deleted_{id}`, name 고정 문구, password_hash 무효화)이며 복구는 MVP 미지원입니다.
 - 인증 제공자는 최초 가입 기준 `LOCAL | GOOGLE`입니다. Google 로그인은 검증된 `google_sub`를 우선 사용하고, 미연동이면 검증된 이메일과 같은 로컬 계정에 자동 연결합니다. Google 최초 가입 계정은 비밀번호 로그인을 허용하지 않으며 탈퇴 시 `google_sub`를 제거합니다.
 - `lastActiveAt`은 관리자 회원 목록에 표시하는 사용자 단위 최근 인증 API 활동입니다. 인증 session의 idle 만료 정본으로 사용하지 않습니다.
 
@@ -87,7 +87,7 @@ erDiagram
 - `AuthSession`은 브라우저·기기별 refresh token family의 수명 정본입니다. 역할별 idle timeout은 `ADMIN=30분`, `INSTRUCTOR|LEARNER=2시간`이고 최초 로그인 기준 14일 absolute 만료는 refresh나 활동으로 바뀌지 않습니다(DEC-040).
 - refresh와 `POST /api/auth/session/activity`만 성공 시 idle을 연장합니다. 일반 Bearer API와 background polling은 인증 session을 조회하거나 연장하지 않습니다. 동일 session의 연속 활동 쓰기는 5분 동안 스로틀하지만 폐기·만료 검증은 매번 수행합니다.
 - refresh token 회전은 같은 `AuthSession`을 유지하고 token 행만 교체합니다. 폐기 token 재사용은 현재 session family만 폐기하며, family를 알 수 없는 V41 이전 legacy token만 사용자 전체를 폐기합니다.
-- 로그아웃은 현재 session만 폐기합니다. 비밀번호 변경·관리자 초기화·회원 탈퇴는 해당 사용자의 모든 `AuthSession`과 refresh token을 폐기합니다. stateless access token은 최대 15분의 자체 만료까지 유효할 수 있습니다.
+- 로그아웃은 현재 session만 폐기합니다. 비밀번호 변경·관리자 초기화·회원 탈퇴·관리자 정지·역할 변경은 해당 사용자의 모든 `AuthSession`과 refresh token을 폐기합니다. 정지·역할 변경 전 발급한 access token은 인증 필터의 계정 상태·역할 재검증으로 차단합니다.
 - 이메일 비밀번호 재설정은 활성 `LOCAL` 사용자에게만 30분 유효한 단일 사용 링크를 발급합니다. 원문은 메일에만 싣고 DB에는 SHA-256 해시만 저장하며 재요청 시 이전 링크를 무효화합니다. 확정 성공 시 비밀번호 변경과 모든 `AuthSession`·refresh token 폐기를 한 트랜잭션에서 처리합니다.
 
 ### LearningMaterial

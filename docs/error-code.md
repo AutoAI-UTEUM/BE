@@ -78,6 +78,10 @@
 | `EMAIL_ALREADY_EXISTS` | 409 | 이메일 중복 |
 | `SIGNUP_REQUIRED` | 409 | Google 신규 가입을 위한 역할·약관 추가 정보 필요 |
 | `INVALID_CREDENTIALS` | 401 | 이메일/비밀번호 불일치 |
+| `LOGIN_RATE_LIMITED` | 429 | 계정 5회/15분 또는 IP 20회/15분 실패 후 로그인 차단, `Retry-After` 초 제공 |
+| `ACCOUNT_SUSPENDED` | 401 | 정지 계정의 올바른 자격증명 로그인 또는 기존 인증 사용 차단 |
+| `ADMIN_SELF_MODIFICATION` | 400 | 관리자의 자기 정지·강등 거부 |
+| `LAST_ADMIN_PROTECTED` | 400 | 마지막 활성 관리자의 정지·강등 거부 |
 | `PASSWORD_NOT_SUPPORTED` | 409 | LOCAL 비밀번호를 사용하지 않는 계정 |
 | `CURRENT_PASSWORD_MISMATCH` | 400 | 본인 비밀번호 변경 시 현재 비밀번호 불일치 |
 | `PASSWORD_REUSE_NOT_ALLOWED` | 409 | 현재 비밀번호와 같은 새 비밀번호 사용 시도 |
