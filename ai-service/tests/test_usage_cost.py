@@ -22,6 +22,7 @@ from edupilot_ai.models.doc_chat import DocChatCompletion
 from edupilot_ai.models.plan import AgentOutput, ToolName
 from edupilot_ai.usage import combine_llm_usages, response_usage, unknown_llm_usage
 from tests.fakes import FakeLlm
+from tests.planner_fixtures import planner_output
 from tests.test_captions import caption_output, captions_payload
 from tests.test_doc_chat import doc_chat_payload
 from tests.test_turn_contract import make_plan
@@ -292,10 +293,12 @@ async def test_turn_sums_all_costs_once_in_final_usage(
             )
         )
     fake_llm.queue_completion(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "START_NEW", "threadRef": None},
-            "사용자 질문 답변",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "START_NEW", "threadRef": None},
+                "사용자 질문 답변",
+            )
         ),
         LlmUsage("grok-4.5", 20, 3, 2, cost_usd_ticks=EXACT_TICKS),
     )

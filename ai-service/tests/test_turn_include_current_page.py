@@ -9,6 +9,7 @@ from edupilot_ai.core.errors import InternalErrorResponse
 from edupilot_ai.models.plan import AgentOutput, ToolName, TurnPlan
 from edupilot_ai.models.turn import TurnResponse
 from tests.fakes import FakeLlm
+from tests.planner_fixtures import planner_output
 from tests.test_turn_contract import make_plan, post_turn
 
 
@@ -47,7 +48,7 @@ async def test_include_current_page_false_returns_qa_answer(
     context["xaiFileId"] = "file-detached-json"
     _detach_page(payload)
     fake_llm.queue(
-        _qa_plan(),
+        planner_output(_qa_plan()),
         AgentOutput(
             markdown="표준편차는 자료가 평균에서 얼마나 퍼져 있는지 보여줍니다.",
         ),
@@ -106,7 +107,7 @@ async def test_include_current_page_omitted_defaults_to_true(
 ) -> None:
     payload = deepcopy(turn_payload)
     fake_llm.queue(
-        _qa_plan(),
+        planner_output(_qa_plan()),
         AgentOutput(markdown="편차는 관측값과 평균의 차이입니다."),
     )
 
@@ -131,7 +132,7 @@ async def test_include_current_page_false_streams_qa_answer(
     assert isinstance(context, dict)
     context["xaiFileId"] = "file-detached-stream"
     _detach_page(payload)
-    fake_llm.queue(_qa_plan())
+    fake_llm.queue(planner_output(_qa_plan()))
     fake_llm.queue_text_stream("표준편차는 ", "자료의 퍼짐을 나타냅니다.")
 
     response = await client.post(

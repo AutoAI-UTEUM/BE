@@ -146,6 +146,7 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
 4. **Plan 생성**: Orchestrator가 이번 턴의 목적, 교수 정책, 액션을 결정합니다.
    퀴즈 유형 선택과 결정적 안내처럼 이벤트→도구가 유일한 턴은 LLM 없이 Plan을 합성합니다. PDF가 첨부된 현재 페이지 설명은 예외로, Orchestrator가 전체 자료 흐름을 읽고 `EXPLAIN_PAGE` 뒤의 퀴즈 제안 필요 여부까지 같은 Plan에서 판단합니다. 합성·모델 Plan 모두 동일한 검증을 거칩니다.
    모델 Plan의 프롬프트는 공통 안전·메모리 규칙과 현재 이벤트 전용 도구 지시로 구성합니다. 다른 이벤트의 도구 설명만 생략하며, 자료·학습자 문맥과 퀴즈 제안 판단 기준·Policy 검증은 줄이지 않습니다.
+   LLM의 내부 `PlannerOutput`에서 고정 에코 필드만 생략하고, Orchestrator가 기존 실행 `TurnPlan`으로 복원합니다. 목적·교수 정책·도구 선택과 순서·퀴즈/노트/메모리 판단은 모델이 유지하며, 복원한 Plan도 아래의 동일한 Policy 검증을 통과해야 합니다.
 5. **Plan 검증**: Policy/Verifier가 스키마, 허용 도구, 현재 상태, 교수 정책을 검사합니다.
 6. **도구 실행**: ToolDispatcher가 검증된 전문 에이전트/서비스를 실행합니다.
 7. **결과 수집**: 메시지, 퀴즈, 채점, 진단 등 결과를 표준 DTO로 수집합니다.
@@ -177,7 +178,14 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
 - 설명문/QA 답변을 Plan에 직접 생성하지 않습니다.
 - 오류 시 임의 동작 대신 안전한 `stop`을 반환합니다.
 
-출력 예시:
+Policy 검증에 넘기는 실행 Plan 예시:
+
+LLM 전용 `PlannerOutput`은 아래 Plan의 `schemaVersion`, `memoryWrite`,
+각 액션의 `actionId`·`type`을 생성하지 않습니다. 고정된 설명/퀴즈/교정 인자와
+퀴즈 제안 문구도 생략하고, QA는 `qaThreadMode`만 선택합니다. 코드는 이벤트·
+스냅샷에서 인자와 threadRef를 복원하며 액션 ID는 순서별로 부여합니다.
+메모리 인자·노트 지시·교수 정책(예산 포함)·판단 사유는 모델 출력을 유지합니다.
+이 내부 표현 변경은 Spring에 반환하는 턴 계약을 변경하지 않습니다.
 
 ```json
 {
@@ -192,7 +200,7 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
   },
   "actions": [
     {
-      "actionId": "a1",
+      "actionId": "action-1",
       "type": "CALL_TOOL",
       "tool": "EXPLAIN_PAGE",
       "args": {
@@ -201,7 +209,7 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
       }
     },
     {
-      "actionId": "a2",
+      "actionId": "action-2",
       "type": "CALL_TOOL",
       "tool": "PROMPT_BINARY_DECISION",
       "args": {

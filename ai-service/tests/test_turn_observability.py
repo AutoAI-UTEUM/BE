@@ -16,6 +16,7 @@ from edupilot_ai.models.quiz import QuizType
 from edupilot_ai.models.turn import TurnRequest
 from edupilot_ai.orchestration.service import TurnService
 from tests.fakes import FakeLlm
+from tests.planner_fixtures import planner_output
 from tests.test_llm_observability import TestClock, metric_records
 from tests.test_quiz_grading import make_quiz
 from tests.test_turn_contract import make_plan
@@ -156,10 +157,12 @@ async def test_planning_logs_distinguish_synthesis_and_schema_regeneration(
             fake_llm.queue(LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False))
         else:
             fake_llm.queue(
-                make_plan(
-                    ToolName.ANSWER_QUESTION,
-                    {"qaThreadMode": "START_NEW", "threadRef": None},
-                    "PRIVATE-PLAN-GOAL",
+                planner_output(
+                    make_plan(
+                        ToolName.ANSWER_QUESTION,
+                        {"qaThreadMode": "START_NEW", "threadRef": None},
+                        "PRIVATE-PLAN-GOAL",
+                    )
                 )
             )
     if path != "failed":

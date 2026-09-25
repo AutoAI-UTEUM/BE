@@ -24,6 +24,7 @@ from edupilot_ai.orchestration.prompts import (
 )
 from edupilot_ai.settings import Settings
 from tests.fakes import FakeLlm, FakeXaiFileClient
+from tests.planner_fixtures import planner_output
 from tests.test_quiz_grading import add_section_quiz_context, make_quiz
 from tests.test_turn_contract import make_explain_plan, make_plan
 from tests.test_xai_llm_bridge import completion_response, responses_response, responses_stream
@@ -169,7 +170,9 @@ async def test_enabled_factory_pipeline_preserves_actions_and_completed_usage(
             httpx.Response(
                 200,
                 json=responses_response(
-                    content=make_explain_plan(propose_quiz=True).model_dump_json(by_alias=True)
+                    content=planner_output(make_explain_plan(propose_quiz=True)).model_dump_json(
+                        by_alias=True
+                    )
                 ),
             )
         )
@@ -181,7 +184,10 @@ async def test_enabled_factory_pipeline_preserves_actions_and_completed_usage(
         )
         chat_route.mock(
             return_value=httpx.Response(
-                200, json=completion_response(content=plan.model_dump_json(by_alias=True))
+                200,
+                json=completion_response(
+                    content=planner_output(plan).model_dump_json(by_alias=True)
+                ),
             )
         )
     else:
@@ -269,8 +275,12 @@ async def test_detached_question_has_cache_hint_but_never_attaches_file(
         xaiFileId="must-not-be-used", currentPageText=None, previousPageText=None, nextPageText=None
     )
     fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION, {"qaThreadMode": "START_NEW", "threadRef": None}, "질문 답변"
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "START_NEW", "threadRef": None},
+                "질문 답변",
+            )
         ),
         AgentOutput(markdown="일반 지식 답변"),
     )

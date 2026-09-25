@@ -130,7 +130,8 @@ PDF/질문/답변/추론 원문, 파일 ID, base64, 인증 헤더는 새 계측�
   측정합니다. heartbeat를 첫 답변으로 세지 않습니다. 퀴즈의 API는 NDJSON이어도
   xAI 생성 호출 자체의 `streaming`은 false일 수 있습니다.
 - `traceId`, `turnId`, `llmCallId`와 있는 경우 `actionId`로 연결합니다. Planner는
-  `responseModel=TurnPlan`과 Planner 시도 로그로 식별합니다. 기존 스트림 경로는
+  `responseModel=PlannerOutput`(경량화 전 로그는 `TurnPlan`)과 Planner 시도 로그로
+  식별합니다. 기존 스트림 경로는
   공급자 로그에 actionId를 바인딩하지 않으므로 해당 turn의 `eventType`과 에이전트
   완료 로그를 함께 대조합니다. 없는 연결 필드를 있다고 가정하지 않습니다.
   비동기 대화 요약은 `responseModel`과 별도 호출 ID로 구분하고 턴 시간에 더하지 않습니다.
@@ -271,8 +272,9 @@ Planner의 시스템 프롬프트는 공통 안전·메모리 규칙과 현재 �
 사용자 메시지의 문구가 아니라 검증된 `eventType`으로 선택하며, 모든 Plan은 기존
 `PolicyVerifier`를 그대로 통과해야 합니다.
 
-기준 commit `5838926`의 시스템 지시 3,897자는 설명 2,816자(27.7% 감소),
-QA 1,636자(58.0% 감소)로 줄었습니다. 이는 **지시 문자열 길이** 비교입니다.
+1차 지시 정리(#427)에서 기준 commit `5838926`의 시스템 지시 3,897자는
+설명 2,816자(27.7% 감소), QA 1,636자(58.0% 감소)로 줄었습니다.
+이는 해당 단계의 **지시 문자열 길이** 비교입니다.
 PDF를 포함한 실제 입력 토큰이나 응답 지연의 감소율이 아니며, 실측 전에는
 속도 개선을 확정하지 않습니다.
 
@@ -281,7 +283,7 @@ PDF를 포함한 실제 입력 토큰이나 응답 지연의 감소율이 아니
 - 설명 Planner의 전체 PDF 검토와 학습적으로 필요한 퀴즈 제안 판단, 표지/목차/미완성 설명 제외 규칙.
 - `PlanContext` 입력 전체, 학습자 수준·확신도·평가·메모리·최근 대화·대화 요약.
 - QA 후속질문·노트 제안, 메모리 후보 생성 및 승격 조건.
-- Planner 호출 경로, 출력 스키마, 모델·reasoning effort·출력 상한·타임아웃·재시도.
+- Planner 호출 경로, 실행 `TurnPlan` 구조, 모델·reasoning effort·출력 상한·타임아웃·재시도.
 - 캐시 스위치 기본값 `false`, JSON/NDJSON 응답 및 usage 계약. Spring/FE 변경 불필요.
 
 Explainer/QA에는 조건·가정·예외를 보존하고 가능성을 보장으로 바꾸지 않는 공통
@@ -301,6 +303,29 @@ Explainer/QA에는 조건·가정·예외를 보존하고 가능성을 보장으
 JSON/NDJSON 양쪽으로 전달됨을 FakeLlm으로 검증합니다. **FakeLlm은 실제 모델이
 오개념을 만들지 않는다는 증명이 아닙니다.** 후속 live 비교에서는 같은 자료·질문으로
 첫 본문/완료 시간, 퀴즈 제안, 조건 보존, 오류·재생성 빈도를 함께 확인해야 합니다.
+
+### Planner 출력 경량화 후속 (#428)
+
+LLM에는 `PlannerOutput`을 요청하고, 코드가 고정 필드를 채워 기존 실행 `TurnPlan`으로
+복원한 뒤 **기존 PolicyVerifier를 그대로** 적용합니다. Spring 요청/응답 모델은
+바뀌지 않습니다. LLM의 결정을 코드 규칙으로 대체하는 변경이 아닙니다.
+
+| LLM이 계속 판단하는 항목 | 코드가 복원하는 항목 |
+| --- | --- |
+| 자유 텍스트 `turnGoal`, 전체 `pedagogyPolicy`, `reason`, `stop` | `schemaVersion=1.0`, `memoryWrite=null` |
+| 도구 선택·순서·액션 수, 설명 뒤 퀴즈 제안 여부 | 액션 순서별 `action-1` 등 ID, `type=CALL_TOOL` |
+| QA `START_NEW`/`FOLLOW_UP`, `proposeNote` | QA threadRef는 선택 모드와 스냅샷에서만 복원 |
+| 메모리 후보 내용·근거·신뢰도, 승격 대상 IDs, 노트 지시 | 현재 페이지·detailLevel·quizType·diagnosisId, 고정 퀴즈 제안 문구 |
+
+고정 인자를 LLM이 다시 넣으면 스키마 오류로 처리합니다. 허용되지 않은 도구·없는
+QA thread·메모리 근거 부족·interventionBudget 초과를 복원 단계가 허용하거나
+보정하지 않습니다. Policy 거부와 1회 스키마 재생성·잔여 deadline·usage 합산은 유지합니다.
+
+동일한 합성 테스트 데이터의 compact JSON 길이는 설명+퀴즈 제안 Plan 591→374자,
+QA Plan 409→300자입니다. 내부 JSON Schema는 1,961→1,759자입니다.
+**실제 출력 토큰/전체 PDF 입력/응답 시간 감소율이 아닌 오프라인 직렬화 비교**입니다.
+`test_planner_output.py`와 기존 턴·메모리·노트·스트림 테스트로 복원 및 거부 경로를
+검증하며, 실제 모델의 판단과 속도 비교는 후속 일괄 측정으로 남깁니다.
 
 ## CLI 데모 (설계자·비개발자용)
 

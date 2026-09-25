@@ -25,6 +25,7 @@ from edupilot_ai.orchestration.timing import TurnDeadline
 from edupilot_ai.settings import ReasoningEffort, Settings
 from edupilot_ai.support.service import QuizAssessmentService, QuizDiagnosisService
 from tests.fakes import FakeLlm
+from tests.planner_fixtures import planner_output
 from tests.test_turn_contract import make_plan, post_turn
 
 
@@ -412,10 +413,12 @@ async def test_repair_turn_replaces_stub_and_clears_pending_diagnosis(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue(
-        make_plan(
-            ToolName.REPAIR_MISCONCEPTION,
-            {"diagnosisId": 30},
-            "REPAIR_MISCONCEPTION",
+        planner_output(
+            make_plan(
+                ToolName.REPAIR_MISCONCEPTION,
+                {"diagnosisId": 30},
+                "REPAIR_MISCONCEPTION",
+            )
         ),
         RepairOutput(
             markdown="## 오개념 교정\n\n편차는 평균이 아니라 평균과의 **차이**입니다.",
@@ -449,10 +452,12 @@ async def test_repair_schema_failure_regenerates_once(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     fake_llm.queue(
-        make_plan(
-            ToolName.REPAIR_MISCONCEPTION,
-            {"diagnosisId": 30},
-            "REPAIR_MISCONCEPTION",
+        planner_output(
+            make_plan(
+                ToolName.REPAIR_MISCONCEPTION,
+                {"diagnosisId": 30},
+                "REPAIR_MISCONCEPTION",
+            )
         ),
         LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False),
         RepairOutput(
@@ -489,10 +494,12 @@ async def test_repair_schema_failure_twice_returns_502(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue(
-        make_plan(
-            ToolName.REPAIR_MISCONCEPTION,
-            {"diagnosisId": 30},
-            "REPAIR_MISCONCEPTION",
+        planner_output(
+            make_plan(
+                ToolName.REPAIR_MISCONCEPTION,
+                {"diagnosisId": 30},
+                "REPAIR_MISCONCEPTION",
+            )
         ),
         LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False),
         LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False),
@@ -518,10 +525,12 @@ async def test_repair_non_schema_failure_is_not_retried(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue(
-        make_plan(
-            ToolName.REPAIR_MISCONCEPTION,
-            {"diagnosisId": 30},
-            "REPAIR_MISCONCEPTION",
+        planner_output(
+            make_plan(
+                ToolName.REPAIR_MISCONCEPTION,
+                {"diagnosisId": 30},
+                "REPAIR_MISCONCEPTION",
+            )
         ),
         LlmBridgeError(category=ErrorCategory.TIMEOUT, retryable=True),
     )
@@ -582,10 +591,12 @@ async def test_repair_without_pending_diagnosis_is_rejected(
     assert isinstance(context, dict)
     context["pendingDiagnosis"] = None
     fake_llm.queue(
-        make_plan(
-            ToolName.REPAIR_MISCONCEPTION,
-            {"diagnosisId": 30},
-            "REPAIR_MISCONCEPTION",
+        planner_output(
+            make_plan(
+                ToolName.REPAIR_MISCONCEPTION,
+                {"diagnosisId": 30},
+                "REPAIR_MISCONCEPTION",
+            )
         )
     )
 
@@ -604,10 +615,12 @@ async def test_memory_promotion_rejects_empty_candidate_ids(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue(
-        plan_with_memory_action(
-            ToolName.PROMOTE_MEMORY,
-            {"candidateIds": []},
-            "PROMOTE_MEMORY",
+        planner_output(
+            plan_with_memory_action(
+                ToolName.PROMOTE_MEMORY,
+                {"candidateIds": []},
+                "PROMOTE_MEMORY",
+            )
         )
     )
 
@@ -626,10 +639,12 @@ async def test_memory_promotion_rejects_unknown_candidate_id(
 ) -> None:
     set_temporary_candidates(turn_payload, [temporary_candidate(101)])
     fake_llm.queue(
-        plan_with_memory_action(
-            ToolName.PROMOTE_MEMORY,
-            {"candidateIds": [101, 999]},
-            "PROMOTE_MEMORY",
+        planner_output(
+            plan_with_memory_action(
+                ToolName.PROMOTE_MEMORY,
+                {"candidateIds": [101, 999]},
+                "PROMOTE_MEMORY",
+            )
         )
     )
 
@@ -654,10 +669,12 @@ async def test_memory_promotion_rejects_low_confidence_candidate(
         ],
     )
     fake_llm.queue(
-        plan_with_memory_action(
-            ToolName.PROMOTE_MEMORY,
-            {"candidateIds": [101, 102]},
-            "PROMOTE_MEMORY",
+        planner_output(
+            plan_with_memory_action(
+                ToolName.PROMOTE_MEMORY,
+                {"candidateIds": [101, 102]},
+                "PROMOTE_MEMORY",
+            )
         )
     )
 
@@ -682,10 +699,12 @@ async def test_memory_promotion_rejects_single_unique_evidence(
         ],
     )
     fake_llm.queue(
-        plan_with_memory_action(
-            ToolName.PROMOTE_MEMORY,
-            {"candidateIds": [101, 102]},
-            "PROMOTE_MEMORY",
+        planner_output(
+            plan_with_memory_action(
+                ToolName.PROMOTE_MEMORY,
+                {"candidateIds": [101, 102]},
+                "PROMOTE_MEMORY",
+            )
         )
     )
 
@@ -703,15 +722,17 @@ async def test_memory_tool_only_plan_is_rejected(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue(
-        make_plan(
-            ToolName.BUILD_MEMORY_CANDIDATE,
-            {
-                "type": "WEAKNESS",
-                "content": "편차 정의를 반복해서 혼동함",
-                "confidence": 0.65,
-                "evidence": ["assessment-1"],
-            },
-            "BUILD_MEMORY_CANDIDATE",
+        planner_output(
+            make_plan(
+                ToolName.BUILD_MEMORY_CANDIDATE,
+                {
+                    "type": "WEAKNESS",
+                    "content": "편차 정의를 반복해서 혼동함",
+                    "confidence": 0.65,
+                    "evidence": ["assessment-1"],
+                },
+                "BUILD_MEMORY_CANDIDATE",
+            )
         )
     )
 
@@ -730,15 +751,17 @@ async def test_memory_candidate_is_returned_after_primary_action(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue(
-        plan_with_memory_action(
-            ToolName.BUILD_MEMORY_CANDIDATE,
-            {
-                "type": "WEAKNESS",
-                "content": "편차 정의를 반복해서 혼동함",
-                "confidence": 0.65,
-                "evidence": ["assessment-1"],
-            },
-            "BUILD_MEMORY_CANDIDATE",
+        planner_output(
+            plan_with_memory_action(
+                ToolName.BUILD_MEMORY_CANDIDATE,
+                {
+                    "type": "WEAKNESS",
+                    "content": "편차 정의를 반복해서 혼동함",
+                    "confidence": 0.65,
+                    "evidence": ["assessment-1"],
+                },
+                "BUILD_MEMORY_CANDIDATE",
+            )
         ),
         AgentOutput(
             markdown="편차는 관측값과 평균의 차이입니다.",
@@ -776,10 +799,12 @@ async def test_memory_promotion_returns_candidate_ids_contract(
         ],
     )
     fake_llm.queue(
-        plan_with_memory_action(
-            ToolName.PROMOTE_MEMORY,
-            {"candidateIds": [101, 102]},
-            "PROMOTE_MEMORY",
+        planner_output(
+            plan_with_memory_action(
+                ToolName.PROMOTE_MEMORY,
+                {"candidateIds": [101, 102]},
+                "PROMOTE_MEMORY",
+            )
         ),
         AgentOutput(
             markdown="편차는 관측값과 평균의 차이입니다.",
@@ -839,15 +864,17 @@ async def test_personality_memory_type_is_rejected(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue(
-        plan_with_memory_action(
-            ToolName.BUILD_MEMORY_CANDIDATE,
-            {
-                "type": "PERSONALITY",
-                "content": "학생은 소극적이다",
-                "confidence": 0.9,
-                "evidence": ["qa-1"],
-            },
-            "BUILD_MEMORY_CANDIDATE",
+        planner_output(
+            plan_with_memory_action(
+                ToolName.BUILD_MEMORY_CANDIDATE,
+                {
+                    "type": "PERSONALITY",
+                    "content": "학생은 소극적이다",
+                    "confidence": 0.9,
+                    "evidence": ["qa-1"],
+                },
+                "BUILD_MEMORY_CANDIDATE",
+            )
         )
     )
 

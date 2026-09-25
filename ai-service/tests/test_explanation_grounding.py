@@ -9,6 +9,7 @@ import pytest
 from edupilot_ai.models.plan import AgentOutput, ToolName
 from edupilot_ai.models.turn import TurnRequest
 from tests.fakes import FakeLlm
+from tests.planner_fixtures import planner_output
 from tests.test_turn_contract import make_explain_plan, make_plan
 
 
@@ -71,7 +72,7 @@ async def test_evidence_and_qualification_reach_agents_in_both_transports(
             "후속 질문에 답하기",
         )
     )
-    fake_llm.queue(plan)
+    fake_llm.queue(planner_output(plan))
     # This answer is deliberately scripted. The checks below prove instructions,
     # evidence and wire plumbing, not the real model's reasoning or factuality.
     answer = "조건을 함께 확인하는 답변입니다."
