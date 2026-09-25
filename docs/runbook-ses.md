@@ -16,7 +16,7 @@
 1. dev 배포 전에 V43이 포함됐는지 확인하고 `EDUPILOT_MAIL_ENABLED=true`, `EDUPILOT_MAIL_PROVIDER=logging`, `EDUPILOT_MAIL_FROM=no-reply@uteum.com`, `EDUPILOT_MAIL_BASE_URL=https://dev.uteum.com`, `AWS_REGION=ap-northeast-2`를 설정합니다. `docker compose up -d main-service`로 재생성합니다(`restart`만으로 새 환경변수가 반영되지 않음).
 2. ADMIN으로 `POST /api/admin/mail/test`에 검증 가능한 수신 주소를 보내고 반환된 `deliveryId`를 `GET /api/admin/mail/deliveries`에서 찾습니다. dev/test의 logging provider는 본문을 INFO 로그에 출력하므로 실토큰·실사용자 정보를 넣지 않습니다. `SENT`, `attemptCount=1`, `logging-...` provider ID를 확인합니다.
 3. `EDUPILOT_MAIL_PROVIDER=ses`로 바꿔 재생성하고 샌드박스에서 검증된 팀원 수신자 또는 SES simulator에 **한 통만** 보냅니다. `SENT`, SES message ID를 확인합니다. 실패 시 `FAILED`, `attemptCount=2`, 민감값이 제거된 `errorSummary`를 확인합니다. `EDUPILOT_MAIL_ENABLED=false`면 호출해도 이력만 `FAILED`/`DISABLED`가 됩니다.
-4. prod에서는 SES 샌드박스 해제와 검증된 identity, IAM 권한을 확인하고 `EDUPILOT_MAIL_ENABLED=true`, `EDUPILOT_MAIL_PROVIDER=ses`, `EDUPILOT_MAIL_BASE_URL=https://www.uteum.com`, `AWS_REGION=ap-northeast-2`를 설정합니다. `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d main-service`로 재생성합니다. prod compose 오버라이드는 provider 기본값을 `ses`로 둡니다. `logging`을 명시하면 기동 WARN과 함께 실제 발송이 되지 않으며, 본문은 prod 로그에 나오지 않습니다.
+4. prod에서는 SES 샌드박스 해제와 검증된 identity, IAM 권한을 확인하고 `EDUPILOT_MAIL_ENABLED=true`, `EDUPILOT_MAIL_PROVIDER=ses`, `EDUPILOT_MAIL_BASE_URL=https://www.uteum.com`, `AWS_REGION=ap-northeast-2`를 설정합니다. `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d main-service`로 재생성합니다. prod compose 오버라이드는 provider 기본값을 `ses`로 둡니다. prod에서 `logging`이 선택되면 기동을 거부하며, 예외적으로 `EDUPILOT_MAIL_ALLOW_LOGGING_IN_PROD=true`를 명시한 경우에만 기동하고 기존처럼 본문을 로그에서 숨깁니다(실제 발송 없음).
 5. prod 배포 후 관리자 테스트 1통으로 발송·이력 확인. 메일 내용은 DB에 저장되지 않으며, SES `SENT`는 API 수락을 뜻하지 최종 수신함 배달 보장은 아닙니다.
 
 ## 3. 운영 점검

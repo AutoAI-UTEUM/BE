@@ -20,6 +20,9 @@ public class LoggingEmailSender implements EmailSender {
 
 	public LoggingEmailSender(Environment environment) {
 		this.production = environment.acceptsProfiles(Profiles.of("prod"));
+		if (production && !environment.getProperty("edupilot.mail.allow-logging-in-prod", Boolean.class, false)) {
+			throw new IllegalStateException("edupilot.mail.provider=logging is not allowed in prod; set provider=ses");
+		}
 		if (production) {
 			log.warn("Logging mail provider selected in prod; message bodies are suppressed");
 		}
