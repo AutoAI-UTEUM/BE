@@ -90,6 +90,10 @@
 | `RESET_TOKEN_INVALID` | 400 | 재설정 링크 미존재·만료·사용 완료를 구분하지 않는 공통 오류 |
 | `USER_INACTIVE` | 403 | 비활성/삭제 계정 |
 | `USER_NOT_FOUND` | 404 | 사용자 없음 |
+| `POLICY_NOT_FOUND` | 404 | 요청한 유형·버전의 정책 문서 없음 |
+| `POLICY_CONSENT_REQUIRED` | 400 | 가입 시 현재 이용약관·개인정보처리방침 동의 누락·중복·버전 불일치 |
+| `POLICY_VERSION_MISMATCH` | 400 | 기존 사용자가 현재 유효 버전이 아닌 정책에 동의 시도 |
+| `POLICY_VERSION_EXISTS` | 409 | 같은 유형·버전의 정책 문서 중복 등록 |
 
 ### 자료
 

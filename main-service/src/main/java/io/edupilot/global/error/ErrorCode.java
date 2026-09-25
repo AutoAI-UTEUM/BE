@@ -119,6 +119,19 @@ public enum ErrorCode {
 		HttpStatus.BAD_REQUEST,
 		"마지막 활성 관리자는 정지하거나 강등할 수 없습니다."
 	),
+	POLICY_NOT_FOUND("POLICY_NOT_FOUND", HttpStatus.NOT_FOUND, "정책 버전을 찾을 수 없습니다."),
+	POLICY_CONSENT_REQUIRED(
+		"POLICY_CONSENT_REQUIRED", HttpStatus.BAD_REQUEST,
+		"현재 이용약관과 개인정보처리방침에 모두 동의해 주세요."
+	),
+	POLICY_VERSION_MISMATCH(
+		"POLICY_VERSION_MISMATCH", HttpStatus.BAD_REQUEST,
+		"현재 유효한 정책 버전에만 동의할 수 있습니다."
+	),
+	POLICY_VERSION_EXISTS(
+		"POLICY_VERSION_EXISTS", HttpStatus.CONFLICT,
+		"이미 등록된 정책 버전입니다."
+	),
 	PASSWORD_NOT_SUPPORTED(
 		"PASSWORD_NOT_SUPPORTED",
 		HttpStatus.CONFLICT,

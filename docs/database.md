@@ -17,6 +17,8 @@
 | `auth_sessions` | id, user_id, last_activity_at, idle_expires_at, absolute_expires_at, revoked_at(nullable), timestamps | `FK(user_id)`, `IDX(user_id,revoked_at)`, 만료 순서 CHECK |
 | `refresh_tokens` | id, user_id, session_id(nullable), token_hash, expires_at, revoked_at, created_at | `FK(user_id)`, `FK(session_id)`, `UK(token_hash)`, `IDX(user_id)`, `IDX(session_id,revoked_at)` |
 | `password_reset_tokens` | id, user_id, token_hash(SHA-256 hex), expires_at, used_at(nullable), requested_ip, created_at | `FK(user_id)`, `UK(token_hash)`, `IDX(user_id,created_at)`; 원문 미저장 |
+| `policy_documents` | id, type(TERMS/PRIVACY), version, title, content, summary(nullable), effective_at, created_by, created_at | `UK(type,version)`, `IDX(type,effective_at,id)`, type CHECK; 내용 불변, 현재 버전은 시행 시각 기준 |
+| `policy_consents` | id, user_id, policy_type, policy_version, agreed_at, ip, user_agent(nullable) | `FK(user_id)`, `UK(user_id,policy_type,policy_version)`, `IDX(user_id,policy_type)`; 이력 삭제·수정 없음 |
 | `learning_materials` | id, owner_id, title, storage_key, page_count, processing_status, failure_reason(nullable), failure_trace_id(nullable), captions_completed_at(nullable), xai_file_id(nullable), xai_file_upload_attempted_at(nullable), status, timestamps | `FK(owner_id)`, `UK(storage_key)`, `IDX(owner_id,status)`, `IDX(status,processing_status,xai_file_id,xai_file_upload_attempted_at,id)`, 상태·실패 사유·page_count CHECK |
 | `material_pages` | id, material_id, page_number, text_content, caption(nullable), created_at | `FK(material_id)`, `UK(material_id,page_number)`, `CHECK(page_number >= 1)` |
 | `material_overviews` | id, material_id, content(nullable), outline_json(nullable), status, timestamps | `FK(material_id)`, `UK(material_id)`, status CHECK |
@@ -105,6 +107,7 @@
 - 인증 session idle은 `ADMIN=30분`, `INSTRUCTOR|LEARNER=2시간`, absolute는 최초 로그인 후 14일입니다. refresh와 명시적 activity API만 `last_activity_at`·`idle_expires_at`을 연장하고, 일반 Bearer API는 이 테이블을 읽거나 쓰지 않습니다. session 활동 UPDATE는 session ID 기준 Caffeine 5분 스로틀을 적용합니다. `users.last_active_at`은 관리자 목록용 사용자 단위 지표로 별도 유지합니다.
 - `users.role`의 기본값은 `LEARNER`입니다. 공개 가입은 애플리케이션 계층에서 `LEARNER | INSTRUCTOR`만 허용하며 `ADMIN`은 예약 역할입니다.
 - `users.auth_provider`는 계정 최초 생성 경로인 `LOCAL | GOOGLE`을 저장합니다. 검증된 이메일과 일치하는 로컬 계정에 Google 로그인을 자동 연결할 때는 `auth_provider=LOCAL`을 유지하고 nullable `google_sub`만 기록합니다. Google 최초 가입은 `password_hash='!oauth:google'` sentinel을 저장해 비밀번호 로그인을 차단합니다. 탈퇴 시 `google_sub=NULL`로 해제해 같은 Google 계정의 재가입을 허용합니다.
+- V48 이후 가입의 정책 동의 정본은 `policy_consents`입니다. `users`의 기존 약관 버전·동의 시각 컬럼은 호환용 과거 메타데이터로 유지하되 새 버전 재동의는 이력 테이블에만 추가합니다. 탈퇴해도 동의 이력은 보존하며 user_id가 익명화된 사용자 행을 계속 참조합니다. 법적 보존 기한·익명화 정책은 별도 검토가 필요합니다.
 - 계정 환경설정은 필드가 3개이고 사용자와 1:1이므로 별도 테이블 대신 `users` 컬럼으로 저장합니다. 기존 계정에는 `new_material_notification=true`, `study_reminder=true`, `ai_answer_style=NORMAL`을 적용합니다. `avatar_key`는 URL 대신 storage 상대 키를 저장하며 실제 파일은 `avatars/` 하위에 둡니다.
 - `users.last_active_at`은 마지막 인증 API 활동 시각입니다. 추적 실패는 본 요청과 분리하고, Caffeine 5분 스로틀로 같은 사용자의 반복 요청이 매번 DB 쓰기를 만들지 않게 합니다.
 
@@ -249,6 +252,7 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 - `V45__exam_attempt_drafts.sql`은 시험·사용자별 답안 JSON과 낙관적 버전, 갱신 시각을 저장합니다. 기존 제출은 백필하지 않으며 prod 적용 전 DB 스냅샷이 필요합니다.
 - `V46__user_notes_wrong_answer_notes.sql`은 수동 노트와 오답 노트 snapshot을 분리하고 clientId·퀴즈 결과 참조 유일 제약 및 소프트 삭제 시각을 추가합니다. 기존 `notes`와 AI 노트 턴은 변경하지 않으며 prod 적용 전 DB 스냅샷이 필요합니다.
 - `V47__account_suspension.sql`은 기존 `users.status` CHECK를 `ACTIVE | SUSPENDED | DELETED`로 확장하고 nullable 정지 시각·사유·관리자 ID를 추가합니다. 기존 `DELETED` 행은 유지하고 기존 행의 기본 상태는 `ACTIVE`입니다. prod 적용 전 DB 스냅샷이 필요합니다.
+- `V48__policy_documents_consents.sql`은 정책 문서 버전과 사용자 동의 이력 테이블을 추가하고 TERMS·PRIVACY `0.9` 법무 검토 전 placeholder를 시행 가능한 초기 버전으로 삽입합니다. 0.9가 공개 API에 노출되므로 prod 적용은 확정 문구 등록·FE 게이팅 일정을 조율해야 하며 적용 전 DB 스냅샷이 필요합니다.
 - Epic10 강의실 migration은 구현 착수 시 최신 `origin/develop`의 다음 번호부터 코어(`classrooms`·멤버·참여 요청), 주차·자료, 공지 순서로 새 파일 3개를 추가합니다. 병렬 migration이 먼저 병합되면 rebase 후 번호를 조정하며 기존 migration은 수정하지 않습니다.
 - QA 메시지는 원본 `chat_messages`와 1:1로 연결하며 `qa_messages.chat_message_id`에 UNIQUE를 둡니다.
 - 활성 QA thread 조회는 `qa_threads(session_id, status)`, 문맥 복원은 `qa_messages(qa_thread_id, created_at, id)` 인덱스를 사용합니다.

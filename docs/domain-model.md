@@ -82,6 +82,12 @@ erDiagram
 - 인증 제공자는 최초 가입 기준 `LOCAL | GOOGLE`입니다. Google 로그인은 검증된 `google_sub`를 우선 사용하고, 미연동이면 검증된 이메일과 같은 로컬 계정에 자동 연결합니다. Google 최초 가입 계정은 비밀번호 로그인을 허용하지 않으며 탈퇴 시 `google_sub`를 제거합니다.
 - `lastActiveAt`은 관리자 회원 목록에 표시하는 사용자 단위 최근 인증 API 활동입니다. 인증 session의 idle 만료 정본으로 사용하지 않습니다.
 
+### PolicyDocument / PolicyConsent
+
+- `PolicyDocument`는 TERMS·PRIVACY 유형별 `(type, version)`으로 구분하는 불변 문서입니다. 시행 시각이 현재 이전인 문서 중 유형별 최신 버전이 현재 정책입니다. `0.9` 시드는 법무 검토 전 초안입니다.
+- `PolicyConsent`는 사용자·유형·버전별 동의 시각, IP, User-Agent의 변경 불가 이력입니다. LOCAL·Google 신규 가입은 당시 현재 TERMS·PRIVACY 모두 동의해야 하며 로그인 응답은 미동의 현재 버전 목록을 반환합니다. 기존 사용자 동의는 멱등이고 과거 이력은 유지합니다.
+- 정책 미동의는 현재 인증·일반 API의 서버 차단 조건이 아닙니다. FE 화면 게이팅만 이 이슈 범위이며 서버 강제는 후속 결정을 따릅니다. 탈퇴 후 동의 이력은 보존하지만 식별자 처리·보존 기한은 법무 검토 과제입니다.
+
 ### AuthSession / RefreshToken
 
 - `AuthSession`은 브라우저·기기별 refresh token family의 수명 정본입니다. 역할별 idle timeout은 `ADMIN=30분`, `INSTRUCTOR|LEARNER=2시간`이고 최초 로그인 기준 14일 absolute 만료는 refresh나 활동으로 바뀌지 않습니다(DEC-040).

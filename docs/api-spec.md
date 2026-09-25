@@ -55,6 +55,10 @@
 | GET | `/api/auth/email-availability?email={email}` | 회원가입 이메일 중복 확인 | N | 전체 |
 | POST | `/api/auth/login` | 로그인 | N | 전체 |
 | POST | `/api/auth/google` | Google ID 토큰 로그인·가입 | N | 전체 |
+| GET | `/api/policies/current` | 현재 유효한 정책 버전·요약 조회 | N | 전체 |
+| GET | `/api/policies/{type}/{version}` | 정책 버전 본문 조회 | N | 전체 |
+| GET | `/api/users/me/consents` | 내 동의 이력·현재 미동의 버전 조회 | Y | 본인 |
+| POST | `/api/users/me/consents` | 현재 버전 동의 기록 | Y | 본인 |
 | POST | `/api/auth/password-reset/request` | 비밀번호 재설정 안내 요청 | N | 전체 (계정 존재 여부 비노출) |
 | POST | `/api/auth/password-reset/confirm` | 재설정 토큰으로 비밀번호 변경 | N | 유효한 일회용 링크 보유자 |
 | POST | `/api/auth/refresh` | access 재발급 (refresh 쿠키 회전) | 쿠키 | refresh 쿠키 보유자 |
@@ -129,6 +133,9 @@
 | POST | `/api/admin/users/{id}/suspend` | 관리자 사용자 정지 | Y | ADMIN + DB role/status 재검증; 본인·마지막 활성 ADMIN 제외 |
 | POST | `/api/admin/users/{id}/reinstate` | 관리자 사용자 복구 | Y | ADMIN + DB role/status 재검증; SUSPENDED 대상 |
 | PATCH | `/api/admin/users/{id}/role` | 관리자 사용자 역할 변경 | Y | ADMIN + DB role/status 재검증; 자기 강등·마지막 활성 ADMIN 강등 제외 |
+| POST | `/api/admin/policies` | 새 정책 버전 등록(불변) | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/policies` | 정책 전체 버전 목록 | Y | ADMIN + DB role/status 재검증 |
+| GET | `/api/admin/policies/consent-stats` | 현재 버전별 활성 회원 동의율 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/classrooms` | 관리자 강의실 목록 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/classrooms/{id}` | 관리자 강의실 상세 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/ai-usage/summary` | 관리자 AI 사용량 일별·기능별 집계 | Y | ADMIN + DB role/status 재검증 |
@@ -191,8 +198,10 @@
   "role": "LEARNER",
   "affiliation": "EduPilot University",
   "learningEmailOptIn": true,
-  "termsVersion": "2026-07-01",
-  "privacyVersion": "2026-07-01"
+  "consents": [
+    {"type": "TERMS", "version": "0.9"},
+    {"type": "PRIVACY", "version": "0.9"}
+  ]
 }
 ```
 
@@ -212,11 +221,11 @@
 
 `role`은 필수이며 공개 가입에서는 `LEARNER | INSTRUCTOR`만 허용합니다. `ADMIN`, 기존 `USER`, 알 수 없는 enum 값은 요청 오류로 거부합니다. `ADMIN` 계정은 운영상 필요한 경우에만 DB에서 수동 설정합니다(DEC-017, DEC-029 Accepted).
 
-`affiliation`은 선택이며 공백을 제거한 뒤 최대 100자입니다. `learningEmailOptIn`은 생략 시 `false`입니다. `termsVersion`과 `privacyVersion`은 하위 호환을 위해 둘 다 생략할 수 있지만 하나만 보낼 수는 없습니다. 현재 서버 허용값은 두 필드 모두 `2026-07-01`이며, 함께 전송하면 서버가 동의 시각을 기록합니다. 알 수 없는 버전과 부분 전송은 `VALIDATION_FAILED`입니다. FE와 운영 약관의 실제 버전 문자열은 배포 전 다시 확정해야 합니다.
+`affiliation`은 선택이며 공백을 제거한 뒤 최대 100자입니다. `learningEmailOptIn`은 생략 시 `false`입니다. `consents`에는 가입 시점 `GET /api/policies/current`가 반환한 `TERMS`와 `PRIVACY`의 현재 버전을 정확히 한 번씩 보내야 합니다. 누락·중복·버전 불일치는 `POLICY_CONSENT_REQUIRED`(400)입니다. 가입 트랜잭션에서 동의 버전·시각·IP·User-Agent를 이력으로 저장합니다. V48 시드 `0.9`는 **법무 검토 전 초안**이며, 문구 확정 후 관리자 API로 `1.0`을 등록해야 합니다.
 
 비밀번호 정책(확정): **8~64자, 영문·숫자 각 1자 이상 포함**(특수문자 허용). 위반 시 `VALIDATION_FAILED` + `details: [{ "field": "password", "reason": "..." }]`.
 
-주요 오류: `VALIDATION_FAILED`, `EMAIL_ALREADY_EXISTS`.
+주요 오류: `VALIDATION_FAILED`, `POLICY_CONSENT_REQUIRED`, `EMAIL_ALREADY_EXISTS`.
 
 ### GET `/api/auth/email-availability?email={email}`
 
@@ -264,11 +273,13 @@
     "idleTimeoutSeconds": 7200,
     "idleExpiresAt": "2026-09-20T06:00:00Z",
     "absoluteExpiresAt": "2026-10-04T04:00:00Z"
-  }
+  },
+  "pendingConsents": []
 }
 ```
 
 응답과 JWT `role` claim은 `LEARNER | INSTRUCTOR | ADMIN` 중 저장된 계정 역할을 반환합니다. `LEARNER`와 `INSTRUCTOR`는 현재 동일한 인증·소유권 규칙을 적용합니다.
+`pendingConsents`는 현재 유효한 정책 중 해당 사용자가 동의하지 않은 `{type, version}` 배열입니다. 로그인과 토큰 발급은 미동의여도 성공하며, 이후 동의 화면 이동은 FE가 처리합니다. 서버는 미동의 사유로 일반 API 호출을 차단하지 않습니다.
 
 refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DEC-004, DEC-040 Accepted). 쿠키 계약(확정): 이름 `edupilot_refresh`, `HttpOnly`, `Secure`, `SameSite=Lax`, **`Path=/api/auth`**, `Domain` 미설정(host-only), Max-Age는 최초 로그인 기준 절대 만료까지 남은 시간(최대 14일)입니다. 서버는 refresh 해시를 브라우저·기기별 인증 세션에 연결하고 회전·재사용 감지·강제 폐기를 지원합니다. access token 만료는 15분이며 FE는 메모리에 보관합니다(localStorage 금지).
 
@@ -308,18 +319,28 @@ Google ID 토큰을 검증해 기존 계정으로 로그인하거나 신규 계�
 {
   "idToken": "google-id-token",
   "role": "LEARNER",
-  "termsVersion": "2026-07-01",
-  "privacyVersion": "2026-07-01",
+  "consents": [
+    {"type": "TERMS", "version": "0.9"},
+    {"type": "PRIVACY", "version": "0.9"}
+  ],
   "learningEmailOptIn": true,
   "affiliation": "EduPilot University"
 }
 ```
 
-- 신규 가입의 `role`은 `LEARNER | INSTRUCTOR`이며 `termsVersion`과 `privacyVersion`은 모두 필수입니다. 약관 검증·소속 정규화·이메일 수신 동의는 일반 회원가입과 같은 규칙을 사용합니다.
+- 신규 가입의 `role`은 `LEARNER | INSTRUCTOR`이며 `consents`에 현재 `TERMS | PRIVACY` 버전이 모두 필수입니다. 기존 계정 로그인·연동에는 재전송하지 않아도 되며, 응답의 `pendingConsents`가 재동의 필요 여부를 나타냅니다.
 - Google ID 토큰은 서버가 Google tokeninfo 응답의 audience, issuer, 이메일 검증 여부를 확인합니다. 검증 실패·Google 통신 실패는 `TOKEN_INVALID`(401)로 통일합니다.
 - 서버에 Google Client ID가 설정되지 않은 경우 기동은 허용하지만 요청은 `VALIDATION_FAILED`(400)로 거부하고 설정 오류만 서버 로그에 기록합니다.
 - Google 최초 가입 계정의 비밀번호 sentinel은 일반 비밀번호 검증을 통과하지 않으므로 비밀번호 로그인은 `INVALID_CREDENTIALS`입니다.
 - 주요 오류: `SIGNUP_REQUIRED`, `TOKEN_INVALID`, `ACCOUNT_SUSPENDED`, `USER_INACTIVE`, `VALIDATION_FAILED`.
+
+### 정책 버전·동의 (#415)
+
+- 공개 `GET /api/policies/current`: `data`는 `[{"type":"TERMS","version":"0.9","title":"...","effectiveAt":"2026-09-25T00:00:00Z","summary":"..."}, ...]`입니다. 각 유형에서 `effectiveAt <= 현재 시각`인 가장 최근 버전만 반환하며 본문은 포함하지 않습니다.
+- 공개 `GET /api/policies/{type}/{version}`: 위 메타데이터와 `content`를 반환합니다. 유형은 `TERMS | PRIVACY`; 없는 버전은 `POLICY_NOT_FOUND`(404)입니다.
+- 인증 `GET /api/users/me/consents`: `data`는 `{"pending":[{"type":"TERMS","version":"1.0","title":"..."}],"agreed":[{"type":"TERMS","version":"0.9","agreedAt":"2026-09-25T00:00:00Z"}]}` 형태입니다. `pending`은 현재 유효 버전 중 미동의만, `agreed`는 과거 버전을 포함한 전체 이력입니다.
+- 인증 `POST /api/users/me/consents`: 요청 `{"consents":[{"type":"TERMS","version":"1.0"}]}`. 현재 유효 버전만 허용하고 다른 버전은 `POLICY_VERSION_MISMATCH`(400)입니다. 이미 저장된 `(user,type,version)`은 건너뛰며 성공 응답은 GET과 동일합니다. IP·User-Agent(최대 255자)를 이력에 남기고 기존 이력은 수정·삭제하지 않습니다.
+- 미동의 상태에서도 인증 및 일반 API는 정상 처리됩니다. FE 게이팅만 범위에 포함되며 서버 강제 차단은 후속 정책 결정 사항입니다.
 
 ### POST `/api/auth/password-reset/request`
 
@@ -2497,10 +2518,16 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 모든 `/api/admin/**` 요청은 JWT의 `ROLE_ADMIN` URL 규칙, 컨트롤러의
 `@PreAuthorize("hasRole('ADMIN')")`, 요청 시점 DB의 `ADMIN/ACTIVE` 재검증을 모두
 통과해야 합니다. 관리자 API는 원칙적으로 읽기 전용이나 기존 비밀번호 초기화, xAI 경보 임계값
-설정, 테스트 메일, 계정 정지·복구·역할 변경은 운영 수작업을 감사 가능한 경로로 대체하기 위한
+설정, 테스트 메일, 계정 정지·복구·역할 변경, 정책 새 버전 등록은 운영 수작업을 감사 가능한 경로로 대체하기 위한
 명시적 쓰기 예외입니다. 모든 관리자 MVC 요청은 완료 후 구조화 감사 로그 1줄에
 `actorUserId, action, targetType, targetId, method, endpoint, status, occurredAt`을 남기며
 본문·비밀번호·토큰은 남기지 않습니다.
+
+### 관리자 정책 버전 (#415)
+
+- `POST /api/admin/policies`: `{"type":"TERMS","version":"1.0","title":"...","content":"...","summary":"변경 요약","effectiveAt":"2026-10-01T00:00:00Z"}`. `effectiveAt`은 등록 시각보다 미래여야 합니다. 성공 시 전체 문서 DTO를 반환하며 `@AdminAction("POLICY_PUBLISHED")`로 감사합니다. 같은 유형·버전은 `POLICY_VERSION_EXISTS`(409), 과거 시행 시각은 `VALIDATION_FAILED`(400)입니다. 등록 후 수정·삭제 API는 없습니다.
+- `GET /api/admin/policies?type=TERMS`: 유형 필터는 선택이며 모든 버전의 메타데이터 목록을 시행 시각 역순으로 반환합니다.
+- `GET /api/admin/policies/consent-stats`: 현재 유효 버전별 `[{"type":"TERMS","version":"1.0","activeUsers":100,"agreedUsers":65,"consentRatePercent":65.00}]`. 분모는 활성 사용자 수, 분자는 해당 유형·현재 버전에 동의한 활성 사용자 수입니다. 현재 유효 문서가 없는 유형은 목록에서 빠집니다.
 
 ### GET `/api/admin/users?q=&role=&status=&sort=&page=&size=`
 

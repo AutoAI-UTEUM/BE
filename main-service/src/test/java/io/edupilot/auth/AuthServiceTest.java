@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
@@ -12,6 +13,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +34,10 @@ import io.edupilot.auth.dto.SignupRequest;
 import io.edupilot.auth.dto.SignupRole;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.policy.PolicyService;
+import io.edupilot.policy.PolicyService.SignupSelection;
+import io.edupilot.policy.PolicyType;
+import io.edupilot.policy.dto.PolicyConsentChoice;
 import io.edupilot.user.User;
 import io.edupilot.user.UserActivityTracker;
 import io.edupilot.user.UserRepository;
@@ -59,6 +65,9 @@ class AuthServiceTest {
 	@Mock
 	private UserActivityTracker userActivityTracker;
 
+	@Mock
+	private PolicyService policyService;
+
 	private BCryptPasswordEncoder passwordEncoder;
 	private LoginAttemptLimiter loginAttemptLimiter;
 	private AuthService authService;
@@ -76,7 +85,11 @@ class AuthServiceTest {
 			googleAccountService,
 			userActivityTracker,
 			loginAttemptLimiter,
+			policyService,
 			Clock.fixed(NOW, ZoneOffset.UTC)
+		);
+		lenient().when(policyService.validateSignup(any())).thenReturn(
+			new SignupSelection("0.9", "0.9", NOW)
 		);
 	}
 
@@ -89,11 +102,12 @@ class AuthServiceTest {
 			return user;
 		});
 
-		var response = authService.signup(new SignupRequest(
+		var response = signup(new SignupRequest(
 			"  USER@Example.COM ",
 			"password123",
 			" 홍길동 ",
-			SignupRole.LEARNER
+			SignupRole.LEARNER,
+			null, false, consentChoices()
 		));
 
 		assertThat(response.userId()).isEqualTo(1L);
@@ -115,15 +129,14 @@ class AuthServiceTest {
 			return user;
 		});
 
-		var response = authService.signup(new SignupRequest(
+		var response = signup(new SignupRequest(
 			"user@example.com",
 			"password123",
 			"홍길동",
 			SignupRole.LEARNER,
 			" EduPilot University ",
 			true,
-			"2026-07-01",
-			"2026-07-01"
+			consentChoices()
 		));
 
 		assertThat(response.affiliation()).isEqualTo("EduPilot University");
@@ -132,40 +145,45 @@ class AuthServiceTest {
 			User.class
 		);
 		verify(userRepository).saveAndFlush(captor.capture());
-		assertThat(captor.getValue().getTermsVersion()).isEqualTo("2026-07-01");
-		assertThat(captor.getValue().getPrivacyVersion()).isEqualTo("2026-07-01");
+		assertThat(captor.getValue().getTermsVersion()).isEqualTo("0.9");
+		assertThat(captor.getValue().getPrivacyVersion()).isEqualTo("0.9");
 		assertThat(captor.getValue().getConsentedAt()).isEqualTo(NOW);
+		verify(policyService).recordSignup(any(User.class), any(SignupSelection.class),
+			org.mockito.ArgumentMatchers.eq("192.0.2.1"),
+			org.mockito.ArgumentMatchers.eq("test-agent"));
 	}
 
 	@Test
-	void signupRejectsPartialOrUnknownConsentVersions() {
+	void signupRejectsMissingOrStaleConsents() {
 		when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
+		when(policyService.validateSignup(any())).thenThrow(
+			new BusinessException(ErrorCode.POLICY_CONSENT_REQUIRED)
+		);
 
 		assertBusinessError(
-			() -> authService.signup(new SignupRequest(
+			() -> signup(new SignupRequest(
 				"user@example.com",
 				"password123",
 				"홍길동",
 				SignupRole.LEARNER,
 				null,
 				false,
-				"2026-07-01",
-				null
+				List.of(new PolicyConsentChoice(PolicyType.TERMS, "0.9"))
 			)),
-			ErrorCode.VALIDATION_FAILED
+			ErrorCode.POLICY_CONSENT_REQUIRED
 		);
 		assertBusinessError(
-			() -> authService.signup(new SignupRequest(
+			() -> signup(new SignupRequest(
 				"user@example.com",
 				"password123",
 				"홍길동",
 				SignupRole.LEARNER,
 				null,
 				false,
-				"2026-08-01",
-				"2026-08-01"
+				List.of(new PolicyConsentChoice(PolicyType.TERMS, "1.0"),
+					new PolicyConsentChoice(PolicyType.PRIVACY, "1.0"))
 			)),
-			ErrorCode.VALIDATION_FAILED
+			ErrorCode.POLICY_CONSENT_REQUIRED
 		);
 	}
 
@@ -178,11 +196,12 @@ class AuthServiceTest {
 			return user;
 		});
 
-		var response = authService.signup(new SignupRequest(
+		var response = signup(new SignupRequest(
 			"instructor@example.com",
 			"password123",
 			"강사",
-			SignupRole.INSTRUCTOR
+			SignupRole.INSTRUCTOR,
+			null, false, consentChoices()
 		));
 
 		assertThat(response.role()).isEqualTo(UserRole.INSTRUCTOR);
@@ -192,11 +211,12 @@ class AuthServiceTest {
 	void signupRejectsExistingOrRacingDuplicateEmail() {
 		when(userRepository.existsByEmail("user@example.com")).thenReturn(true);
 		assertBusinessError(
-			() -> authService.signup(new SignupRequest(
+			() -> signup(new SignupRequest(
 				"user@example.com",
 				"password123",
 				"홍길동",
-				SignupRole.LEARNER
+				SignupRole.LEARNER,
+				null, false, consentChoices()
 			)),
 			ErrorCode.EMAIL_ALREADY_EXISTS
 		);
@@ -205,11 +225,12 @@ class AuthServiceTest {
 		when(userRepository.saveAndFlush(any(User.class)))
 			.thenThrow(new DataIntegrityViolationException("duplicate"));
 		assertBusinessError(
-			() -> authService.signup(new SignupRequest(
+			() -> signup(new SignupRequest(
 				"other@example.com",
 				"password123",
 				"홍길동",
-				SignupRole.LEARNER
+				SignupRole.LEARNER,
+				null, false, consentChoices()
 			)),
 			ErrorCode.EMAIL_ALREADY_EXISTS
 		);
@@ -222,11 +243,12 @@ class AuthServiceTest {
 		assertThat(authService.emailAvailability("  USER@Example.COM ").available())
 			.isFalse();
 		assertBusinessError(
-			() -> authService.signup(new SignupRequest(
+			() -> signup(new SignupRequest(
 				"  USER@Example.COM ",
 				"password123",
 				"홍길동",
-				SignupRole.LEARNER
+				SignupRole.LEARNER,
+				null, false, consentChoices()
 			)),
 			ErrorCode.EMAIL_ALREADY_EXISTS
 		);
@@ -269,7 +291,6 @@ class AuthServiceTest {
 			null,
 			null,
 			null,
-			null,
 			null
 		);
 		GoogleProfile profile = new GoogleProfile(
@@ -280,7 +301,8 @@ class AuthServiceTest {
 		User user = user(5L, "user@example.com", "unused-password");
 		AuthSession session = authSession(user);
 		when(googleIdTokenVerifier.verify("id-token")).thenReturn(profile);
-		when(googleAccountService.resolve(request, profile)).thenReturn(user);
+		when(googleAccountService.resolve(request, profile, "192.0.2.1", "test-agent"))
+			.thenReturn(user);
 		when(jwtTokenProvider.createAccessToken(user)).thenReturn("access-token");
 		when(jwtTokenProvider.accessTokenExpiresInSeconds()).thenReturn(900L);
 		when(refreshTokenService.issue(user)).thenReturn(new IssueResult(
@@ -289,13 +311,13 @@ class AuthServiceTest {
 			Duration.ofHours(2)
 		));
 
-		var result = authService.googleLogin(request);
+		var result = authService.googleLogin(request, "192.0.2.1", "test-agent");
 
 		assertThat(result.response().accessToken()).isEqualTo("access-token");
 		assertThat(result.response().user().id()).isEqualTo(5L);
 		assertThat(result.refreshToken()).isEqualTo("refresh-token");
 		verify(googleIdTokenVerifier).verify("id-token");
-		verify(googleAccountService).resolve(request, profile);
+		verify(googleAccountService).resolve(request, profile, "192.0.2.1", "test-agent");
 	}
 
 	@Test
@@ -469,6 +491,15 @@ class AuthServiceTest {
 		User user = User.create(email, passwordEncoder.encode(password), "홍길동");
 		ReflectionTestUtils.setField(user, "id", id);
 		return user;
+	}
+
+	private io.edupilot.auth.dto.SignupResponse signup(SignupRequest request) {
+		return authService.signup(request, "192.0.2.1", "test-agent");
+	}
+
+	private List<PolicyConsentChoice> consentChoices() {
+		return List.of(new PolicyConsentChoice(PolicyType.TERMS, "0.9"),
+			new PolicyConsentChoice(PolicyType.PRIVACY, "0.9"));
 	}
 
 	private AuthSession authSession(User user) {
