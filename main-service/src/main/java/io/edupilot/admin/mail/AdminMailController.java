@@ -1,10 +1,7 @@
 package io.edupilot.admin.mail;
 
-import java.time.Clock;
 import java.time.Instant;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -17,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import io.edupilot.auth.AuthenticatedUser;
+import io.edupilot.admin.AdminAction;
 import io.edupilot.global.response.ApiResponse;
 import io.edupilot.mail.EmailDeliveryStatus;
 import io.edupilot.mail.EmailDeliveryType;
@@ -40,32 +38,28 @@ import jakarta.validation.constraints.Size;
 @Validated
 public class AdminMailController {
 
-	private static final Logger log = LoggerFactory.getLogger(AdminMailController.class);
 	private final EmailService emailService;
 	private final AdminMailService adminMailService;
 	private final AdminMailTestRateLimiter rateLimiter;
-	private final Clock clock;
 
 	public AdminMailController(
 		EmailService emailService,
 		AdminMailService adminMailService,
-		AdminMailTestRateLimiter rateLimiter,
-		Clock clock
+		AdminMailTestRateLimiter rateLimiter
 	) {
 		this.emailService = emailService;
 		this.adminMailService = adminMailService;
 		this.rateLimiter = rateLimiter;
-		this.clock = clock;
 	}
 
 	@PostMapping("/test")
+	@AdminAction("ADMIN_MAIL_TEST")
 	@Operation(summary = "관리자 SES 테스트 메일 발송")
 	public ApiResponse<TestMailResponse> test(
 		@AuthenticationPrincipal AuthenticatedUser user,
 		@Valid @RequestBody TestMailRequest request
 	) {
 		rateLimiter.acquire(user.userId());
-		audit(user.userId(), "ADMIN_MAIL_TEST", "/api/admin/mail/test");
 		Long deliveryId = emailService.sendAsync(new EmailMessage(
 			request.to(),
 			"[UTEUM] 메일 발송 테스트",
@@ -77,6 +71,7 @@ public class AdminMailController {
 	}
 
 	@GetMapping("/deliveries")
+	@AdminAction("ADMIN_MAIL_DELIVERIES_VIEWED")
 	@Operation(summary = "관리자 메일 발송 이력 조회")
 	public ApiResponse<AdminMailDeliveryListResponse> deliveries(
 		@AuthenticationPrincipal AuthenticatedUser user,
@@ -86,18 +81,9 @@ public class AdminMailController {
 		@RequestParam(defaultValue = "0") @Min(0) int page,
 		@RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
 	) {
-		audit(user.userId(), "ADMIN_MAIL_DELIVERIES_VIEWED", "/api/admin/mail/deliveries");
 		return ApiResponse.success(adminMailService.list(from, to, status, page, size));
 	}
 
-	private void audit(Long actorUserId, String action, String endpoint) {
-		log.atInfo()
-			.addKeyValue("actorUserId", actorUserId)
-			.addKeyValue("action", action)
-			.addKeyValue("endpoint", endpoint)
-			.addKeyValue("occurredAt", clock.instant())
-			.log("Admin mail API accessed");
-	}
 
 	public record TestMailRequest(@NotBlank @Email @Size(max = 320) String to) {
 	}

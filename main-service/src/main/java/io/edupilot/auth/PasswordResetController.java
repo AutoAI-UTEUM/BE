@@ -35,7 +35,7 @@ public class PasswordResetController {
 		@RequestBody(required = false) PasswordResetRequest request,
 		HttpServletRequest servletRequest
 	) {
-		service.request(request == null ? null : request.email(), clientIp(servletRequest));
+		service.request(request == null ? null : request.email(), ClientIpResolver.resolve(servletRequest));
 		return ResponseEntity.accepted().body(
 			ApiResponse.success(new PasswordResetMessageResponse(REQUEST_MESSAGE))
 		);
@@ -48,19 +48,8 @@ public class PasswordResetController {
 		@RequestBody PasswordResetConfirmRequest request,
 		HttpServletRequest servletRequest
 	) {
-		service.confirm(request.token(), request.newPassword(), clientIp(servletRequest));
+		service.confirm(request.token(), request.newPassword(), ClientIpResolver.resolve(servletRequest));
 		return ApiResponse.success(new PasswordResetMessageResponse(CONFIRM_MESSAGE));
 	}
 
-	private String clientIp(HttpServletRequest request) {
-		String forwarded = request.getHeader("X-Forwarded-For");
-		if (forwarded != null) {
-			// Production nginx appends its observed peer; never trust a client-prepended entry.
-			String lastHop = forwarded.substring(forwarded.lastIndexOf(',') + 1).trim();
-			if (lastHop.length() <= 45 && lastHop.matches("[0-9a-fA-F:.]+")) {
-				return lastHop;
-			}
-		}
-		return request.getRemoteAddr();
-	}
 }

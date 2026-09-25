@@ -26,13 +26,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 	private final JwtTokenProvider jwtTokenProvider;
 	private final UserActivityTracker userActivityTracker;
+	private final UserAccessGuard userAccessGuard;
 
 	public JwtAuthenticationFilter(
 		JwtTokenProvider jwtTokenProvider,
-		UserActivityTracker userActivityTracker
+		UserActivityTracker userActivityTracker,
+		UserAccessGuard userAccessGuard
 	) {
 		this.jwtTokenProvider = jwtTokenProvider;
 		this.userActivityTracker = userActivityTracker;
+		this.userAccessGuard = userAccessGuard;
 	}
 
 	@Override
@@ -56,6 +59,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			AuthenticatedUser principal = jwtTokenProvider.parseAccessToken(
 				authorization.substring(BEARER_PREFIX.length())
 			);
+			ErrorCode accessError = userAccessGuard.check(principal);
+			// Preserve the admin DB-role interceptor's existing 403 contract.
+			boolean deferToAdminGuard = accessError == ErrorCode.TOKEN_INVALID
+				&& request.getRequestURI().startsWith("/api/admin/");
+			if (accessError != null && !deferToAdminGuard) {
+				request.setAttribute(AUTH_ERROR_ATTRIBUTE, accessError);
+				SecurityContextHolder.clearContext();
+				filterChain.doFilter(request, response);
+				return;
+			}
 			var authentication = new UsernamePasswordAuthenticationToken(
 				principal,
 				null,

@@ -99,6 +99,26 @@ public enum ErrorCode {
 		HttpStatus.UNAUTHORIZED,
 		"이메일 또는 비밀번호가 올바르지 않습니다."
 	),
+	LOGIN_RATE_LIMITED(
+		"LOGIN_RATE_LIMITED",
+		HttpStatus.TOO_MANY_REQUESTS,
+		"로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요."
+	),
+	ACCOUNT_SUSPENDED(
+		"ACCOUNT_SUSPENDED",
+		HttpStatus.UNAUTHORIZED,
+		"정지된 계정입니다. 관리자에게 문의해 주세요."
+	),
+	ADMIN_SELF_MODIFICATION(
+		"ADMIN_SELF_MODIFICATION",
+		HttpStatus.BAD_REQUEST,
+		"자기 자신의 관리자 권한은 변경할 수 없습니다."
+	),
+	LAST_ADMIN_PROTECTED(
+		"LAST_ADMIN_PROTECTED",
+		HttpStatus.BAD_REQUEST,
+		"마지막 활성 관리자는 정지하거나 강등할 수 없습니다."
+	),
 	PASSWORD_NOT_SUPPORTED(
 		"PASSWORD_NOT_SUPPORTED",
 		HttpStatus.CONFLICT,

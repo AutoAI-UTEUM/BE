@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -17,6 +18,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.hibernate.SessionFactory;
@@ -45,6 +49,7 @@ import io.edupilot.auth.AuthSessionRepository;
 import io.edupilot.auth.JwtTokenProvider;
 import io.edupilot.auth.RefreshTokenRepository;
 import io.edupilot.auth.RefreshTokenService;
+import io.edupilot.global.error.BusinessException;
 import io.edupilot.classroom.Classroom;
 import io.edupilot.classroom.ClassroomColor;
 import io.edupilot.classroom.ClassroomMember;
@@ -60,6 +65,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.servlet.http.Cookie;
 
 @SpringBootTest(
 	webEnvironment = SpringBootTest.WebEnvironment.MOCK,
@@ -188,7 +194,7 @@ class AdminApiIntegrationTest {
 		));
 		refreshTokenService.issue(target);
 		refreshTokenService.issue(target);
-		Logger logger = (Logger)LoggerFactory.getLogger(AdminUserService.class);
+		Logger logger = (Logger)LoggerFactory.getLogger(AdminAuditInterceptor.class);
 		ListAppender<ILoggingEvent> appender = new ListAppender<>();
 		appender.start();
 		logger.addAppender(appender);
@@ -235,7 +241,8 @@ class AdminApiIntegrationTest {
 			.anySatisfy(event -> assertThat(logText(event))
 				.contains(
 					"actorUserId=\"" + admin.getId() + "\"",
-					"targetUserId=\"" + target.getId() + "\"",
+					"targetType=\"USER\"",
+					"targetId=\"" + target.getId() + "\"",
 					"action=\"ADMIN_PASSWORD_RESET\"",
 					"occurredAt=\""
 				))
@@ -252,6 +259,208 @@ class AdminApiIntegrationTest {
 					""".formatted(temporaryPassword)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.user.id").value(target.getId()));
+	}
+
+	@Test
+	void accountManagementEndpointsRejectNonAdminsAndInvalidSuspendReason() throws Exception {
+		for (User nonAdmin : new User[] {learner, instructor}) {
+			mockMvc.perform(post("/api/admin/users/" + learner.getId() + "/suspend")
+					.header(HttpHeaders.AUTHORIZATION, bearer(nonAdmin))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("{\"reason\":\"운영 확인\"}"))
+				.andExpect(status().isForbidden());
+			mockMvc.perform(post("/api/admin/users/" + learner.getId() + "/reinstate")
+					.header(HttpHeaders.AUTHORIZATION, bearer(nonAdmin)))
+				.andExpect(status().isForbidden());
+			mockMvc.perform(patch("/api/admin/users/" + learner.getId() + "/role")
+					.header(HttpHeaders.AUTHORIZATION, bearer(nonAdmin))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("{\"role\":\"ADMIN\"}"))
+				.andExpect(status().isForbidden());
+		}
+		mockMvc.perform(post("/api/admin/users/" + learner.getId() + "/suspend")
+				.header(HttpHeaders.AUTHORIZATION, bearer(admin))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"reason\":\" \"}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+	}
+
+	@Test
+	void suspendAndReinstateRevokesSessionsAndBlocksExistingAccessToken() throws Exception {
+		User target = userRepository.saveAndFlush(User.create(
+			"suspend-target@example.com",
+			passwordEncoder.encode("password123"),
+			"정지 대상",
+			UserRole.LEARNER
+		));
+		String accessToken = bearer(target);
+		String refreshToken = refreshTokenService.issue(target).rawToken();
+
+		mockMvc.perform(post("/api/admin/users/" + target.getId() + "/suspend")
+				.header(HttpHeaders.AUTHORIZATION, bearer(admin))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"reason\":\"운영 정책 위반\"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("SUSPENDED"))
+			.andExpect(jsonPath("$.data.suspendedReason").value("운영 정책 위반"))
+			.andExpect(jsonPath("$.data.suspendedAt").isString());
+		mockMvc.perform(get("/api/admin/users")
+				.header(HttpHeaders.AUTHORIZATION, bearer(admin))
+				.param("status", "SUSPENDED"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items[0].id").value(target.getId()))
+			.andExpect(jsonPath("$.data.items[0].suspendedReason").value("운영 정책 위반"));
+		assertThat(refreshTokenRepository.findAll())
+			.allSatisfy(token -> assertThat(token.getRevokedAt()).isNotNull());
+		assertThat(authSessionRepository.findAll())
+			.allSatisfy(session -> assertThat(session.getRevokedAt()).isNotNull());
+
+		mockMvc.perform(get("/api/users/me").header(HttpHeaders.AUTHORIZATION, accessToken))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code").value("ACCOUNT_SUSPENDED"));
+		mockMvc.perform(post("/api/auth/refresh")
+				.cookie(new Cookie("edupilot_refresh", refreshToken)))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code").value("ACCOUNT_SUSPENDED"));
+		mockMvc.perform(post("/api/auth/login")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"email\":\"suspend-target@example.com\",\"password\":\"wrong123\"}"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code").value("INVALID_CREDENTIALS"));
+		mockMvc.perform(post("/api/auth/login")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"email\":\"suspend-target@example.com\",\"password\":\"password123\"}"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code").value("ACCOUNT_SUSPENDED"));
+
+		mockMvc.perform(post("/api/admin/users/" + target.getId() + "/reinstate")
+				.header(HttpHeaders.AUTHORIZATION, bearer(admin)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("ACTIVE"))
+			.andExpect(jsonPath("$.data.suspendedReason").value(org.hamcrest.Matchers.nullValue()));
+		mockMvc.perform(post("/api/auth/login")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"email\":\"suspend-target@example.com\",\"password\":\"password123\"}"))
+			.andExpect(status().isOk());
+	}
+
+	@Test
+	void roleChangeRevokesSessionsAndOldAuthorityAndProtectsLastAdmin() throws Exception {
+		String oldToken = bearer(instructor);
+		refreshTokenService.issue(instructor);
+		Logger logger = (Logger)LoggerFactory.getLogger(AdminAuditInterceptor.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			mockMvc.perform(patch("/api/admin/users/" + instructor.getId() + "/role")
+					.header(HttpHeaders.AUTHORIZATION, bearer(admin))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("{\"role\":\"LEARNER\"}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.role").value("LEARNER"));
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+		assertThat(appender.list).hasSize(1);
+		assertThat(logText(appender.list.getFirst()))
+			.contains("action=\"USER_ROLE_CHANGED\"", "before=\"INSTRUCTOR\"", "after=\"LEARNER\"");
+		assertThat(authSessionRepository.findAll())
+			.allSatisfy(session -> assertThat(session.getRevokedAt()).isNotNull());
+		mockMvc.perform(get("/api/users/me").header(HttpHeaders.AUTHORIZATION, oldToken))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.error.code").value("TOKEN_INVALID"));
+
+		mockMvc.perform(post("/api/admin/users/" + admin.getId() + "/suspend")
+				.header(HttpHeaders.AUTHORIZATION, bearer(admin))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"reason\":\"self\"}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("ADMIN_SELF_MODIFICATION"));
+		mockMvc.perform(patch("/api/admin/users/" + admin.getId() + "/role")
+				.header(HttpHeaders.AUTHORIZATION, bearer(admin))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"role\":\"LEARNER\"}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("ADMIN_SELF_MODIFICATION"));
+	}
+
+	@Test
+	void loginAndRefreshRateLimitsExposeRetryAfterWithoutLeakingAccountExistence()
+		throws Exception {
+		User target = userRepository.saveAndFlush(User.create(
+			"limited@example.com", passwordEncoder.encode("password123"), "제한 대상"
+		));
+		String loginBody = "{\"email\":\"limited@example.com\",\"password\":\"wrong123\"}";
+		for (int attempt = 0; attempt < 5; attempt++) {
+			mockMvc.perform(post("/api/auth/login")
+					.header("X-Forwarded-For", "192.0.2.40")
+					.contentType(MediaType.APPLICATION_JSON).content(loginBody))
+				.andExpect(status().isUnauthorized())
+				.andExpect(jsonPath("$.error.code").value("INVALID_CREDENTIALS"));
+		}
+		mockMvc.perform(post("/api/auth/login")
+				.header("X-Forwarded-For", "192.0.2.40")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"email\":\"limited@example.com\",\"password\":\"password123\"}"))
+			.andExpect(status().isTooManyRequests())
+			.andExpect(jsonPath("$.error.code").value("LOGIN_RATE_LIMITED"))
+			.andExpect(header().string(HttpHeaders.RETRY_AFTER,
+				org.hamcrest.Matchers.matchesPattern("[1-9][0-9]*")));
+
+		for (int attempt = 0; attempt < 5; attempt++) {
+			mockMvc.perform(post("/api/auth/refresh")
+					.header("X-Forwarded-For", "192.0.2.41"))
+				.andExpect(status().isUnauthorized());
+		}
+		mockMvc.perform(post("/api/auth/refresh")
+				.header("X-Forwarded-For", "192.0.2.41"))
+			.andExpect(status().isTooManyRequests())
+			.andExpect(header().string(HttpHeaders.RETRY_AFTER,
+				org.hamcrest.Matchers.matchesPattern("[1-9][0-9]*")));
+	}
+
+	@Test
+	void concurrentDemotionsLeaveAtLeastOneActiveAdmin() throws Exception {
+		User secondAdmin = saveUser("second-admin@example.com", "두 번째 관리자", UserRole.ADMIN);
+		CountDownLatch ready = new CountDownLatch(2);
+		CountDownLatch start = new CountDownLatch(1);
+		var executor = Executors.newFixedThreadPool(2);
+		try {
+			var first = executor.submit(() -> demoteAfterBarrier(
+				admin.getId(), secondAdmin.getId(), ready, start
+			));
+			var second = executor.submit(() -> demoteAfterBarrier(
+				secondAdmin.getId(), admin.getId(), ready, start
+			));
+			assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+			start.countDown();
+			assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)))
+				.containsExactlyInAnyOrder("OK", "LAST_ADMIN_PROTECTED");
+			assertThat(userRepository.findAll().stream()
+				.filter(user -> user.getRole() == UserRole.ADMIN && user.isActive()).toList())
+				.hasSize(1);
+		} finally {
+			executor.shutdownNow();
+		}
+	}
+
+	private String demoteAfterBarrier(
+		Long actorId,
+		Long targetId,
+		CountDownLatch ready,
+		CountDownLatch start
+	) throws InterruptedException {
+		ready.countDown();
+		start.await();
+		try {
+			adminUserService.changeRole(actorId, targetId, UserRole.LEARNER);
+			return "OK";
+		} catch (BusinessException exception) {
+			return exception.errorCode().code();
+		}
 	}
 
 	@Test

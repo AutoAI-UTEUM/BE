@@ -2,6 +2,7 @@ package io.edupilot.user;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.List;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -28,6 +29,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select account from User account where account.id = :userId")
 	Optional<User> findByIdForUpdate(@Param("userId") Long userId);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		select account from User account
+		where account.role = io.edupilot.user.UserRole.ADMIN
+		  and account.status = io.edupilot.user.UserStatus.ACTIVE
+		order by account.id
+		""")
+	List<User> findActiveAdminsForUpdate();
 
 	Optional<User> findByGoogleSub(String googleSub);
 

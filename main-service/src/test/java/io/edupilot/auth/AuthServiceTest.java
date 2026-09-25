@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.spy;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -58,11 +60,13 @@ class AuthServiceTest {
 	private UserActivityTracker userActivityTracker;
 
 	private BCryptPasswordEncoder passwordEncoder;
+	private LoginAttemptLimiter loginAttemptLimiter;
 	private AuthService authService;
 
 	@BeforeEach
 	void setUp() {
-		passwordEncoder = new BCryptPasswordEncoder();
+		passwordEncoder = spy(new BCryptPasswordEncoder());
+		loginAttemptLimiter = new LoginAttemptLimiter();
 		authService = new AuthService(
 			userRepository,
 			passwordEncoder,
@@ -71,6 +75,7 @@ class AuthServiceTest {
 			googleIdTokenVerifier,
 			googleAccountService,
 			userActivityTracker,
+			loginAttemptLimiter,
 			Clock.fixed(NOW, ZoneOffset.UTC)
 		);
 	}
@@ -247,7 +252,7 @@ class AuthServiceTest {
 		var result = authService.login(new LoginRequest(
 			"USER@example.com",
 			"password123"
-		));
+		), "192.0.2.1");
 
 		assertThat(result.response().accessToken()).isEqualTo("access-token");
 		assertThat(result.response().expiresIn()).isEqualTo(900L);
@@ -315,7 +320,7 @@ class AuthServiceTest {
 			() -> authService.login(new LoginRequest(
 				"google@example.com",
 				"password123"
-			)),
+			), "192.0.2.1"),
 			ErrorCode.INVALID_CREDENTIALS
 		);
 	}
@@ -327,9 +332,10 @@ class AuthServiceTest {
 			() -> authService.login(new LoginRequest(
 				"missing@example.com",
 				"password123"
-			)),
+			), "192.0.2.1"),
 			ErrorCode.INVALID_CREDENTIALS
 		);
+		verify(passwordEncoder).matches(eq("password123"), any(String.class));
 
 		User user = user(1L, "user@example.com", "password123");
 		when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
@@ -337,7 +343,7 @@ class AuthServiceTest {
 			() -> authService.login(new LoginRequest(
 				"user@example.com",
 				"wrong-password"
-			)),
+			), "192.0.2.1"),
 			ErrorCode.INVALID_CREDENTIALS
 		);
 	}
@@ -349,8 +355,40 @@ class AuthServiceTest {
 		when(userRepository.findByEmail("deleted_1")).thenReturn(Optional.of(user));
 
 		assertBusinessError(
-			() -> authService.login(new LoginRequest("deleted_1", "password123")),
-			ErrorCode.USER_INACTIVE
+			() -> authService.login(new LoginRequest("deleted_1", "password123"), "192.0.2.1"),
+			ErrorCode.INVALID_CREDENTIALS
+		);
+	}
+
+	@Test
+	void suspendedAccountChecksPasswordBeforeDisclosingStatus() {
+		User user = user(1L, "user@example.com", "password123");
+		user.suspend("운영 확인", 2L, NOW);
+		when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+
+		assertBusinessError(
+			() -> authService.login(new LoginRequest("user@example.com", "wrong"), "192.0.2.1"),
+			ErrorCode.INVALID_CREDENTIALS
+		);
+		assertBusinessError(
+			() -> authService.login(new LoginRequest("user@example.com", "password123"), "192.0.2.1"),
+			ErrorCode.ACCOUNT_SUSPENDED
+		);
+	}
+
+	@Test
+	void correctPasswordCannotBypassFiveFailedLogins() {
+		User user = user(1L, "user@example.com", "password123");
+		when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+		for (int attempt = 0; attempt < 5; attempt++) {
+			assertBusinessError(
+				() -> authService.login(new LoginRequest("user@example.com", "wrong"), "192.0.2.1"),
+				ErrorCode.INVALID_CREDENTIALS
+			);
+		}
+		assertBusinessError(
+			() -> authService.login(new LoginRequest("user@example.com", "password123"), "192.0.2.1"),
+			ErrorCode.LOGIN_RATE_LIMITED
 		);
 	}
 
@@ -358,27 +396,33 @@ class AuthServiceTest {
 	void refreshMapsCommittedRotationResultToStableErrors() {
 		when(refreshTokenService.rotate("invalid")).thenReturn(RotationResult.invalid());
 		assertBusinessError(
-			() -> authService.refresh("invalid"),
+			() -> authService.refresh("invalid", "192.0.2.1"),
 			ErrorCode.TOKEN_INVALID
 		);
 
 		when(refreshTokenService.rotate("inactive")).thenReturn(RotationResult.inactive());
 		assertBusinessError(
-			() -> authService.refresh("inactive"),
+			() -> authService.refresh("inactive", "192.0.2.1"),
 			ErrorCode.USER_INACTIVE
+		);
+
+		when(refreshTokenService.rotate("suspended")).thenReturn(RotationResult.suspended());
+		assertBusinessError(
+			() -> authService.refresh("suspended", "192.0.2.1"),
+			ErrorCode.ACCOUNT_SUSPENDED
 		);
 
 		when(refreshTokenService.rotate("idle"))
 			.thenReturn(RotationResult.idleExpired());
 		assertBusinessError(
-			() -> authService.refresh("idle"),
+			() -> authService.refresh("idle", "192.0.2.1"),
 			ErrorCode.AUTH_SESSION_IDLE_EXPIRED
 		);
 
 		when(refreshTokenService.rotate("absolute"))
 			.thenReturn(RotationResult.absoluteExpired());
 		assertBusinessError(
-			() -> authService.refresh("absolute"),
+			() -> authService.refresh("absolute", "192.0.2.1"),
 			ErrorCode.AUTH_SESSION_ABSOLUTE_EXPIRED
 		);
 	}
@@ -397,7 +441,7 @@ class AuthServiceTest {
 		when(jwtTokenProvider.createAccessToken(user)).thenReturn("access-token");
 		when(jwtTokenProvider.accessTokenExpiresInSeconds()).thenReturn(900L);
 
-		authService.refresh("valid");
+		authService.refresh("valid", "192.0.2.1");
 
 		verify(userActivityTracker).track(7L);
 	}

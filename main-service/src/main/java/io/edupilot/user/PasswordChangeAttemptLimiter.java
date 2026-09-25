@@ -4,12 +4,11 @@ import java.time.Duration;
 
 import org.springframework.stereotype.Component;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Ticker;
 
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.global.security.AttemptWindow;
 
 @Component
 public class PasswordChangeAttemptLimiter {
@@ -17,31 +16,27 @@ public class PasswordChangeAttemptLimiter {
 	private static final int MAX_FAILURES = 5;
 	private static final Duration FAILURE_WINDOW = Duration.ofMinutes(15);
 
-	private final Cache<Long, Integer> failures;
+	private final AttemptWindow<Long> failures;
 
 	public PasswordChangeAttemptLimiter() {
 		this(System::nanoTime);
 	}
 
 	PasswordChangeAttemptLimiter(Ticker ticker) {
-		this.failures = Caffeine.newBuilder()
-			.expireAfterWrite(FAILURE_WINDOW)
-			.ticker(ticker)
-			.build();
+		this.failures = new AttemptWindow<>(FAILURE_WINDOW, 100_000, ticker);
 	}
 
 	public void checkAllowed(Long userId) {
-		Integer failureCount = failures.getIfPresent(userId);
-		if (failureCount != null && failureCount >= MAX_FAILURES) {
+		if (failures.isBlocked(userId, MAX_FAILURES)) {
 			throw new BusinessException(ErrorCode.PASSWORD_CHANGE_RATE_LIMITED);
 		}
 	}
 
 	public void recordFailure(Long userId) {
-		failures.asMap().merge(userId, 1, Integer::sum);
+		failures.increment(userId);
 	}
 
 	public void reset(Long userId) {
-		failures.invalidate(userId);
+		failures.reset(userId);
 	}
 }

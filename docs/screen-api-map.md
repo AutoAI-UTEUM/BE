@@ -12,7 +12,7 @@
 | --- | --- | --- | --- | --- |
 | 회원가입 | 이메일 입력 중 중복 확인 | `GET /api/auth/email-availability?email={email}` | 사용 가능 여부 표시 | 이메일 누락·형식 오류 |
 | 회원가입 | 역할·선택 소속·수신 동의·약관 버전 제출 | `POST /api/auth/signup` | 확장 사용자 응답 확인 후 로그인 화면 또는 자동 로그인 정책에 따른 이동 | 역할/약관 버전 오류, 유효성, 이메일 중복 |
-| 로그인 | 제출 | `POST /api/auth/login` | access와 역할별 `session` 메타를 메모리에 보존한 뒤 자료 목록 이동. refresh는 HttpOnly cookie | 자격 증명 실패, 비활성 계정 |
+| 로그인 | 제출 | `POST /api/auth/login` | access와 역할별 `session` 메타를 메모리에 보존한 뒤 자료 목록 이동. refresh는 HttpOnly cookie | 자격 증명 실패, 정지 계정 `ACCOUNT_SUSPENDED` 안내, 429 `LOGIN_RATE_LIMITED`는 `Retry-After` 초 표시 |
 | 로그인 | Google 로그인 | `POST /api/auth/google` | 기존·연동 계정은 access와 `session` 메타를 받아 로그인 완료. 신규 계정은 `SIGNUP_REQUIRED` 시 역할·약관·선택 정보를 받은 뒤 같은 ID 토큰으로 재요청 | Google 토큰 오류, 추가 정보 필요, 비활성 계정 |
 | 비밀번호 찾기 | 이메일 제출 | `POST /api/auth/password-reset/request` | 202면 가입 여부와 무관하게 "등록된 이메일이면 재설정 안내를 발송했습니다." 표시 | 요청 상한·미가입·비활성 계정도 동일 202 |
 | 비밀번호 재설정 | `/reset-password?token=` 링크에서 새 비밀번호 제출 | `POST /api/auth/password-reset/confirm` | 성공 시 보유 access 삭제 후 로그인 화면 이동 | `RESET_TOKEN_INVALID` 400은 "링크가 만료되었거나 유효하지 않습니다 — 다시 요청" 단일 문구; 비밀번호 정책 오류와 429 구분 |
@@ -23,7 +23,8 @@
 | 계정 설정 | 학습 환경설정 조회·수정 | `GET·PATCH /api/users/me/preferences` | 이메일 수신·학습 리마인더 설정과 AI 답변 스타일 저장 | 빈 변경, enum 오류 |
 | 인앱 알림 | 목록 조회·읽음·삭제 | `GET /api/users/me/notifications`, `PATCH .../{notificationId}/read`, `DELETE .../{notificationId}` | `type`과 `link`로 자료·공지·입장 요청·시험 화면에 라우팅하고 읽음 상태 반영. 예약 공지와 시험 알림은 dedup 기준으로 한 번만 표시 | 비인증, 타인·부재 알림 404, 페이지네이션 |
 | 피드백 화면/모달 | 피드백 제출 | `POST /api/feedback` | 접수 ID·시각 확인 후 완료 표시 | 비인증, category·내용 길이 오류 |
-| 관리자 회원 현황 | 목록·검색·역할/상태 필터·상세 조회 | `GET /api/admin/users`, `GET /api/admin/users/{id}` | ACTIVE·DELETED 전체 회원의 비민감 프로필·가입일·최근 활동 표시. `lastActiveAt=null`은 `-` 처리하고 가입일/이름/최근 활동 양방향 정렬 지원 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 없는 회원 404 |
+| 관리자 회원 현황 | 목록·검색·역할/상태 필터·상세 조회 | `GET /api/admin/users`, `GET /api/admin/users/{id}` | ACTIVE·SUSPENDED·DELETED 전체 회원의 비민감 프로필·가입일·최근 활동·정지 사유 표시. `lastActiveAt=null`은 `-` 처리하고 가입일/이름/최근 활동 양방향 정렬 지원 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 없는 회원 404 |
+| 관리자 회원 현황 | 계정 정지·복구·역할 변경 | `POST /api/admin/users/{id}/suspend`, `POST /api/admin/users/{id}/reinstate`, `PATCH /api/admin/users/{id}/role` | 확인 후 실행하고 반환된 상세 DTO로 상태·역할 즉시 갱신. 기존 세션은 폐기되므로 대상자에게 재로그인 안내 | 비ADMIN 403, 자기 정지·강등 또는 마지막 활성 ADMIN 변경 400 |
 | 관리자 회원 현황 | 사용자 비밀번호 초기화 | `POST /api/admin/users/{id}/password-reset` | 확인 후 실행하고 `temporaryPassword`를 재조회 불가 안내와 함께 모달에 1회 표시하며 복사 버튼 제공 | 비ADMIN 403, 없는 회원 404, GOOGLE·DELETED·자기 자신 409 |
 | 관리자 강의실 현황 | 목록·정렬·상세 조회 | `GET /api/admin/classrooms`, `GET /api/admin/classrooms/{id}` | 개설자·상태·멤버 수와 상세 멤버 목록 표시 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 없는 강의실 404 |
 | 관리자 AI 사용량 | 기간별 요약·사용자 상위 N 조회 | `GET /api/admin/ai-usage/summary`, `GET /api/admin/ai-usage/users` | 최근 7일 기본, 최대 92일의 KST 일별·기능별·사용자별 집계 표시 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 날짜 범위·limit 400 |
@@ -63,7 +64,7 @@
 | 리포트 상세 `/reports/:reportId` | 생성 상태·실패 fallback·완료 결과 조회 | `GET /api/reports/{reportId}` | PROCESSING 표시, FAILED 사실 요약, COMPLETED 점수·단계·trend·근거 표시. 근거의 선택 `metrics`는 label/value로 표시하고 필드가 없으면 수치 영역을 숨김. trend는 같은 scope(FULL 또는 같은 주차 WEEK)의 직전 버전 대비이며 null score는 데이터 부족으로 표시 | `REPORT_NOT_FOUND`, AI failureCode |
 | 리포트 기준 `/classrooms/:classroomId/report-criteria` | 기본·커스텀 목록, 기준 생성·버전 변경·활성 토글·커스텀 삭제 | `GET·POST /api/classrooms/{classroomId}/report-criteria`, `PATCH·DELETE .../{criterionId}` | 기본 9종과 활성 커스텀을 표시. 삭제는 최신 ID로 해당 key 전 버전을 제거하며 진행 중 생성·과거 리포트에는 영향 없음 | 기준 20개 상한, 정규화 이름 중복, 소유권, 타 강의실·과거 버전 ID 404 |
 | 리포트 기준 `/classrooms/:classroomId/report-criteria` | AI 평가 지표 생성·상태 polling | `POST /api/classrooms/{classroomId}/report-criteria/generate`, `GET .../generation` | 202 후 `RUNNING`을 polling하고 `COMPLETED`면 목록 갱신, `FAILED`면 message 표시 | READY 개요 1개 이상, 여유 슬롯 3개 이상, 동시 실행 409, 소유권 |
-| 전역 | access 만료 5분 전 최근 실제 활동이 있거나 일반 요청의 최초 401 시 | `POST /api/auth/refresh` (credentials 포함) | 탭 전체 single-flight로 같은 세션의 access/refresh를 1회 회전하고 원 요청은 최대 1회 재시도. `absoluteExpiresAt`은 유지 | `TOKEN_INVALID`, `AUTH_SESSION_IDLE_EXPIRED`, `AUTH_SESSION_ABSOLUTE_EXPIRED`, `USER_INACTIVE` → 전체 탭 로그인 이동; 5xx·통신 오류는 강제 로그아웃 금지 |
+| 전역 | access 만료 5분 전 최근 실제 활동이 있거나 일반 요청의 최초 401 시 | `POST /api/auth/refresh` (credentials 포함) | 탭 전체 single-flight로 같은 세션의 access/refresh를 1회 회전하고 원 요청은 최대 1회 재시도. `absoluteExpiresAt`은 유지 | `TOKEN_INVALID`, `AUTH_SESSION_IDLE_EXPIRED`, `AUTH_SESSION_ABSOLUTE_EXPIRED`, `USER_INACTIVE`, `ACCOUNT_SUSPENDED` → 전체 탭 로그인 이동; 5xx·통신 오류는 강제 로그아웃 금지 |
 | 헤더/메뉴 | 로그아웃 버튼 | `POST /api/auth/logout` | 현재 기기 인증 세션만 폐기하고 메모리 access 삭제 후 로그인 화면 | 없음(멱등) |
 | 계정 설정 | 현재·새 비밀번호 입력 후 변경 | `PATCH /api/users/me/password` | 성공 시 `reauthenticationRequired=true`를 확인하고 access 삭제 후 로그인 화면 이동 | GOOGLE 계정·동일 비밀번호 409, 현재 비밀번호 불일치·정책 위반 400, 5회 실패 후 429 |
 | 계정 설정 | 탈퇴 버튼 → 비밀번호 확인 모달 | `DELETE /api/users/me` | 토큰 정리 후 로그인 화면 이동 | 비밀번호 불일치 (DEC-028) |
