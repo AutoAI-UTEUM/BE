@@ -24,7 +24,7 @@ public class NoteImportController {
 		this.importService = importService;
 	}
 
-	@PostMapping("/api/notes/import")
+	@PostMapping("/api/user-notes/import")
 	@Operation(summary = "로컬 수동·오답 노트 1회 이관")
 	public ApiResponse<ImportNotesResponse> importNotes(
 		@AuthenticationPrincipal AuthenticatedUser user,

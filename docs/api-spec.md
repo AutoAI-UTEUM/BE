@@ -119,7 +119,7 @@
 | GET·PATCH·DELETE | `/api/user-notes/{noteId}` | 내 수동 노트 상세·수정·소프트 삭제 | Y | 본인 |
 | GET·POST | `/api/wrong-answer-notes` | 내 오답 노트 목록·생성 | Y | 본인 퀴즈 제출 문항 |
 | PATCH·DELETE | `/api/wrong-answer-notes/{noteId}` | 내 오답 노트 수정·소프트 삭제 | Y | 본인 |
-| POST | `/api/notes/import` | 로컬 수동·오답 노트 항목별 이관 | Y | 본인; 분당 5회 |
+| POST | `/api/user-notes/import` | 로컬 수동·오답 노트 항목별 이관 | Y | 본인; 분당 5회 |
 | POST | `/api/classrooms` | 강의실 개설 | Y | INSTRUCTOR |
 | GET | `/api/classrooms` | 내 강의실 목록 | Y | 소유 또는 승인 멤버 관계 |
 | GET | `/api/classrooms/{id}` | 강의실 상세 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
@@ -1054,7 +1054,7 @@ Query:
 - `PATCH /{noteId}` 요청: `{"memo":"다시 풀기"}`. `memo:null`은 메모 제거입니다.
 - `DELETE /{noteId}`: 소프트 삭제 후 204. 타인·삭제된 항목은 `WRONG_ANSWER_NOTE_NOT_FOUND`(404)입니다.
 
-### POST `/api/notes/import`
+### POST `/api/user-notes/import`
 
 ```json
 {

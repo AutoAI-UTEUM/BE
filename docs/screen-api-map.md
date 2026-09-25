@@ -90,7 +90,7 @@
 | 학습 세션 | 노트 삭제 | `DELETE /api/notes/{noteId}` | 목록에서 제거 | `NOTE_NOT_FOUND` |
 | 내 노트 | 수동 노트 목록·상세·작성·수정·삭제 | `GET·POST /api/user-notes`, `GET·PATCH·DELETE /api/user-notes/{noteId}` | 서버 노트를 정본으로 사용하고 자료·페이지 연결 및 소프트 삭제를 반영 | 자료 접근권, `NOTE_NOT_FOUND`, 1MiB·2,000개 상한 |
 | 오답 노트 | 퀴즈 제출 문항을 노트로 저장·조회·수정·삭제 | `GET·POST /api/wrong-answer-notes`, `PATCH·DELETE /api/wrong-answer-notes/{noteId}` | 제출 결과의 `submissionId:questionId`로 등록하고 서버 snapshot을 표시 | 타인·부재 결과 404, 중복 결과는 기존 항목 200 |
-| 최초 로그인 | 로컬 수동·오답 노트 1회 이관 | `POST /api/notes/import` | imported·skipped 항목만 로컬에서 제거하고 failed는 사유 표시 후 재시도 | 배열당 200건, 분당 5회, 항목별 부분 성공 |
+| 최초 로그인 | 로컬 수동·오답 노트 1회 이관 | `POST /api/user-notes/import` | imported·skipped 항목만 로컬에서 제거하고 failed는 사유 표시 후 재시도 | 배열당 200건, 분당 5회, 항목별 부분 성공 |
 | PDF 뷰어 | 다음/이전/번호 입력 | `PATCH /api/sessions/{sessionId}/page` | 응답 페이지로 뷰어 동기화, 설명 여부 UI | 페이지 범위/상태 충돌 |
 | 채팅 | 스트림 선연결 | `GET /api/sessions/{sessionId}/stream` | fetch+Bearer로 SSE 연결 후 turns 호출 | 중복 연결/AI 스트림 중단 |
 | 채팅 | 설명 시작 선택 | `POST /api/sessions/{sessionId}/turns` | 설명 스트림/메시지 표시 | AI timeout/스키마 오류/일일 AI 쿼터 429 |

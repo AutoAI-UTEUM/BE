@@ -303,6 +303,21 @@ class UserNoteJpaTest {
 			.andExpect(status().isNoContent());
 	}
 
+	@Test
+	void importEndpointUsesUserNotesNamespace() throws Exception {
+		User user = user();
+		MockMvc mvc = MockMvcBuilders.webAppContextSetup(webContext)
+			.apply(springSecurity()).addFilters(traceIdFilter).build();
+		when(clock.instant()).thenReturn(Instant.now());
+		String bearer = "Bearer " + jwtTokenProvider.createAccessToken(user);
+		String body = "{\"notes\":[],\"wrongAnswers\":[]}";
+		mvc.perform(post("/api/user-notes/import")
+				.header(HttpHeaders.AUTHORIZATION, bearer)
+				.contentType(MediaType.APPLICATION_JSON).content(body))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.imported").value(0));
+	}
+
 	private User user() {
 		int id = IDS.incrementAndGet();
 		return users.saveAndFlush(User.create("note-" + id + "@test.com", "hash", "학습자"));
