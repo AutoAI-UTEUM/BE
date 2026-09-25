@@ -23,7 +23,10 @@ class TemporaryPasswordGeneratorTest {
 				"learner@example.com",
 				password,
 				"학습자",
-				SignupRole.LEARNER
+				SignupRole.LEARNER,
+				null,
+				false,
+				null
 			);
 
 			assertThat(password).hasSize(16);

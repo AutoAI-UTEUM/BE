@@ -40,6 +40,8 @@ import io.edupilot.mail.EmailDeliveryRepository;
 import io.edupilot.notification.NotificationBulkRepository;
 import io.edupilot.notification.NotificationService;
 import io.edupilot.notification.NotificationTriggerService;
+import io.edupilot.policy.PolicyConsentRepository;
+import io.edupilot.policy.PolicyDocumentRepository;
 import io.edupilot.report.ReportCriterionCatalog;
 import io.edupilot.report.ReportCriterionService;
 import io.edupilot.report.ReportCriterionGenerationService;
@@ -81,6 +83,8 @@ import io.edupilot.usernote.WrongAnswerNoteService;
 	NotificationService.class,
 	NotificationTriggerService.class,
 	NotificationBulkRepository.class,
+	PolicyConsentRepository.class,
+	PolicyDocumentRepository.class,
 	LearningProgressService.class,
 	QuizProposalPolicy.class,
 	ClassroomWeekMaterialRepository.class,

@@ -11,9 +11,11 @@
 | 화면/영역 | 사용자 행동/시점 | API | 성공 시 UI | 주요 오류 |
 | --- | --- | --- | --- | --- |
 | 회원가입 | 이메일 입력 중 중복 확인 | `GET /api/auth/email-availability?email={email}` | 사용 가능 여부 표시 | 이메일 누락·형식 오류 |
-| 회원가입 | 역할·선택 소속·수신 동의·약관 버전 제출 | `POST /api/auth/signup` | 확장 사용자 응답 확인 후 로그인 화면 또는 자동 로그인 정책에 따른 이동 | 역할/약관 버전 오류, 유효성, 이메일 중복 |
+| 회원가입 | 현재 약관·처리방침 표시와 필수 동의 후 역할·선택 소속·수신 동의 제출 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}`, `POST /api/auth/signup` | 현재 TERMS·PRIVACY `{type,version}`을 `consents` 배열로 제출한 뒤 로그인 화면 이동 | `POLICY_CONSENT_REQUIRED`, 유효성, 이메일 중복 |
 | 로그인 | 제출 | `POST /api/auth/login` | access와 역할별 `session` 메타를 메모리에 보존한 뒤 자료 목록 이동. refresh는 HttpOnly cookie | 자격 증명 실패, 정지 계정 `ACCOUNT_SUSPENDED` 안내, 429 `LOGIN_RATE_LIMITED`는 `Retry-After` 초 표시 |
-| 로그인 | Google 로그인 | `POST /api/auth/google` | 기존·연동 계정은 access와 `session` 메타를 받아 로그인 완료. 신규 계정은 `SIGNUP_REQUIRED` 시 역할·약관·선택 정보를 받은 뒤 같은 ID 토큰으로 재요청 | Google 토큰 오류, 추가 정보 필요, 비활성 계정 |
+| 로그인 | Google 로그인 | `POST /api/auth/google` | 기존·연동 계정은 access·`session`·`pendingConsents`를 받아 로그인 완료. 신규 계정은 `SIGNUP_REQUIRED` 시 역할·현재 정책 동의·선택 정보를 받은 뒤 같은 ID 토큰으로 재요청 | Google 토큰 오류, 추가 정보 필요, 비활성 계정 |
+| 로그인 직후 | 미동의 정책 확인·재동의 | 로그인 `pendingConsents`, `GET·POST /api/users/me/consents`, `GET /api/policies/{type}/{version}` | pending이 있으면 FE 동의 화면으로 이동. 동의 후 pending 빈 배열 확인; 서버는 미동의 API 차단을 하지 않음 | `POLICY_VERSION_MISMATCH` 시 current 재조회 |
+| 정책 본문 | 현재 정책 문서 표시 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}` | `/policies/{type}`에서 current 버전의 본문 표시. 0.9는 법무 검토 전 초안이므로 운영 공개 시점 주의 | 없는 버전 404 |
 | 비밀번호 찾기 | 이메일 제출 | `POST /api/auth/password-reset/request` | 202면 가입 여부와 무관하게 "등록된 이메일이면 재설정 안내를 발송했습니다." 표시 | 요청 상한·미가입·비활성 계정도 동일 202 |
 | 비밀번호 재설정 | `/reset-password?token=` 링크에서 새 비밀번호 제출 | `POST /api/auth/password-reset/confirm` | 성공 시 보유 access 삭제 후 로그인 화면 이동 | `RESET_TOKEN_INVALID` 400은 "링크가 만료되었거나 유효하지 않습니다 — 다시 요청" 단일 문구; 비밀번호 정책 오류와 429 구분 |
 | 앱 초기 진입 | 인증 상태 확인 | `GET /api/users/me` | 사용자 정보/권한 반영 | 토큰 만료 |
@@ -26,6 +28,7 @@
 | 관리자 회원 현황 | 목록·검색·역할/상태 필터·상세 조회 | `GET /api/admin/users`, `GET /api/admin/users/{id}` | ACTIVE·SUSPENDED·DELETED 전체 회원의 비민감 프로필·가입일·최근 활동·정지 사유 표시. `lastActiveAt=null`은 `-` 처리하고 가입일/이름/최근 활동 양방향 정렬 지원 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 없는 회원 404 |
 | 관리자 회원 현황 | 계정 정지·복구·역할 변경 | `POST /api/admin/users/{id}/suspend`, `POST /api/admin/users/{id}/reinstate`, `PATCH /api/admin/users/{id}/role` | 확인 후 실행하고 반환된 상세 DTO로 상태·역할 즉시 갱신. 기존 세션은 폐기되므로 대상자에게 재로그인 안내 | 비ADMIN 403, 자기 정지·강등 또는 마지막 활성 ADMIN 변경 400 |
 | 관리자 회원 현황 | 사용자 비밀번호 초기화 | `POST /api/admin/users/{id}/password-reset` | 확인 후 실행하고 `temporaryPassword`를 재조회 불가 안내와 함께 모달에 1회 표시하며 복사 버튼 제공 | 비ADMIN 403, 없는 회원 404, GOOGLE·DELETED·자기 자신 409 |
+| 관리자 정책 운영 | 버전 등록·목록·현재 동의율 | `POST·GET /api/admin/policies`, `GET /api/admin/policies/consent-stats` | 승인된 1.0 문구를 미래 시행 시각으로 불변 등록, 활성 사용자 대비 동의율 확인 | 비ADMIN 403, 중복 버전 409, 과거 시행 시각 400 |
 | 관리자 강의실 현황 | 목록·정렬·상세 조회 | `GET /api/admin/classrooms`, `GET /api/admin/classrooms/{id}` | 개설자·상태·멤버 수와 상세 멤버 목록 표시 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 없는 강의실 404 |
 | 관리자 AI 사용량 | 기간별 요약·사용자 상위 N 조회 | `GET /api/admin/ai-usage/summary`, `GET /api/admin/ai-usage/users` | 최근 7일 기본, 최대 92일의 KST 일별·기능별·사용자별 집계 표시 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 날짜 범위·limit 400 |
 | 관리자 인프라 현황 | 환경·기간별 EC2 지표, AWS 비용, 앱 상태 조회 | `GET /api/admin/infra/metrics`, `GET /api/admin/infra/cost`, `GET /api/admin/infra/app` | CPU·네트워크·메모리·디스크·상태검사 시계열, 월/서비스/일별 비용, JVM·HTTP·DB·AI 상태 표시. AWS 실패 시 unavailable 또는 stale 안내 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, env·range 400, AWS 장애는 200 fail-soft |

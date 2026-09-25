@@ -45,8 +45,14 @@ public class AuthController {
 
 	@PostMapping("/signup")
 	@Operation(summary = "회원가입")
-	public ApiResponse<SignupResponse> signup(@Valid @RequestBody SignupRequest request) {
-		return ApiResponse.success(authService.signup(request));
+	public ApiResponse<SignupResponse> signup(
+		@Valid @RequestBody SignupRequest request,
+		HttpServletRequest servletRequest
+	) {
+		return ApiResponse.success(authService.signup(
+			request, ClientIpResolver.resolve(servletRequest),
+			servletRequest.getHeader("User-Agent")
+		));
 	}
 
 	@GetMapping("/email-availability")
@@ -78,9 +84,13 @@ public class AuthController {
 	@PostMapping("/google")
 	@Operation(summary = "Google 로그인 또는 가입")
 	public ResponseEntity<ApiResponse<LoginResponse>> googleLogin(
-		@Valid @RequestBody GoogleLoginRequest request
+		@Valid @RequestBody GoogleLoginRequest request,
+		HttpServletRequest servletRequest
 	) {
-		LoginResult result = authService.googleLogin(request);
+		LoginResult result = authService.googleLogin(
+			request, ClientIpResolver.resolve(servletRequest),
+			servletRequest.getHeader("User-Agent")
+		);
 		return ResponseEntity.ok()
 			.header(
 				HttpHeaders.SET_COOKIE,

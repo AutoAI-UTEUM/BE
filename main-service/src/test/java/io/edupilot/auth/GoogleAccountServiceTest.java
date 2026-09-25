@@ -7,9 +7,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -23,6 +22,10 @@ import org.springframework.test.util.ReflectionTestUtils;
 import io.edupilot.auth.dto.GoogleLoginRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.policy.PolicyService;
+import io.edupilot.policy.PolicyService.SignupSelection;
+import io.edupilot.policy.PolicyType;
+import io.edupilot.policy.dto.PolicyConsentChoice;
 import io.edupilot.user.AuthProvider;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
@@ -40,14 +43,16 @@ class GoogleAccountServiceTest {
 	@Mock
 	private UserRepository userRepository;
 
+	@Mock
+	private PolicyService policyService;
+
 	private GoogleAccountService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new GoogleAccountService(
-			userRepository,
-			Clock.fixed(NOW, ZoneOffset.UTC)
-		);
+		service = new GoogleAccountService(userRepository, policyService);
+		org.mockito.Mockito.lenient().when(policyService.validateSignup(any())).thenReturn(
+			new SignupSelection("0.9", "0.9", NOW));
 	}
 
 	@Test
@@ -62,18 +67,21 @@ class GoogleAccountServiceTest {
 			return user;
 		});
 
-		User user = service.resolve(completeRequest(), PROFILE);
+		User user = resolve(completeRequest(), PROFILE);
 
 		assertThat(user.getEmail()).isEqualTo("user@example.com");
 		assertThat(user.getName()).isEqualTo("구글 사용자");
 		assertThat(user.getAuthProvider()).isEqualTo(AuthProvider.GOOGLE);
 		assertThat(user.getGoogleSub()).isEqualTo("google-subject");
 		assertThat(user.getPasswordHash()).isEqualTo("!oauth:google");
-		assertThat(user.getTermsVersion()).isEqualTo("2026-07-01");
-		assertThat(user.getPrivacyVersion()).isEqualTo("2026-07-01");
+		assertThat(user.getTermsVersion()).isEqualTo("0.9");
+		assertThat(user.getPrivacyVersion()).isEqualTo("0.9");
 		assertThat(user.getConsentedAt()).isEqualTo(NOW);
 		assertThat(user.isLearningEmailOptIn()).isTrue();
 		assertThat(user.getAffiliation()).isEqualTo("EduPilot University");
+		verify(policyService).recordSignup(any(User.class), any(SignupSelection.class),
+			org.mockito.ArgumentMatchers.eq("192.0.2.1"),
+			org.mockito.ArgumentMatchers.eq("test-agent"));
 	}
 
 	@Test
@@ -82,7 +90,7 @@ class GoogleAccountServiceTest {
 		when(userRepository.findByGoogleSub("google-subject"))
 			.thenReturn(Optional.of(existing));
 
-		User user = service.resolve(minimalRequest(), PROFILE);
+		User user = resolve(minimalRequest(), PROFILE);
 
 		assertThat(user).isSameAs(existing);
 		verify(userRepository, never()).findByEmail(any());
@@ -103,8 +111,8 @@ class GoogleAccountServiceTest {
 			return user;
 		});
 
-		User created = service.resolve(completeRequest(), PROFILE);
-		User retried = service.resolve(completeRequest(), PROFILE);
+		User created = resolve(completeRequest(), PROFILE);
+		User retried = resolve(completeRequest(), PROFILE);
 
 		assertThat(retried).isSameAs(created);
 		verify(userRepository, org.mockito.Mockito.times(1)).saveAndFlush(any());
@@ -119,7 +127,7 @@ class GoogleAccountServiceTest {
 		when(userRepository.findByEmail("user@example.com"))
 			.thenReturn(Optional.of(local));
 
-		User user = service.resolve(minimalRequest(), PROFILE);
+		User user = resolve(minimalRequest(), PROFILE);
 
 		assertThat(user).isSameAs(local);
 		assertThat(user.getAuthProvider()).isEqualTo(AuthProvider.LOCAL);
@@ -136,7 +144,7 @@ class GoogleAccountServiceTest {
 			.thenReturn(Optional.empty());
 
 		assertBusinessError(
-			() -> service.resolve(minimalRequest(), PROFILE),
+			() -> resolve(minimalRequest(), PROFILE),
 			ErrorCode.SIGNUP_REQUIRED
 		);
 	}
@@ -155,15 +163,34 @@ class GoogleAccountServiceTest {
 		return new GoogleLoginRequest(
 			"id-token",
 			"LEARNER",
-			"2026-07-01",
-			"2026-07-01",
+			List.of(new PolicyConsentChoice(PolicyType.TERMS, "0.9"),
+				new PolicyConsentChoice(PolicyType.PRIVACY, "0.9")),
 			true,
 			" EduPilot University "
 		);
 	}
 
 	private GoogleLoginRequest minimalRequest() {
-		return new GoogleLoginRequest("id-token", null, null, null, null, null);
+		return new GoogleLoginRequest("id-token", null, null, null, null);
+	}
+
+	@Test
+	void newGoogleProfileWithRoleButNoCurrentConsentIsRejected() {
+		when(userRepository.findByGoogleSub("google-subject"))
+			.thenReturn(Optional.empty());
+		when(userRepository.findByEmail("user@example.com"))
+			.thenReturn(Optional.empty());
+		when(policyService.validateSignup(any())).thenThrow(
+			new BusinessException(ErrorCode.POLICY_CONSENT_REQUIRED));
+
+		assertBusinessError(() -> resolve(new GoogleLoginRequest(
+			"id-token", "LEARNER", null, false, null), PROFILE),
+			ErrorCode.POLICY_CONSENT_REQUIRED);
+		verify(userRepository, never()).saveAndFlush(any());
+	}
+
+	private User resolve(GoogleLoginRequest request, GoogleProfile profile) {
+		return service.resolve(request, profile, "192.0.2.1", "test-agent");
 	}
 
 	private User googleUser(Long id) {
