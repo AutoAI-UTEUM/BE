@@ -2924,6 +2924,7 @@ GET은 단일 임계값 설정을 반환하며 행이 없으면 1차 기본값�
 `attemptCount`, `createdAt`, `sentAt`을 포함합니다. `type`은
 `PASSWORD_RESET|EMAIL_VERIFY|NOTIFICATION|TEST`입니다. 본문은 이력·응답에 포함하지
 않습니다. `enabled=false`일 때는 `FAILED`/`errorSummary=DISABLED`입니다.
+prod에서 메일 provider가 `logging`이면 기동을 거부하며, `EDUPILOT_MAIL_ALLOW_LOGGING_IN_PROD=true`를 명시한 경우에만 본문을 숨긴 채 발송 없이 기동합니다.
 
 이 이슈는 발송 기반과 관리자 검증 API만 제공합니다. 비밀번호 재설정·가입 이메일 인증·
 알림 메일 연결은 후속 이슈이며, 기존 인앱 알림은 변경되지 않습니다.

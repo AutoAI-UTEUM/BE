@@ -46,6 +46,7 @@ edupilot:
   mail:
     enabled: ${EDUPILOT_MAIL_ENABLED:false}
     provider: ${EDUPILOT_MAIL_PROVIDER:logging}
+    allow-logging-in-prod: ${EDUPILOT_MAIL_ALLOW_LOGGING_IN_PROD:false}
     from: ${EDUPILOT_MAIL_FROM:no-reply@uteum.com}
     reply-to: ${EDUPILOT_MAIL_REPLY_TO:}
     base-url: ${EDUPILOT_MAIL_BASE_URL:https://dev.uteum.com}

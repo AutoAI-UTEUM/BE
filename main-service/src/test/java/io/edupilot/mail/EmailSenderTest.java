@@ -10,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.mock.env.MockEnvironment;
@@ -52,12 +53,35 @@ class EmailSenderTest {
 	}
 
 	@Test
-	void productionLoggingProviderWarnsAndSuppressesBody(CapturedOutput output) {
-		MockEnvironment environment = new MockEnvironment();
-		environment.setActiveProfiles("prod");
-		new LoggingEmailSender(environment).send(message());
+	void productionLoggingProviderFailsContextStartupForExplicitAndMissingProvider() {
+		ApplicationContextRunner runner = productionLoggingContext();
+		runner.withPropertyValues("edupilot.mail.provider=logging")
+			.run(context -> assertThat(context.getStartupFailure())
+				.hasRootCauseInstanceOf(IllegalStateException.class)
+				.hasRootCauseMessage("edupilot.mail.provider=logging is not allowed in prod; set provider=ses"));
+		runner.run(context -> assertThat(context.getStartupFailure())
+			.hasRootCauseInstanceOf(IllegalStateException.class)
+			.hasRootCauseMessage("edupilot.mail.provider=logging is not allowed in prod; set provider=ses"));
+	}
+
+	@Test
+	void productionLoggingProviderAllowsOptInAndSuppressesBody(CapturedOutput output) {
+		productionLoggingContext().withPropertyValues(
+			"edupilot.mail.provider=logging",
+			"edupilot.mail.allow-logging-in-prod=true"
+		).run(context -> {
+			assertThat(context.getStartupFailure()).isNull();
+			assertThat(context.getBean(LoggingEmailSender.class).send(message()).providerMessageId())
+				.startsWith("logging-");
+		});
 		assertThat(output).contains("Logging mail provider selected in prod")
 			.doesNotContain("secret body");
+	}
+
+	private ApplicationContextRunner productionLoggingContext() {
+		return new ApplicationContextRunner()
+			.withInitializer(context -> context.getEnvironment().setActiveProfiles("prod"))
+			.withUserConfiguration(LoggingEmailSender.class);
 	}
 
 	private EmailMessage message() {
