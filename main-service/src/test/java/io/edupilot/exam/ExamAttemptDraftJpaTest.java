@@ -135,8 +135,10 @@ class ExamAttemptDraftJpaTest {
 	@Test
 	void savesUnansweredItemAndResumesWithAnotherToken() throws Exception {
 		Fixture fixture = fixture(true, true);
+		Instant tokenNow = Instant.now();
+		when(clock.instant()).thenReturn(tokenNow);
 		String firstToken = jwtTokenProvider.createAccessToken(fixture.learner());
-		when(clock.instant()).thenReturn(NOW.plusSeconds(1));
+		when(clock.instant()).thenReturn(tokenNow.plusSeconds(1));
 		String secondToken = jwtTokenProvider.createAccessToken(fixture.learner());
 		assertThat(secondToken).isNotEqualTo(firstToken);
 		var mockMvc = MockMvcBuilders.webAppContextSetup(webContext)

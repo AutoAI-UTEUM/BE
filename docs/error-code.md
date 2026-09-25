@@ -134,6 +134,9 @@
 | code | HTTP | 의미 |
 | --- | ---: | --- |
 | `NOTE_NOT_FOUND` | 404 | 노트가 없거나 현재 사용자의 노트가 아님 |
+| `NOTE_TOO_LARGE` | 400 | 새 수동 노트 본문이 UTF-8 기준 1MiB 초과 |
+| `NOTE_LIMIT_EXCEEDED` | 400 | 사용자 활성 수동 노트 2,000개 상한 초과 |
+| `WRONG_ANSWER_NOTE_NOT_FOUND` | 404 | 오답 노트가 없거나 현재 사용자의 항목이 아님 |
 
 ### 일정
 

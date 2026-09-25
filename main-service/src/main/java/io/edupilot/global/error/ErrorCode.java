@@ -186,6 +186,21 @@ public enum ErrorCode {
 		HttpStatus.NOT_FOUND,
 		"노트를 찾을 수 없습니다."
 	),
+	NOTE_TOO_LARGE(
+		"NOTE_TOO_LARGE",
+		HttpStatus.BAD_REQUEST,
+		"노트 내용은 1MB를 초과할 수 없습니다."
+	),
+	NOTE_LIMIT_EXCEEDED(
+		"NOTE_LIMIT_EXCEEDED",
+		HttpStatus.BAD_REQUEST,
+		"활성 노트는 2,000개를 초과할 수 없습니다."
+	),
+	WRONG_ANSWER_NOTE_NOT_FOUND(
+		"WRONG_ANSWER_NOTE_NOT_FOUND",
+		HttpStatus.NOT_FOUND,
+		"오답 노트를 찾을 수 없습니다."
+	),
 	SCHEDULE_NOT_FOUND(
 		"SCHEDULE_NOT_FOUND",
 		HttpStatus.NOT_FOUND,
