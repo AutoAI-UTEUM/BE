@@ -11,6 +11,7 @@ from edupilot_ai.models.plan import AgentOutput, ToolName
 from edupilot_ai.models.turn import TurnRequest
 from edupilot_ai.orchestration.context import ContextBuilder, PlanContext
 from tests.fakes import FakeLlm
+from tests.planner_fixtures import planner_output
 from tests.test_turn_contract import make_plan, post_turn
 
 
@@ -205,10 +206,12 @@ async def test_only_planner_receives_slim_context(
         "digest": "Spring 형식 질문 요약",
     }
     fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "START_NEW", "threadRef": None},
-            "ANSWER_USER_QUESTION",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "START_NEW", "threadRef": None},
+                "ANSWER_USER_QUESTION",
+            )
         ),
         AgentOutput(markdown="답변"),
     )
@@ -251,10 +254,12 @@ async def test_repair_agent_keeps_full_context_outside_planner(
         "repairHint": "평균과의 차이를 연결",
     }
     fake_llm.queue(
-        make_plan(
-            ToolName.REPAIR_MISCONCEPTION,
-            {"diagnosisId": 44},
-            "REPAIR_MISCONCEPTION",
+        planner_output(
+            make_plan(
+                ToolName.REPAIR_MISCONCEPTION,
+                {"diagnosisId": 44},
+                "REPAIR_MISCONCEPTION",
+            )
         ),
         RepairOutput(
             markdown="## 오개념 교정\n\n편차는 평균과의 차이입니다.",

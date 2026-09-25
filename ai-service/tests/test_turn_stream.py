@@ -53,6 +53,7 @@ from edupilot_ai.orchestration.service import TurnService, events_with_heartbeat
 from edupilot_ai.orchestration.timing import MonotonicClock
 from edupilot_ai.settings import AgentLlmProfile, Settings
 from tests.fakes import FakeLlm
+from tests.planner_fixtures import planner_output
 from tests.test_learning_support import (
     plan_with_memory_action,
     set_temporary_candidates,
@@ -184,7 +185,7 @@ async def test_explain_ndjson_golden_sequence_and_content_invariant(
     assert isinstance(context, dict)
     context["xaiFileId"] = "file-explain-stream"
     fake_llm.queue_completion(
-        make_explain_plan(propose_quiz=True),
+        planner_output(make_explain_plan(propose_quiz=True)),
         LlmUsage("grok-4.5-live", 4, 2, 7),
     )
     fake_llm.queue_text_stream(
@@ -304,10 +305,12 @@ async def test_qa_ndjson_golden_sequence_preserves_thread_ref(
     context["qaThreadDigest"] = {"threadRef": "qa-11", "summary": "편차 질문"}
     context["xaiFileId"] = "file-qa-stream"
     fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "FOLLOW_UP", "threadRef": "qa-11"},
-            "ANSWER_FOLLOW_UP",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "FOLLOW_UP", "threadRef": "qa-11"},
+                "ANSWER_FOLLOW_UP",
+            )
         )
     )
     fake_llm.queue_text_stream(
@@ -343,10 +346,12 @@ async def test_stream_error_is_terminal_and_excludes_completed(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "START_NEW", "threadRef": None},
-            "ANSWER_USER_QUESTION",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "START_NEW", "threadRef": None},
+                "ANSWER_USER_QUESTION",
+            )
         )
     )
     fake_llm.queue_text_stream(
@@ -390,10 +395,12 @@ async def test_expired_turn_budget_stops_before_agent_call(
     readings = iter([0.0, 1.0, 181.0])
     service = make_service(fake_llm, settings, clock=lambda: next(readings))
     fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "START_NEW", "threadRef": None},
-            "ANSWER_USER_QUESTION",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "START_NEW", "threadRef": None},
+                "ANSWER_USER_QUESTION",
+            )
         )
     )
 
@@ -602,10 +609,12 @@ async def test_accept_omitted_keeps_json_path(
     turn_payload: dict[str, object],
 ) -> None:
     fake_llm.queue(
-        make_plan(
-            ToolName.ANSWER_QUESTION,
-            {"qaThreadMode": "START_NEW", "threadRef": None},
-            "ANSWER_USER_QUESTION",
+        planner_output(
+            make_plan(
+                ToolName.ANSWER_QUESTION,
+                {"qaThreadMode": "START_NEW", "threadRef": None},
+                "ANSWER_USER_QUESTION",
+            )
         ),
         AgentOutput(markdown="기존 JSON 답변"),
     )
@@ -729,10 +738,12 @@ async def test_ndjson_completed_includes_memory_write(
     )
     memory_write: dict[str, object] = {"candidateIds": [101, 102]}
     fake_llm.queue(
-        plan_with_memory_action(
-            ToolName.PROMOTE_MEMORY,
-            memory_write,
-            "ANSWER_AND_PROMOTE_MEMORY",
+        planner_output(
+            plan_with_memory_action(
+                ToolName.PROMOTE_MEMORY,
+                memory_write,
+                "ANSWER_AND_PROMOTE_MEMORY",
+            )
         )
     )
     fake_llm.queue_text_stream("편차는 평균과 관측값의 차이입니다.")

@@ -29,6 +29,7 @@ from edupilot_ai.orchestration.prompts import (
     quiz_messages,
     repair_messages,
 )
+from edupilot_ai.orchestration.quiz_output import quiz_output_model
 from edupilot_ai.orchestration.timing import TurnDeadline
 from edupilot_ai.settings import AgentLlmProfile
 from edupilot_ai.usage import combine_llm_usages, unknown_llm_usage
@@ -336,7 +337,7 @@ class QuizAgent:
     ) -> AgentResult:
         completion = await self._llm.complete_json(
             messages=quiz_messages(context, quiz_type),
-            response_model=QuizGeneration,
+            response_model=quiz_output_model(quiz_type),
             profile=self._profile,
             timeout_seconds=timeout_seconds,
             attachments=_material_attachments(context),
