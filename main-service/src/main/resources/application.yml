@@ -43,6 +43,8 @@ springdoc:
     path: /swagger-ui.html
 
 edupilot:
+  policy:
+    signup-consent-required: ${EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED:false}
   mail:
     enabled: ${EDUPILOT_MAIL_ENABLED:false}
     provider: ${EDUPILOT_MAIL_PROVIDER:logging}

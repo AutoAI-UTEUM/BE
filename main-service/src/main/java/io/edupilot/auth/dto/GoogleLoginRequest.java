@@ -16,6 +16,7 @@ public record GoogleLoginRequest(
 	@Schema(example = "LEARNER")
 	String role,
 
+	@Schema(description = "신규 가입 시 현재 TERMS·PRIVACY 버전 동의. 서버 설정에 따라 필수 여부가 달라집니다.")
 	List<PolicyConsentChoice> consents,
 
 	@Schema(defaultValue = "false")

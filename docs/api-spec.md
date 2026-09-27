@@ -221,7 +221,7 @@
 
 `role`은 필수이며 공개 가입에서는 `LEARNER | INSTRUCTOR`만 허용합니다. `ADMIN`, 기존 `USER`, 알 수 없는 enum 값은 요청 오류로 거부합니다. `ADMIN` 계정은 운영상 필요한 경우에만 DB에서 수동 설정합니다(DEC-017, DEC-029 Accepted).
 
-`affiliation`은 선택이며 공백을 제거한 뒤 최대 100자입니다. `learningEmailOptIn`은 생략 시 `false`입니다. `consents`에는 가입 시점 `GET /api/policies/current`가 반환한 `TERMS`와 `PRIVACY`의 현재 버전을 정확히 한 번씩 보내야 합니다. 누락·중복·버전 불일치는 `POLICY_CONSENT_REQUIRED`(400)입니다. 가입 트랜잭션에서 동의 버전·시각·IP·User-Agent를 이력으로 저장합니다. V48 시드 `0.9`는 **법무 검토 전 초안**이며, 문구 확정 후 관리자 API로 `1.0`을 등록해야 합니다.
+`affiliation`은 선택이며 공백을 제거한 뒤 최대 100자입니다. `learningEmailOptIn`은 생략 시 `false`입니다. 가입 동의 필수 여부는 `edupilot.policy.signup-consent-required`(환경변수 `EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED`, 기본 `false`)로 제어합니다. `false`일 때 `consents` 생략·빈 배열은 가입을 허용하며 동의 이력을 만들지 않습니다. 배열을 보내면 `GET /api/policies/current`가 반환한 `TERMS`와 `PRIVACY`의 현재 버전을 정확히 한 번씩 보내야 하며, 동의 버전·시각·IP·User-Agent를 가입 트랜잭션에서 저장합니다. `true`일 때는 배열도 필수입니다. 제출한 배열의 누락·중복·버전 불일치는 `POLICY_CONSENT_REQUIRED`(400)입니다. V48 시드 `0.9`는 **법무 검토 전 초안**이며, 문구 `1.0` 확정과 FE 동의 화면 연동 후 필수 설정을 켭니다.
 
 비밀번호 정책(확정): **8~64자, 영문·숫자 각 1자 이상 포함**(특수문자 허용). 위반 시 `VALIDATION_FAILED` + `details: [{ "field": "password", "reason": "..." }]`.
 
@@ -328,7 +328,7 @@ Google ID 토큰을 검증해 기존 계정으로 로그인하거나 신규 계�
 }
 ```
 
-- 신규 가입의 `role`은 `LEARNER | INSTRUCTOR`이며 `consents`에 현재 `TERMS | PRIVACY` 버전이 모두 필수입니다. 기존 계정 로그인·연동에는 재전송하지 않아도 되며, 응답의 `pendingConsents`가 재동의 필요 여부를 나타냅니다.
+- 신규 가입의 `role`은 `LEARNER | INSTRUCTOR`입니다. `consents` 필수 여부는 일반 가입과 같은 `edupilot.policy.signup-consent-required` 설정을 따릅니다. 배열을 보내면 현재 `TERMS | PRIVACY` 버전이 모두 필요합니다. 기존 계정 로그인·연동에는 재전송하지 않아도 되며, 응답의 `pendingConsents`가 재동의 필요 여부를 나타냅니다.
 - Google ID 토큰은 서버가 Google tokeninfo 응답의 audience, issuer, 이메일 검증 여부를 확인합니다. 검증 실패·Google 통신 실패는 `TOKEN_INVALID`(401)로 통일합니다.
 - 서버에 Google Client ID가 설정되지 않은 경우 기동은 허용하지만 요청은 `VALIDATION_FAILED`(400)로 거부하고 설정 오류만 서버 로그에 기록합니다.
 - Google 최초 가입 계정의 비밀번호 sentinel은 일반 비밀번호 검증을 통과하지 않으므로 비밀번호 로그인은 `INVALID_CREDENTIALS`입니다.

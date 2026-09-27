@@ -35,6 +35,7 @@ public record SignupRequest(
 	@Schema(defaultValue = "false")
 	Boolean learningEmailOptIn,
 
+	@Schema(description = "현재 TERMS·PRIVACY 버전 동의. 서버 설정에 따라 필수 여부가 달라집니다.")
 	List<PolicyConsentChoice> consents
 ) {
 }
