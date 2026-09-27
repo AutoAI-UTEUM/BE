@@ -9,6 +9,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,15 +35,18 @@ public class PolicyService {
 	private final PolicyConsentRepository consents;
 	private final UserRepository users;
 	private final Clock clock;
+	private final boolean signupConsentRequired;
 
 	public PolicyService(
 		PolicyDocumentRepository documents, PolicyConsentRepository consents,
-		UserRepository users, Clock clock
+		UserRepository users, Clock clock,
+		@Value("${edupilot.policy.signup-consent-required:false}") boolean signupConsentRequired
 	) {
 		this.documents = documents;
 		this.consents = consents;
 		this.users = users;
 		this.clock = clock;
+		this.signupConsentRequired = signupConsentRequired;
 	}
 
 	@Transactional(readOnly = true)
@@ -117,7 +121,13 @@ public class PolicyService {
 	}
 
 	public SignupSelection validateSignup(List<PolicyConsentChoice> choices) {
-		if (choices == null || choices.size() != PolicyType.values().length) {
+		if (choices == null || choices.isEmpty()) {
+			if (!signupConsentRequired) {
+				return new SignupSelection(null, null, null);
+			}
+			throw new BusinessException(ErrorCode.POLICY_CONSENT_REQUIRED);
+		}
+		if (choices.size() != PolicyType.values().length) {
 			throw new BusinessException(ErrorCode.POLICY_CONSENT_REQUIRED);
 		}
 		Instant now = clock.instant();
@@ -139,6 +149,9 @@ public class PolicyService {
 	}
 
 	public void recordSignup(User user, SignupSelection selection, String ip, String userAgent) {
+		if (selection.agreedAt() == null) {
+			return;
+		}
 		for (PolicyType type : PolicyType.values()) {
 			String version = type == PolicyType.TERMS
 				? selection.termsVersion() : selection.privacyVersion();

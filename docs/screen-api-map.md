@@ -11,9 +11,9 @@
 | 화면/영역 | 사용자 행동/시점 | API | 성공 시 UI | 주요 오류 |
 | --- | --- | --- | --- | --- |
 | 회원가입 | 이메일 입력 중 중복 확인 | `GET /api/auth/email-availability?email={email}` | 사용 가능 여부 표시 | 이메일 누락·형식 오류 |
-| 회원가입 | 현재 약관·처리방침 표시와 필수 동의 후 역할·선택 소속·수신 동의 제출 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}`, `POST /api/auth/signup` | 현재 TERMS·PRIVACY `{type,version}`을 `consents` 배열로 제출한 뒤 로그인 화면 이동 | `POLICY_CONSENT_REQUIRED`, 유효성, 이메일 중복 |
+| 회원가입 | 역할·선택 소속·수신 동의 제출; FE 동의 화면 연동 시 현재 약관·처리방침 표시 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}`, `POST /api/auth/signup` | 서버 설정 기본값에서는 `consents` 없이 가입 가능. 배열 제출 시 현재 TERMS·PRIVACY 버전 이력 저장; 로그인 화면 이동 | 필수 설정 시 동의 누락 또는 제출 배열 오류 `POLICY_CONSENT_REQUIRED`, 유효성, 이메일 중복 |
 | 로그인 | 제출 | `POST /api/auth/login` | access와 역할별 `session` 메타를 메모리에 보존한 뒤 자료 목록 이동. refresh는 HttpOnly cookie | 자격 증명 실패, 정지 계정 `ACCOUNT_SUSPENDED` 안내, 429 `LOGIN_RATE_LIMITED`는 `Retry-After` 초 표시 |
-| 로그인 | Google 로그인 | `POST /api/auth/google` | 기존·연동 계정은 access·`session`·`pendingConsents`를 받아 로그인 완료. 신규 계정은 `SIGNUP_REQUIRED` 시 역할·현재 정책 동의·선택 정보를 받은 뒤 같은 ID 토큰으로 재요청 | Google 토큰 오류, 추가 정보 필요, 비활성 계정 |
+| 로그인 | Google 로그인 | `POST /api/auth/google` | 기존·연동 계정은 access·`session`·`pendingConsents`를 받아 로그인 완료. 신규 계정은 `SIGNUP_REQUIRED` 시 역할·선택 정보와, 필수 설정 시 현재 정책 동의를 받은 뒤 같은 ID 토큰으로 재요청 | Google 토큰 오류, 추가 정보 필요, 비활성 계정 |
 | 로그인 직후 | 미동의 정책 확인·재동의 | 로그인 `pendingConsents`, `GET·POST /api/users/me/consents`, `GET /api/policies/{type}/{version}` | pending이 있으면 FE 동의 화면으로 이동. 동의 후 pending 빈 배열 확인; 서버는 미동의 API 차단을 하지 않음 | `POLICY_VERSION_MISMATCH` 시 current 재조회 |
 | 정책 본문 | 현재 정책 문서 표시 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}` | `/policies/{type}`에서 current 버전의 본문 표시. 0.9는 법무 검토 전 초안이므로 운영 공개 시점 주의 | 없는 버전 404 |
 | 비밀번호 찾기 | 이메일 제출 | `POST /api/auth/password-reset/request` | 202면 가입 여부와 무관하게 "등록된 이메일이면 재설정 안내를 발송했습니다." 표시 | 요청 상한·미가입·비활성 계정도 동일 202 |
