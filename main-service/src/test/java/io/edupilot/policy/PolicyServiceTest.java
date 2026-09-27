@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -39,7 +40,30 @@ class PolicyServiceTest {
 	@BeforeEach
 	void setUp() {
 		service = new PolicyService(documents, consents, users,
-			Clock.fixed(NOW, ZoneOffset.UTC));
+			Clock.fixed(NOW, ZoneOffset.UTC), true);
+	}
+
+	@Test
+	void optionalSignupWithoutChoicesRecordsNoConsent() {
+		PolicyService optional = new PolicyService(documents, consents, users,
+			Clock.fixed(NOW, ZoneOffset.UTC), false);
+		PolicyService.SignupSelection selection = optional.validateSignup(null);
+		assertThat(selection.termsVersion()).isNull();
+		assertThat(selection.privacyVersion()).isNull();
+		assertThat(selection.agreedAt()).isNull();
+		assertThat(optional.validateSignup(List.of())).isEqualTo(selection);
+		optional.recordSignup(user(), selection, "192.0.2.1", "test-agent");
+		verifyNoInteractions(documents, consents);
+	}
+
+	@Test
+	void optionalSignupWithCurrentChoicesStillRecordsConsent() {
+		PolicyService optional = new PolicyService(documents, consents, users,
+			Clock.fixed(NOW, ZoneOffset.UTC), false);
+		currentDocuments("0.9", "0.9");
+		optional.recordSignup(user(), optional.validateSignup(choices("0.9", "0.9")),
+			"192.0.2.1", "test-agent");
+		verify(consents, times(2)).save(any(PolicyConsent.class));
 	}
 
 	@Test

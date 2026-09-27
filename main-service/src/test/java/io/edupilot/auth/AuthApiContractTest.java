@@ -363,6 +363,26 @@ class AuthApiContractTest {
 	}
 
 	@Test
+	void signupWithoutConsentsSucceedsWhenRequirementIsDisabled() throws Exception {
+		when(userRepository.existsByEmail(any())).thenReturn(false);
+		when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> {
+			User saved = invocation.getArgument(0);
+			ReflectionTestUtils.setField(saved, "id", 5L);
+			return saved;
+		});
+
+		mockMvc.perform(post("/api/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"email":"no-consent@example.com","password":"password123",
+					 "name":"학습자","role":"LEARNER"}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.userId").value(5));
+		verify(policyConsentRepository, never()).save(any());
+	}
+
+	@Test
 	void signupRejectsUnknownOrPartialConsentVersions() throws Exception {
 		when(userRepository.existsByEmail(any())).thenReturn(false);
 

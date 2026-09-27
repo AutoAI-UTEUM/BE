@@ -40,6 +40,7 @@ import io.edupilot.user.UserRole;
 	"edupilot.ai.base-url=http://localhost:8000",
 	"edupilot.ai.internal-token=test-internal-token",
 	"edupilot.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+	"edupilot.policy.signup-consent-required=true",
 	"edupilot.storage.root-directory=build/test-storage/policy-api"
 })
 @ActiveProfiles("jpa-context")
