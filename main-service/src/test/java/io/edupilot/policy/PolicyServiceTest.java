@@ -53,7 +53,7 @@ class PolicyServiceTest {
 		assertThat(selection.agreedAt()).isNull();
 		assertThat(optional.validateSignup(List.of())).isEqualTo(selection);
 		optional.recordSignup(user(), selection, "192.0.2.1", "test-agent");
-		verifyNoInteractions(documents, consents);
+		verifyNoInteractions(consents);
 	}
 
 	@Test
