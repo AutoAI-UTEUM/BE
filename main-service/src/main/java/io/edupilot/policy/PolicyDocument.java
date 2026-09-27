@@ -34,6 +34,9 @@ public class PolicyDocument {
 	@Column(length = 1000)
 	private String summary;
 
+	@Column(name = "requires_consent", nullable = false)
+	private boolean requiresConsent;
+
 	@Column(name = "effective_at", nullable = false)
 	private Instant effectiveAt;
 
@@ -48,13 +51,15 @@ public class PolicyDocument {
 
 	private PolicyDocument(
 		PolicyType type, String version, String title, String content,
-		String summary, Instant effectiveAt, Long createdBy, Instant createdAt
+		String summary, boolean requiresConsent, Instant effectiveAt,
+		Long createdBy, Instant createdAt
 	) {
 		this.type = type;
 		this.version = version;
 		this.title = title;
 		this.content = content;
 		this.summary = summary;
+		this.requiresConsent = requiresConsent;
 		this.effectiveAt = effectiveAt;
 		this.createdBy = createdBy;
 		this.createdAt = createdAt;
@@ -62,10 +67,22 @@ public class PolicyDocument {
 
 	public static PolicyDocument create(
 		PolicyType type, String version, String title, String content,
-		String summary, Instant effectiveAt, Long createdBy, Instant createdAt
+		String summary, boolean requiresConsent, Instant effectiveAt,
+		Long createdBy, Instant createdAt
 	) {
 		return new PolicyDocument(
-			type, version, title, content, summary, effectiveAt, createdBy, createdAt
+			type, version, title, content, summary, requiresConsent,
+			effectiveAt, createdBy, createdAt
+		);
+	}
+
+	public static PolicyDocument create(
+		PolicyType type, String version, String title, String content,
+		String summary, Instant effectiveAt, Long createdBy, Instant createdAt
+	) {
+		return create(
+			type, version, title, content, summary, false,
+			effectiveAt, createdBy, createdAt
 		);
 	}
 
@@ -75,6 +92,7 @@ public class PolicyDocument {
 	public String getTitle() { return title; }
 	public String getContent() { return content; }
 	public String getSummary() { return summary; }
+	public boolean isRequiresConsent() { return requiresConsent; }
 	public Instant getEffectiveAt() { return effectiveAt; }
 	public Long getCreatedBy() { return createdBy; }
 	public Instant getCreatedAt() { return createdAt; }

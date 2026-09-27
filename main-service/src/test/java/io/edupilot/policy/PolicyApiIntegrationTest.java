@@ -67,9 +67,9 @@ class PolicyApiIntegrationTest {
 		users.deleteAll();
 		Instant now = Instant.now();
 		documents.saveAndFlush(PolicyDocument.create(PolicyType.TERMS, "0.9", "약관",
-			"약관 초안", null, now.minusSeconds(60), 0L, now.minusSeconds(60)));
+			"약관 초안", null, false, now.minusSeconds(60), 0L, now.minusSeconds(60)));
 		documents.saveAndFlush(PolicyDocument.create(PolicyType.PRIVACY, "0.9", "처리방침",
-			"개인정보 초안", null, now.minusSeconds(60), 0L, now.minusSeconds(60)));
+			"개인정보 초안", null, false, now.minusSeconds(60), 0L, now.minusSeconds(60)));
 		admin = users.saveAndFlush(User.create("admin@example.com",
 			passwordEncoder.encode("password123"), "관리자", UserRole.ADMIN));
 		learner = users.saveAndFlush(User.create("learner@example.com",
@@ -82,13 +82,14 @@ class PolicyApiIntegrationTest {
 	void publicCurrentShowsEffectiveMetadataAndDetailRequiresExistingVersion() throws Exception {
 		Instant now = Instant.now();
 		documents.saveAndFlush(PolicyDocument.create(PolicyType.TERMS, "1.0", "새 약관",
-			"시행 중 본문", "변경", now.minusSeconds(1), admin.getId(), now));
+			"시행 중 본문", "변경", true, now.minusSeconds(1), admin.getId(), now));
 		documents.saveAndFlush(PolicyDocument.create(PolicyType.TERMS, "1.1", "예정 약관",
 			"예정 본문", "예정", now.plusSeconds(3600), admin.getId(), now));
 		mvc.perform(get("/api/policies/current"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.length()").value(2))
 			.andExpect(jsonPath("$.data[0].version").value("1.0"))
+			.andExpect(jsonPath("$.data[0].requiresConsent").value(true))
 			.andExpect(jsonPath("$.data[0].content").doesNotExist());
 		mvc.perform(get("/api/policies/TERMS/0.9"))
 			.andExpect(status().isOk())
@@ -99,7 +100,10 @@ class PolicyApiIntegrationTest {
 	}
 
 	@Test
-	void signupNeedsBothVersionsAndLoginHasNoPendingAfterSignup() throws Exception {
+	void signupNeedsCurrentRequiredVersionAndLoginHasNoPendingAfterSignup() throws Exception {
+		Instant now = Instant.now();
+		documents.saveAndFlush(PolicyDocument.create(PolicyType.TERMS, "1.0", "이용약관",
+			"확정 약관", "변경", true, now.minusSeconds(1), admin.getId(), now));
 		mvc.perform(post("/api/auth/signup").contentType(MediaType.APPLICATION_JSON)
 			.content("""
 				{"email":"new@example.com","password":"password123",
@@ -111,13 +115,15 @@ class PolicyApiIntegrationTest {
 			.content("""
 				{"email":"new@example.com","password":"password123",
 				 "name":"신규","role":"LEARNER",
-				 "consents":[{"type":"TERMS","version":"0.9"},
-				             {"type":"PRIVACY","version":"0.9"}]}
+				 "consents":[{"type":"TERMS","version":"1.0"}]}
 				"""))
 			.andExpect(status().isOk());
 		User created = users.findByEmail("new@example.com").orElseThrow();
 		assertThat(consents.findByUser_IdOrderByAgreedAtDescIdDesc(created.getId()))
-			.hasSize(2);
+			.singleElement().satisfies(value -> {
+				assertThat(value.getPolicyType()).isEqualTo(PolicyType.TERMS);
+				assertThat(value.getPolicyVersion()).isEqualTo("1.0");
+			});
 		mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
 			.content("""
 				{"email":"new@example.com","password":"password123"}
@@ -130,14 +136,13 @@ class PolicyApiIntegrationTest {
 	void newCurrentVersionRequiresConsentAndRepeatDoesNotDuplicateHistory() throws Exception {
 		Instant now = Instant.now();
 		documents.saveAndFlush(PolicyDocument.create(PolicyType.TERMS, "1.0", "새 약관",
-			"본문", "변경", now.minusSeconds(1), admin.getId(), now));
+			"본문", "변경", true, now.minusSeconds(1), admin.getId(), now));
 		String bearer = "Bearer " + jwtTokens.createAccessToken(learner);
 		mvc.perform(get("/api/users/me/consents").header(HttpHeaders.AUTHORIZATION, bearer))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.pending.length()").value(2));
+			.andExpect(jsonPath("$.data.pending.length()").value(1));
 		String body = """
-			{"consents":[{"type":"TERMS","version":"1.0"},
-			             {"type":"PRIVACY","version":"0.9"}]}
+			{"consents":[{"type":"TERMS","version":"1.0"}]}
 			""";
 		for (int attempt = 0; attempt < 2; attempt++) {
 			mvc.perform(post("/api/users/me/consents")
@@ -148,7 +153,7 @@ class PolicyApiIntegrationTest {
 				.andExpect(jsonPath("$.data.pending").isEmpty());
 		}
 		assertThat(consents.findByUser_IdOrderByAgreedAtDescIdDesc(learner.getId()))
-			.hasSize(2);
+			.hasSize(1);
 		assertThat(consents.findByUser_IdOrderByAgreedAtDescIdDesc(learner.getId()))
 			.allSatisfy(value -> {
 				assertThat(value.getIp()).isNotBlank();
@@ -168,7 +173,7 @@ class PolicyApiIntegrationTest {
 	void adminCanPublishFutureVersionAndNonAdminCannot() throws Exception {
 		String body = """
 			{"type":"TERMS","version":"1.0","title":"새 약관","content":"검토 완료 문구",
-			 "summary":"변경","effectiveAt":"2099-01-01T00:00:00Z"}
+			 "summary":"변경","requiresConsent":true,"effectiveAt":"2099-01-01T00:00:00Z"}
 			""";
 		mvc.perform(post("/api/admin/policies")
 			.header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtTokens.createAccessToken(learner))
@@ -179,7 +184,8 @@ class PolicyApiIntegrationTest {
 			.header(HttpHeaders.AUTHORIZATION, adminBearer)
 			.contentType(MediaType.APPLICATION_JSON).content(body))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.version").value("1.0"));
+			.andExpect(jsonPath("$.data.version").value("1.0"))
+			.andExpect(jsonPath("$.data.requiresConsent").value(true));
 		mvc.perform(post("/api/admin/policies")
 			.header(HttpHeaders.AUTHORIZATION, adminBearer)
 			.contentType(MediaType.APPLICATION_JSON).content(body))
@@ -188,6 +194,6 @@ class PolicyApiIntegrationTest {
 		mvc.perform(get("/api/admin/policies/consent-stats")
 			.header(HttpHeaders.AUTHORIZATION, adminBearer))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.length()").value(2));
+			.andExpect(jsonPath("$.data.length()").value(0));
 	}
 }

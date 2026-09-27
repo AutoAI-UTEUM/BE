@@ -23,7 +23,8 @@ import io.edupilot.MainServiceApplication;
 @ContextConfiguration(classes = MainServiceApplication.class)
 @SqlGroup({
 	@Sql(statements = "create table users (id bigint primary key)"),
-	@Sql(scripts = "classpath:db/migration/V48__policy_documents_consents.sql")
+	@Sql(scripts = "classpath:db/migration/V48__policy_documents_consents.sql"),
+	@Sql(scripts = "classpath:db/migration/V49__policy_consent_requirement.sql")
 })
 class PolicyMigrationTest {
 	@Autowired private JdbcTemplate jdbc;
@@ -35,6 +36,9 @@ class PolicyMigrationTest {
 			String.class)).containsExactly("PRIVACY", "TERMS");
 		assertThat(jdbc.queryForObject(
 			"select count(*) from policy_documents where effective_at <= current_timestamp",
+			Integer.class)).isEqualTo(2);
+		assertThat(jdbc.queryForObject(
+			"select count(*) from policy_documents where requires_consent = false",
 			Integer.class)).isEqualTo(2);
 		assertThatThrownBy(() -> jdbc.update("""
 			insert into policy_documents

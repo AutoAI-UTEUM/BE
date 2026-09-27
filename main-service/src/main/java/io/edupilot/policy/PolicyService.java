@@ -67,6 +67,7 @@ public class PolicyService {
 	public UserPolicyConsentsResponse userConsents(Long userId) {
 		List<PolicyConsent> history = consents.findByUser_IdOrderByAgreedAtDescIdDesc(userId);
 		List<PendingPolicyConsent> pending = currentDocuments(clock.instant()).stream()
+			.filter(PolicyDocument::isRequiresConsent)
 			.filter(document -> history.stream().noneMatch(consent ->
 				consent.getPolicyType() == document.getType()
 					&& consent.getPolicyVersion().equals(document.getVersion())))
@@ -80,6 +81,7 @@ public class PolicyService {
 	@Transactional(readOnly = true)
 	public List<PendingPolicyVersion> pendingForLogin(Long userId) {
 		return currentDocuments(clock.instant()).stream()
+			.filter(PolicyDocument::isRequiresConsent)
 			.filter(document -> !consents.existsByUser_IdAndPolicyTypeAndPolicyVersion(
 				userId, document.getType(), document.getVersion()))
 			.map(document -> new PendingPolicyVersion(document.getType(), document.getVersion()))
@@ -105,7 +107,8 @@ public class PolicyService {
 				throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 			}
 			PolicyDocument document = current.get(choice.type());
-			if (document == null || !document.getVersion().equals(choice.version())) {
+			if (document == null || !document.isRequiresConsent()
+				|| !document.getVersion().equals(choice.version())) {
 				throw new BusinessException(ErrorCode.POLICY_VERSION_MISMATCH);
 			}
 		}
@@ -121,27 +124,33 @@ public class PolicyService {
 	}
 
 	public SignupSelection validateSignup(List<PolicyConsentChoice> choices) {
+		Instant now = clock.instant();
+		Map<PolicyType, PolicyDocument> required = requiredCurrentByType(now);
+		if (required.isEmpty()) {
+			return new SignupSelection(null, null, null);
+		}
 		if (choices == null || choices.isEmpty()) {
 			if (!signupConsentRequired) {
 				return new SignupSelection(null, null, null);
 			}
 			throw new BusinessException(ErrorCode.POLICY_CONSENT_REQUIRED);
 		}
-		if (choices.size() != PolicyType.values().length) {
-			throw new BusinessException(ErrorCode.POLICY_CONSENT_REQUIRED);
-		}
-		Instant now = clock.instant();
-		Map<PolicyType, PolicyDocument> current = currentByType(now);
-		if (current.size() != PolicyType.values().length) {
-			throw new BusinessException(ErrorCode.POLICY_CONSENT_REQUIRED);
-		}
 		Map<PolicyType, String> selected = new EnumMap<>(PolicyType.class);
 		for (PolicyConsentChoice choice : choices) {
-			if (choice == null || choice.type() == null || choice.version() == null
-				|| selected.putIfAbsent(choice.type(), choice.version()) != null
-				|| !current.get(choice.type()).getVersion().equals(choice.version())) {
+			if (choice == null || choice.type() == null || choice.version() == null) {
 				throw new BusinessException(ErrorCode.POLICY_CONSENT_REQUIRED);
 			}
+			PolicyDocument requiredDocument = required.get(choice.type());
+			if (requiredDocument == null) {
+				continue;
+			}
+			if (selected.putIfAbsent(choice.type(), choice.version()) != null
+				|| !requiredDocument.getVersion().equals(choice.version())) {
+				throw new BusinessException(ErrorCode.POLICY_CONSENT_REQUIRED);
+			}
+		}
+		if (!selected.keySet().equals(required.keySet())) {
+			throw new BusinessException(ErrorCode.POLICY_CONSENT_REQUIRED);
 		}
 		return new SignupSelection(
 			selected.get(PolicyType.TERMS), selected.get(PolicyType.PRIVACY), now
@@ -155,6 +164,9 @@ public class PolicyService {
 		for (PolicyType type : PolicyType.values()) {
 			String version = type == PolicyType.TERMS
 				? selection.termsVersion() : selection.privacyVersion();
+			if (version == null) {
+				continue;
+			}
 			consents.save(PolicyConsent.create(
 				user, type, version, selection.agreedAt(), ip, normalizeUserAgent(userAgent)
 			));
@@ -175,7 +187,8 @@ public class PolicyService {
 		try {
 			return PolicyDocumentResponse.from(documents.saveAndFlush(PolicyDocument.create(
 				request.type(), version, request.title().trim(),
-				request.content(), request.summary(), request.effectiveAt(), actorUserId, now
+				request.content(), request.summary(), request.requiresConsent(),
+				request.effectiveAt(), actorUserId, now
 			)));
 		} catch (DataIntegrityViolationException exception) {
 			throw new BusinessException(ErrorCode.POLICY_VERSION_EXISTS);
@@ -195,6 +208,9 @@ public class PolicyService {
 		long activeUsers = users.countByStatus(UserStatus.ACTIVE);
 		List<PolicyConsentStats> result = new ArrayList<>();
 		for (PolicyDocument current : currentDocuments(clock.instant())) {
+			if (!current.isRequiresConsent()) {
+				continue;
+			}
 			long agreed = consents.countByPolicyTypeAndPolicyVersionAndUser_Status(
 				current.getType(), current.getVersion(), UserStatus.ACTIVE
 			);
@@ -222,6 +238,16 @@ public class PolicyService {
 		Map<PolicyType, PolicyDocument> result = new EnumMap<>(PolicyType.class);
 		for (PolicyDocument document : currentDocuments(now)) {
 			result.put(document.getType(), document);
+		}
+		return result;
+	}
+
+	private Map<PolicyType, PolicyDocument> requiredCurrentByType(Instant now) {
+		Map<PolicyType, PolicyDocument> result = new EnumMap<>(PolicyType.class);
+		for (PolicyDocument document : currentDocuments(now)) {
+			if (document.isRequiresConsent()) {
+				result.put(document.getType(), document);
+			}
 		}
 		return result;
 	}

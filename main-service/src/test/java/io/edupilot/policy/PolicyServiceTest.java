@@ -57,21 +57,30 @@ class PolicyServiceTest {
 	}
 
 	@Test
-	void optionalSignupWithCurrentChoicesStillRecordsConsent() {
+	void mandatorySettingDoesNotBlockSignupWhenNoDocumentRequiresConsent() {
+		PolicyService.SignupSelection selection = service.validateSignup(null);
+		assertThat(selection.termsVersion()).isNull();
+		assertThat(selection.privacyVersion()).isNull();
+		assertThat(selection.agreedAt()).isNull();
+		verifyNoInteractions(consents);
+	}
+
+	@Test
+	void optionalSignupIgnoresDocumentsThatDoNotRequireConsent() {
 		PolicyService optional = new PolicyService(documents, consents, users,
 			Clock.fixed(NOW, ZoneOffset.UTC), false);
-		currentDocuments("0.9", "0.9");
+		currentDocuments("0.9", false, "0.9", false);
 		optional.recordSignup(user(), optional.validateSignup(choices("0.9", "0.9")),
 			"192.0.2.1", "test-agent");
-		verify(consents, times(2)).save(any(PolicyConsent.class));
+		verifyNoInteractions(consents);
 	}
 
 	@Test
 	void currentSelectsLatestEffectiveVersionAndDetailFindsHistory() {
 		when(documents.findFirstByTypeAndEffectiveAtLessThanEqualOrderByEffectiveAtDescIdDesc(
-			PolicyType.TERMS, NOW)).thenReturn(Optional.of(document(PolicyType.TERMS, "1.0")));
+			PolicyType.TERMS, NOW)).thenReturn(Optional.of(document(PolicyType.TERMS, "1.0", true)));
 		when(documents.findByTypeAndVersion(PolicyType.TERMS, "0.9"))
-			.thenReturn(Optional.of(document(PolicyType.TERMS, "0.9")));
+			.thenReturn(Optional.of(document(PolicyType.TERMS, "0.9", false)));
 		assertThat(service.current()).singleElement().satisfies(value ->
 			assertThat(value.version()).isEqualTo("1.0"));
 		assertThat(service.detail(PolicyType.TERMS, "0.9").content()).isEqualTo("검토 중 초안");
@@ -79,21 +88,22 @@ class PolicyServiceTest {
 	}
 
 	@Test
-	void signupRequiresBothCurrentVersionsAndRecordsHistory() {
-		currentDocuments("0.9", "0.9");
+	void signupRequiresOnlyDocumentsMarkedForConsentAndRecordsHistory() {
+		currentDocuments("1.0", true, "1.0", false);
 		assertError(() -> service.validateSignup(null), ErrorCode.POLICY_CONSENT_REQUIRED);
 		assertError(() -> service.validateSignup(List.of(choice(PolicyType.TERMS, "0.9"))),
 			ErrorCode.POLICY_CONSENT_REQUIRED);
-		assertError(() -> service.validateSignup(List.of(choice(PolicyType.TERMS, "0.9"),
-			choice(PolicyType.PRIVACY, "1.0"))), ErrorCode.POLICY_CONSENT_REQUIRED);
+		assertError(() -> service.validateSignup(List.of(choice(PolicyType.TERMS, "1.0"),
+			choice(PolicyType.TERMS, "1.0"))), ErrorCode.POLICY_CONSENT_REQUIRED);
 		User user = user();
-		service.recordSignup(user, service.validateSignup(choices("0.9", "0.9")),
+		service.recordSignup(user, service.validateSignup(List.of(
+			choice(PolicyType.TERMS, "1.0"))),
 			"192.0.2.1", "test-agent");
 		org.mockito.ArgumentCaptor<PolicyConsent> captured =
 			org.mockito.ArgumentCaptor.forClass(PolicyConsent.class);
-		verify(consents, times(2)).save(captured.capture());
+		verify(consents).save(captured.capture());
 		assertThat(captured.getAllValues()).extracting(PolicyConsent::getPolicyType)
-			.containsExactly(PolicyType.TERMS, PolicyType.PRIVACY);
+			.containsExactly(PolicyType.TERMS);
 		assertThat(captured.getAllValues()).allSatisfy(value -> {
 			assertThat(value.getUser()).isSameAs(user);
 			assertThat(value.getAgreedAt()).isEqualTo(NOW);
@@ -103,7 +113,7 @@ class PolicyServiceTest {
 
 	@Test
 	void pendingNewVersionAgreementIsIdempotentAndRejectsOldOrFutureVersion() {
-		currentDocuments("1.0", "0.9");
+		currentDocuments("1.0", true, "0.9", false);
 		User user = user();
 		when(users.findByIdForUpdate(7L)).thenReturn(Optional.of(user));
 		org.mockito.Mockito.lenient().when(consents.existsByUser_IdAndPolicyTypeAndPolicyVersion(
@@ -130,33 +140,38 @@ class PolicyServiceTest {
 	@Test
 	void publishRequiresFutureUniqueVersionAndStatsUseActiveUsers() {
 		PublishPolicyRequest request = new PublishPolicyRequest(PolicyType.TERMS, "1.0",
-			"새 약관", "본문", "변경 요약", NOW.plusSeconds(60));
+			"새 약관", "본문", "변경 요약", true, NOW.plusSeconds(60));
 		when(documents.saveAndFlush(any(PolicyDocument.class)))
 			.thenAnswer(invocation -> invocation.getArgument(0));
 		assertThat(service.publish(3L, request).version()).isEqualTo("1.0");
 		assertError(() -> service.publish(3L, new PublishPolicyRequest(
-			PolicyType.TERMS, "1.1", "과거", "본문", null, NOW.minusSeconds(1))),
+			PolicyType.TERMS, "1.1", "과거", "본문", null, true, NOW.minusSeconds(1))),
 			ErrorCode.VALIDATION_FAILED);
 		when(documents.existsByTypeAndVersion(PolicyType.TERMS, "1.0")).thenReturn(true);
 		assertError(() -> service.publish(3L, request), ErrorCode.POLICY_VERSION_EXISTS);
-		currentDocuments("0.9", "0.9");
+		currentDocuments("1.0", true, "1.0", false);
 		when(users.countByStatus(UserStatus.ACTIVE)).thenReturn(2L);
 		when(consents.countByPolicyTypeAndPolicyVersionAndUser_Status(
-			PolicyType.TERMS, "0.9", UserStatus.ACTIVE)).thenReturn(1L);
-		assertThat(service.stats()).hasSize(2);
+			PolicyType.TERMS, "1.0", UserStatus.ACTIVE)).thenReturn(1L);
+		assertThat(service.stats()).hasSize(1);
 		assertThat(service.stats().get(0).consentRatePercent()).isEqualByComparingTo("50.00");
 	}
 
-	private void currentDocuments(String terms, String privacy) {
+	private void currentDocuments(
+		String terms, boolean termsRequiresConsent,
+		String privacy, boolean privacyRequiresConsent
+	) {
 		when(documents.findFirstByTypeAndEffectiveAtLessThanEqualOrderByEffectiveAtDescIdDesc(
-			PolicyType.TERMS, NOW)).thenReturn(Optional.of(document(PolicyType.TERMS, terms)));
+			PolicyType.TERMS, NOW)).thenReturn(Optional.of(document(
+				PolicyType.TERMS, terms, termsRequiresConsent)));
 		when(documents.findFirstByTypeAndEffectiveAtLessThanEqualOrderByEffectiveAtDescIdDesc(
-			PolicyType.PRIVACY, NOW)).thenReturn(Optional.of(document(PolicyType.PRIVACY, privacy)));
+			PolicyType.PRIVACY, NOW)).thenReturn(Optional.of(document(
+				PolicyType.PRIVACY, privacy, privacyRequiresConsent)));
 	}
 
-	private PolicyDocument document(PolicyType type, String version) {
+	private PolicyDocument document(PolicyType type, String version, boolean requiresConsent) {
 		return PolicyDocument.create(type, version, type.name(), "검토 중 초안", null,
-			NOW.minusSeconds(1), 0L, NOW.minusSeconds(3600));
+			requiresConsent, NOW.minusSeconds(1), 0L, NOW.minusSeconds(3600));
 	}
 
 	private PolicyConsentChoice choice(PolicyType type, String version) {
