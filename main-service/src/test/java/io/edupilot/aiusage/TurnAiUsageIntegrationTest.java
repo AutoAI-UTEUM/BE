@@ -148,7 +148,7 @@ class TurnAiUsageIntegrationTest {
 				10L,
 				false
 			));
-		when(streamService.beginTurn(eq(1L), eq(100L), any()))
+		when(streamService.beginTurn(eq(1L), eq(100L), eq("request-1"), any()))
 			.thenReturn(Optional.empty());
 		when(persistenceService.persist(
 			eq(1L),

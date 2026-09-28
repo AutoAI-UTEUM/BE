@@ -96,7 +96,7 @@
 | 오답 노트 | 퀴즈 제출 문항을 노트로 저장·조회·수정·삭제 | `GET·POST /api/wrong-answer-notes`, `PATCH·DELETE /api/wrong-answer-notes/{noteId}` | 제출 결과의 `submissionId:questionId`로 등록하고 서버 snapshot을 표시 | 타인·부재 결과 404, 중복 결과는 기존 항목 200 |
 | 최초 로그인 | 로컬 수동·오답 노트 1회 이관 | `POST /api/user-notes/import` | imported·skipped 항목만 로컬에서 제거하고 failed는 사유 표시 후 재시도 | 배열당 200건, 분당 5회, 항목별 부분 성공 |
 | PDF 뷰어 | 다음/이전/번호 입력 | `PATCH /api/sessions/{sessionId}/page` | 응답 페이지로 뷰어 동기화, 설명 여부 UI | 페이지 범위/상태 충돌 |
-| 채팅 | 스트림 선연결 | `GET /api/sessions/{sessionId}/stream` | fetch+Bearer로 SSE 연결 후 turns 호출 | 중복 연결/AI 스트림 중단 |
+| 채팅 | 스트림 선연결 | `GET /api/sessions/{sessionId}/stream` | fetch+Bearer로 현재 연결의 ready 수신 후 turns 호출, 이전 연결 callback은 새 연결과 격리 | 실행 중 중복 연결 409/AI 스트림 중단 |
 | 채팅 | 설명 시작 선택 | `POST /api/sessions/{sessionId}/turns` | 설명 스트림/메시지 표시 | AI timeout/스키마 오류/일일 AI 쿼터 429 |
 | 채팅 | 답변 생성 중지 | `POST /api/sessions/{sessionId}/turns/cancel` | 수신한 텍스트가 있으면 부분 답변을 저장하고 completed 처리, 없으면 `TURN_CANCELLED` 표시 | 인증, 실행 중 턴 없음은 `cancelled:false` 멱등 응답 |
 | 채팅 | 질문 전송 | 같은 turns API | QA 답변과 후속 질문 문맥 반영 | 빈 질문/AI 오류/일일 AI 쿼터 429 |
@@ -110,11 +110,16 @@
 | 학습 분석 | 메모리 화면 진입 | `GET /api/users/me/memory?materialId={materialId}` | 해당 자료의 공개 가능한 개인화 요약 | 데이터 없음 |
 | 학습 세션 | 종료 버튼 | `POST /api/sessions/{sessionId}/complete` | 완료 화면/목록 이동 | 이미 완료/상태 충돌 |
 
-스트리밍 턴은 `GET /stream`을 먼저 연결한 뒤 `POST /turns`를 전송합니다.
-SSE 연결이 없으면 turns API는 기존 동기 JSON 응답으로 동작합니다. 사용자 중지로
+스트리밍 턴은 `GET /stream`을 먼저 연결하고 해당 연결 시도의 `ready`를
+수신·파싱한 뒤 `POST /turns`를 전송합니다. BE는 같은 세션의 연결 교체·턴 시작을
+원자적으로 결정합니다. SSE 연결이 없거나 아직 ready 전송을 마치지 못한 경우
+turns API는 기존 동기 JSON 응답으로 동작합니다. `connectionId`는 내부 로그에만
+있으며 FE 요청·응답 스키마는 변경하지 않습니다. 사용자 중지로
 부분 답변이 저장되면 completed를 기존 완료 흐름으로 처리하고, content 수신 전
 취소로 `TURN_CANCELLED`를 받으면 같은 `requestId`로 재시도할 수 있습니다.
 클라이언트 연결 이탈 후에는 세션 상세·메시지를 다시 조회해 동기화합니다.
+이미 저장된 결과의 SSE 전달 실패만으로 새 턴을 실행하지 않습니다. 이전 연결의
+callback·reader 종료는 새 연결 시도의 ready 상태를 변경하지 않게 격리합니다.
 `Last-Event-ID` replay는 지원하지 않습니다.
 
 ## 2. 학습 화면 상태 동기화

@@ -2,27 +2,47 @@ package io.edupilot.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import io.edupilot.ai.AiStreamCancellation;
 import io.edupilot.ai.TurnStreamEvent;
+import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.session.dto.MessageResponse;
 import io.edupilot.session.dto.NoteDraft;
 import io.edupilot.session.dto.TurnResponse;
 import io.edupilot.session.dto.TurnStateResponse;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 class SessionStreamConnectionTest {
 
@@ -284,6 +304,226 @@ class SessionStreamConnectionTest {
 				assertThat(value).contains(":heartbeat");
 				assertThat(value).doesNotContain("event:", "data:");
 			});
+	}
+
+	@Test
+	void closeWinningBeforeBeginCannotLoseAnUpstreamCancellationReference() throws Exception {
+		ControllableSseEmitter emitter = new ControllableSseEmitter();
+		AtomicInteger cleanup = new AtomicInteger();
+		SessionStreamConnection connection = new SessionStreamConnection(
+			1L, 100L, cleanup::incrementAndGet, emitter
+		);
+		Object stateLock = ReflectionTestUtils.getField(connection, "lifecycleLock");
+		AiStreamCancellation cancellation = new AiStreamCancellation();
+		CountDownLatch beginRequested = new CountDownLatch(1);
+		try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
+			Future<Boolean> begin;
+			synchronized (stateLock) {
+				begin = executor.submit(() -> {
+					beginRequested.countDown();
+					return connection.begin(cancellation);
+				});
+				assertThat(beginRequested.await(3, TimeUnit.SECONDS)).isTrue();
+				emitter.completion.run();
+			}
+			assertThat(begin.get(3, TimeUnit.SECONDS)).isFalse();
+			assertThat(connection.isRunning()).isFalse();
+			assertThat(cleanup).hasValue(1);
+			assertThat(ReflectionTestUtils.getField(connection, "cancellation")).isNull();
+		}
+	}
+
+	@Test
+	void beginWinningBeforeCloseCancelsExactlyItsAttachedUpstream() throws Exception {
+		ControllableSseEmitter emitter = new ControllableSseEmitter();
+		AtomicInteger cleanup = new AtomicInteger();
+		SessionStreamConnection connection = new SessionStreamConnection(
+			1L, 100L, cleanup::incrementAndGet, emitter
+		);
+		Object stateLock = ReflectionTestUtils.getField(connection, "lifecycleLock");
+		AiStreamCancellation cancellation = new AiStreamCancellation();
+		CountDownLatch closeRequested = new CountDownLatch(1);
+		try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
+			Future<?> close;
+			synchronized (stateLock) {
+				close = executor.submit(() -> {
+					closeRequested.countDown();
+					emitter.completion.run();
+				});
+				assertThat(closeRequested.await(3, TimeUnit.SECONDS)).isTrue();
+				assertThat(connection.begin(cancellation)).isTrue();
+			}
+			close.get(3, TimeUnit.SECONDS);
+			assertThat(cancellation.isCancelled()).isTrue();
+			assertThat(cancellation.isUserCancelled()).isFalse();
+			assertThat(connection.isRunning()).isFalse();
+			assertThat(cleanup).hasValue(1);
+			assertThat(ReflectionTestUtils.getField(connection, "cancellation")).isNull();
+		}
+	}
+
+	@ParameterizedTest
+	@CsvSource({
+		"ready,READY_SEND_FAILED", "status,STATUS_SEND_FAILED",
+		"content_delta,CONTENT_SEND_FAILED", "heartbeat,HEARTBEAT_SEND_FAILED"
+	})
+	void sendFailuresCleanResourcesOnceAndKeepTheirReason(String event, String reason) {
+		ControllableSseEmitter emitter = new ControllableSseEmitter();
+		emitter.failingEvent = event;
+		AtomicInteger cleanup = new AtomicInteger();
+		SessionStreamConnection connection = new SessionStreamConnection(
+			1L, 100L, cleanup::incrementAndGet, emitter
+		);
+		ScheduledFuture<?> heartbeat = mock(ScheduledFuture.class);
+		connection.heartbeatTask(heartbeat);
+		AiStreamCancellation cancellation = new AiStreamCancellation();
+		if (!event.equals("ready")) {
+			connection.sendReady(Instant.now());
+			connection.begin(cancellation);
+		}
+		assertThatThrownBy(() -> {
+			switch (event) {
+				case "ready" -> connection.sendReady(Instant.now());
+				case "status" -> connection.send(TurnStreamEvent.status("PLANNING"));
+				case "content_delta" -> connection.send(TurnStreamEvent.contentDelta("private answer"));
+				default -> connection.send(TurnStreamEvent.heartbeat());
+			}
+		}).isInstanceOf(io.edupilot.ai.AiClientException.class);
+		emitter.completion.run();
+		emitter.timeout.run();
+		emitter.error.accept(new IOException("late private exception"));
+		assertThat(connection.closeReason().name()).isEqualTo(reason);
+		assertThat(cleanup).hasValue(1);
+		assertThat(cancellation.isCancelled()).isEqualTo(!event.equals("ready"));
+		verify(heartbeat, times(1)).cancel(false);
+		assertThat(ReflectionTestUtils.getField(connection, "heartbeatTask")).isNull();
+		ScheduledFuture<?> lateTask = mock(ScheduledFuture.class);
+		connection.heartbeatTask(lateTask);
+		verify(lateTask).cancel(false);
+		assertThat(connection.begin(new AiStreamCancellation())).isFalse();
+	}
+
+	@ParameterizedTest
+	@CsvSource({"TIMEOUT,EMITTER_TIMEOUT", "ERROR,EMITTER_ERROR", "COMPLETION,EMITTER_COMPLETION"})
+	void emitterCallbacksCancelOnlyTheBoundTurnAndDoNotGuessNetworkCause(String callback, String reason) {
+		ControllableSseEmitter emitter = new ControllableSseEmitter();
+		AtomicInteger cleanup = new AtomicInteger();
+		SessionStreamConnection connection = new SessionStreamConnection(
+			1L, 100L, cleanup::incrementAndGet, emitter
+		);
+		AiStreamCancellation cancellation = new AiStreamCancellation();
+		connection.begin(cancellation);
+		switch (callback) {
+			case "TIMEOUT" -> emitter.timeout.run();
+			case "ERROR" -> emitter.error.accept(new IOException("private exception body"));
+			default -> emitter.completion.run();
+		}
+		emitter.completion.run();
+		assertThat(connection.closeReason().name()).isEqualTo(reason);
+		assertThat(cancellation.isCancelled()).isTrue();
+		assertThat(cleanup).hasValue(1);
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	void terminalReasonSurvivesSynchronousAndRepeatedCallbacks(boolean error) {
+		ControllableSseEmitter emitter = new ControllableSseEmitter();
+		AtomicInteger cleanup = new AtomicInteger();
+		SessionStreamConnection connection = new SessionStreamConnection(
+			1L, 100L, cleanup::incrementAndGet, emitter
+		);
+		AiStreamCancellation cancellation = new AiStreamCancellation();
+		connection.begin(cancellation);
+		if (error) {
+			connection.sendError(new SessionStreamError("AI_RESPONSE_INVALID", "VALIDATION", "오류", false, "trace"));
+		} else {
+			connection.sendCompleted("request-1", response(UiAction.quizProposal()));
+		}
+		emitter.completion.run();
+		emitter.timeout.run();
+		emitter.error.accept(new IOException("late error"));
+		assertThat(connection.closeReason()).isEqualTo(error
+			? SessionStreamConnection.CloseReason.APPLICATION_ERROR
+			: SessionStreamConnection.CloseReason.COMPLETED);
+		assertThat(cleanup).hasValue(1);
+		assertThat(cancellation.isCancelled()).isFalse();
+	}
+
+	@Test
+	void terminalDeliveryFailureIsSeparateFromTheFirstTerminationReason() {
+		ControllableSseEmitter emitter = new ControllableSseEmitter();
+		emitter.failingEvent = "completed";
+		AtomicInteger cleanup = new AtomicInteger();
+		SessionStreamConnection connection = new SessionStreamConnection(
+			1L, 100L, cleanup::incrementAndGet, emitter
+		);
+		AiStreamCancellation cancellation = new AiStreamCancellation();
+		connection.begin(cancellation, "request-terminal", "turn-trace");
+		Logger logger = (Logger)LoggerFactory.getLogger(SessionStreamConnection.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			assertThatThrownBy(() -> connection.sendCompleted("request-terminal", response(UiAction.quizProposal())))
+				.isInstanceOf(io.edupilot.ai.AiClientException.class);
+			emitter.error.accept(new IOException("late callback"));
+			assertThat(connection.closeReason()).isEqualTo(SessionStreamConnection.CloseReason.COMPLETED);
+			assertThat(cleanup).hasValue(1);
+			assertThat(cancellation.isCancelled()).isFalse();
+			assertThat(appender.list.stream()
+				.filter(event -> event.getMessage().equals("Session SSE event delivery failed")))
+				.singleElement().satisfies(event -> {
+					Map<String, Object> fields = new LinkedHashMap<>();
+					event.getKeyValuePairs().forEach(pair -> fields.put(pair.key, pair.value));
+					assertThat(fields).containsEntry("event", "completed")
+						.containsEntry("deliveryResult", "FAILED")
+						.containsEntry("requestId", "request-terminal");
+				});
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+	}
+
+	@Test
+	void callbackLogsUseStoredCorrelationWithoutMdcOrPrivatePayloads() {
+		Logger logger = (Logger)LoggerFactory.getLogger(SessionStreamConnection.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			MDC.put(TraceIdFilter.TRACE_ID_MDC_KEY, "connect-trace");
+			ControllableSseEmitter emitter = new ControllableSseEmitter();
+			SessionStreamConnection connection = new SessionStreamConnection(1L, 100L, () -> {}, emitter);
+			connection.sendReady(Instant.now());
+			connection.begin(new AiStreamCancellation(), "request-log", "turn-trace");
+			connection.aiAttempt("attempt-turn", 2);
+			connection.send(TurnStreamEvent.contentDelta("private answer must not be logged"));
+			MDC.clear();
+			emitter.error.accept(new IOException("private exception body must not be logged"));
+			emitter.completion.run();
+			var closed = appender.list.stream()
+				.filter(event -> event.getMessage().equals("Session SSE connection closed")).toList();
+			assertThat(closed).hasSize(1);
+			Map<String, Object> fields = new LinkedHashMap<>();
+			closed.getFirst().getKeyValuePairs().forEach(pair -> fields.put(pair.key, pair.value));
+			assertThat(fields).containsEntry("connectionId", connection.connectionId())
+				.containsEntry("connectionTraceId", "connect-trace")
+				.containsEntry("turnTraceId", "turn-trace")
+				.containsEntry("requestId", "request-log")
+				.containsEntry("turnId", "attempt-turn")
+				.containsEntry("attempt", 2)
+				.containsEntry("reason", SessionStreamConnection.CloseReason.EMITTER_ERROR)
+				.containsEntry("upstreamCancelled", true);
+			assertThat(fields.get("occurredAt")).isInstanceOf(Instant.class);
+			assertThat(appender.list.toString() + appender.list.stream()
+				.map(ILoggingEvent::getKeyValuePairs).toList())
+				.doesNotContain("private answer", "private exception body");
+		} finally {
+			MDC.clear();
+			logger.detachAppender(appender);
+			appender.stop();
+		}
 	}
 
 	@Test

@@ -3079,6 +3079,14 @@ AI 응답 스트리밍은 SSE를 기본 전송 방식으로 사용합니다. 이
   `Cache-Control: no-cache`, `X-Accel-Buffering: no`.
 - 세션당 활성 스트림은 하나입니다. 실행 중 중복 연결은
   `TURN_IN_PROGRESS(409)`입니다.
+- 같은 세션의 idle 연결 교체와 턴 시작은 원자적으로 결정합니다. 턴 시작이
+  먼저 확정되면 기존 연결을 유지하고 새 연결은 409로 거부합니다. 교체가 먼저
+  확정되면 ready 전송을 마친 새 연결을 사용하며, 준비 중이거나 ready 전송에
+  실패한 연결에는 AI 스트림을 붙이지 않고 기존 JSON fallback을 적용합니다.
+- `connectionId`는 BE 내부 로그 식별자이며 ready payload·TurnRequest에는
+  추가하지 않습니다. ready **전송** 로그는 FE의 ready **수신** 증거가 아니므로,
+  FE는 현재 연결 시도의 ready를 파싱한 뒤 POST를 보내고 이전 연결 callback이
+  새 연결 상태를 바꾸지 않게 해야 합니다.
 - heartbeat: 다른 이벤트가 없으면 10초마다 `:heartbeat` comment를
   전송합니다. `event`와 `data`가 없으며 FE는 무시합니다.
 - `Last-Event-ID` replay와 SSE `id` 필드는 지원하지 않습니다. 재연결 시
@@ -3155,6 +3163,10 @@ data: {"code":"AI_SERVICE_TIMEOUT","category":"TIMEOUT","message":"AI 서비스 
 - 내부 completed 전체 검증과 메시지·상태 저장 트랜잭션 커밋 후
   `[ui_action] → completed → 종료` 순서로 외부 terminal을 전송합니다.
 - 내부 completed 응답 검증이 끝나면 SSE cancellation 상태와 무관하게 저장합니다. 저장 커밋 후 외부 `completed` 전송이 실패해도 저장된 턴을 실패 처리하지 않고 FE의 세션·메시지 복원 경로로 수렴합니다.
+- 종료 원인은 첫 종료 전이에서 고정하고, 이후 emitter callback이 덮어쓰지
+  않습니다. terminal 전달 실패는 별도 `deliveryResult`로 기록합니다.
+  연결·요청·AI 시도 상관 필드와 경합 검증 결과는
+  [SSE 수명 주기·경합 검증 기록 (#443)](sse-lifecycle-race-443.md)을 참고합니다.
 - error, terminal 전 EOF, schema 오류, 저장 실패에는 completed를 보내지
   않으며 중간 content는 확정 메시지로 저장하지 않습니다. 단, 명시적인 사용자
   취소는 누적 content가 있으면 validator와 일반 상태 반영을 건너뛰고 텍스트만
