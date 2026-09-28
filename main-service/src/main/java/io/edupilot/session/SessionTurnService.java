@@ -1,6 +1,7 @@
 package io.edupilot.session;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -21,6 +22,7 @@ import org.springframework.stereotype.Service;
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.AiClientProperties;
+import io.edupilot.ai.AiFailureCategory;
 import io.edupilot.ai.AiStreamCancellation;
 import io.edupilot.ai.TurnStreamEvent;
 import io.edupilot.aiusage.AiFeature;
@@ -196,6 +198,7 @@ public class SessionTurnService {
 				streamService.beginTurn(
 					userId,
 					sessionId,
+					request.requestId(),
 					cancellation
 				);
 			streamConnection = activeStream.orElse(null);
@@ -204,6 +207,7 @@ public class SessionTurnService {
 			if (streamConnection == null) {
 				io.edupilot.ai.dto.TurnResponse aiResponse = executeAiTurn(
 						userId,
+						sessionId,
 						role,
 						request,
 						eventType,
@@ -311,6 +315,8 @@ public class SessionTurnService {
 			log.atWarn()
 				.addKeyValue("sessionId", sessionId)
 				.addKeyValue("requestId", requestId)
+				.addKeyValue("connectionId", streamConnection.connectionId())
+				.addKeyValue("deliveryPhase", "AFTER_PERSISTENCE")
 				.addKeyValue(
 					"errorType",
 					exception.getClass().getSimpleName()
@@ -352,6 +358,19 @@ public class SessionTurnService {
 					);
 				}
 				aiQuotaService.checkQuota(userId, role);
+				if (cancellation.isCancelled()) {
+					throw new AiClientException(
+						ErrorCode.AI_STREAM_INTERRUPTED,
+						AiFailureCategory.INTERNAL,
+						true,
+						null
+					);
+				}
+				streamConnection.aiAttempt(turnId, attempt);
+				logAttemptStart(
+					streamConnection.sessionId(), streamConnection,
+					request.requestId(), turnId, attempt
+				);
 				aiCallStarted = true;
 				io.edupilot.ai.dto.TurnResponse response =
 					aiClient.executeTurnStream(
@@ -404,6 +423,8 @@ public class SessionTurnService {
 					);
 				}
 				logAttemptFailure(
+					streamConnection.sessionId(),
+					streamConnection,
 					request.requestId(),
 					turnId,
 					attempt,
@@ -448,6 +469,7 @@ public class SessionTurnService {
 
 	private io.edupilot.ai.dto.TurnResponse executeAiTurn(
 		Long userId,
+		Long sessionId,
 		UserRole role,
 		TurnRequest request,
 		TurnEventType eventType,
@@ -473,6 +495,9 @@ public class SessionTurnService {
 					? remaining
 					: aiClientProperties.turnReadTimeout();
 				aiQuotaService.checkQuota(userId, role);
+				logAttemptStart(
+					sessionId, null, request.requestId(), turnId, attempt
+				);
 				aiCallStarted = true;
 				io.edupilot.ai.dto.TurnResponse response =
 					aiClient.executeTurn(aiRequest, readTimeout);
@@ -502,6 +527,8 @@ public class SessionTurnService {
 					);
 				}
 				logAttemptFailure(
+					sessionId,
+					null,
 					request.requestId(),
 					turnId,
 					attempt,
@@ -544,13 +571,37 @@ public class SessionTurnService {
 		);
 	}
 
+	private void logAttemptStart(
+		Long sessionId,
+		SessionStreamConnection connection,
+		String requestId,
+		String turnId,
+		int attempt
+	) {
+		log.atInfo()
+			.addKeyValue("sessionId", sessionId)
+			.addKeyValue("connectionId",
+				connection == null ? null : connection.connectionId())
+			.addKeyValue("requestId", requestId)
+			.addKeyValue("turnTraceId", MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY))
+			.addKeyValue("turnId", turnId)
+			.addKeyValue("attempt", attempt)
+			.addKeyValue("occurredAt", Instant.now())
+			.log("AI turn attempt started");
+	}
+
 	private void logAttemptFailure(
+		Long sessionId,
+		SessionStreamConnection connection,
 		String requestId,
 		String turnId,
 		int attempt,
 		AiClientException exception
 	) {
 		log.atWarn()
+			.addKeyValue("sessionId", sessionId)
+			.addKeyValue("connectionId",
+				connection == null ? null : connection.connectionId())
 			.addKeyValue("requestId", requestId)
 			.addKeyValue(
 				"traceId",
