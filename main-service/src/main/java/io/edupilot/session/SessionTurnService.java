@@ -28,6 +28,7 @@ import io.edupilot.ai.TurnStreamEvent;
 import io.edupilot.aiusage.AiFeature;
 import io.edupilot.aiusage.AiQuotaService;
 import io.edupilot.aiusage.AiUsageService;
+import io.edupilot.aiusage.QuizDecisionSource;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
@@ -339,6 +340,7 @@ public class SessionTurnService {
 			+ aiClientProperties.turnReadTimeout().toNanos();
 		AtomicBoolean contentForwarded = new AtomicBoolean();
 		StringBuilder partialContent = new StringBuilder();
+		QuizDecisionSource quizDecisionSource = quizDecisionSource(snapshot);
 		for (int attempt = 1; attempt <= 2; attempt++) {
 			String turnId = "turn-" + UUID.randomUUID();
 			io.edupilot.ai.dto.TurnRequest aiRequest = aiRequest(
@@ -369,7 +371,7 @@ public class SessionTurnService {
 				streamConnection.aiAttempt(turnId, attempt);
 				logAttemptStart(
 					streamConnection.sessionId(), streamConnection,
-					request.requestId(), turnId, attempt
+					request.requestId(), turnId, attempt, quizDecisionSource
 				);
 				aiCallStarted = true;
 				io.edupilot.ai.dto.TurnResponse response =
@@ -391,7 +393,8 @@ public class SessionTurnService {
 					AiFeature.TURN,
 					response == null ? null : response.usage(),
 					true,
-					request.requestId()
+					request.requestId(),
+					quizDecisionSource
 				);
 				responseValidator.validate(
 					response,
@@ -408,7 +411,9 @@ public class SessionTurnService {
 						userId,
 						AiFeature.TURN,
 						null,
-						false
+						false,
+						null,
+						quizDecisionSource
 					);
 				}
 				if (cancellation.isUserCancelled()) {
@@ -428,7 +433,8 @@ public class SessionTurnService {
 					request.requestId(),
 					turnId,
 					attempt,
-					exception
+					exception,
+					quizDecisionSource
 				);
 				if (attempt == 1
 					&& exception.retryable()
@@ -478,6 +484,7 @@ public class SessionTurnService {
 	) {
 		long deadlineNanos = nanoTime.getAsLong()
 			+ NON_STREAMING_TURN_TOTAL_BUDGET.toNanos();
+		QuizDecisionSource quizDecisionSource = quizDecisionSource(snapshot);
 		for (int attempt = 1; attempt <= 2; attempt++) {
 			String turnId = "turn-" + UUID.randomUUID();
 			io.edupilot.ai.dto.TurnRequest aiRequest = aiRequest(
@@ -496,7 +503,8 @@ public class SessionTurnService {
 					: aiClientProperties.turnReadTimeout();
 				aiQuotaService.checkQuota(userId, role);
 				logAttemptStart(
-					sessionId, null, request.requestId(), turnId, attempt
+					sessionId, null, request.requestId(), turnId, attempt,
+					quizDecisionSource
 				);
 				aiCallStarted = true;
 				io.edupilot.ai.dto.TurnResponse response =
@@ -506,7 +514,8 @@ public class SessionTurnService {
 					AiFeature.TURN,
 					response == null ? null : response.usage(),
 					true,
-					request.requestId()
+					request.requestId(),
+					quizDecisionSource
 				);
 				responseValidator.validate(
 					response,
@@ -523,7 +532,9 @@ public class SessionTurnService {
 						userId,
 						AiFeature.TURN,
 						null,
-						false
+						false,
+						null,
+						quizDecisionSource
 					);
 				}
 				logAttemptFailure(
@@ -532,7 +543,8 @@ public class SessionTurnService {
 					request.requestId(),
 					turnId,
 					attempt,
-					exception
+					exception,
+					quizDecisionSource
 				);
 				if (attempt == 1 && exception.retryable()) {
 					remainingTurnBudget(deadlineNanos);
@@ -571,12 +583,19 @@ public class SessionTurnService {
 		);
 	}
 
+	private QuizDecisionSource quizDecisionSource(TurnSnapshot snapshot) {
+		return snapshot.context().containsKey("pageQuizDecision")
+			? QuizDecisionSource.PLAN
+			: QuizDecisionSource.PLANNER;
+	}
+
 	private void logAttemptStart(
 		Long sessionId,
 		SessionStreamConnection connection,
 		String requestId,
 		String turnId,
-		int attempt
+		int attempt,
+		QuizDecisionSource quizDecisionSource
 	) {
 		log.atInfo()
 			.addKeyValue("sessionId", sessionId)
@@ -586,6 +605,7 @@ public class SessionTurnService {
 			.addKeyValue("turnTraceId", MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY))
 			.addKeyValue("turnId", turnId)
 			.addKeyValue("attempt", attempt)
+			.addKeyValue("quizDecisionSource", quizDecisionSource)
 			.addKeyValue("occurredAt", Instant.now())
 			.log("AI turn attempt started");
 	}
@@ -596,7 +616,8 @@ public class SessionTurnService {
 		String requestId,
 		String turnId,
 		int attempt,
-		AiClientException exception
+		AiClientException exception,
+		QuizDecisionSource quizDecisionSource
 	) {
 		log.atWarn()
 			.addKeyValue("sessionId", sessionId)
@@ -613,6 +634,7 @@ public class SessionTurnService {
 			.addKeyValue("category", exception.category())
 			.addKeyValue("errorCode", exception.errorCode().code())
 			.addKeyValue("retryable", exception.retryable())
+			.addKeyValue("quizDecisionSource", quizDecisionSource)
 			.log("AI turn attempt failed");
 	}
 

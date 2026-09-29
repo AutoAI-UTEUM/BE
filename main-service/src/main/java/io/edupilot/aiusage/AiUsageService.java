@@ -43,13 +43,26 @@ public class AiUsageService {
 		boolean success,
 		String requestId
 	) {
+		record(userId, feature, usage, success, requestId, null);
+	}
+
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void record(
+		Long userId,
+		AiFeature feature,
+		AiUsage usage,
+		boolean success,
+		String requestId,
+		QuizDecisionSource quizDecisionSource
+	) {
 		try {
 			repository.saveAndFlush(AiUsageLog.create(
 				userId,
 				feature,
 				usage,
 				success,
-				normalizeRequestId(requestId)
+				normalizeRequestId(requestId),
+				quizDecisionSource
 			));
 		} catch (DataIntegrityViolationException exception) {
 			rollbackIfActive();

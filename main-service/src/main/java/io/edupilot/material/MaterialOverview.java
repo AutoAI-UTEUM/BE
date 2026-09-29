@@ -101,6 +101,10 @@ public class MaterialOverview {
 		return outline;
 	}
 
+	public boolean hasActiveReadyMaterial() {
+		return material.isActive() && material.isReady();
+	}
+
 	public MaterialOverviewStatus getStatus() {
 		return status;
 	}

@@ -80,6 +80,18 @@
 > 필드 부재 시 기존 경로다. 계획은 현재 페이지와 일치해야 하며, 스트림 capability는
 > `QUIZ_TYPE_SELECTED`에만 허용한다. [상세·배포 게이트](ai-quiz-latency-handoff.md).
 
+Spring의 `edupilot.ai.page-quiz-plan.enabled`는 기본 `false`다. 활성화 후에도 현재
+자료의 READY 개요에 전 페이지 계획이 있고 자료가 ACTIVE·READY이며 개요 페이지 수가
+세션 자료 페이지 수와 일치할 때만 요청 스냅샷에 **현재 페이지 한 건**의
+`context.pageQuizDecision`을 넣는다. 해당 페이지 번호가 다르거나 현재 페이지를
+포함하지 않는 질문이면 필드를 완전히 생략한다(`null`·`suggestQuiz=false` 대체 금지).
+스냅샷은 AI 호출·재시도 동안 고정하고 저장 시점 DB 상태로 다시 계산하지 않는다.
+이 단계는 `capabilities`를 보내지 않는다. TURN 사용량의 `quizDecisionSource=PLAN`
+은 해당 필드 전달, `PLANNER`는 미전달을 뜻하며 실제 Planner 호출 횟수의 확증은
+AI의 `planSource`·`plannerAttempts` 로그로 확인한다.
+AI 구버전은 새 필드를 거부할 수 있으므로 DEC-041 합의 및 AI 수용 버전 배포를
+확인한 뒤 dev에서 먼저 활성화하고, prod 플래그는 별도 검증 후 켠다.
+
 ```json
 {
   "schemaVersion": "1.0",
@@ -595,6 +607,16 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
   순서대로 정확히 한 번 있어야 하고 section/checkpoint 끝 페이지로 제한하지 않는다.
   false/생략 요청에서는 새 응답 필드를 생략한다. 저장 버전·백필·활성화는
   [Spring 인계 초안](ai-quiz-latency-handoff.md#2-사전-계획-섹션-중간의-중요한-페이지도-포함)을 따른다.
+- Spring은 기능 플래그가 꺼져 있으면 `includePageQuizPlan`을 **생략**하고 계획을
+  저장·전달하지 않는다. 켜져 있어도 1..`totalPages` 전체 텍스트가 없으면 플래그를
+  보내지 않는다. 유효한 계획은 해당 자료의 `material_overviews.outline_json` 안에
+  개요와 함께 저장한다(별도 계획 테이블 없음). 누락·중복·순서·범위·reason 위반은
+  개요 실패가 아니라 계획만 absent로 강등하고 위반 유형만 WARN으로 남긴다.
+- 기존 ACTIVE·READY 자료의 계획 없는 READY 개요는 기존 bounded outline 백필의
+  남은 batch 슬롯에서 재생성한다. 실패·계획 부재 시 최소 24시간 후 다시 후보가
+  되며 기존 `quizCheckpoints` 백필 규칙은 유지한다. 계획이 없으면 턴은 기존 경로다.
+  새 자료 업로드는 새 material ID를 만들고, 개요를 재생성하면 같은 overview 행의
+  계획도 함께 교체한다. 삭제·미준비 자료 또는 페이지 수가 바뀐 개요의 계획은 보내지 않는다.
 
 - 요청: `{ "schemaVersion": "1.0", "xaiFileId": "file-...", "totalPages": 2, "pages": [{ "pageNumber": 1, "text": "..." }] }`. `xaiFileId`는 nullable이며 생략도 허용한다.
 - Spring은 `material_pages`에 저장된 전 페이지 텍스트와 자료의 nullable xAI file ID를 페이지 순서대로 전달하며 텍스트를 절단하지 않는다. 입력 길이 조절은 AI Service 책임이다. `pages[].pageNumber/text`는 범위·구조 앵커이고 첨부 PDF는 같은 범위의 제목·시각 세부 확인에만 사용한다.

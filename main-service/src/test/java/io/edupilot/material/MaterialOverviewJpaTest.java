@@ -68,6 +68,7 @@ class MaterialOverviewJpaTest {
 	@Autowired private MaterialPageRepository pageRepository;
 	@Autowired private MaterialOverviewService overviewService;
 	@Autowired private MaterialOutlinePersistenceService outlinePersistenceService;
+	@Autowired private MaterialPageTextMerger pageTextMerger;
 	@Autowired private ClassroomRepository classroomRepository;
 	@Autowired private ClassroomMemberRepository memberRepository;
 	@Autowired private ClassroomWeekRepository weekRepository;
@@ -270,6 +271,83 @@ class MaterialOverviewJpaTest {
 	}
 
 	@Test
+	void pagePlanBackfillIsBoundedAndRespectsRetryBackoff() {
+		Fixture expired = fixture();
+		Fixture recent = fixture();
+		Fixture planned = fixture();
+		for (Fixture fixture : List.of(expired, recent)) {
+			MaterialOverview overview = MaterialOverview.createPending(
+				fixture.material());
+			overview.markReady("legacy", outlineWithCheckpoints());
+			overviewRepository.saveAndFlush(overview);
+		}
+		MaterialOverview plannedOverview = MaterialOverview.createPending(
+			planned.material());
+		plannedOverview.markReady("planned", outlineWithPagePlan());
+		overviewRepository.saveAndFlush(plannedOverview);
+		setOverviewUpdatedAt(expired.material().getId(),
+			NOW.minus(Duration.ofHours(24)));
+		setOverviewUpdatedAt(recent.material().getId(),
+			NOW.minus(Duration.ofHours(24)).plusSeconds(1));
+		setOverviewUpdatedAt(planned.material().getId(),
+			NOW.minus(Duration.ofHours(24)));
+		entityManager.clear();
+
+		assertThat(planPersistenceService().findBackfillCandidates(1))
+			.containsExactly(expired.material().getId());
+		assertThat(planPersistenceService().findBackfillCandidates(10))
+			.containsExactly(expired.material().getId());
+		assertThat(outlinePersistenceService.findBackfillCandidates(10))
+			.doesNotContain(expired.material().getId());
+	}
+
+	@Test
+	void checkpointAndPlanBackfillShareOneBatchSlotPerMaterial() {
+		Fixture fixture = fixture();
+		MaterialOverview overview = MaterialOverview.createPending(fixture.material());
+		overview.markReady("legacy", outline());
+		overviewRepository.saveAndFlush(overview);
+		setOverviewUpdatedAt(fixture.material().getId(),
+			NOW.minus(Duration.ofDays(2)));
+		entityManager.clear();
+
+		assertThat(planPersistenceService().findBackfillCandidates(1))
+			.containsExactly(fixture.material().getId());
+	}
+
+	@Test
+	void readyOutlineRegenerationReplacesPlanOnSameOverviewRow() {
+		Fixture fixture = fixture();
+		MaterialOverview overview = MaterialOverview.createPending(fixture.material());
+		overview.markReady("old", new OutlineResponse(
+			"1.0", "summary", outline().sections(), null,
+			List.of(
+				new OutlineResponse.PageQuizPlan(1, false, "old"),
+				new OutlineResponse.PageQuizPlan(2, false, "old"),
+				new OutlineResponse.PageQuizPlan(3, false, "old")
+			), 3, null));
+		overviewRepository.saveAndFlush(overview);
+		Object overviewId = entityManager.getEntityManagerFactory()
+			.getPersistenceUnitUtil().getIdentifier(overview);
+		entityManager.clear();
+
+		assertThat(outlinePersistenceService.markReady(fixture.material().getId(),
+			"new", outlineWithPagePlan())).isTrue();
+		entityManager.flush();
+		entityManager.clear();
+
+		MaterialOverview stored = overviewRepository.findByMaterial_Id(
+			fixture.material().getId()).orElseThrow();
+		assertThat(entityManager.getEntityManagerFactory()
+			.getPersistenceUnitUtil().getIdentifier(stored))
+			.isEqualTo(overviewId);
+		assertThat(stored.getOutline().pageQuizPlan().get(1).suggestQuiz())
+			.isTrue();
+		assertThat(stored.getOutline().pageQuizPlan().get(1).reason())
+			.isEqualTo("new");
+	}
+
+	@Test
 	void readyWithoutCheckpointsCanBeRegeneratedInPlace() {
 		Fixture fixture = fixture();
 		pageRepository.saveAndFlush(MaterialPage.create(
@@ -452,6 +530,22 @@ class MaterialOverviewJpaTest {
 			3,
 			null
 		);
+	}
+
+	private OutlineResponse outlineWithPagePlan() {
+		OutlineResponse base = outlineWithCheckpoints();
+		return new OutlineResponse(base.schemaVersion(), base.materialSummary(),
+			base.sections(), base.quizCheckpoints(), List.of(
+				new OutlineResponse.PageQuizPlan(1, false, "표지"),
+				new OutlineResponse.PageQuizPlan(2, true, "new"),
+				new OutlineResponse.PageQuizPlan(3, false, "복습")
+			), 3, null);
+	}
+
+	private MaterialOutlinePersistenceService planPersistenceService() {
+		return new MaterialOutlinePersistenceService(materialRepository,
+			pageRepository, overviewRepository, pageTextMerger, clock,
+			new PageQuizPlanProperties(true));
 	}
 
 	private Fixture fixture() {
