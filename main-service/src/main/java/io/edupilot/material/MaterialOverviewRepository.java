@@ -43,6 +43,24 @@ public interface MaterialOverviewRepository
 		+ "order by overview.updatedAt, overview.material.id")
 	List<Long> findReadyWithoutQuizCheckpointsMaterialIds(Pageable pageable);
 
+	@Query("select overview.material.id from MaterialOverview overview "
+		+ "where overview.material.status = "
+		+ "io.edupilot.material.MaterialStatus.ACTIVE "
+		+ "and overview.material.processingStatus = "
+		+ "io.edupilot.material.MaterialProcessingStatus.READY "
+		+ "and overview.status = "
+		+ "io.edupilot.material.MaterialOverviewStatus.READY "
+		+ "and overview.updatedAt <= :cutoff "
+		+ "and (function('json_query', overview.outline, "
+		+ "'$.pageQuizPlan') is null "
+		+ "or cast(function('json_query', overview.outline, "
+		+ "'$.pageQuizPlan') as String) = 'null') "
+		+ "order by overview.updatedAt, overview.material.id")
+	List<Long> findReadyWithoutPageQuizPlanMaterialIds(
+		@Param("cutoff") Instant cutoff,
+		Pageable pageable
+	);
+
 	@EntityGraph(attributePaths = "material")
 	@Query("""
 		select distinct overview

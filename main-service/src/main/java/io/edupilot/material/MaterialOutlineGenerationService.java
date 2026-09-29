@@ -28,17 +28,20 @@ public class MaterialOutlineGenerationService {
 	private final MaterialOutlineMarkdownRenderer renderer;
 	private final AiClient aiClient;
 	private final AiUsageService aiUsageService;
+	private final PageQuizPlanProperties pageQuizPlanProperties;
 
 	public MaterialOutlineGenerationService(
 		MaterialOutlinePersistenceService persistenceService,
 		MaterialOutlineMarkdownRenderer renderer,
 		AiClient aiClient,
-		AiUsageService aiUsageService
+		AiUsageService aiUsageService,
+		PageQuizPlanProperties pageQuizPlanProperties
 	) {
 		this.persistenceService = persistenceService;
 		this.renderer = renderer;
 		this.aiClient = aiClient;
 		this.aiUsageService = aiUsageService;
+		this.pageQuizPlanProperties = pageQuizPlanProperties;
 	}
 
 	public void generate(Long materialId) {
@@ -49,11 +52,19 @@ public class MaterialOutlineGenerationService {
 			if (snapshot.isEmpty()) {
 				return;
 			}
+			boolean includePageQuizPlan = pageQuizPlanProperties.enabled()
+				&& coversAllPages(snapshot.get());
+			if (pageQuizPlanProperties.enabled() && !includePageQuizPlan) {
+				log.atWarn().addKeyValue("materialId", materialId)
+					.addKeyValue("reason", "INCOMPLETE_PAGES")
+					.log("Skipped outline page quiz planning");
+			}
 			OutlineRequest request = new OutlineRequest(
 				SCHEMA_VERSION,
 				snapshot.get().xaiFileId(),
 				snapshot.get().totalPages(),
-				snapshot.get().pages()
+				snapshot.get().pages(),
+				includePageQuizPlan ? Boolean.TRUE : null
 			);
 			OutlineResponse response;
 			try {
@@ -73,6 +84,9 @@ public class MaterialOutlineGenerationService {
 				);
 				throw exception;
 			}
+			if (!includePageQuizPlan && response != null) {
+				response = response.withoutPageQuizPlan();
+			}
 			validate(response, request.totalPages());
 			persistenceService.markReady(
 				materialId,
@@ -86,6 +100,20 @@ public class MaterialOutlineGenerationService {
 				.addKeyValue("reason", safeReason(exception))
 				.log("Material outline generation failed");
 		}
+	}
+
+	private boolean coversAllPages(OutlineSnapshot snapshot) {
+		if (snapshot.totalPages() < 1
+			|| snapshot.pages().size() != snapshot.totalPages()) {
+			return false;
+		}
+		for (int index = 0; index < snapshot.pages().size(); index++) {
+			OutlineRequest.Page page = snapshot.pages().get(index);
+			if (page == null || page.pageNumber() != index + 1) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private void validate(OutlineResponse response, int expectedTotalPages) {

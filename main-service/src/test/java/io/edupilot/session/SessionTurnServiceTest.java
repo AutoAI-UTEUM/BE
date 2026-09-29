@@ -47,6 +47,7 @@ import io.edupilot.ai.dto.NoteDraft;
 import io.edupilot.aiusage.AiQuotaService;
 import io.edupilot.aiusage.AiFeature;
 import io.edupilot.aiusage.AiUsageService;
+import io.edupilot.aiusage.QuizDecisionSource;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
@@ -145,7 +146,10 @@ class SessionTurnServiceTest {
 				Map.of("sessionId", 100L),
 				Map.of(
 					"qaThreadDigest",
-					Map.of("threadRef", "qa-30")
+					Map.of("threadRef", "qa-30"),
+					"pageQuizDecision",
+					Map.of("pageNumber", 1, "suggestQuiz", true,
+						"reason", "핵심 개념")
 				),
 				10L,
 				true
@@ -219,6 +223,11 @@ class SessionTurnServiceTest {
 		assertThat(requests.getAllValues())
 			.extracting(io.edupilot.ai.dto.TurnRequest::turnId)
 			.doesNotHaveDuplicates();
+		assertThat(requests.getAllValues())
+			.allSatisfy(value -> assertThat(value.context())
+				.containsEntry("pageQuizDecision", Map.of(
+					"pageNumber", 1, "suggestQuiz", true,
+					"reason", "핵심 개념")));
 		verify(responseValidator).validate(
 			any(),
 			eq(requests.getAllValues().get(1).turnId()),
@@ -245,7 +254,8 @@ class SessionTurnServiceTest {
 			eq(AiFeature.TURN),
 			any(),
 			eq(true),
-			eq("request-1")
+			eq("request-1"),
+			eq(QuizDecisionSource.PLAN)
 		);
 		verify(claimService).claim(1L, 100L, "request-1");
 		verify(claimService).release(100L, "request-1");
@@ -1924,7 +1934,12 @@ class SessionTurnServiceTest {
 				.containsEntry("connectionId", connectionId)
 				.containsEntry("sessionId", 100L)
 				.containsEntry("requestId", "request-1")
+				.containsEntry("quizDecisionSource", QuizDecisionSource.PLANNER)
 				.containsEntry("turnTraceId", "turn-trace"));
+			assertThat(logFields(appender, "AI turn attempt failed"))
+				.singleElement()
+				.satisfies(fields -> assertThat(fields)
+					.containsEntry("quizDecisionSource", QuizDecisionSource.PLANNER));
 			assertThat(started).extracting(fields -> fields.get("attempt")).containsExactly(1, 2);
 			assertThat(started).extracting(fields -> fields.get("turnId")).doesNotHaveDuplicates();
 			var closed = logFields(appender, "Session SSE connection closed");

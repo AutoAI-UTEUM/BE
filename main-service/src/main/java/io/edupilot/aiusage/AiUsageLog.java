@@ -65,6 +65,10 @@ public class AiUsageLog {
 	@Column(name = "request_id", length = 64)
 	private String requestId;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "quiz_decision_source", length = 20)
+	private QuizDecisionSource quizDecisionSource;
+
 	@Column(nullable = false)
 	private boolean success;
 
@@ -80,7 +84,8 @@ public class AiUsageLog {
 		AiFeature feature,
 		AiUsage usage,
 		boolean success,
-		String requestId
+		String requestId,
+		QuizDecisionSource quizDecisionSource
 	) {
 		this.userId = userId;
 		this.feature = feature;
@@ -90,6 +95,7 @@ public class AiUsageLog {
 		this.reasoningTokens = usage == null ? null : usage.reasoningTokens();
 		this.costUsdTicks = usage == null ? null : usage.costUsdTicks();
 		this.requestId = requestId;
+		this.quizDecisionSource = quizDecisionSource;
 		this.success = success;
 	}
 
@@ -100,7 +106,19 @@ public class AiUsageLog {
 		boolean success,
 		String requestId
 	) {
-		return new AiUsageLog(userId, feature, usage, success, requestId);
+		return create(userId, feature, usage, success, requestId, null);
+	}
+
+	public static AiUsageLog create(
+		Long userId,
+		AiFeature feature,
+		AiUsage usage,
+		boolean success,
+		String requestId,
+		QuizDecisionSource quizDecisionSource
+	) {
+		return new AiUsageLog(userId, feature, usage, success,
+			requestId, quizDecisionSource);
 	}
 
 	public Long getId() {
@@ -137,6 +155,10 @@ public class AiUsageLog {
 
 	public String getRequestId() {
 		return requestId;
+	}
+
+	public QuizDecisionSource getQuizDecisionSource() {
+		return quizDecisionSource;
 	}
 
 	public boolean isSuccess() {

@@ -23,19 +23,22 @@ public class MaterialOutlinePersistenceService {
 	private final MaterialOverviewRepository overviewRepository;
 	private final MaterialPageTextMerger pageTextMerger;
 	private final Clock clock;
+	private final PageQuizPlanProperties pageQuizPlanProperties;
 
 	public MaterialOutlinePersistenceService(
 		LearningMaterialRepository materialRepository,
 		MaterialPageRepository pageRepository,
 		MaterialOverviewRepository overviewRepository,
 		MaterialPageTextMerger pageTextMerger,
-		Clock clock
+		Clock clock,
+		PageQuizPlanProperties pageQuizPlanProperties
 	) {
 		this.materialRepository = materialRepository;
 		this.pageRepository = pageRepository;
 		this.overviewRepository = overviewRepository;
 		this.pageTextMerger = pageTextMerger;
 		this.clock = clock;
+		this.pageQuizPlanProperties = pageQuizPlanProperties;
 	}
 
 	@Transactional(readOnly = true)
@@ -84,7 +87,8 @@ public class MaterialOutlinePersistenceService {
 		MaterialOverview overview = overviewRepository.findByMaterial_Id(materialId)
 			.orElseGet(() -> MaterialOverview.createPending(material));
 		if (overview.getStatus() == MaterialOverviewStatus.READY
-			&& !needsCheckpointBackfill(overview)) {
+			&& !needsCheckpointBackfill(overview)
+			&& !needsPageQuizPlanBackfill(overview)) {
 			return false;
 		}
 		overview.markReady(content, outline);
@@ -133,19 +137,49 @@ public class MaterialOutlinePersistenceService {
 				PageRequest.of(0, remainingSlots)
 			)
 		);
+		remainingSlots = batchSize - candidates.size();
+		if (remainingSlots > 0 && pageQuizPlanProperties.enabled()) {
+			// A READY outline with an absent plan keeps the legacy turn path.
+			// Retry no sooner than the existing failed-outline backoff interval.
+			for (Long materialId : overviewRepository
+				.findReadyWithoutPageQuizPlanMaterialIds(
+					clock.instant().minus(FAILED_RETRY_BACKOFF),
+					PageRequest.of(0, batchSize + candidates.size())
+				)) {
+				if (!candidates.contains(materialId)) {
+					candidates.add(materialId);
+					if (--remainingSlots == 0) {
+						break;
+					}
+				}
+			}
+		}
 		return List.copyOf(candidates);
 	}
 
 	private boolean canGenerate(MaterialOverview overview) {
 		return overview.getStatus() == MaterialOverviewStatus.PENDING
 			|| overview.getStatus() == MaterialOverviewStatus.FAILED
-			|| needsCheckpointBackfill(overview);
+			|| needsCheckpointBackfill(overview)
+			|| needsPageQuizPlanBackfill(overview);
 	}
 
 	private boolean needsCheckpointBackfill(MaterialOverview overview) {
 		OutlineResponse outline = overview.getOutline();
 		return overview.getStatus() == MaterialOverviewStatus.READY
 			&& (outline == null || outline.quizCheckpoints() == null);
+	}
+
+	private boolean needsPageQuizPlanBackfill(MaterialOverview overview) {
+		if (!pageQuizPlanProperties.enabled()
+			|| overview.getStatus() != MaterialOverviewStatus.READY
+			|| overview.getUpdatedAt() == null
+			|| overview.getUpdatedAt().isAfter(
+				clock.instant().minus(FAILED_RETRY_BACKOFF))) {
+			return false;
+		}
+		OutlineResponse outline = overview.getOutline();
+		return outline == null || outline.pageQuizPlan() == null;
 	}
 
 	public record OutlineSnapshot(
