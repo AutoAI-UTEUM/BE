@@ -15,6 +15,7 @@ from edupilot_ai.core.errors import ErrorCategory, InternalApiError
 from edupilot_ai.llm.bridge import LlmBridgeError, LlmUsage
 from edupilot_ai.models.base import Usage
 from edupilot_ai.models.plan import TurnPlan
+from edupilot_ai.models.quiz_preview import QuizQuestionStreamEvent
 from edupilot_ai.models.stream import (
     CompletedStreamEvent,
     ContentDeltaStreamEvent,
@@ -230,7 +231,11 @@ class TurnService:
         turn: TurnRequest,
     ) -> AsyncGenerator[TurnStreamEvent]:
         """Execute Explainer/QA with text streaming and emit one terminal event."""
-        if turn.event.event_type not in {
+        quiz_streaming = (
+            turn.event.event_type is EventType.QUIZ_TYPE_SELECTED
+            and turn.capabilities.quiz_question_stream
+        )
+        if not quiz_streaming and turn.event.event_type not in {
             EventType.EXPLAIN_CURRENT_PAGE,
             EventType.USER_QUESTION,
         }:
@@ -264,7 +269,7 @@ class TurnService:
                 yield ThoughtSummaryStreamEvent(
                     text=f"{context.session.current_page}페이지 설명을 작성하는 중입니다"
                 )
-            else:
+            elif turn.event.event_type is EventType.USER_QUESTION:
                 yield StatusStreamEvent(stage="ANSWERING")
                 yield ThoughtSummaryStreamEvent(
                     text=f"{context.session.current_page}페이지 근거로 답변을 작성하는 중입니다"
@@ -284,6 +289,8 @@ class TurnService:
                         yield ContentDeltaStreamEvent(text=item.text)
                     elif isinstance(item, DispatchStreamCompleted):
                         dispatched = item.result
+                    elif isinstance(item, QuizQuestionStreamEvent):
+                        yield item
             if dispatched is None:
                 raise RuntimeError("dispatcher stream did not terminate")
             self._raise_dispatch_failure(dispatched)
@@ -413,6 +420,9 @@ class TurnService:
             turn.event.event_type is EventType.USER_QUESTION
             and plan.propose_note
             and dispatched.note_draft is None
+            and not any(
+                item.get("yesEvent") == "SHOW_QUIZ_TYPE_SELECT" for item in dispatched.ui_actions
+            )
         ):
             dispatched.ui_actions.append(
                 {

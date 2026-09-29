@@ -88,6 +88,16 @@ async def _logged_turn_stream(
                                 "turn first content available",
                                 extra={**fields, **timing.fields(), "status": "STREAMING"},
                             )
+                    elif (
+                        event.get("type") == "quiz_question" and "firstQuestionMs" not in readiness
+                    ):
+                        readiness["firstQuestionMs"] = round(
+                            (perf_counter() - started_at) * 1000, 3
+                        )
+                        logger.info(
+                            "turn first quiz question available",
+                            extra={**fields, **readiness, "status": "STREAMING"},
+                        )
                 except json.JSONDecodeError, AttributeError:
                     pass
                 yield chunk
@@ -133,7 +143,27 @@ async def _logged_turn_stream(
             )
 
 
-@router.post("/turn", response_model=TurnResponse)
+@router.post(
+    "/turn",
+    response_model=TurnResponse,
+    responses={
+        200: {
+            "content": {
+                "application/x-ndjson": {
+                    "schema": {"type": "string"},
+                    "example": '{"type":"status","stage":"PLANNING"}\n',
+                }
+            },
+            "description": (
+                "JSON TurnResponse, or NDJSON when requested via Accept. "
+                "The six legacy event types are unchanged. Only QUIZ_TYPE_SELECTED "
+                "with capabilities.quizQuestionStream=true may additionally emit "
+                "provisional quiz_question events (public fields only). Discard previews "
+                "on error/disconnect; persist/allow submission only after validated completed."
+            ),
+        }
+    },
+)
 async def execute_turn(
     request: Request,
     turn: TurnRequest,

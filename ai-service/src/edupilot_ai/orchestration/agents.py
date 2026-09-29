@@ -1,11 +1,13 @@
 """Turn agents using injected structured-output LLM."""
 
+import json
 import logging
 import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from edupilot_ai.core.async_iterators import closing_async_iterator
 from edupilot_ai.core.errors import ErrorCategory
 from edupilot_ai.llm.bridge import (
     LlmBridge,
@@ -18,7 +20,8 @@ from edupilot_ai.llm.bridge import (
 )
 from edupilot_ai.models.learning_support import RepairOutput
 from edupilot_ai.models.plan import AgentOutput
-from edupilot_ai.models.quiz import QuizGeneration, QuizType
+from edupilot_ai.models.quiz import QuizCoverage, QuizGeneration, QuizType
+from edupilot_ai.models.quiz_preview import QuizQuestionStreamEvent
 from edupilot_ai.models.turn import DetailLevel, Message, NoteDraft, QaThreadMode
 from edupilot_ai.orchestration.context import AgentContext
 from edupilot_ai.orchestration.prompt_cache import turn_prompt_cache
@@ -30,6 +33,7 @@ from edupilot_ai.orchestration.prompts import (
     repair_messages,
 )
 from edupilot_ai.orchestration.quiz_output import quiz_output_model
+from edupilot_ai.orchestration.quiz_stream import QuizStreamParser, invalid_quiz_stream
 from edupilot_ai.orchestration.timing import TurnDeadline
 from edupilot_ai.settings import AgentLlmProfile
 from edupilot_ai.usage import combine_llm_usages, unknown_llm_usage
@@ -367,6 +371,61 @@ class QuizAgent:
             usage=completion.usage,
             quiz=quiz,
         )
+
+    async def stream(
+        self,
+        context: AgentContext,
+        quiz_type: QuizType,
+        *,
+        timeout_seconds: float,
+    ) -> AsyncIterator[QuizQuestionStreamEvent | AgentResult]:
+        """Opt-in private JSON stream; no raw text or private fields in previews."""
+        coverage = (
+            QuizCoverage(
+                start_page=context.quiz_context.coverage.start_page,
+                end_page=context.quiz_context.coverage.end_page,
+            )
+            if context.quiz_context is not None
+            else QuizCoverage(
+                start_page=context.session.current_page, end_page=context.session.current_page
+            )
+        )
+        parser = QuizStreamParser(quiz_type, coverage)
+        messages = list(quiz_messages(context, quiz_type))
+        messages[0] = {
+            "role": "system",
+            "content": str(messages[0]["content"])
+            + " 마크다운 코드펜스 없이 아래 스키마의 JSON 객체 하나만 출력하라. "
+            "schemaVersion, generationId, quizType, coverage, title, questionCount를 먼저 "
+            "작성하고 questions를 마지막 필드로 작성하라. 문항은 배열 순서대로 "
+            "완성하라. 정답·해설·루브릭은 기존 스키마대로 반드시 포함하라. "
+            + json.dumps(
+                quiz_output_model(quiz_type).model_json_schema(by_alias=True),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+        }
+        items = self._llm.complete_text_stream(
+            messages=messages,
+            profile=self._profile,
+            timeout_seconds=timeout_seconds,
+            attachments=_material_attachments(context),
+            prompt_cache=turn_prompt_cache(context, "quiz"),
+        )
+        usage: LlmUsage | None = None
+        async with closing_async_iterator(items):
+            async for item in items:
+                if usage is not None:
+                    raise invalid_quiz_stream()
+                if isinstance(item, LlmTextDelta):
+                    for preview in parser.feed(item.text):
+                        yield preview
+                else:
+                    usage = item.usage
+        if usage is None:
+            raise invalid_quiz_stream()
+        quiz = parser.finish()
+        yield AgentResult(agent="QuizAgent", message=None, state_patch={}, usage=usage, quiz=quiz)
 
 
 class RepairAgent:

@@ -74,6 +74,12 @@
 
 ### 3.1 요청 (api-spec §8 최소 구조 기준)
 
+> 2026-09-29 AI 구현·연동 초안(DEC-041, 활성화 전 합의 필요): 선택
+> `context.pageQuizDecision={pageNumber,suggestQuiz,reason}`, `context.quizContext.learningFocus`,
+> 최상위 `capabilities={qaQuizProposal:false,quizQuestionStream:false}`를 수용한다.
+> 필드 부재 시 기존 경로다. 계획은 현재 페이지와 일치해야 하며, 스트림 capability는
+> `QUIZ_TYPE_SELECTED`에만 허용한다. [상세·배포 게이트](ai-quiz-latency-handoff.md).
+
 ```json
 {
   "schemaVersion": "1.0",
@@ -184,6 +190,11 @@
   [API 명세](api-spec.md) §5 규칙표에 따라 생성합니다.
 
 ### 3.3.1 uiActions allowlist (`quizProposal`, `moveNextPage`, `noteProposal`)
+
+> DEC-041 연동 초안: 아래 기본 설명 제안과 별도로 `capabilities.qaQuizProposal=true`인
+> USER_QUESTION에서 ANSWER_QUESTION 뒤 동일 exact 퀴즈 제안을 허용하는 AI 경로가 있다.
+> Spring의 QA/FOLLOW_UP 완료 allowlist·세션 상태 게이트 지원 전에는 옵션을 보내지 않는다.
+> 사전 false는 대화 기반 추가 제안을 금지하지 않으며, 실제 생성은 사용자 동의 이후다.
 
 PDF가 첨부된 `EXPLAIN_CURRENT_PAGE` Plan에서 현재 페이지가 전체 학습 흐름의 의미 있는
 개념·가정·모델·공식 해석·예제 단위를 독립적으로 점검할 수 있게 도입하거나 완성하면
@@ -354,7 +365,11 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 | `application/x-ndjson` 포함 | HTTP 200 `application/x-ndjson`, 한 줄에 JSON 이벤트 1개 |
 | 미지정 또는 그 외 | 기존 §3.3 `TurnResponse` JSON — Spring #24 비스트리밍 경로 유지 |
 
-내부 NDJSON 이벤트는 다음 6종입니다.
+기본 내부 NDJSON 이벤트는 다음 6종입니다. DEC-041의 명시적
+`capabilities.quizQuestionStream=true` + `QUIZ_TYPE_SELECTED` + NDJSON에만 임시
+`quiz_question`을 추가하는 AI 구현이 있다. Spring·FE 수용 전 이 옵션을 보내지 않는다.
+문항의 공개 필드만 미리 보내며 최종 completed 전 저장·제출하지 않는다.
+오류·연결 중단 시 임시 문항은 폐기한다. [이벤트 구조 및 연동 경계](ai-quiz-latency-handoff.md#4-문항-선전달-외부-표시-준비가-된-뒤-활성화).
 
 | type | 필드 | 설명 |
 | --- | --- | --- |
@@ -378,8 +393,15 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 
 ### 5.2 LLM 호출과 시간 예산
 
+DEC-041 opt-in QuizAgent는 기존 text stream에서 JSON 객체 하나를 받아 완성 문항을
+검증·공개 DTO로 투영한다. 원시 delta는 외부로 보내지 않으며 전체 완성본도 재검증한다.
+현재는 provider 구조화 스트림 강제가 아닌 프롬프트+파서 방식이므로 실 xAI 형식 준수율을
+확인한 뒤 활성화한다. 아래 여섯 이벤트 기본 경로의 설명·QA 동작은 그대로다.
+
 - Orchestrator Plan은 기존 `response_format=json_schema` 비스트리밍 호출을
   유지합니다.
+  DEC-041 사전 계획이 있는 설명은 판단 신호가 없으면 Plan 합성으로 생략하고,
+  평가·진단·교정·QA·메모리 판단이 남으면 축약 문맥 Planner를 유지하되 PDF 재첨부는 생략합니다.
 - ExplainerAgent·QaAgent만 스트리밍 모드에서 `response_format` 없이 순수
   Markdown을 요청하고 xAI Chat Completions SSE(`stream=true`)의 본문 delta를
   `content_delta`로 변환합니다.
@@ -449,7 +471,7 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
   Spring은 공개/비공개 필드를 분리 저장하고 자체 발급한 `activeQuizId`만 외부
   상태에 반영합니다. AI Service는 `activeQuizId` statePatch를 만들지 않습니다.
 - 퀴즈 공통 스키마: `generationId`, `quizType(MCQ|OX|SHORT|ESSAY)`,
-  `coverage{startPage,endPage}`, `title`, `questionCount(5~10)`,
+  `coverage{startPage,endPage}`, `title`, `questionCount(저장·수신 호환 5~10, 새 통합학습 생성은 정확히 5)`,
   `questions[]`. 문항 공통 공개 필드는 `questionId`, `questionText`,
   `points`입니다. `questionCount`는 `questions` 길이와 같아야 합니다.
 - 유형별 필드: MCQ는 공개 `choices[]{choiceId,text}`와 비공개
@@ -567,6 +589,12 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 - Main의 전용 read timeout은 120초입니다. 정답·해설을 포함하므로 외부 API는 소유 강사에게만 노출합니다.
 
 ### 6.6 POST /internal/ai/outline
+
+- DEC-041 선택 연동 초안: `includePageQuizPlan=true` 요청은 전 페이지를 요구하며,
+  응답에 `pageQuizPlan[{pageNumber,suggestQuiz,reason}]`을 추가한다. 1..totalPages가
+  순서대로 정확히 한 번 있어야 하고 section/checkpoint 끝 페이지로 제한하지 않는다.
+  false/생략 요청에서는 새 응답 필드를 생략한다. 저장 버전·백필·활성화는
+  [Spring 인계 초안](ai-quiz-latency-handoff.md#2-사전-계획-섹션-중간의-중요한-페이지도-포함)을 따른다.
 
 - 요청: `{ "schemaVersion": "1.0", "xaiFileId": "file-...", "totalPages": 2, "pages": [{ "pageNumber": 1, "text": "..." }] }`. `xaiFileId`는 nullable이며 생략도 허용한다.
 - Spring은 `material_pages`에 저장된 전 페이지 텍스트와 자료의 nullable xAI file ID를 페이지 순서대로 전달하며 텍스트를 절단하지 않는다. 입력 길이 조절은 AI Service 책임이다. `pages[].pageNumber/text`는 범위·구조 앵커이고 첨부 PDF는 같은 범위의 제목·시각 세부 확인에만 사용한다.

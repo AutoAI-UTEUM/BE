@@ -59,6 +59,7 @@ _OPTIONAL_FIELDS = (
     "providerStatusCode",
     "attemptDurationMs",
     "firstContentMs",
+    "firstQuestionMs",
     "lastContentMs",
     "contentSpanMs",
     "resultReadyMs",

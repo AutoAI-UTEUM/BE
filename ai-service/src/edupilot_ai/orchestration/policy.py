@@ -74,8 +74,28 @@ class PolicyVerifier:
             if (
                 ToolName.PROMPT_BINARY_DECISION in primary_tools
                 and context.attached_file_id is None
+                and context.page_quiz_decision is None
             ):
                 raise PolicyViolation("quiz proposal requires the full material attachment")
+            if (
+                ToolName.PROMPT_BINARY_DECISION in primary_tools
+                and context.page_quiz_decision is not None
+                and context.session.page_status != "NOT_EXPLAINED"
+            ):
+                raise PolicyViolation("re-explanation must not repeat the default quiz proposal")
+        if (
+            context.event_type is EventType.USER_QUESTION
+            and context.qa_quiz_proposal_enabled
+            and not detect_note_request(context.event_payload.message or "")
+        ):
+            primary_tools = [
+                action.tool for action in plan.actions if action.tool not in MEMORY_TOOLS
+            ]
+            if primary_tools not in (
+                [ToolName.ANSWER_QUESTION],
+                [ToolName.ANSWER_QUESTION, ToolName.PROMPT_BINARY_DECISION],
+            ):
+                raise PolicyViolation("question Plan has an invalid action sequence")
         if sum(action.tool is ToolName.PROMOTE_MEMORY for action in plan.actions) > 1:
             raise PolicyViolation("multiple memory promotions in one turn")
         if len(plan.actions) > plan.pedagogy_policy.intervention_budget:
@@ -154,6 +174,15 @@ class PolicyVerifier:
                 if action.tool is not ToolName.WRITE_NOTE:
                     raise PolicyViolation("tool does not match note request")
                 return self._verify_note_action(action), []
+            if action.tool is ToolName.PROMPT_BINARY_DECISION and context.qa_quiz_proposal_enabled:
+                if not context.page_attached or not (context.current_page_text or "").strip():
+                    raise PolicyViolation("QA quiz proposal requires current page evidence")
+                if action.args != {
+                    "contentMarkdown": "퀴즈를 진행할까요?",
+                    "decisionType": "QUIZ_DECISION",
+                }:
+                    raise PolicyViolation("quiz proposal args do not match policy")
+                return action, []
             if action.tool is not ToolName.ANSWER_QUESTION:
                 raise PolicyViolation("tool does not match event")
             corrected = _normalized_action(action, {"qaThreadMode", "threadRef"})

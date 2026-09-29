@@ -13,6 +13,7 @@ from edupilot_ai.models.outline import (
     OutlinePage,
     OutlineRequest,
     OutlineResponse,
+    PlannedOutlineOutput,
 )
 from edupilot_ai.settings import AgentLlmProfile
 from edupilot_ai.usage import response_usage, unknown_llm_usage
@@ -32,6 +33,16 @@ class OutlineValidationError(Exception):
 
 
 def validate_outline_output(request: OutlineRequest, output: OutlineOutput) -> None:
+    if request.include_page_quiz_plan:
+        if not isinstance(output, PlannedOutlineOutput):
+            raise OutlineValidationError("MISSING_PAGE_QUIZ_PLAN")
+        if len(output.page_quiz_plan) != request.total_pages or any(
+            item.page_number != number for number, item in enumerate(output.page_quiz_plan, 1)
+        ):
+            raise OutlineValidationError(
+                "PAGE_QUIZ_PLAN_COVERAGE_INVALID",
+                "pageQuizPlan must contain every page exactly once in ascending order",
+            )
     if not output.material_summary.strip():
         raise OutlineValidationError("EMPTY_MATERIAL_SUMMARY")
     if not output.sections:
@@ -178,6 +189,7 @@ def outline_messages(
     pages: list[OutlinePage],
     retry: bool,
     reason: str | None = None,
+    include_page_quiz_plan: bool = False,
 ) -> Sequence[Mapping[str, str]]:
     system = (
         "너는 EduPilot의 자료 개요 에이전트다. 제공된 페이지 텍스트만 근거로 "
@@ -211,6 +223,20 @@ def outline_messages(
         "자료에 없는 내용을 추측하지 마라. 마크다운을 생성하지 말고 모든 사용자 "
         "대상 텍스트는 한국어로 작성하라."
     )
+    if include_page_quiz_plan:
+        system += (
+            " pageQuizPlan에는 1부터 totalPages까지 모든 페이지를 오름차순으로 정확히 "
+            "한 번씩 포함하라. 각 항목은 pageNumber, suggestQuiz(boolean), reason(240자 이내)이다. "
+            "PDF 전체의 개념 의존 관계를 보고 각 페이지를 독립적으로 판단하라. "
+            "핵심 개념·가정·모델·공식 해석·완결된 예제가 도입되어 이해 점검이 유익하면 "
+            "suggestQuiz=true로 하라. 큰 섹션 중간이나 텍스트가 짧은 수식·그림 페이지도 "
+            "제외하지 마라. 섹션 경계·quizCheckpoints·텍스트 글자 수로 제한하지 마라. "
+            "표지·목차·단순 전환·아직 완결되지 않은 설명은 false로 하되 근거를 적어라. "
+            "reason에는 해당 페이지의 구체적 학습 개념과 판단 이유를 간결하게 담아라. "
+            "이 계획은 자료 기반 기본값이며 학생의 개별 이해도나 동의를 추측하지 마라. "
+            "기존 quizCheckpoints는 누적 복습 범위를 위한 별도 산출물이며 "
+            "pageQuizPlan의 true 위치와 일치시킬 필요가 없다."
+        )
     if retry:
         system += " 이전 출력이 계약을 위반했다. 이전 본문을 재사용하지 말고 재생성하라."
         if reason is not None:
@@ -328,8 +354,11 @@ class OutlineService:
                         pages=pages,
                         retry=attempt == 1,
                         reason=validation_reason,
+                        include_page_quiz_plan=request.include_page_quiz_plan,
                     ),
-                    response_model=OutlineOutput,
+                    response_model=(
+                        PlannedOutlineOutput if request.include_page_quiz_plan else OutlineOutput
+                    ),
                     profile=self._profile,
                     timeout_seconds=remaining_seconds,
                     attachments=attachments,

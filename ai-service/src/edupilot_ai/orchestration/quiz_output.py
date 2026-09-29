@@ -1,10 +1,9 @@
 """Select an LLM-only question schema without changing the quiz wire contract."""
 
-from copy import deepcopy
 from functools import cache
 from typing import Literal
 
-from pydantic import create_model
+from pydantic import Field, create_model
 
 from edupilot_ai.models.quiz import (
     EssayQuestion,
@@ -22,14 +21,17 @@ _QUESTION_MODELS = {
     QuizType.ESSAY: (Literal[QuizType.ESSAY], list[EssayQuestion]),
 }
 
+QUIZ_QUESTION_COUNT = 5
+
 
 @cache
 def quiz_output_model(quiz_type: QuizType) -> type[QuizGeneration]:
-    """Inherit every normalizer/validator, replacing only the union with one type."""
+    """Keep all validators; select one question type and require five new questions."""
     type_literal, questions_type = _QUESTION_MODELS[quiz_type]
     return create_model(
         f"{quiz_type.value.title()}QuizOutput",
         __base__=QuizGeneration,
         quiz_type=(type_literal, ...),
-        questions=(questions_type, deepcopy(QuizGeneration.model_fields["questions"])),
+        question_count=(Literal[5], ...),
+        questions=(questions_type, Field(min_length=5, max_length=5)),
     )
