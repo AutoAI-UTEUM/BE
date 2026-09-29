@@ -16,6 +16,7 @@ from edupilot_ai.llm.bridge import (
 )
 from edupilot_ai.models.plan import PlanAction, ToolName, TurnPlan
 from edupilot_ai.models.quiz import QuizGeneration, QuizType
+from edupilot_ai.models.quiz_preview import QuizQuestionStreamEvent
 from edupilot_ai.models.turn import (
     ActionExecuted,
     Adjustment,
@@ -99,7 +100,7 @@ class DispatchStreamCompleted:
     result: DispatchResult
 
 
-type DispatchStreamItem = DispatchTextDelta | DispatchStreamCompleted
+type DispatchStreamItem = DispatchTextDelta | DispatchStreamCompleted | QuizQuestionStreamEvent
 
 
 class ToolDispatcher:
@@ -251,6 +252,29 @@ class ToolDispatcher:
                         usage=usage,
                         ui_actions=stream.ui_actions,
                     )
+                elif (
+                    action.tool.value.startswith("GENERATE_QUIZ_")
+                    and context.quiz_question_stream_enabled
+                ):
+                    if self._quiz is None:
+                        raise PolicyViolation("QuizAgent is not configured")
+                    quiz_stream = self._quiz.stream(
+                        context,
+                        QuizType(str(action.args["quizType"])),
+                        timeout_seconds=deadline.remaining_seconds(),
+                    )
+                    quiz_outcome: AgentResult | None = None
+                    async with closing_async_iterator(quiz_stream):
+                        async for quiz_item in quiz_stream:
+                            if quiz_outcome is not None:
+                                raise PolicyViolation("quiz stream already completed")
+                            if isinstance(quiz_item, QuizQuestionStreamEvent):
+                                yield quiz_item
+                            else:
+                                quiz_outcome = quiz_item
+                    if quiz_outcome is None:
+                        raise LlmBridgeError(category=ErrorCategory.SCHEMA, retryable=False)
+                    outcome = quiz_outcome
                 else:
                     outcome = await self._execute(action, context, deadline)
                 result.state_patch = merge_state_patch(

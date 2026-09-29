@@ -1105,13 +1105,71 @@ public class HttpAiClient implements AiClient {
 	public OutlineResponse outline(OutlineRequest request) {
 		return executeAttempt(
 			new AiCallContext(OUTLINE_PATH, 1, false, null, null, null),
-			() -> outlineRestClient.post()
+			() -> parseOutline(outlineRestClient.post()
 				.uri(OUTLINE_PATH)
 				.contentType(MediaType.APPLICATION_JSON)
 				.body(request)
 				.retrieve()
-				.body(OutlineResponse.class)
+				.body(JsonNode.class))
 		);
+	}
+
+	private OutlineResponse parseOutline(JsonNode root) {
+		if (root == null) {
+			return null;
+		}
+		JsonNode plan = root.isObject() ? root.get("pageQuizPlan") : null;
+		if (plan != null && !plan.isNull() && !pageQuizPlanJsonShape(plan)) {
+			return parseOutlineWithoutPlan(root, null);
+		}
+		try {
+			return objectMapper.treeToValue(root, OutlineResponse.class);
+		} catch (RuntimeException exception) {
+			if (plan != null && !plan.isNull()) {
+				return parseOutlineWithoutPlan(root, exception);
+			}
+			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID,
+				exception);
+		}
+	}
+
+	private boolean pageQuizPlanJsonShape(JsonNode plan) {
+		if (!plan.isArray()) {
+			return false;
+		}
+		for (JsonNode page : plan) {
+			if (!page.isObject()
+				|| page.get("pageNumber") == null
+				|| !page.get("pageNumber").isIntegralNumber()
+				|| page.get("suggestQuiz") == null
+				|| !page.get("suggestQuiz").isBoolean()
+				|| page.get("reason") == null
+				|| !page.get("reason").isTextual()) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private OutlineResponse parseOutlineWithoutPlan(
+		JsonNode root,
+		RuntimeException original
+	) {
+		try {
+			@SuppressWarnings("unchecked")
+			Map<String, Object> withoutPlan = objectMapper.convertValue(
+				root, Map.class);
+			withoutPlan.remove("pageQuizPlan");
+			OutlineResponse response = objectMapper.convertValue(
+				withoutPlan, OutlineResponse.class);
+			log.atWarn()
+				.addKeyValue("violationType", "MALFORMED_JSON")
+				.log("Ignored invalid outline page quiz plan");
+			return response;
+		} catch (RuntimeException exception) {
+			throw new AiClientException(ErrorCode.AI_RESPONSE_INVALID,
+				original == null ? exception : original);
+		}
 	}
 
 	@Override

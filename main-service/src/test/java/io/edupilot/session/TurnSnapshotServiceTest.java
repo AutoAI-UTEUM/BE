@@ -15,8 +15,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 import io.edupilot.assessment.QuizAssessment;
 import io.edupilot.assessment.QuizAssessmentData;
@@ -30,8 +36,10 @@ import io.edupilot.diagnosis.RepairResultRepository;
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.MaterialOverview;
 import io.edupilot.material.MaterialOverviewRepository;
+import io.edupilot.material.MaterialOverviewStatus;
 import io.edupilot.material.MaterialPage;
 import io.edupilot.material.MaterialPageRepository;
+import io.edupilot.material.PageQuizPlanProperties;
 import io.edupilot.memory.LearnerMemory;
 import io.edupilot.memory.LearnerMemoryCandidate;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
@@ -65,6 +73,108 @@ class TurnSnapshotServiceTest {
 	private DiagnosisRepository diagnosisRepository;
 	@Mock
 	private RepairResultRepository repairRepository;
+
+	@Test
+	void pagePlanIsAttachedForCurrentPageAndFrozenInSnapshot() {
+		LearningSession session = session();
+		LearningMaterial material = (LearningMaterial) ReflectionTestUtils
+			.getField(session, "material");
+		material.markReady(2);
+		MaterialOverview overview = overviewWithPlan(material);
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(overviewRepository.findByMaterial_Id(10L))
+			.thenReturn(Optional.of(overview));
+
+		TurnSnapshot snapshot = service(true).build(1L, 100L, 501L, true);
+
+		assertThat(snapshot.context().get("pageQuizDecision"))
+			.isEqualTo(Map.of("pageNumber", 1, "suggestQuiz", false,
+				"reason", "표지"));
+		overview.markReady("updated", new OutlineResponse(
+			"1.0", "new", List.of(new OutlineResponse.Section(
+				"section", 1, 2, List.of())), null, 2, null));
+		assertThat(snapshot.context().get("pageQuizDecision"))
+			.isEqualTo(Map.of("pageNumber", 1, "suggestQuiz", false,
+				"reason", "표지"));
+	}
+
+	@Test
+	void absentOrDisabledPlanAndPageLessQuestionOmitDecisionField() {
+		LearningSession session = session();
+		LearningMaterial material = (LearningMaterial) ReflectionTestUtils
+			.getField(session, "material");
+		material.markReady(2);
+		MaterialOverview overview = overviewWithPlan(material);
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(overviewRepository.findByMaterial_Id(10L))
+			.thenReturn(Optional.of(overview));
+
+		assertThat(service(false).build(1L, 100L, 501L, true).context())
+			.doesNotContainKey("pageQuizDecision");
+		assertThat(service(true).build(1L, 100L, 501L, false).context())
+			.doesNotContainKey("pageQuizDecision");
+		overview.markReady("without plan", new OutlineResponse(
+			"1.0", "summary", List.of(new OutlineResponse.Section(
+				"section", 1, 2, List.of())), null, 2, null));
+		assertThat(service(true).build(1L, 100L, 501L, true).context())
+			.doesNotContainKey("pageQuizDecision");
+	}
+
+	@Test
+	void versionOrPageMismatchDoesNotSendStaleDecision() {
+		LearningSession session = session();
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+		MaterialOverview overview = mock(MaterialOverview.class);
+		OutlineResponse outline = mock(OutlineResponse.class);
+		when(overviewRepository.findByMaterial_Id(10L))
+			.thenReturn(Optional.of(overview));
+		when(overview.getStatus()).thenReturn(MaterialOverviewStatus.READY);
+		when(overview.hasActiveReadyMaterial()).thenReturn(true);
+		when(overview.getOutline()).thenReturn(outline);
+		when(outline.pageQuizPlan()).thenReturn(List.of(
+			new OutlineResponse.PageQuizPlan(2, true, "wrong page"),
+			new OutlineResponse.PageQuizPlan(1, false, "wrong page")));
+		when(outline.totalPages()).thenReturn(2, 3);
+
+		Logger logger = (Logger) LoggerFactory.getLogger(TurnSnapshotService.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			assertThat(service(true).build(1L, 100L, 501L, true).context())
+				.doesNotContainKey("pageQuizDecision");
+			assertThat(service(true).build(1L, 100L, 501L, true).context())
+				.doesNotContainKey("pageQuizDecision");
+			assertThat(appender.list).hasSize(2).allSatisfy(event ->
+				assertThat(event.getLevel()).isEqualTo(Level.WARN));
+			assertThat(appender.list)
+				.extracting(event -> event.getKeyValuePairs().stream()
+					.filter(pair -> pair.key.equals("violationType"))
+					.findFirst().orElseThrow().value)
+				.containsExactly("PAGE_NUMBER", "MATERIAL_VERSION");
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+	}
+
+	@Test
+	void deletedOrUnreadyMaterialNeverUsesStoredPagePlan() {
+		LearningSession session = session();
+		MaterialOverview overview = mock(MaterialOverview.class);
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session));
+		when(overviewRepository.findByMaterial_Id(10L))
+			.thenReturn(Optional.of(overview));
+		when(overview.getStatus()).thenReturn(MaterialOverviewStatus.READY);
+		when(overview.hasActiveReadyMaterial()).thenReturn(false);
+
+		assertThat(service(true).build(1L, 100L, 501L, true).context())
+			.doesNotContainKey("pageQuizDecision");
+	}
 
 	@Test
 	void buildsBoundedFirstPageSnapshotAndExcludesCurrentRequest() {
@@ -628,6 +738,10 @@ class TurnSnapshotServiceTest {
 	}
 
 	private TurnSnapshotService service() {
+		return service(false);
+	}
+
+	private TurnSnapshotService service(boolean pageQuizPlanEnabled) {
 		return new TurnSnapshotService(
 			sessionRepository,
 			pageRepository,
@@ -640,8 +754,21 @@ class TurnSnapshotServiceTest {
 			memoryRepository,
 			candidateRepository,
 			diagnosisRepository,
-			repairRepository
+			repairRepository,
+			new PageQuizPlanProperties(pageQuizPlanEnabled)
 		);
+	}
+
+	private MaterialOverview overviewWithPlan(LearningMaterial material) {
+		MaterialOverview overview = MaterialOverview.createPending(material);
+		overview.markReady("overview", new OutlineResponse(
+			"1.0", "summary", List.of(new OutlineResponse.Section(
+				"section", 1, 2, List.of("keyword"))), null,
+			List.of(
+				new OutlineResponse.PageQuizPlan(1, false, "표지"),
+				new OutlineResponse.PageQuizPlan(2, true, "핵심 개념")
+			), 2, null));
+		return overview;
 	}
 
 	private MaterialOverview overview(

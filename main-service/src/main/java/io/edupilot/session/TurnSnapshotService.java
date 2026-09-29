@@ -7,6 +7,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +28,7 @@ import io.edupilot.material.MaterialOverviewStatus;
 import io.edupilot.material.MaterialPage;
 import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.material.MaterialPageTextMerger;
+import io.edupilot.material.PageQuizPlanProperties;
 import io.edupilot.memory.LearnerMemory;
 import io.edupilot.memory.LearnerMemoryCandidate;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
@@ -34,6 +37,9 @@ import io.edupilot.memory.MemoryCandidateStatus;
 
 @Service
 public class TurnSnapshotService {
+	private static final Logger log = LoggerFactory.getLogger(
+		TurnSnapshotService.class
+	);
 
 	private static final int PAGE_TEXT_LIMIT = 8_000;
 	private static final int QUIZ_CONTEXT_TEXT_LIMIT = 12_000;
@@ -54,6 +60,7 @@ public class TurnSnapshotService {
 	private final LearnerMemoryCandidateRepository candidateRepository;
 	private final DiagnosisRepository diagnosisRepository;
 	private final RepairResultRepository repairRepository;
+	private final PageQuizPlanProperties pageQuizPlanProperties;
 
 	public TurnSnapshotService(
 		LearningSessionRepository sessionRepository,
@@ -67,7 +74,8 @@ public class TurnSnapshotService {
 		LearnerMemoryRepository memoryRepository,
 		LearnerMemoryCandidateRepository candidateRepository,
 		DiagnosisRepository diagnosisRepository,
-		RepairResultRepository repairRepository
+		RepairResultRepository repairRepository,
+		PageQuizPlanProperties pageQuizPlanProperties
 	) {
 		this.sessionRepository = sessionRepository;
 		this.pageRepository = pageRepository;
@@ -81,6 +89,7 @@ public class TurnSnapshotService {
 		this.candidateRepository = candidateRepository;
 		this.diagnosisRepository = diagnosisRepository;
 		this.repairRepository = repairRepository;
+		this.pageQuizPlanProperties = pageQuizPlanProperties;
 	}
 
 	@Transactional(readOnly = true)
@@ -220,12 +229,74 @@ public class TurnSnapshotService {
 				)
 			);
 		}
+		if (includeCurrentPage && pageQuizPlanProperties.enabled()) {
+			Map<String, Object> decision = pageQuizDecision(
+				materialId,
+				session.getCurrentPage(),
+				session.getMaterialPageCount()
+			);
+			if (decision != null) {
+				context.put("pageQuizDecision", decision);
+			}
+		}
 		return new TurnSnapshot(
 			sessionData,
 			context,
 			materialId,
 			xaiFileAttached
 		);
+	}
+
+	private Map<String, Object> pageQuizDecision(
+		Long materialId,
+		int currentPage,
+		Integer totalPages
+	) {
+		if (totalPages == null || currentPage < 1
+			|| currentPage > totalPages) {
+			return null;
+		}
+		MaterialOverview overview = overviewRepository
+			.findByMaterial_Id(materialId).orElse(null);
+		if (overview == null
+			|| overview.getStatus() != MaterialOverviewStatus.READY
+			|| !overview.hasActiveReadyMaterial()) {
+			return null;
+		}
+		OutlineResponse outline = overview.getOutline();
+		if (outline == null || outline.pageQuizPlan() == null) {
+			return null;
+		}
+		if (outline.totalPages() != totalPages
+			|| outline.pageQuizPlan().size() != totalPages) {
+			logPageQuizMismatch(materialId, currentPage, "MATERIAL_VERSION");
+			return null;
+		}
+		OutlineResponse.PageQuizPlan plan = outline.pageQuizPlan()
+			.get(currentPage - 1);
+		if (plan == null || plan.pageNumber() != currentPage
+			|| plan.suggestQuiz() == null || plan.reason() == null
+			|| plan.reason().isBlank() || plan.reason().length() > 240) {
+			logPageQuizMismatch(materialId, currentPage, "PAGE_NUMBER");
+			return null;
+		}
+		return Map.of(
+			"pageNumber", plan.pageNumber(),
+			"suggestQuiz", plan.suggestQuiz(),
+			"reason", plan.reason()
+		);
+	}
+
+	private void logPageQuizMismatch(
+		Long materialId,
+		int currentPage,
+		String reason
+	) {
+		log.atWarn()
+			.addKeyValue("materialId", materialId)
+			.addKeyValue("currentPage", currentPage)
+			.addKeyValue("violationType", reason)
+			.log("Ignored mismatched outline page quiz decision");
 	}
 
 	private Map<String, Object> quizContext(

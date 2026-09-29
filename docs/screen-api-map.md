@@ -11,11 +11,11 @@
 | 화면/영역 | 사용자 행동/시점 | API | 성공 시 UI | 주요 오류 |
 | --- | --- | --- | --- | --- |
 | 회원가입 | 이메일 입력 중 중복 확인 | `GET /api/auth/email-availability?email={email}` | 사용 가능 여부 표시 | 이메일 누락·형식 오류 |
-| 회원가입 | 역할·선택 소속·수신 동의 제출; FE 동의 화면 연동 시 현재 약관·처리방침 표시 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}`, `POST /api/auth/signup` | 서버 설정 기본값에서는 `consents` 없이 가입 가능. 배열 제출 시 현재 TERMS·PRIVACY 버전 이력 저장; 로그인 화면 이동 | 필수 설정 시 동의 누락 또는 제출 배열 오류 `POLICY_CONSENT_REQUIRED`, 유효성, 이메일 중복 |
+| 회원가입 | 역할·선택 소속·수신 동의 제출; 현재 이용약관 동의와 개인정보 처리방침 열람 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}`, `POST /api/auth/signup` | `requiresConsent=true`인 현재 정책만 `consents`로 제출하고 이력 저장. 개인정보 처리방침 등 동의 비대상 문서는 전문 열람 제공; 로그인 화면 이동 | 필수 설정 시 동의 누락 또는 제출 배열 오류 `POLICY_CONSENT_REQUIRED`, 유효성, 이메일 중복 |
 | 로그인 | 제출 | `POST /api/auth/login` | access와 역할별 `session` 메타를 메모리에 보존한 뒤 자료 목록 이동. refresh는 HttpOnly cookie | 자격 증명 실패, 정지 계정 `ACCOUNT_SUSPENDED` 안내, 429 `LOGIN_RATE_LIMITED`는 `Retry-After` 초 표시 |
 | 로그인 | Google 로그인 | `POST /api/auth/google` | 기존·연동 계정은 access·`session`·`pendingConsents`를 받아 로그인 완료. 신규 계정은 `SIGNUP_REQUIRED` 시 역할·선택 정보와, 필수 설정 시 현재 정책 동의를 받은 뒤 같은 ID 토큰으로 재요청 | Google 토큰 오류, 추가 정보 필요, 비활성 계정 |
-| 로그인 직후 | 미동의 정책 확인·재동의 | 로그인 `pendingConsents`, `GET·POST /api/users/me/consents`, `GET /api/policies/{type}/{version}` | pending이 있으면 FE 동의 화면으로 이동. 동의 후 pending 빈 배열 확인; 서버는 미동의 API 차단을 하지 않음 | `POLICY_VERSION_MISMATCH` 시 current 재조회 |
-| 정책 본문 | 현재 정책 문서 표시 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}` | `/policies/{type}`에서 current 버전의 본문 표시. 0.9는 법무 검토 전 초안이므로 운영 공개 시점 주의 | 없는 버전 404 |
+| 로그인 직후 | 미동의 정책 확인·재동의 | 로그인 `pendingConsents`, `GET·POST /api/users/me/consents`, `GET /api/policies/{type}/{version}` | 현재 `requiresConsent=true`인 정책의 pending이 있으면 FE 동의 화면으로 이동. 동의 후 pending 빈 배열 확인; 서버는 미동의 API 차단을 하지 않음 | `POLICY_VERSION_MISMATCH` 시 current 재조회 |
+| 정책 본문 | 현재 이용약관·개인정보 처리방침 표시 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}` | 공개 `/terms`, `/privacy`에서 현재 버전의 본문과 시행일 표시. 0.9는 법무 검토 전 초안이므로 정식 1.0 게시 전 운영 정보·법률 검토 필요 | 없는 버전 404 |
 | 비밀번호 찾기 | 이메일 제출 | `POST /api/auth/password-reset/request` | 202면 가입 여부와 무관하게 "등록된 이메일이면 재설정 안내를 발송했습니다." 표시 | 요청 상한·미가입·비활성 계정도 동일 202 |
 | 비밀번호 재설정 | `/reset-password?token=` 링크에서 새 비밀번호 제출 | `POST /api/auth/password-reset/confirm` | 성공 시 보유 access 삭제 후 로그인 화면 이동 | `RESET_TOKEN_INVALID` 400은 "링크가 만료되었거나 유효하지 않습니다 — 다시 요청" 단일 문구; 비밀번호 정책 오류와 429 구분 |
 | 앱 초기 진입 | 인증 상태 확인 | `GET /api/users/me` | 사용자 정보/권한 반영 | 토큰 만료 |
@@ -28,7 +28,7 @@
 | 관리자 회원 현황 | 목록·검색·역할/상태 필터·상세 조회 | `GET /api/admin/users`, `GET /api/admin/users/{id}` | ACTIVE·SUSPENDED·DELETED 전체 회원의 비민감 프로필·가입일·최근 활동·정지 사유 표시. `lastActiveAt=null`은 `-` 처리하고 가입일/이름/최근 활동 양방향 정렬 지원 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 없는 회원 404 |
 | 관리자 회원 현황 | 계정 정지·복구·역할 변경 | `POST /api/admin/users/{id}/suspend`, `POST /api/admin/users/{id}/reinstate`, `PATCH /api/admin/users/{id}/role` | 확인 후 실행하고 반환된 상세 DTO로 상태·역할 즉시 갱신. 기존 세션은 폐기되므로 대상자에게 재로그인 안내 | 비ADMIN 403, 자기 정지·강등 또는 마지막 활성 ADMIN 변경 400 |
 | 관리자 회원 현황 | 사용자 비밀번호 초기화 | `POST /api/admin/users/{id}/password-reset` | 확인 후 실행하고 `temporaryPassword`를 재조회 불가 안내와 함께 모달에 1회 표시하며 복사 버튼 제공 | 비ADMIN 403, 없는 회원 404, GOOGLE·DELETED·자기 자신 409 |
-| 관리자 정책 운영 | 버전 등록·목록·현재 동의율 | `POST·GET /api/admin/policies`, `GET /api/admin/policies/consent-stats` | 승인된 1.0 문구를 미래 시행 시각으로 불변 등록, 활성 사용자 대비 동의율 확인 | 비ADMIN 403, 중복 버전 409, 과거 시행 시각 400 |
+| 관리자 정책 운영 | 버전 등록·목록·현재 동의율 | `POST·GET /api/admin/policies`, `GET /api/admin/policies/consent-stats` | 승인된 1.0 문구를 미래 시행 시각으로 불변 등록. 이용약관 등 `requiresConsent=true` 문서만 활성 사용자 대비 동의율 확인 | 비ADMIN 403, 중복 버전 409, 과거 시행 시각 400 |
 | 관리자 강의실 현황 | 목록·정렬·상세 조회 | `GET /api/admin/classrooms`, `GET /api/admin/classrooms/{id}` | 개설자·상태·멤버 수와 상세 멤버 목록 표시 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 없는 강의실 404 |
 | 관리자 AI 사용량 | 기간별 요약·사용자 상위 N 조회 | `GET /api/admin/ai-usage/summary`, `GET /api/admin/ai-usage/users` | 최근 7일 기본, 최대 92일의 KST 일별·기능별·사용자별 집계 표시 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, 날짜 범위·limit 400 |
 | 관리자 인프라 현황 | 환경·기간별 EC2 지표, AWS 비용, 앱 상태 조회 | `GET /api/admin/infra/metrics`, `GET /api/admin/infra/cost`, `GET /api/admin/infra/app` | CPU·네트워크·메모리·디스크·상태검사 시계열, 월/서비스/일별 비용, JVM·HTTP·DB·AI 상태 표시. AWS 실패 시 unavailable 또는 stale 안내 | 비인증 401, 비ADMIN·DB 강등/탈퇴 403, env·range 400, AWS 장애는 200 fail-soft |
@@ -96,7 +96,7 @@
 | 오답 노트 | 퀴즈 제출 문항을 노트로 저장·조회·수정·삭제 | `GET·POST /api/wrong-answer-notes`, `PATCH·DELETE /api/wrong-answer-notes/{noteId}` | 제출 결과의 `submissionId:questionId`로 등록하고 서버 snapshot을 표시 | 타인·부재 결과 404, 중복 결과는 기존 항목 200 |
 | 최초 로그인 | 로컬 수동·오답 노트 1회 이관 | `POST /api/user-notes/import` | imported·skipped 항목만 로컬에서 제거하고 failed는 사유 표시 후 재시도 | 배열당 200건, 분당 5회, 항목별 부분 성공 |
 | PDF 뷰어 | 다음/이전/번호 입력 | `PATCH /api/sessions/{sessionId}/page` | 응답 페이지로 뷰어 동기화, 설명 여부 UI | 페이지 범위/상태 충돌 |
-| 채팅 | 스트림 선연결 | `GET /api/sessions/{sessionId}/stream` | fetch+Bearer로 SSE 연결 후 turns 호출 | 중복 연결/AI 스트림 중단 |
+| 채팅 | 스트림 선연결 | `GET /api/sessions/{sessionId}/stream` | fetch+Bearer로 현재 연결의 ready 수신 후 turns 호출, 이전 연결 callback은 새 연결과 격리 | 실행 중 중복 연결 409/AI 스트림 중단 |
 | 채팅 | 설명 시작 선택 | `POST /api/sessions/{sessionId}/turns` | 설명 스트림/메시지 표시 | AI timeout/스키마 오류/일일 AI 쿼터 429 |
 | 채팅 | 답변 생성 중지 | `POST /api/sessions/{sessionId}/turns/cancel` | 수신한 텍스트가 있으면 부분 답변을 저장하고 completed 처리, 없으면 `TURN_CANCELLED` 표시 | 인증, 실행 중 턴 없음은 `cancelled:false` 멱등 응답 |
 | 채팅 | 질문 전송 | 같은 turns API | QA 답변과 후속 질문 문맥 반영 | 빈 질문/AI 오류/일일 AI 쿼터 429 |
@@ -110,14 +110,26 @@
 | 학습 분석 | 메모리 화면 진입 | `GET /api/users/me/memory?materialId={materialId}` | 해당 자료의 공개 가능한 개인화 요약 | 데이터 없음 |
 | 학습 세션 | 종료 버튼 | `POST /api/sessions/{sessionId}/complete` | 완료 화면/목록 이동 | 이미 완료/상태 충돌 |
 
-스트리밍 턴은 `GET /stream`을 먼저 연결한 뒤 `POST /turns`를 전송합니다.
-SSE 연결이 없으면 turns API는 기존 동기 JSON 응답으로 동작합니다. 사용자 중지로
+스트리밍 턴은 `GET /stream`을 먼저 연결하고 해당 연결 시도의 `ready`를
+수신·파싱한 뒤 `POST /turns`를 전송합니다. BE는 같은 세션의 연결 교체·턴 시작을
+원자적으로 결정합니다. SSE 연결이 없거나 아직 ready 전송을 마치지 못한 경우
+turns API는 기존 동기 JSON 응답으로 동작합니다. `connectionId`는 내부 로그에만
+있으며 FE 요청·응답 스키마는 변경하지 않습니다. 사용자 중지로
 부분 답변이 저장되면 completed를 기존 완료 흐름으로 처리하고, content 수신 전
 취소로 `TURN_CANCELLED`를 받으면 같은 `requestId`로 재시도할 수 있습니다.
 클라이언트 연결 이탈 후에는 세션 상세·메시지를 다시 조회해 동기화합니다.
+이미 저장된 결과의 SSE 전달 실패만으로 새 턴을 실행하지 않습니다. 이전 연결의
+callback·reader 종료는 새 연결 시도의 ready 상태를 변경하지 않게 격리합니다.
 `Last-Event-ID` replay는 지원하지 않습니다.
 
 ## 2. 학습 화면 상태 동기화
+
+> DEC-041 연동 대기: AI 내부의 opt-in `quiz_question`은 **생성 중 공개 문항 미리보기**다.
+> 현재 외부 화면 기능으로 배포된 것으로 간주하지 않는다. Spring 외부 이벤트 매핑과 FE 지원
+> 완료 뒤에만 활성화하며, 완료 검증·저장된 정본 quizId 확인 전 제출은 금지한다.
+> error/취소/재연결에서는 임시 문항을 폐기하고 서버 결과를 재조회한다.
+> QA 추가 제안은 사용자 동의 뒤 기존 유형 선택 흐름을 재사용한다.
+> [연동 작업과 회귀 기준](ai-quiz-latency-handoff.md).
 
 학습 화면은 서버 상태를 기준으로 다음 값을 유지합니다.
 

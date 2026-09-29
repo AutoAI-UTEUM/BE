@@ -46,6 +46,7 @@ class Orchestrator:
             (LlmFileAttachment(file_id=context.attached_file_id),)
             if context.event_type is EventType.EXPLAIN_CURRENT_PAGE
             and context.attached_file_id is not None
+            and context.page_quiz_decision is None
             else ()
         )
         usages: list[LlmUsage] = []

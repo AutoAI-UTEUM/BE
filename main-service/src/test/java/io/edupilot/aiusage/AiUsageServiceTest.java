@@ -46,7 +46,22 @@ class AiUsageServiceTest {
 		assertThat(log.getReasoningTokens()).isEqualTo(3L);
 		assertThat(log.getCostUsdTicks()).isEqualTo(25_000_000_000L);
 		assertThat(log.getRequestId()).isEqualTo("request-1");
+		assertThat(log.getQuizDecisionSource()).isNull();
 		assertThat(log.isSuccess()).isTrue();
+	}
+
+	@Test
+	void recordsSnapshotQuizDecisionSourceForTurnUsage() {
+		AiUsageService service = new AiUsageService(repository);
+
+		service.record(1L, AiFeature.TURN, null, true,
+			"request-plan", QuizDecisionSource.PLAN);
+
+		ArgumentCaptor<AiUsageLog> captor = ArgumentCaptor.forClass(
+			AiUsageLog.class);
+		verify(repository).saveAndFlush(captor.capture());
+		assertThat(captor.getValue().getQuizDecisionSource())
+			.isEqualTo(QuizDecisionSource.PLAN);
 	}
 
 	@Test

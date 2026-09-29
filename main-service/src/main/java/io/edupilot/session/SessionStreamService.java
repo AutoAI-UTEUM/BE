@@ -8,10 +8,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -32,6 +34,7 @@ public class SessionStreamService {
 	static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(10);
 
 	private final LearningSessionRepository sessionRepository;
+	private final Supplier<SseEmitter> emitterFactory;
 	private final Map<Long, SessionStreamConnection> connections =
 		new ConcurrentHashMap<>();
 	private final ScheduledExecutorService heartbeatScheduler =
@@ -42,10 +45,19 @@ public class SessionStreamService {
 				.factory()
 		);
 
+	@Autowired
 	public SessionStreamService(
 		LearningSessionRepository sessionRepository
 	) {
+		this(sessionRepository, () -> new SseEmitter(0L));
+	}
+
+	SessionStreamService(
+		LearningSessionRepository sessionRepository,
+		Supplier<SseEmitter> emitterFactory
+	) {
 		this.sessionRepository = sessionRepository;
+		this.emitterFactory = emitterFactory;
 	}
 
 	public SseEmitter connect(Long userId, Long sessionId) {
@@ -59,27 +71,40 @@ public class SessionStreamService {
 			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
 		}
 
-		SessionStreamConnection existing = connections.get(sessionId);
-		if (existing != null && existing.isRunning()) {
-			throw new BusinessException(ErrorCode.TURN_IN_PROGRESS);
-		}
-		if (existing != null) {
-			existing.replaceIdle();
-		}
-
 		SessionStreamConnection[] holder = new SessionStreamConnection[1];
 		SessionStreamConnection connection = new SessionStreamConnection(
 			userId,
 			sessionId,
-			() -> remove(sessionId, holder[0])
+			() -> remove(sessionId, holder[0]),
+			emitterFactory.get()
 		);
 		holder[0] = connection;
-		SessionStreamConnection previous = connections.put(
-			sessionId,
-			connection
+		SessionStreamConnection[] previous = new SessionStreamConnection[1];
+		SessionStreamConnection.CloseWork[] retirement =
+			new SessionStreamConnection.CloseWork[1];
+		String[] previousState = new String[1];
+		try {
+			connections.compute(sessionId, (id, existing) -> {
+				previous[0] = existing;
+				if (existing != null) {
+					previousState[0] = existing.state();
+					retirement[0] = existing.reserveIdleReplacement();
+				}
+				return connection;
+			});
+		} catch (BusinessException exception) {
+			logConnectionTransition(
+				connection, previous[0], previousState[0], "REJECTED"
+			);
+			connection.rejectRegistration();
+			throw exception;
+		}
+		logConnectionTransition(
+			connection, previous[0], previousState[0], "REGISTERED"
 		);
-		if (previous != null && previous != existing) {
-			previous.replaceIdle();
+		// Never send, cancel upstream, or invoke cleanup while holding a Map lock.
+		if (previous[0] != null) {
+			previous[0].finishClose(retirement[0], true);
 		}
 		connection.heartbeatTask(heartbeatScheduler.scheduleAtFixedRate(
 			() -> connection.sendHeartbeatIfIdle(
@@ -89,32 +114,50 @@ public class SessionStreamService {
 			HEARTBEAT_INTERVAL.toNanos(),
 			TimeUnit.NANOSECONDS
 		));
-		connection.sendReady(Instant.now());
-		log.atInfo()
-			.addKeyValue("sessionId", sessionId)
-			.addKeyValue(
-				"traceId",
-				MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY)
-			)
-			.log("Session SSE connection opened");
+		connection.sendReady(connection.createdAt());
 		return connection.emitter();
 	}
 
 	public Optional<SessionStreamConnection> beginTurn(
 		Long userId,
 		Long sessionId,
+		String requestId,
 		AiStreamCancellation cancellation
 	) {
-		SessionStreamConnection connection = connections.get(sessionId);
-		if (connection == null
-			|| connection.isClosed()
-			|| !connection.userId().equals(userId)) {
-			return Optional.empty();
-		}
-		if (!connection.begin(cancellation)) {
+		SessionStreamConnection[] selected = new SessionStreamConnection[1];
+		String[] reason = {"NO_CONNECTION"};
+		String turnTraceId = MDC.get(TraceIdFilter.TRACE_ID_MDC_KEY);
+		connections.computeIfPresent(sessionId, (id, connection) -> {
+			if (!connection.userId().equals(userId)) {
+				reason[0] = "OWNER_MISMATCH";
+			} else if (connection.isClosed()) {
+				reason[0] = "CONNECTION_CLOSED";
+			} else if (!connection.isReady()) {
+				reason[0] = "READY_NOT_SENT";
+			} else if (connection.begin(cancellation, requestId, turnTraceId)) {
+				selected[0] = connection;
+				reason[0] = "READY_CONNECTION";
+			} else {
+				reason[0] = connection.isClosed()
+					? "CONNECTION_CLOSED" : "TURN_IN_PROGRESS";
+			}
+			return connection;
+		});
+		log.atInfo()
+			.addKeyValue("sessionId", sessionId)
+			.addKeyValue("requestId", requestId)
+			.addKeyValue("turnTraceId", turnTraceId)
+			.addKeyValue("connectionId",
+				selected[0] == null ? null : selected[0].connectionId())
+			.addKeyValue("transport", reason[0].equals("TURN_IN_PROGRESS")
+				? null : selected[0] == null ? "JSON" : "SSE")
+			.addKeyValue("reason", reason[0])
+			.addKeyValue("occurredAt", Instant.now())
+			.log("Session turn transport selected");
+		if (reason[0].equals("TURN_IN_PROGRESS")) {
 			throw new BusinessException(ErrorCode.TURN_IN_PROGRESS);
 		}
-		return Optional.of(connection);
+		return Optional.ofNullable(selected[0]);
 	}
 
 	public boolean cancelTurn(Long userId, Long sessionId) {
@@ -168,7 +211,7 @@ public class SessionStreamService {
 
 	@PreDestroy
 	void shutdown() {
-		connections.values().forEach(SessionStreamConnection::replaceIdle);
+		connections.values().forEach(SessionStreamConnection::shutdown);
 		heartbeatScheduler.shutdownNow();
 	}
 
@@ -179,10 +222,25 @@ public class SessionStreamService {
 		if (connection != null) {
 			connections.remove(sessionId, connection);
 		}
+	}
+
+	private void logConnectionTransition(
+		SessionStreamConnection connection,
+		SessionStreamConnection previous,
+		String previousState,
+		String result
+	) {
 		log.atInfo()
-			.addKeyValue("sessionId", sessionId)
-			.addKeyValue("traceId", traceId())
-			.log("Session SSE connection closed");
+			.addKeyValue("sessionId", connection.sessionId())
+			.addKeyValue("connectionId", connection.connectionId())
+			.addKeyValue("previousConnectionId",
+				previous == null ? null : previous.connectionId())
+			.addKeyValue("previousState", previousState)
+			.addKeyValue("result", result)
+			.addKeyValue("connectionTraceId", connection.connectionTraceId())
+			.addKeyValue("connectionCreatedAt", connection.createdAt())
+			.addKeyValue("occurredAt", Instant.now())
+			.log("Session SSE connection registration");
 	}
 
 	private String traceId() {

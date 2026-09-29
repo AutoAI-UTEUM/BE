@@ -49,7 +49,7 @@ class LlmCompletion[OutputT: BaseModel]:
 
 @dataclass(frozen=True, slots=True)
 class LlmTextDelta:
-    """One provider text delta safe to expose as learner-facing Markdown."""
+    """Raw provider text; consumers own validation and public/private projection."""
 
     text: str
 
@@ -105,5 +105,5 @@ class LlmBridge(Protocol):
         attachments: Sequence[LlmFileAttachment] = (),
         prompt_cache: LlmPromptCache | None = None,
     ) -> AsyncIterator[LlmTextStreamItem]:
-        """Yield Markdown deltas followed by exactly one usage item."""
+        """Yield text deltas followed by exactly one usage item."""
         ...

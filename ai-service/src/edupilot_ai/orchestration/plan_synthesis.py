@@ -28,6 +28,50 @@ def _single_action_plan(
 
 def synthesize_plan(context: AgentContext) -> TurnPlan | None:
     """Synthesize fixed-outcome Plans; return None when an LLM must plan."""
+    if (
+        context.event_type is EventType.EXPLAIN_CURRENT_PAGE
+        and context.page_quiz_decision is not None
+        and (context.current_page_text or "").strip()
+    ):
+        # Preserve adaptive decisions even when the material has no file attachment.
+        if (
+            context.memory.temporary_candidates
+            or context.quiz_assessments
+            or context.pending_diagnosis is not None
+            or context.latest_repair is not None
+            or context.qa_thread_digest is not None
+            or any(
+                (message.get("senderType") or message.get("role")) == "USER"
+                for message in context.recent_messages
+            )
+        ):
+            return None
+        plan = _single_action_plan(
+            turn_goal="현재 페이지 설명",
+            tool=ToolName.EXPLAIN_PAGE,
+            args={
+                "page": context.session.current_page,
+                "detailLevel": context.event_payload.detail_level,
+            },
+        )
+        if (
+            context.page_quiz_decision.suggest_quiz
+            and context.session.page_status == "NOT_EXPLAINED"
+        ):
+            plan.actions.append(
+                PlanAction(
+                    action_id="action-2",
+                    tool=ToolName.PROMPT_BINARY_DECISION,
+                    args={
+                        "contentMarkdown": "퀴즈를 진행할까요?",
+                        "decisionType": "QUIZ_DECISION",
+                    },
+                )
+            )
+            plan.pedagogy_policy.intervention_budget = 2
+        plan.reason = "The current page has a material-level quiz decision supplied by Spring."
+        return plan
+
     if context.event_type is EventType.EXPLAIN_CURRENT_PAGE and (
         context.attached_file_id is None or not (context.current_page_text or "").strip()
     ):

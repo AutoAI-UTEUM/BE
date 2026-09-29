@@ -768,6 +768,68 @@ class HttpAiClientContractTest {
 	}
 
 	@Test
+	void outlineOptInSendsFlagAndAcceptsPerPagePlan() throws Exception {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion":"1.0", "materialSummary":"요약",
+			  "sections":[{"title":"단원","startPage":1,"endPage":1,"keywords":[]}],
+			  "pageQuizPlan":[{"pageNumber":1,"suggestQuiz":false,"reason":"표지"}],
+			  "totalPages":1
+			}
+			"""));
+
+		OutlineResponse response = client(Duration.ofSeconds(1)).outline(
+			new OutlineRequest("1.0", null, 1,
+				List.of(new OutlineRequest.Page(1, "전체 텍스트")), true));
+
+		assertThat(response.pageQuizPlan()).singleElement()
+			.satisfies(plan -> {
+				assertThat(plan.pageNumber()).isEqualTo(1);
+				assertThat(plan.suggestQuiz()).isFalse();
+			});
+		RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
+		assertThat(request.getBody().readUtf8())
+			.contains("\"includePageQuizPlan\":true");
+	}
+
+	@Test
+	void malformedPlanJsonDoesNotDiscardValidOverview() {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion":"1.0", "materialSummary":"요약",
+			  "sections":[{"title":"단원","startPage":1,"endPage":1,"keywords":[]}],
+			  "pageQuizPlan":"not-an-array", "totalPages":1
+			}
+			"""));
+
+		OutlineResponse response = client(Duration.ofSeconds(1)).outline(
+			new OutlineRequest("1.0", null, 1,
+				List.of(new OutlineRequest.Page(1, "전체 텍스트")), true));
+
+		assertThat(response.materialSummary()).isEqualTo("요약");
+		assertThat(response.pageQuizPlan()).isNull();
+	}
+
+	@Test
+	void stringSuggestQuizIsNotCoercedToBoolean() {
+		server.enqueue(jsonResponse(200, """
+			{
+			  "schemaVersion":"1.0", "materialSummary":"요약",
+			  "sections":[{"title":"단원","startPage":1,"endPage":1,"keywords":[]}],
+			  "pageQuizPlan":[{"pageNumber":1,"suggestQuiz":"false","reason":"표지"}],
+			  "totalPages":1
+			}
+			"""));
+
+		OutlineResponse response = client(Duration.ofSeconds(1)).outline(
+			new OutlineRequest("1.0", null, 1,
+				List.of(new OutlineRequest.Page(1, "전체 텍스트")), true));
+
+		assertThat(response.materialSummary()).isEqualTo("요약");
+		assertThat(response.pageQuizPlan()).isNull();
+	}
+
+	@Test
 	void captionsSendsImageAndTextAndParsesNullableResults() throws Exception {
 		server.enqueue(jsonResponse(200, """
 			{

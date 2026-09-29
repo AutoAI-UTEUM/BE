@@ -7,12 +7,13 @@ import io.edupilot.policy.PolicyType;
 
 public record PolicyDocumentResponse(
 	PolicyType type, String version, String title, String content,
-	String summary, Instant effectiveAt
+	String summary, Instant effectiveAt, boolean requiresConsent
 ) {
 	public static PolicyDocumentResponse from(PolicyDocument document) {
 		return new PolicyDocumentResponse(
 			document.getType(), document.getVersion(), document.getTitle(),
-			document.getContent(), document.getSummary(), document.getEffectiveAt()
+			document.getContent(), document.getSummary(), document.getEffectiveAt(),
+			document.isRequiresConsent()
 		);
 	}
 }

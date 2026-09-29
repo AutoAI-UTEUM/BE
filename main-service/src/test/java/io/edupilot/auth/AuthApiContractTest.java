@@ -158,7 +158,7 @@ class AuthApiContractTest {
 					org.mockito.ArgumentMatchers.eq(type), any(Instant.class)))
 				.thenReturn(Optional.of(PolicyDocument.create(
 					type, "0.9", type.name(), "draft", null,
-					Instant.EPOCH, 0L, Instant.EPOCH)));
+					type == PolicyType.TERMS, Instant.EPOCH, 0L, Instant.EPOCH)));
 			when(policyConsentRepository.existsByUser_IdAndPolicyTypeAndPolicyVersion(
 				org.mockito.ArgumentMatchers.eq(1L),
 				org.mockito.ArgumentMatchers.eq(type),
@@ -388,7 +388,7 @@ class AuthApiContractTest {
 
 		for (String consentFields : java.util.List.of(
 			"\"consents\":[{\"type\":\"TERMS\",\"version\":\"1.0\"},{\"type\":\"PRIVACY\",\"version\":\"1.0\"}]",
-			"\"consents\":[{\"type\":\"TERMS\",\"version\":\"0.9\"}]"
+			"\"consents\":[{\"type\":\"PRIVACY\",\"version\":\"0.9\"}]"
 		)) {
 			mockMvc.perform(post("/api/auth/signup")
 					.contentType(MediaType.APPLICATION_JSON)

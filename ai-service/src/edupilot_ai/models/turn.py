@@ -3,9 +3,10 @@
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import Field, PrivateAttr, field_validator, model_validator
+from pydantic import Field, PrivateAttr, StrictBool, field_validator, model_validator
 
 from edupilot_ai.models.base import ContractModel, Usage
+from edupilot_ai.models.page_quiz_plan import PageQuizDecision
 from edupilot_ai.models.quiz import QuizGeneration, QuizType
 
 
@@ -126,6 +127,14 @@ class QuizContextPage(ContractModel):
 class QuizContext(ContractModel):
     coverage: QuizContextCoverage
     pages: list[QuizContextPage] = Field(min_length=1)
+    learning_focus: str | None = Field(default=None, min_length=1, max_length=1000)
+
+    @field_validator("learning_focus")
+    @classmethod
+    def require_learning_focus(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("learningFocus must not be blank")
+        return value
 
     @model_validator(mode="after")
     def validate_pages_cover_range(self) -> QuizContext:
@@ -152,6 +161,7 @@ class ContextSnapshot(ContractModel):
     latest_repair: dict[str, Any] | str | None
     memory: MemoryContext
     quiz_context: QuizContext | None = None
+    page_quiz_decision: PageQuizDecision | None = None
 
     @field_validator("xai_file_id")
     @classmethod
@@ -164,15 +174,30 @@ class ContextSnapshot(ContractModel):
         return normalized
 
 
+class TurnCapabilities(ContractModel):
+    """Spring opts in only after supporting the corresponding response paths."""
+
+    qa_quiz_proposal: StrictBool = False
+    quiz_question_stream: StrictBool = False
+
+
 class TurnRequest(ContractModel):
     schema_version: Literal["1.0"]
     turn_id: str = Field(min_length=1)
     session: SessionSnapshot
     event: TurnEvent
     context: ContextSnapshot
+    capabilities: TurnCapabilities = Field(default_factory=TurnCapabilities)
 
     @model_validator(mode="after")
     def validate_page_context(self) -> TurnRequest:
+        decision = self.context.page_quiz_decision
+        if decision is not None and decision.page_number != self.session.current_page:
+            raise ValueError("pageQuizDecision must match session.currentPage")
+        if self.capabilities.quiz_question_stream and (
+            self.event.event_type is not EventType.QUIZ_TYPE_SELECTED
+        ):
+            raise ValueError("quizQuestionStream is allowed only for QUIZ_TYPE_SELECTED")
         if self.context.current_page_text is None and not (
             self.event.event_type is EventType.USER_QUESTION
             and self.event.payload.include_current_page is False

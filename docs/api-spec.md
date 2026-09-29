@@ -221,7 +221,7 @@
 
 `role`은 필수이며 공개 가입에서는 `LEARNER | INSTRUCTOR`만 허용합니다. `ADMIN`, 기존 `USER`, 알 수 없는 enum 값은 요청 오류로 거부합니다. `ADMIN` 계정은 운영상 필요한 경우에만 DB에서 수동 설정합니다(DEC-017, DEC-029 Accepted).
 
-`affiliation`은 선택이며 공백을 제거한 뒤 최대 100자입니다. `learningEmailOptIn`은 생략 시 `false`입니다. 가입 동의 필수 여부는 `edupilot.policy.signup-consent-required`(환경변수 `EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED`, 기본 `false`)로 제어합니다. `false`일 때 `consents` 생략·빈 배열은 가입을 허용하며 동의 이력을 만들지 않습니다. 배열을 보내면 `GET /api/policies/current`가 반환한 `TERMS`와 `PRIVACY`의 현재 버전을 정확히 한 번씩 보내야 하며, 동의 버전·시각·IP·User-Agent를 가입 트랜잭션에서 저장합니다. `true`일 때는 배열도 필수입니다. 제출한 배열의 누락·중복·버전 불일치는 `POLICY_CONSENT_REQUIRED`(400)입니다. V48 시드 `0.9`는 **법무 검토 전 초안**이며, 문구 `1.0` 확정과 FE 동의 화면 연동 후 필수 설정을 켭니다.
+`affiliation`은 선택이며 공백을 제거한 뒤 최대 100자입니다. `learningEmailOptIn`은 생략 시 `false`입니다. 가입 동의 필수 여부는 `edupilot.policy.signup-consent-required`(환경변수 `EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED`, 기본 `false`)로 제어합니다. `false`일 때 `consents` 생략·빈 배열은 가입을 허용하며 동의 이력을 만들지 않습니다. 배열을 보내면 `GET /api/policies/current` 중 `requiresConsent=true`인 현재 버전을 정확히 한 번씩 보내야 하며, 동의 버전·시각·IP·User-Agent를 가입 트랜잭션에서 저장합니다. `true`일 때는 해당 문서가 하나 이상 게시되어 있어야 하고 배열도 필수입니다. 누락·중복·버전 불일치는 `POLICY_CONSENT_REQUIRED`(400)입니다. `requiresConsent=false`인 공개 문서를 과도기 FE가 함께 보내면 가입 검증에서는 무시합니다. V48 시드 `0.9`는 **법무 검토 전 초안**이며 V49에서 동의 비대상으로 명시합니다.
 
 비밀번호 정책(확정): **8~64자, 영문·숫자 각 1자 이상 포함**(특수문자 허용). 위반 시 `VALIDATION_FAILED` + `details: [{ "field": "password", "reason": "..." }]`.
 
@@ -319,16 +319,13 @@ Google ID 토큰을 검증해 기존 계정으로 로그인하거나 신규 계�
 {
   "idToken": "google-id-token",
   "role": "LEARNER",
-  "consents": [
-    {"type": "TERMS", "version": "0.9"},
-    {"type": "PRIVACY", "version": "0.9"}
-  ],
+  "consents": [{"type": "TERMS", "version": "1.0"}],
   "learningEmailOptIn": true,
   "affiliation": "EduPilot University"
 }
 ```
 
-- 신규 가입의 `role`은 `LEARNER | INSTRUCTOR`입니다. `consents` 필수 여부는 일반 가입과 같은 `edupilot.policy.signup-consent-required` 설정을 따릅니다. 배열을 보내면 현재 `TERMS | PRIVACY` 버전이 모두 필요합니다. 기존 계정 로그인·연동에는 재전송하지 않아도 되며, 응답의 `pendingConsents`가 재동의 필요 여부를 나타냅니다.
+- 신규 가입의 `role`은 `LEARNER | INSTRUCTOR`입니다. `consents` 필수 여부는 일반 가입과 같은 설정을 따르며 현재 `requiresConsent=true`인 버전만 보냅니다. 기존 계정 로그인·연동에는 재전송하지 않아도 되며, 응답의 `pendingConsents`가 재동의 필요 여부를 나타냅니다.
 - Google ID 토큰은 서버가 Google tokeninfo 응답의 audience, issuer, 이메일 검증 여부를 확인합니다. 검증 실패·Google 통신 실패는 `TOKEN_INVALID`(401)로 통일합니다.
 - 서버에 Google Client ID가 설정되지 않은 경우 기동은 허용하지만 요청은 `VALIDATION_FAILED`(400)로 거부하고 설정 오류만 서버 로그에 기록합니다.
 - Google 최초 가입 계정의 비밀번호 sentinel은 일반 비밀번호 검증을 통과하지 않으므로 비밀번호 로그인은 `INVALID_CREDENTIALS`입니다.
@@ -336,11 +333,12 @@ Google ID 토큰을 검증해 기존 계정으로 로그인하거나 신규 계�
 
 ### 정책 버전·동의 (#415)
 
-- 공개 `GET /api/policies/current`: `data`는 `[{"type":"TERMS","version":"0.9","title":"...","effectiveAt":"2026-09-25T00:00:00Z","summary":"..."}, ...]`입니다. 각 유형에서 `effectiveAt <= 현재 시각`인 가장 최근 버전만 반환하며 본문은 포함하지 않습니다.
-- 공개 `GET /api/policies/{type}/{version}`: 위 메타데이터와 `content`를 반환합니다. 유형은 `TERMS | PRIVACY`; 없는 버전은 `POLICY_NOT_FOUND`(404)입니다.
-- 인증 `GET /api/users/me/consents`: `data`는 `{"pending":[{"type":"TERMS","version":"1.0","title":"..."}],"agreed":[{"type":"TERMS","version":"0.9","agreedAt":"2026-09-25T00:00:00Z"}]}` 형태입니다. `pending`은 현재 유효 버전 중 미동의만, `agreed`는 과거 버전을 포함한 전체 이력입니다.
+- 공개 `GET /api/policies/current`: `data`는 `[{"type":"TERMS","version":"1.0","title":"...","effectiveAt":"...","summary":"...","requiresConsent":true}, ...]`입니다. 각 유형에서 `effectiveAt <= 현재 시각`인 가장 최근 버전만 반환하며 본문은 포함하지 않습니다.
+- 공개 `GET /api/policies/{type}/{version}`: 위 메타데이터와 `content`를 반환합니다. `requiresConsent`는 문서 공개 여부와 별개로 명시적 동의가 필요한지를 뜻합니다. 유형은 `TERMS | PRIVACY`; 없는 버전은 `POLICY_NOT_FOUND`(404)입니다.
+- 인증 `GET /api/users/me/consents`: `data`는 `{"pending":[{"type":"TERMS","version":"1.0","title":"..."}],"agreed":[{"type":"TERMS","version":"0.9","agreedAt":"2026-09-25T00:00:00Z"}]}` 형태입니다. `pending`은 현재 유효한 `requiresConsent=true` 버전 중 미동의만, `agreed`는 과거 버전을 포함한 전체 이력입니다.
 - 인증 `POST /api/users/me/consents`: 요청 `{"consents":[{"type":"TERMS","version":"1.0"}]}`. 현재 유효 버전만 허용하고 다른 버전은 `POLICY_VERSION_MISMATCH`(400)입니다. 이미 저장된 `(user,type,version)`은 건너뛰며 성공 응답은 GET과 동일합니다. IP·User-Agent(최대 255자)를 이력에 남기고 기존 이력은 수정·삭제하지 않습니다.
 - 미동의 상태에서도 인증 및 일반 API는 정상 처리됩니다. FE 게이팅만 범위에 포함되며 서버 강제 차단은 후속 정책 결정 사항입니다.
+- 관리자 게시 요청은 `requiresConsent`를 반드시 의도에 맞게 지정합니다. 이용약관은 보통 `true`, 개인정보 처리방침과 단순 고지는 `false`입니다.
 
 ### POST `/api/auth/password-reset/request`
 
@@ -2525,9 +2523,9 @@ evidence는 결과가 참조한 항목만 `evidenceId`, `sourceType`, `publicLab
 
 ### 관리자 정책 버전 (#415)
 
-- `POST /api/admin/policies`: `{"type":"TERMS","version":"1.0","title":"...","content":"...","summary":"변경 요약","effectiveAt":"2026-10-01T00:00:00Z"}`. `effectiveAt`은 등록 시각보다 미래여야 합니다. 성공 시 전체 문서 DTO를 반환하며 `@AdminAction("POLICY_PUBLISHED")`로 감사합니다. 같은 유형·버전은 `POLICY_VERSION_EXISTS`(409), 과거 시행 시각은 `VALIDATION_FAILED`(400)입니다. 등록 후 수정·삭제 API는 없습니다.
+- `POST /api/admin/policies`: `{"type":"TERMS","version":"1.0","title":"...","content":"...","summary":"변경 요약","requiresConsent":true,"effectiveAt":"2026-10-01T00:00:00Z"}`. `requiresConsent`는 해당 버전에 명시적 동의가 필요한지를 나타내며 생략 시 `false`입니다. 이용약관은 법률 검토 후 `true`, 개인정보 처리방침은 공개 고지 문서이므로 통상 `false`로 등록합니다. `effectiveAt`은 등록 시각보다 미래여야 합니다. 성공 시 전체 문서 DTO를 반환하며 `@AdminAction("POLICY_PUBLISHED")`로 감사합니다. 같은 유형·버전은 `POLICY_VERSION_EXISTS`(409), 과거 시행 시각은 `VALIDATION_FAILED`(400)입니다. 등록 후 수정·삭제 API는 없습니다.
 - `GET /api/admin/policies?type=TERMS`: 유형 필터는 선택이며 모든 버전의 메타데이터 목록을 시행 시각 역순으로 반환합니다.
-- `GET /api/admin/policies/consent-stats`: 현재 유효 버전별 `[{"type":"TERMS","version":"1.0","activeUsers":100,"agreedUsers":65,"consentRatePercent":65.00}]`. 분모는 활성 사용자 수, 분자는 해당 유형·현재 버전에 동의한 활성 사용자 수입니다. 현재 유효 문서가 없는 유형은 목록에서 빠집니다.
+- `GET /api/admin/policies/consent-stats`: 현재 유효한 `requiresConsent=true` 버전별 `[{"type":"TERMS","version":"1.0","activeUsers":100,"agreedUsers":65,"consentRatePercent":65.00}]`. 분모는 활성 사용자 수, 분자는 해당 유형·현재 버전에 동의한 활성 사용자 수입니다. 현재 유효한 동의 대상 문서가 없는 유형은 목록에서 빠집니다.
 
 ### GET `/api/admin/users?q=&role=&status=&sort=&page=&size=`
 
@@ -2931,6 +2929,12 @@ prod에서 메일 provider가 `logging`이면 기동을 거부하며, `EDUPILOT_
 
 ## 8. Spring → FastAPI 내부 API
 
+> 2026-09-29 연동 초안(DEC-041): AI에서 개요 `includePageQuizPlan`/`pageQuizPlan`,
+> 턴 `context.pageQuizDecision`·`quizContext.learningFocus`와 opt-in `capabilities`를
+> 구현했다. 기존 호출자는 필드를 보내지 않아도 된다. 새 통합학습 퀴즈 생성은 5문항이다.
+> QA 위젯 수용·계획 저장·문항 미리보기 SSE 매핑은 **Spring·FE 미구현/합의 대기**이며
+> 이 문서의 기존 외부 API 계약을 변경한 것이 아니다. [필드·책임·활성화 순서](ai-quiz-latency-handoff.md).
+
 ### 호출 주체 원칙 (하이브리드)
 
 - **자유 학습 턴**(질문, 설명 요청, 퀴즈 유형 선택, 진단 답변, 교정 후 질문): Spring은 어떤 AI 에이전트를 쓸지 판단하지 않고 `/internal/ai/turn` 단일 진입점으로 이벤트와 스냅샷을 전달합니다. 에이전트 선택은 FastAPI Orchestrator의 책임입니다. 오개념 교정(RepairAgent)과 메모리 후보 생성·승격도 turn 내부 도구로 실행합니다.
@@ -3081,6 +3085,14 @@ AI 응답 스트리밍은 SSE를 기본 전송 방식으로 사용합니다. 이
   `Cache-Control: no-cache`, `X-Accel-Buffering: no`.
 - 세션당 활성 스트림은 하나입니다. 실행 중 중복 연결은
   `TURN_IN_PROGRESS(409)`입니다.
+- 같은 세션의 idle 연결 교체와 턴 시작은 원자적으로 결정합니다. 턴 시작이
+  먼저 확정되면 기존 연결을 유지하고 새 연결은 409로 거부합니다. 교체가 먼저
+  확정되면 ready 전송을 마친 새 연결을 사용하며, 준비 중이거나 ready 전송에
+  실패한 연결에는 AI 스트림을 붙이지 않고 기존 JSON fallback을 적용합니다.
+- `connectionId`는 BE 내부 로그 식별자이며 ready payload·TurnRequest에는
+  추가하지 않습니다. ready **전송** 로그는 FE의 ready **수신** 증거가 아니므로,
+  FE는 현재 연결 시도의 ready를 파싱한 뒤 POST를 보내고 이전 연결 callback이
+  새 연결 상태를 바꾸지 않게 해야 합니다.
 - heartbeat: 다른 이벤트가 없으면 10초마다 `:heartbeat` comment를
   전송합니다. `event`와 `data`가 없으며 FE는 무시합니다.
 - `Last-Event-ID` replay와 SSE `id` 필드는 지원하지 않습니다. 재연결 시
@@ -3157,6 +3169,10 @@ data: {"code":"AI_SERVICE_TIMEOUT","category":"TIMEOUT","message":"AI 서비스 
 - 내부 completed 전체 검증과 메시지·상태 저장 트랜잭션 커밋 후
   `[ui_action] → completed → 종료` 순서로 외부 terminal을 전송합니다.
 - 내부 completed 응답 검증이 끝나면 SSE cancellation 상태와 무관하게 저장합니다. 저장 커밋 후 외부 `completed` 전송이 실패해도 저장된 턴을 실패 처리하지 않고 FE의 세션·메시지 복원 경로로 수렴합니다.
+- 종료 원인은 첫 종료 전이에서 고정하고, 이후 emitter callback이 덮어쓰지
+  않습니다. terminal 전달 실패는 별도 `deliveryResult`로 기록합니다.
+  연결·요청·AI 시도 상관 필드와 경합 검증 결과는
+  [SSE 수명 주기·경합 검증 기록 (#443)](sse-lifecycle-race-443.md)을 참고합니다.
 - error, terminal 전 EOF, schema 오류, 저장 실패에는 completed를 보내지
   않으며 중간 content는 확정 메시지로 저장하지 않습니다. 단, 명시적인 사용자
   취소는 누적 content가 있으면 validator와 일반 상태 반영을 건너뛰고 텍스트만

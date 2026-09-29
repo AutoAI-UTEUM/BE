@@ -1,5 +1,6 @@
 package io.edupilot.material;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.edupilot.ai.AiClient;
@@ -41,7 +43,8 @@ class MaterialOutlineGenerationServiceTest {
 			persistenceService,
 			renderer,
 			aiClient,
-			aiUsageService
+			aiUsageService,
+			new PageQuizPlanProperties(false)
 		);
 	}
 
@@ -68,6 +71,88 @@ class MaterialOutlineGenerationServiceTest {
 			response.usage(),
 			true
 		);
+	}
+
+	@Test
+	void disabledPlanFlagOmitsRequestFieldAndUnexpectedResponsePlan() {
+		OutlineSnapshot snapshot = snapshot();
+		OutlineResponse response = responseWithPlan();
+		when(persistenceService.snapshot(10L)).thenReturn(Optional.of(snapshot));
+		when(aiClient.outline(request(snapshot))).thenReturn(response);
+		when(renderer.render(response.withoutPageQuizPlan()))
+			.thenReturn("rendered markdown");
+
+		generationService.generate(10L);
+
+		ArgumentCaptor<OutlineRequest> sent = ArgumentCaptor.forClass(
+			OutlineRequest.class);
+		verify(aiClient).outline(sent.capture());
+		assertThat(sent.getValue().includePageQuizPlan()).isNull();
+		verify(persistenceService).markReady(10L, "rendered markdown",
+			response.withoutPageQuizPlan());
+	}
+
+	@Test
+	void enabledPlanFlagSendsAllPagesAndStoresDecision() {
+		generationService = new MaterialOutlineGenerationService(
+			persistenceService, renderer, aiClient, aiUsageService,
+			new PageQuizPlanProperties(true));
+		OutlineSnapshot snapshot = snapshot();
+		OutlineRequest request = new OutlineRequest("1.0", snapshot.xaiFileId(),
+			2, snapshot.pages(), true);
+		OutlineResponse response = responseWithPlan();
+		when(persistenceService.snapshot(10L)).thenReturn(Optional.of(snapshot));
+		when(aiClient.outline(request)).thenReturn(response);
+		when(renderer.render(response)).thenReturn("rendered markdown");
+
+		generationService.generate(10L);
+
+		verify(aiClient).outline(request);
+		verify(persistenceService).markReady(10L, "rendered markdown", response);
+	}
+
+	@Test
+	void incompletePagesDoNotRequestPlanEvenWhenEnabled() {
+		generationService = new MaterialOutlineGenerationService(
+			persistenceService, renderer, aiClient, aiUsageService,
+			new PageQuizPlanProperties(true));
+		OutlineSnapshot incomplete = new OutlineSnapshot(1L, 2,
+			"file-outline-phase-five", List.of(new OutlineRequest.Page(1, "첫 페이지")));
+		OutlineRequest request = request(incomplete);
+		OutlineResponse response = response();
+		when(persistenceService.snapshot(10L)).thenReturn(Optional.of(incomplete));
+		when(aiClient.outline(request)).thenReturn(response);
+		when(renderer.render(response)).thenReturn("rendered markdown");
+
+		generationService.generate(10L);
+
+		verify(aiClient).outline(request);
+		verify(persistenceService).markReady(10L, "rendered markdown", response);
+	}
+
+	@Test
+	void invalidPlanStillStoresReadyOverviewWithoutPlan() {
+		generationService = new MaterialOutlineGenerationService(
+			persistenceService, renderer, aiClient, aiUsageService,
+			new PageQuizPlanProperties(true));
+		OutlineSnapshot snapshot = snapshot();
+		OutlineRequest request = new OutlineRequest("1.0", snapshot.xaiFileId(),
+			2, snapshot.pages(), true);
+		OutlineResponse base = response();
+		OutlineResponse invalidPlan = new OutlineResponse(
+			base.schemaVersion(), base.materialSummary(), base.sections(),
+			base.quizCheckpoints(), List.of(
+				new OutlineResponse.PageQuizPlan(1, false, "표지")
+			), 2, base.usage());
+		when(persistenceService.snapshot(10L)).thenReturn(Optional.of(snapshot));
+		when(aiClient.outline(request)).thenReturn(invalidPlan);
+		when(renderer.render(invalidPlan)).thenReturn("rendered markdown");
+
+		generationService.generate(10L);
+
+		assertThat(invalidPlan.pageQuizPlan()).isNull();
+		verify(persistenceService).markReady(10L, "rendered markdown", invalidPlan);
+		verify(persistenceService, never()).markFailed(10L);
 	}
 
 	@ParameterizedTest
@@ -170,5 +255,14 @@ class MaterialOutlineGenerationServiceTest {
 			2,
 			new AiUsage("grok-outline", 30L, 12L, 4L)
 		);
+	}
+
+	private OutlineResponse responseWithPlan() {
+		OutlineResponse base = response();
+		return new OutlineResponse(base.schemaVersion(), base.materialSummary(),
+			base.sections(), base.quizCheckpoints(), List.of(
+				new OutlineResponse.PageQuizPlan(1, false, "표지"),
+				new OutlineResponse.PageQuizPlan(2, true, "핵심 개념")
+			), base.totalPages(), base.usage());
 	}
 }

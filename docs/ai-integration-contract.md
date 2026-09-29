@@ -74,6 +74,24 @@
 
 ### 3.1 요청 (api-spec §8 최소 구조 기준)
 
+> 2026-09-29 AI 구현·연동 초안(DEC-041, 활성화 전 합의 필요): 선택
+> `context.pageQuizDecision={pageNumber,suggestQuiz,reason}`, `context.quizContext.learningFocus`,
+> 최상위 `capabilities={qaQuizProposal:false,quizQuestionStream:false}`를 수용한다.
+> 필드 부재 시 기존 경로다. 계획은 현재 페이지와 일치해야 하며, 스트림 capability는
+> `QUIZ_TYPE_SELECTED`에만 허용한다. [상세·배포 게이트](ai-quiz-latency-handoff.md).
+
+Spring의 `edupilot.ai.page-quiz-plan.enabled`는 기본 `false`다. 활성화 후에도 현재
+자료의 READY 개요에 전 페이지 계획이 있고 자료가 ACTIVE·READY이며 개요 페이지 수가
+세션 자료 페이지 수와 일치할 때만 요청 스냅샷에 **현재 페이지 한 건**의
+`context.pageQuizDecision`을 넣는다. 해당 페이지 번호가 다르거나 현재 페이지를
+포함하지 않는 질문이면 필드를 완전히 생략한다(`null`·`suggestQuiz=false` 대체 금지).
+스냅샷은 AI 호출·재시도 동안 고정하고 저장 시점 DB 상태로 다시 계산하지 않는다.
+이 단계는 `capabilities`를 보내지 않는다. TURN 사용량의 `quizDecisionSource=PLAN`
+은 해당 필드 전달, `PLANNER`는 미전달을 뜻하며 실제 Planner 호출 횟수의 확증은
+AI의 `planSource`·`plannerAttempts` 로그로 확인한다.
+AI 구버전은 새 필드를 거부할 수 있으므로 DEC-041 합의 및 AI 수용 버전 배포를
+확인한 뒤 dev에서 먼저 활성화하고, prod 플래그는 별도 검증 후 켠다.
+
 ```json
 {
   "schemaVersion": "1.0",
@@ -184,6 +202,11 @@
   [API 명세](api-spec.md) §5 규칙표에 따라 생성합니다.
 
 ### 3.3.1 uiActions allowlist (`quizProposal`, `moveNextPage`, `noteProposal`)
+
+> DEC-041 연동 초안: 아래 기본 설명 제안과 별도로 `capabilities.qaQuizProposal=true`인
+> USER_QUESTION에서 ANSWER_QUESTION 뒤 동일 exact 퀴즈 제안을 허용하는 AI 경로가 있다.
+> Spring의 QA/FOLLOW_UP 완료 allowlist·세션 상태 게이트 지원 전에는 옵션을 보내지 않는다.
+> 사전 false는 대화 기반 추가 제안을 금지하지 않으며, 실제 생성은 사용자 동의 이후다.
 
 PDF가 첨부된 `EXPLAIN_CURRENT_PAGE` Plan에서 현재 페이지가 전체 학습 흐름의 의미 있는
 개념·가정·모델·공식 해석·예제 단위를 독립적으로 점검할 수 있게 도입하거나 완성하면
@@ -354,7 +377,11 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 | `application/x-ndjson` 포함 | HTTP 200 `application/x-ndjson`, 한 줄에 JSON 이벤트 1개 |
 | 미지정 또는 그 외 | 기존 §3.3 `TurnResponse` JSON — Spring #24 비스트리밍 경로 유지 |
 
-내부 NDJSON 이벤트는 다음 6종입니다.
+기본 내부 NDJSON 이벤트는 다음 6종입니다. DEC-041의 명시적
+`capabilities.quizQuestionStream=true` + `QUIZ_TYPE_SELECTED` + NDJSON에만 임시
+`quiz_question`을 추가하는 AI 구현이 있다. Spring·FE 수용 전 이 옵션을 보내지 않는다.
+문항의 공개 필드만 미리 보내며 최종 completed 전 저장·제출하지 않는다.
+오류·연결 중단 시 임시 문항은 폐기한다. [이벤트 구조 및 연동 경계](ai-quiz-latency-handoff.md#4-문항-선전달-외부-표시-준비가-된-뒤-활성화).
 
 | type | 필드 | 설명 |
 | --- | --- | --- |
@@ -378,8 +405,15 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 
 ### 5.2 LLM 호출과 시간 예산
 
+DEC-041 opt-in QuizAgent는 기존 text stream에서 JSON 객체 하나를 받아 완성 문항을
+검증·공개 DTO로 투영한다. 원시 delta는 외부로 보내지 않으며 전체 완성본도 재검증한다.
+현재는 provider 구조화 스트림 강제가 아닌 프롬프트+파서 방식이므로 실 xAI 형식 준수율을
+확인한 뒤 활성화한다. 아래 여섯 이벤트 기본 경로의 설명·QA 동작은 그대로다.
+
 - Orchestrator Plan은 기존 `response_format=json_schema` 비스트리밍 호출을
   유지합니다.
+  DEC-041 사전 계획이 있는 설명은 판단 신호가 없으면 Plan 합성으로 생략하고,
+  평가·진단·교정·QA·메모리 판단이 남으면 축약 문맥 Planner를 유지하되 PDF 재첨부는 생략합니다.
 - ExplainerAgent·QaAgent만 스트리밍 모드에서 `response_format` 없이 순수
   Markdown을 요청하고 xAI Chat Completions SSE(`stream=true`)의 본문 delta를
   `content_delta`로 변환합니다.
@@ -449,7 +483,7 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
   Spring은 공개/비공개 필드를 분리 저장하고 자체 발급한 `activeQuizId`만 외부
   상태에 반영합니다. AI Service는 `activeQuizId` statePatch를 만들지 않습니다.
 - 퀴즈 공통 스키마: `generationId`, `quizType(MCQ|OX|SHORT|ESSAY)`,
-  `coverage{startPage,endPage}`, `title`, `questionCount(5~10)`,
+  `coverage{startPage,endPage}`, `title`, `questionCount(저장·수신 호환 5~10, 새 통합학습 생성은 정확히 5)`,
   `questions[]`. 문항 공통 공개 필드는 `questionId`, `questionText`,
   `points`입니다. `questionCount`는 `questions` 길이와 같아야 합니다.
 - 유형별 필드: MCQ는 공개 `choices[]{choiceId,text}`와 비공개
@@ -567,6 +601,22 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 - Main의 전용 read timeout은 120초입니다. 정답·해설을 포함하므로 외부 API는 소유 강사에게만 노출합니다.
 
 ### 6.6 POST /internal/ai/outline
+
+- DEC-041 선택 연동 초안: `includePageQuizPlan=true` 요청은 전 페이지를 요구하며,
+  응답에 `pageQuizPlan[{pageNumber,suggestQuiz,reason}]`을 추가한다. 1..totalPages가
+  순서대로 정확히 한 번 있어야 하고 section/checkpoint 끝 페이지로 제한하지 않는다.
+  false/생략 요청에서는 새 응답 필드를 생략한다. 저장 버전·백필·활성화는
+  [Spring 인계 초안](ai-quiz-latency-handoff.md#2-사전-계획-섹션-중간의-중요한-페이지도-포함)을 따른다.
+- Spring은 기능 플래그가 꺼져 있으면 `includePageQuizPlan`을 **생략**하고 계획을
+  저장·전달하지 않는다. 켜져 있어도 1..`totalPages` 전체 텍스트가 없으면 플래그를
+  보내지 않는다. 유효한 계획은 해당 자료의 `material_overviews.outline_json` 안에
+  개요와 함께 저장한다(별도 계획 테이블 없음). 누락·중복·순서·범위·reason 위반은
+  개요 실패가 아니라 계획만 absent로 강등하고 위반 유형만 WARN으로 남긴다.
+- 기존 ACTIVE·READY 자료의 계획 없는 READY 개요는 기존 bounded outline 백필의
+  남은 batch 슬롯에서 재생성한다. 실패·계획 부재 시 최소 24시간 후 다시 후보가
+  되며 기존 `quizCheckpoints` 백필 규칙은 유지한다. 계획이 없으면 턴은 기존 경로다.
+  새 자료 업로드는 새 material ID를 만들고, 개요를 재생성하면 같은 overview 행의
+  계획도 함께 교체한다. 삭제·미준비 자료 또는 페이지 수가 바뀐 개요의 계획은 보내지 않는다.
 
 - 요청: `{ "schemaVersion": "1.0", "xaiFileId": "file-...", "totalPages": 2, "pages": [{ "pageNumber": 1, "text": "..." }] }`. `xaiFileId`는 nullable이며 생략도 허용한다.
 - Spring은 `material_pages`에 저장된 전 페이지 텍스트와 자료의 nullable xAI file ID를 페이지 순서대로 전달하며 텍스트를 절단하지 않는다. 입력 길이 조절은 AI Service 책임이다. `pages[].pageNumber/text`는 범위·구조 앵커이고 첨부 PDF는 같은 범위의 제목·시각 세부 확인에만 사용한다.

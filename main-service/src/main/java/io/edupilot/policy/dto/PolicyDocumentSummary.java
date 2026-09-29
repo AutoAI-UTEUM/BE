@@ -6,12 +6,13 @@ import io.edupilot.policy.PolicyDocument;
 import io.edupilot.policy.PolicyType;
 
 public record PolicyDocumentSummary(
-	PolicyType type, String version, String title, Instant effectiveAt, String summary
+	PolicyType type, String version, String title, Instant effectiveAt, String summary,
+	boolean requiresConsent
 ) {
 	public static PolicyDocumentSummary from(PolicyDocument document) {
 		return new PolicyDocumentSummary(
 			document.getType(), document.getVersion(), document.getTitle(),
-			document.getEffectiveAt(), document.getSummary()
+			document.getEffectiveAt(), document.getSummary(), document.isRequiresConsent()
 		);
 	}
 }

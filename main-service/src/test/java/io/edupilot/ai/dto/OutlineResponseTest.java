@@ -25,6 +25,19 @@ class OutlineResponseTest {
 	private Logger logger;
 	private ListAppender<ILoggingEvent> appender;
 
+	@Test
+	void outlineRequestOmitsOptInUnlessEnabled() throws Exception {
+		OutlineRequest disabled = new OutlineRequest("1.0", null, 1,
+			List.of(new OutlineRequest.Page(1, "page")));
+		OutlineRequest enabled = new OutlineRequest("1.0", null, 1,
+			List.of(new OutlineRequest.Page(1, "page")), true);
+
+		assertThat(objectMapper.writeValueAsString(disabled))
+			.doesNotContain("includePageQuizPlan");
+		assertThat(objectMapper.writeValueAsString(enabled))
+			.contains("\"includePageQuizPlan\":true");
+	}
+
 	@BeforeEach
 	void attachAppender() {
 		logger = (Logger) LoggerFactory.getLogger(OutlineResponse.class);
@@ -85,7 +98,99 @@ class OutlineResponseTest {
 
 		assertThat(response.sections().getFirst().description()).isNull();
 		assertThat(response.quizCheckpoints()).isNull();
+		assertThat(response.pageQuizPlan()).isNull();
 		assertThat(appender.list).isEmpty();
+	}
+
+	@Test
+	void validPageQuizPlanSurvivesSerializationWithFalseDistinctFromAbsent()
+		throws Exception {
+		OutlineResponse response = objectMapper.readValue(
+			outlineWithPlan("""
+				[
+				  {"pageNumber":1,"suggestQuiz":false,"reason":"표지"},
+				  {"pageNumber":2,"suggestQuiz":true,"reason":"핵심 개념"},
+				  {"pageNumber":3,"suggestQuiz":false,"reason":"복습"}
+				]
+				"""), OutlineResponse.class);
+
+		assertThat(response.pageQuizPlan()).hasSize(3);
+		assertThat(response.pageQuizPlan().getFirst().suggestQuiz()).isFalse();
+		assertThat(response.pageQuizPlan().get(1).suggestQuiz()).isTrue();
+		assertThat(objectMapper.writeValueAsString(response))
+			.contains("\"pageQuizPlan\"")
+			.contains("\"suggestQuiz\":false");
+		assertThat(objectMapper.writeValueAsString(response.withoutPageQuizPlan()))
+			.doesNotContain("pageQuizPlan");
+		assertThat(appender.list).isEmpty();
+	}
+
+	@ParameterizedTest
+	@MethodSource("invalidPagePlans")
+	void invalidPagePlanDegradesOnlyPlanAndWarns(String plans,
+		String violationType) throws Exception {
+		OutlineResponse response = objectMapper.readValue(
+			outlineWithPlan(plans), OutlineResponse.class);
+
+		assertThat(response.pageQuizPlan()).isNull();
+		assertThat(response.quizCheckpoints()).hasSize(1);
+		assertThat(response.materialSummary()).isEqualTo("요약");
+		assertThat(appender.list).singleElement().satisfies(event -> {
+			assertThat(event.getLevel()).isEqualTo(Level.WARN);
+			assertThat(event.getFormattedMessage())
+				.isEqualTo("Ignored invalid outline page quiz plan")
+				.doesNotContain(plans);
+			assertThat(event.getKeyValuePairs())
+				.extracting(pair -> pair.key + "=" + pair.value)
+				.containsExactly("violationType=" + violationType);
+		});
+	}
+
+	private static Stream<Arguments> invalidPagePlans() {
+		return Stream.of(
+			Arguments.of("[]", "COUNT_MISMATCH"),
+			Arguments.of("[{\"pageNumber\":1,\"suggestQuiz\":true,"
+				+ "\"reason\":\"only one\"}]", "COUNT_MISMATCH"),
+			Arguments.of("""
+				[{"pageNumber":1,"suggestQuiz":true,"reason":"a"},
+				 {"pageNumber":1,"suggestQuiz":false,"reason":"b"},
+				 {"pageNumber":3,"suggestQuiz":true,"reason":"c"}]
+				""", "DUPLICATE_PAGE"),
+			Arguments.of("""
+				[{"pageNumber":2,"suggestQuiz":true,"reason":"a"},
+				 {"pageNumber":1,"suggestQuiz":false,"reason":"b"},
+				 {"pageNumber":3,"suggestQuiz":true,"reason":"c"}]
+				""", "ORDER_INVALID"),
+			Arguments.of("""
+				[{"pageNumber":1,"suggestQuiz":true,"reason":"a"},
+				 {"pageNumber":2,"suggestQuiz":false,"reason":"b"},
+				 {"pageNumber":4,"suggestQuiz":true,"reason":"c"}]
+				""", "OUT_OF_RANGE"),
+			Arguments.of("""
+				[{"pageNumber":1,"suggestQuiz":true,"reason":"a"},
+				 {"pageNumber":2,"suggestQuiz":null,"reason":"b"},
+				 {"pageNumber":3,"suggestQuiz":true,"reason":"c"}]
+				""", "MALFORMED"),
+			Arguments.of("""
+				[{"pageNumber":1,"suggestQuiz":true,"reason":"a"},
+				 {"pageNumber":2,"suggestQuiz":false,"reason":" "},
+				 {"pageNumber":3,"suggestQuiz":true,"reason":"c"}]
+				""", "MALFORMED"),
+			Arguments.of("""
+				[{"pageNumber":1,"suggestQuiz":true,"reason":"a"},
+				 {"pageNumber":2,"suggestQuiz":false,"reason":"%s"},
+				 {"pageNumber":3,"suggestQuiz":true,"reason":"c"}]
+				""".formatted("x".repeat(241)), "MALFORMED")
+		);
+	}
+
+	private String outlineWithPlan(String plans) {
+		return outlineJson("""
+			[{"triggerPage":2,"coverage":{"startPage":1,"endPage":2}}]
+			""").replace(
+			"\"totalPages\":3",
+			"\"pageQuizPlan\":" + plans + ",\"totalPages\":3"
+		);
 	}
 
 	@ParameterizedTest

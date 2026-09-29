@@ -13,6 +13,7 @@ public record PublishPolicyRequest(
 	@NotBlank @Size(max = 200) String title,
 	@NotBlank String content,
 	@Size(max = 1000) String summary,
+	boolean requiresConsent,
 	@NotNull Instant effectiveAt
 ) {
 }
