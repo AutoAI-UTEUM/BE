@@ -4,6 +4,7 @@ from typing import Literal
 
 from edupilot_ai.core.errors import ErrorCategory
 from edupilot_ai.models.base import ContractModel
+from edupilot_ai.models.quiz_preview import QuizQuestionStreamEvent
 from edupilot_ai.models.turn import TurnResponse
 
 
@@ -46,4 +47,5 @@ type TurnStreamEvent = (
     | HeartbeatStreamEvent
     | CompletedStreamEvent
     | ErrorStreamEvent
+    | QuizQuestionStreamEvent
 )

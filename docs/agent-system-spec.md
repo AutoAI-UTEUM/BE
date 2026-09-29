@@ -144,12 +144,14 @@ Grok(xAI) SDK/API 세부사항을 격리합니다. 모델 선택, 구조화 출�
 2. **StateReducer**: LLM 없이 가능한 상태 변경을 Spring이 먼저 처리합니다. 상태 변경 자체가 새 AI 턴을 의미하지는 않습니다.
 3. **컨텍스트 수집**: Spring 스냅샷을 기반으로 ContextBuilder가 필요한 문맥을 구성합니다.
 4. **Plan 생성**: Orchestrator가 이번 턴의 목적, 교수 정책, 액션을 결정합니다.
+   2026-09-29 선택 연동 초안(DEC-041): 개요 호출의 `includePageQuizPlan=true`로 모든 페이지의 기본 퀴즈 제안 여부를 AI가 사전 판단한다. Spring이 현재 페이지의 유효한 `pageQuizDecision`을 보내면 추가 판단 신호 없는 설명은 Plan을 합성하고, 평가·진단·교정·QA·메모리 판단이 남으면 PDF 재첨부 없이 경량 Planner를 유지한다. 일반/후속 질문의 추가 퀴즈는 `capabilities.qaQuizProposal=true`에서 기존 QA Planner가 별도로 판단하며, 사전 false가 이 제안을 막지 않는다. 합성·모델 Plan 모두 Policy를 거친다. 이하 기존 전체 PDF 런타임 판단은 계획 부재 시 폴백으로 유지한다.
    퀴즈 유형 선택과 결정적 안내처럼 이벤트→도구가 유일한 턴은 LLM 없이 Plan을 합성합니다. PDF가 첨부된 현재 페이지 설명은 예외로, Orchestrator가 전체 자료 흐름을 읽고 `EXPLAIN_PAGE` 뒤의 퀴즈 제안 필요 여부까지 같은 Plan에서 판단합니다. 합성·모델 Plan 모두 동일한 검증을 거칩니다.
    모델 Plan의 프롬프트는 공통 안전·메모리 규칙과 현재 이벤트 전용 도구 지시로 구성합니다. 다른 이벤트의 도구 설명만 생략하며, 자료·학습자 문맥과 퀴즈 제안 판단 기준·Policy 검증은 줄이지 않습니다.
    LLM의 내부 `PlannerOutput`에서 고정 에코 필드만 생략하고, Orchestrator가 기존 실행 `TurnPlan`으로 복원합니다. 목적·교수 정책·도구 선택과 순서·퀴즈/노트/메모리 판단은 모델이 유지하며, 복원한 Plan도 아래의 동일한 Policy 검증을 통과해야 합니다.
 5. **Plan 검증**: Policy/Verifier가 스키마, 허용 도구, 현재 상태, 교수 정책을 검사합니다.
 6. **도구 실행**: ToolDispatcher가 검증된 전문 에이전트/서비스를 실행합니다.
 7. **결과 수집**: 메시지, 퀴즈, 채점, 진단 등 결과를 표준 DTO로 수집합니다.
+   새 통합학습 퀴즈는 정확히 5문항을 생성한다(기존 저장 모델·시험 초안 무변경). DEC-041 opt-in 문항 선전달은 완성·검증한 문항의 공개 필드만 임시 발행하며, 전체 퀴즈 성공 전 저장·제출하지 않는다. 기존 호출자에는 새 이벤트가 없다. Spring·FE 연동 및 실 xAI 품질 검증은 [인계 문서](ai-quiz-latency-handoff.md)의 활성화 게이트를 따른다.
 8. **런타임 상태 패치**: 설명 완료, 진단 대기 등 허용된 `statePatch`를 만듭니다.
 9. **턴 결과 정리**: 사용자 입력, 에이전트 메시지, UI 액션, 실행 이력을 합칩니다.
 10. **요약/평가 handoff**: 대화 문맥은 최근 메시지·QA thread digest와 비동기 `conversationSummary`로, 퀴즈 결과는 별도 QuizResultLog/Assessment로 정리합니다. 최근 원문은 유지하고 퀴즈 원본·점수·평가 상태는 대화 요약에 넣지 않습니다.

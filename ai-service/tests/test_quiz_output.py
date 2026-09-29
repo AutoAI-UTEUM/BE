@@ -25,7 +25,8 @@ def test_selected_type_only_schema_is_smaller_and_preserves_wire(quiz_type: Quiz
     assert issubclass(model, QuizGeneration)
     assert model is quiz_output_model(quiz_type)
     assert schema["properties"]["quizType"]["const"] == quiz_type.value
-    assert questions["minItems"] == 5 and questions["maxItems"] == 10
+    assert questions["minItems"] == 5 and questions["maxItems"] == 5
+    assert schema["properties"]["questionCount"]["const"] == 5
     assert "anyOf" not in questions["items"]
     assert len(_QUESTION_NAMES & set(schema["$defs"])) == 1
     assert len(json.dumps(schema)) < len(json.dumps(original_schema))
@@ -129,7 +130,7 @@ async def test_quiz_generation_still_calls_once_with_same_evidence_and_output(
     assert fake_llm.file_attachments[0][0].file_id == "file-quiz-test"
     messages, _ = fake_llm.calls[0]
     system = messages[0]["content"]
-    assert isinstance(system, str) and "문항은 5~10개" in system
+    assert isinstance(system, str) and "문항은 정확히 5개" in system
     assert "응용 문항을 포함하라" in system
     user = messages[1]["content"]
     assert isinstance(user, str)

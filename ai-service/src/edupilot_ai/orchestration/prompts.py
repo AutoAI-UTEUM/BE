@@ -125,15 +125,54 @@ def plan_messages(
         "every candidate confidence is at least 0.7 and their unique evidenceRefs total "
         "at least 2."
     )
+    event_instruction = _PLAN_EVENT_INSTRUCTIONS[context.event_type]
+    if (
+        context.event_type is EventType.EXPLAIN_CURRENT_PAGE
+        and context.page_quiz_decision is not None
+    ):
+        event_instruction = (
+            "EXPLAIN_CURRENT_PAGE->EXPLAIN_PAGE={} first, optionally followed by "
+            "PROMPT_BINARY_DECISION={}. The server restores page/detailLevel and fixed "
+            "quiz proposal args. The material's quiz placement is already decided in "
+            "pageQuizDecision; evaluate only current learner signals and memory decisions. "
+            "Do not require a PDF attachment or repeat whole-material analysis. "
+            "On re-explanation (pageStatus other than NOT_EXPLAINED), do not offer "
+            "the default quiz again. Set proposeNote=false."
+        )
     system = " ".join(
         (
             ATTACHED_DATA_INJECTION_DEFENSE,
             common_instruction,
-            _PLAN_EVENT_INSTRUCTIONS[context.event_type],
+            event_instruction,
             memory_instruction,
         )
     )
-    if context.event_type is not EventType.EXPLAIN_CURRENT_PAGE:
+    qa_proposal_enabled = (
+        context.event_type is EventType.USER_QUESTION and context.qa_quiz_proposal_enabled
+    )
+    if qa_proposal_enabled:
+        system += (
+            " USER_QUESTION may add exactly one PROMPT_BINARY_DECISION={} immediately "
+            "after ANSWER_QUESTION when the learner's question or repeated follow-ups show "
+            "that a short applied knowledge check would help resolve a concrete confusion. "
+            "This is a proposal only, never generate a quiz in this turn. Do not propose "
+            "for every question, a simple fact lookup, a page redirect or a note request. "
+            "Require current page evidence; when includeCurrentPage=false do not propose. "
+            "A pageQuizDecision with suggestQuiz=false does not forbid a conversation-based "
+            "proposal. Respect learner refusal in recentMessages and do not repeatedly offer "
+            "the same check. With a quiz proposal set proposeNote=false and allow enough "
+            "interventionBudget for both actions. Fixed prompt args are restored by the server."
+        )
+    if context.page_quiz_decision is not None and (
+        context.event_type is EventType.EXPLAIN_CURRENT_PAGE
+    ):
+        system += (
+            " pageQuizDecision is the material-level default for this exact page. "
+            "Use it rather than repeating the material-wide quiz placement analysis. "
+            "Only a specific current assessment, diagnosis, repair or memory signal "
+            "justifies overriding this default; preserve existing memory evidence rules."
+        )
+    if context.event_type is not EventType.EXPLAIN_CURRENT_PAGE and not qa_proposal_enabled:
         system += " PROMPT_BINARY_DECISION is forbidden for this event."
     if retry:
         system += " The previous output failed schema validation; regenerate exactly once."
@@ -299,13 +338,19 @@ def quiz_messages(
         "qaThreadDigest": context.qa_thread_digest,
     }
     confidence_instruction = _quiz_confidence_instruction(context)
+    if quiz_context is not None and quiz_context.learning_focus is not None:
+        payload["learningFocus"] = quiz_context.learning_focus
+        scope_instruction += (
+            "learningFocus는 학생이 동의한 추가 점검 주제다. 이를 중심으로 출제하되 "
+            "명시된 coverage와 자료 근거 밖으로 출제 범위를 넓히지 마라. "
+        )
     return [
         {
             "role": "system",
             "content": (
                 "너는 EduPilot의 퀴즈 생성 에이전트다. "
                 f"{scope_instruction}선택된 유형의 QuizGeneration JSON을 "
-                "생성하라. 문항은 5~10개이며 "
+                "생성하라. 문항은 정확히 5개이며 questionCount는 5다. "
                 "questionCount와 questions 길이는 반드시 같아야 한다. 학생이 이미 "
                 "잘하는 내용만 반복 출제하지 말고 약점과 메모리를 반영하라. "
                 f"{confidence_instruction} generationId는 AI가 생성하는 추적용 "

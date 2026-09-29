@@ -3,9 +3,10 @@
 from copy import deepcopy
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
+from edupilot_ai.models.page_quiz_plan import PageQuizDecision
 from edupilot_ai.models.turn import (
     EventPayload,
     EventType,
@@ -44,6 +45,9 @@ class AgentContext(BaseModel):
     latest_repair: dict[str, Any] | str | None
     memory: MemoryContext
     quiz_context: QuizContext | None
+    page_quiz_decision: PageQuizDecision | None = None
+    qa_quiz_proposal_enabled: bool = False
+    quiz_question_stream_enabled: bool = False
 
     @property
     def page_attached(self) -> bool:
@@ -104,6 +108,10 @@ class PlanContext(PlanContextModel):
     pending_diagnosis_id: int | None
     has_latest_repair: bool
     memory: MemoryContext
+    qa_quiz_proposal_enabled: bool = Field(default=False, exclude_if=lambda value: not value)
+    page_quiz_decision: PageQuizDecision | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @classmethod
     def from_agent_context(cls, context: AgentContext) -> PlanContext:
@@ -161,6 +169,8 @@ class PlanContext(PlanContextModel):
                 }
             )
         return cls(
+            qa_quiz_proposal_enabled=context.qa_quiz_proposal_enabled,
+            page_quiz_decision=context.page_quiz_decision,
             turn_id=context.turn_id,
             session=PlanSession(
                 current_page=context.session.current_page,
@@ -189,6 +199,9 @@ class ContextBuilder:
     def build(self, turn: TurnRequest) -> AgentContext:
         context = turn.context
         return AgentContext(
+            page_quiz_decision=context.page_quiz_decision,
+            qa_quiz_proposal_enabled=turn.capabilities.qa_quiz_proposal,
+            quiz_question_stream_enabled=turn.capabilities.quiz_question_stream,
             turn_id=turn.turn_id,
             session=turn.session,
             event_type=turn.event.event_type,

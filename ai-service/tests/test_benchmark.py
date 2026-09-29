@@ -60,6 +60,22 @@ def suite(turn_payload: dict[str, Any]) -> dict[str, Any]:
     return build_suite(snapshot, "편차가 무엇인가요?", "방금 말한 차이를 예시로 보여줘")
 
 
+@pytest.fixture
+def clean_source_info(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """Supervisor unit tests must not depend on a developer's git working tree."""
+    metadata = {
+        key: "offline-fixture" for key in ("commit", "sourceTree", "lockHash", "pyprojectHash")
+    }
+    monkeypatch.setattr("tests.benchmarks.__main__.source_info", lambda repository: metadata)
+    return metadata
+
+
+def test_real_benchmark_still_rejects_dirty_runtime_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("tests.benchmarks.__main__.git", lambda *args: "changed source")
+    with pytest.raises(BenchmarkError, match="RUNTIME_SOURCE_MUST_BE_CLEAN"):
+        source_info(HARNESS_ROOT.parent)
+
+
 def test_fixed_suite_and_counterbalanced_schedule(suite: dict[str, Any]) -> None:
     original = deepcopy(suite)
     validate_suite(suite)
@@ -309,6 +325,7 @@ async def test_worker_preflight_uses_requested_revision_without_live_calls(
 async def test_preflight_cli_persists_zero_calls_and_live_requires_opt_in(
     tmp_path: Path,
     suite: dict[str, Any],
+    clean_source_info: dict[str, str],
 ) -> None:
     fixture = tmp_path / "suite.json"
     write_json(fixture, suite)
@@ -327,7 +344,7 @@ async def test_preflight_cli_persists_zero_calls_and_live_requires_opt_in(
     manifest = read_json(output / "manifest.json")
     assert manifest["status"] == "PREFLIGHT_PASS"
     assert manifest["providerCallsUsed"] == 0
-    assert manifest["sources"]["before"] == source_info(HARNESS_ROOT.parent)
+    assert manifest["sources"]["before"] == clean_source_info
     assert "file-private" not in json.dumps(manifest)
     with pytest.raises(BenchmarkError, match="LIVE_FLAG_ENV_FILE_AND_CALL_LIMIT_REQUIRED"):
         await compare(parser().parse_args(["run", *common]))
@@ -348,6 +365,7 @@ async def test_supervisor_stops_preserves_artifacts_and_closes_workers(
     tmp_path: Path,
     suite: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
+    clean_source_info: dict[str, str],
     cap: int,
     defect: str,
     status: str,
@@ -442,7 +460,10 @@ async def test_supervisor_stops_preserves_artifacts_and_closes_workers(
 
 
 async def test_offline_preflight_cleanup_failure_is_not_reported_as_success(
-    tmp_path: Path, suite: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    suite: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    clean_source_info: dict[str, str],
 ) -> None:
     class CleanupFailure:
         async def close(self) -> None:

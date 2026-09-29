@@ -2929,6 +2929,12 @@ prod에서 메일 provider가 `logging`이면 기동을 거부하며, `EDUPILOT_
 
 ## 8. Spring → FastAPI 내부 API
 
+> 2026-09-29 연동 초안(DEC-041): AI에서 개요 `includePageQuizPlan`/`pageQuizPlan`,
+> 턴 `context.pageQuizDecision`·`quizContext.learningFocus`와 opt-in `capabilities`를
+> 구현했다. 기존 호출자는 필드를 보내지 않아도 된다. 새 통합학습 퀴즈 생성은 5문항이다.
+> QA 위젯 수용·계획 저장·문항 미리보기 SSE 매핑은 **Spring·FE 미구현/합의 대기**이며
+> 이 문서의 기존 외부 API 계약을 변경한 것이 아니다. [필드·책임·활성화 순서](ai-quiz-latency-handoff.md).
+
 ### 호출 주체 원칙 (하이브리드)
 
 - **자유 학습 턴**(질문, 설명 요청, 퀴즈 유형 선택, 진단 답변, 교정 후 질문): Spring은 어떤 AI 에이전트를 쓸지 판단하지 않고 `/internal/ai/turn` 단일 진입점으로 이벤트와 스냅샷을 전달합니다. 에이전트 선택은 FastAPI Orchestrator의 책임입니다. 오개념 교정(RepairAgent)과 메모리 후보 생성·승격도 turn 내부 도구로 실행합니다.

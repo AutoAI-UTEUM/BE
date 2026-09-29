@@ -2,9 +2,10 @@
 
 from typing import Literal, Self
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, StrictBool, field_validator, model_validator
 
 from edupilot_ai.models.base import ContractModel, Usage
+from edupilot_ai.models.page_quiz_plan import PageQuizDecision
 
 
 class OutlinePage(ContractModel):
@@ -17,6 +18,7 @@ class OutlineRequest(ContractModel):
     xai_file_id: str | None = Field(default=None, min_length=1)
     total_pages: int = Field(ge=1)
     pages: list[OutlinePage] = Field(min_length=1)
+    include_page_quiz_plan: StrictBool = False
 
     @field_validator("xai_file_id")
     @classmethod
@@ -35,6 +37,8 @@ class OutlineRequest(ContractModel):
             raise ValueError("pageNumber values must be unique")
         if any(page_number > self.total_pages for page_number in page_numbers):
             raise ValueError("pageNumber must be within totalPages")
+        if self.include_page_quiz_plan and len(page_numbers) != self.total_pages:
+            raise ValueError("page quiz planning requires every material page")
         return self
 
 
@@ -66,3 +70,12 @@ class OutlineResponse(OutlineOutput):
     schema_version: Literal["1.0"] = "1.0"
     total_pages: int = Field(ge=1)
     usage: Usage | None = None
+    page_quiz_plan: list[PageQuizDecision] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+
+class PlannedOutlineOutput(OutlineOutput):
+    """Opt-in output; legacy outline and criteria inputs remain unchanged."""
+
+    page_quiz_plan: list[PageQuizDecision] = Field(min_length=1)
