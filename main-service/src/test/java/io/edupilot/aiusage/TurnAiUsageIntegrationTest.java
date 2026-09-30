@@ -141,7 +141,7 @@ class TurnAiUsageIntegrationTest {
 			"질문",
 			null
 		)).thenReturn(new PreparedTurn(501L));
-		when(snapshotService.build(1L, 100L, 501L, true))
+		when(snapshotService.buildQuestion(1L, 100L, 501L, true))
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L),
 				Map.of(),

@@ -61,6 +61,7 @@ public class TurnSnapshotService {
 	private final DiagnosisRepository diagnosisRepository;
 	private final RepairResultRepository repairRepository;
 	private final PageQuizPlanProperties pageQuizPlanProperties;
+	private final QaQuizProposalProperties qaQuizProposalProperties;
 
 	public TurnSnapshotService(
 		LearningSessionRepository sessionRepository,
@@ -75,7 +76,8 @@ public class TurnSnapshotService {
 		LearnerMemoryCandidateRepository candidateRepository,
 		DiagnosisRepository diagnosisRepository,
 		RepairResultRepository repairRepository,
-		PageQuizPlanProperties pageQuizPlanProperties
+		PageQuizPlanProperties pageQuizPlanProperties,
+		QaQuizProposalProperties qaQuizProposalProperties
 	) {
 		this.sessionRepository = sessionRepository;
 		this.pageRepository = pageRepository;
@@ -90,6 +92,7 @@ public class TurnSnapshotService {
 		this.diagnosisRepository = diagnosisRepository;
 		this.repairRepository = repairRepository;
 		this.pageQuizPlanProperties = pageQuizPlanProperties;
+		this.qaQuizProposalProperties = qaQuizProposalProperties;
 	}
 
 	@Transactional(readOnly = true)
@@ -104,7 +107,25 @@ public class TurnSnapshotService {
 			sessionId,
 			currentRequestMessageId,
 			includeCurrentPage,
+			false,
 			false
+		);
+	}
+
+	@Transactional(readOnly = true)
+	public TurnSnapshot buildQuestion(
+		Long userId,
+		Long sessionId,
+		Long currentRequestMessageId,
+		boolean includeCurrentPage
+	) {
+		return build(
+			userId,
+			sessionId,
+			currentRequestMessageId,
+			includeCurrentPage,
+			false,
+			true
 		);
 	}
 
@@ -114,7 +135,7 @@ public class TurnSnapshotService {
 		Long sessionId,
 		Long currentRequestMessageId
 	) {
-		return build(userId, sessionId, currentRequestMessageId, true, true);
+		return build(userId, sessionId, currentRequestMessageId, true, true, false);
 	}
 
 	private TurnSnapshot build(
@@ -122,7 +143,8 @@ public class TurnSnapshotService {
 		Long sessionId,
 		Long currentRequestMessageId,
 		boolean includeCurrentPage,
-		boolean includeQuizContext
+		boolean includeQuizContext,
+		boolean questionTurn
 	) {
 		LearningSession session = sessionRepository
 			.findByIdAndUser_Id(sessionId, userId)
@@ -243,7 +265,10 @@ public class TurnSnapshotService {
 			sessionData,
 			context,
 			materialId,
-			xaiFileAttached
+			xaiFileAttached,
+			questionTurn && qaQuizProposalProperties.enabled()
+				? Map.of("qaQuizProposal", true, "quizQuestionStream", false)
+				: null
 		);
 	}
 

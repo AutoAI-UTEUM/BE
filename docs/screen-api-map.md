@@ -100,7 +100,7 @@
 | 채팅 | 스트림 선연결 | `GET /api/sessions/{sessionId}/stream` | fetch+Bearer로 현재 연결의 ready 수신 후 turns 호출, 이전 연결 callback은 새 연결과 격리 | 실행 중 중복 연결 409/AI 스트림 중단 |
 | 채팅 | 설명 시작 선택 | `POST /api/sessions/{sessionId}/turns` | 설명 스트림/메시지 표시 | AI timeout/스키마 오류/일일 AI 쿼터 429 |
 | 채팅 | 답변 생성 중지 | `POST /api/sessions/{sessionId}/turns/cancel` | 수신한 텍스트가 있으면 부분 답변을 저장하고 completed 처리, 없으면 `TURN_CANCELLED` 표시 | 인증, 실행 중 턴 없음은 `cancelled:false` 멱등 응답 |
-| 채팅 | 질문 전송 | 같은 turns API | QA 답변과 후속 질문 문맥 반영 | 빈 질문/AI 오류/일일 AI 쿼터 429 |
+| 채팅 | 질문 전송 | 같은 turns API | QA 답변과 후속 질문 문맥 반영. 서버 플래그 활성화 시 응답 `uiActions`에 기존 퀴즈 제안 위젯이 올 수 있으며 기존 수락·유형 선택 UI 재사용 | 빈 질문/AI 오류/일일 AI 쿼터 429 |
 | 채팅 | 노트 제안 수락 | 같은 turns API (`NOTE_REQUESTED`, `payload: {}`) | `noteDraft`를 편집 UI에 표시하고 확정 시 기존 노트 API로 저장 | 잘못된 초안/AI 오류 |
 | 채팅 | 진단 답변 제출 | 같은 turns API | 오개념 교정 답변 표시 | 진단 상태 충돌 |
 | 퀴즈 유형 선택 | MCQ/OX/SHORT/ESSAY 선택 | 같은 turns API | 응답의 `state.activeQuizId`로 퀴즈 문항 조회 후 UI 열기 | 지원하지 않는 타입 |

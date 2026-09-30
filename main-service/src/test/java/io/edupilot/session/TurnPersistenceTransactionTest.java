@@ -87,6 +87,10 @@ class TurnPersistenceTransactionTest {
 	private DiagnosisService diagnosisService;
 	@MockitoBean
 	private ConversationSummaryDispatcher summaryDispatcher;
+	@MockitoBean
+	private QaQuizProposalProperties qaQuizProposalProperties;
+	@MockitoBean
+	private QaQuizProposalSuppression qaQuizProposalSuppression;
 
 	@BeforeEach
 	void clearRecords() {
