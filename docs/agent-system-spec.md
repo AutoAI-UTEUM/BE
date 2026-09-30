@@ -233,7 +233,7 @@ LLM 전용 `PlannerOutput`은 아래 Plan의 `schemaVersion`, `memoryWrite`,
 입력:
 
 - `pageContext`(Backend 추출 페이지 텍스트 동봉 — DEC-006), `page`
-- nullable xAI file ID(설명 Plan의 전체 흐름 판단과 실제 Explainer·QuizAgent 호출에 첨부)
+- nullable xAI file ID(Explainer는 기본적으로 PDF를 첨부하며 아래의 선택 실험만 예외)
 - 현재 페이지 및 필요한 인접 페이지 문맥
 - `detailLevel`: `NORMAL` 또는 `DETAILED`
 - `learnerLevel`, `learnerMemoryDigest`
@@ -250,6 +250,14 @@ LLM 전용 `PlannerOutput`은 아래 Plan의 `schemaVersion`, `memoryWrite`,
 - 잘 아는 내용은 불필요하게 반복하지 않습니다.
 - 퀴즈 생성, 채점, 자유 질문 답변, 오답 교정은 하지 않습니다.
 - 결과 본문은 Markdown이며 수식은 필요하면 LaTeX를 사용합니다.
+
+2026-09-30 선택 실험: 기본 OFF인 `EDUPILOT_EXPLAINER_PAGE_CONTEXT_ONLY_ENABLED`와
+검토한 file ID/페이지 승인 목록을 함께 설정하면, 실제로 Plan이 합성된 계획 기반 설명에서만
+PDF 첨부를 생략하고 기존 현재/인접 페이지 텍스트·캡션을 사용합니다. 프롬프트·프로필·Policy와
+외부 계약은 유지하며 일반/후속 QA 및 학습 판단 때문에 Planner를 실행한 설명에는 적용하지
+않습니다. 캡션의 충분성을 자동으로 판정하지 않으며, 실제 적용 대상의 스냅샷 품질을
+검토하기 전에는 운영에서 활성화하지 않습니다. 설정·계측·롤백과 소규모 비교 결과는
+[AI README](../ai-service/README.md#설명-pdf-첨부-비교-실험-2026-09-30-기본-off)를 참고합니다.
 
 출력:
 
