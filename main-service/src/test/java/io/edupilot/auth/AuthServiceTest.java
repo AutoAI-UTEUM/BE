@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.ArgumentMatchers.eq;
@@ -318,6 +319,20 @@ class AuthServiceTest {
 		assertThat(result.refreshToken()).isEqualTo("refresh-token");
 		verify(googleIdTokenVerifier).verify("id-token");
 		verify(googleAccountService).resolve(request, profile, "192.0.2.1", "test-agent");
+	}
+
+	@Test
+	void googleEmailCollisionDoesNotIssueAccessRefreshOrAuthSession() {
+		GoogleLoginRequest request = new GoogleLoginRequest("id-token", null, null, null, null);
+		GoogleProfile profile = new GoogleProfile("new-subject", "user@example.com", "Google user");
+		when(googleIdTokenVerifier.verify("id-token")).thenReturn(profile);
+		when(googleAccountService.resolve(request, profile, "192.0.2.1", "test-agent"))
+			.thenThrow(new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS));
+
+		assertBusinessError(() -> authService.googleLogin(request, "192.0.2.1", "test-agent"),
+			ErrorCode.EMAIL_ALREADY_EXISTS);
+
+		verifyNoInteractions(jwtTokenProvider, refreshTokenService);
 	}
 
 	@Test

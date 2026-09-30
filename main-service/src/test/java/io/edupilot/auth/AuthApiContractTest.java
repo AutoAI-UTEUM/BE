@@ -221,6 +221,51 @@ class AuthApiContractTest {
 	}
 
 	@Test
+	void googleEmailCollisionReturns409WithoutCredentialsOrAccountMutation() throws Exception {
+		String originalHash = user.getPasswordHash();
+		when(googleIdTokenVerifier.verify("google-id-token")).thenReturn(
+			new GoogleProfile("new-subject", "USER@Example.com", "Google user"));
+		when(userRepository.findByGoogleSub("new-subject")).thenReturn(Optional.empty());
+		when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+
+		mockMvc.perform(post("/api/auth/google")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"idToken":"google-id-token"}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.success").value(false))
+			.andExpect(jsonPath("$.error.code").value("EMAIL_ALREADY_EXISTS"))
+			.andExpect(jsonPath("$.error.message").value("이미 사용 중인 이메일입니다."))
+			.andExpect(jsonPath("$.error.details").isEmpty())
+			.andExpect(jsonPath("$.traceId").isString())
+			.andExpect(jsonPath("$.data").doesNotExist())
+			.andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE))
+			.andExpect(content().string(not(containsString("google-id-token"))))
+			.andExpect(content().string(not(containsString("accessToken"))))
+			.andExpect(content().string(not(containsString("passwordHash"))));
+
+		assertThat(user.getGoogleSub()).isNull();
+		assertThat(user.getPasswordHash()).isEqualTo(originalHash);
+		verify(userRepository, never()).flush();
+		verify(userRepository, never()).saveAndFlush(any());
+		verifyNoInteractions(refreshTokenRepository, authSessionRepository);
+	}
+
+	@Test
+	void googleOpenApiDocumentsEmailCollision() throws Exception {
+		mockMvc.perform(get("/v3/api-docs"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.paths['/api/auth/google'].post.responses['200']").exists())
+			.andExpect(jsonPath("$.paths['/api/auth/google'].post.responses['200'].content.*.schema")
+				.isNotEmpty())
+			.andExpect(jsonPath("$.paths['/api/auth/google'].post.responses['409'].description")
+				.value(containsString("EMAIL_ALREADY_EXISTS")))
+			.andExpect(jsonPath("$.paths['/api/auth/google'].post.responses['409'].content")
+				.exists());
+	}
+
+	@Test
 	void newGoogleProfileWithoutSignupDetailsReturnsSignupRequired() throws Exception {
 		when(googleIdTokenVerifier.verify("google-id-token")).thenReturn(
 			new GoogleProfile("new-subject", "new@example.com", "신규 사용자")
