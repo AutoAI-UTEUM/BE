@@ -58,6 +58,7 @@ public interface LearningMaterialRepository
 		+ "and material.processingStatus = "
 		+ "io.edupilot.material.MaterialProcessingStatus.READY "
 		+ "and material.captionsCompletedAt is null "
+		+ "and material.captionFailureReason is null "
 		+ "order by material.createdAt, material.id")
 	List<Long> findMissingCaptionIds(Pageable pageable);
 

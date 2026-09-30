@@ -63,6 +63,7 @@ public class MaterialCaptionGenerationService {
 			pageNumbers.add(page.pageNumber());
 		}
 		List<CaptionsRequest.Page> chunk = new ArrayList<>(CHUNK_SIZE);
+		CaptionFailureReason permanentFailure = null;
 		try {
 			imageRenderer.render(
 				snapshot.storageKey(),
@@ -78,13 +79,23 @@ public class MaterialCaptionGenerationService {
 			if (!chunk.isEmpty()) {
 				processChunk(materialId, snapshot.ownerId(), chunk);
 			}
+		} catch (PageRenderingException exception) {
+			permanentFailure = exception.reason();
+			log.atWarn()
+				.addKeyValue("materialId", materialId)
+				.addKeyValue("reason", permanentFailure)
+				.log("Material caption rendering permanently rejected");
 		} catch (RuntimeException exception) {
 			log.atWarn()
 				.addKeyValue("materialId", materialId)
 				.addKeyValue("reason", exception.getClass().getSimpleName())
 				.log("Material caption rendering failed");
 		} finally {
-			persistenceService.markCompleted(materialId, clock.instant());
+			if (permanentFailure == null) {
+				persistenceService.markCompleted(materialId, clock.instant());
+			} else {
+				persistenceService.markPermanentlyFailed(materialId, permanentFailure, clock.instant());
+			}
 		}
 	}
 
