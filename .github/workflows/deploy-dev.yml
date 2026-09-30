@@ -117,6 +117,10 @@ jobs:
               -f docker-compose.yml -f docker-compose.prod.yml restart nginx
             ENVIRONMENT=dev TAG="$DEPLOY_TAG" docker --config "$registry_auth_dir" compose --env-file .env \
               -f docker-compose.yml -f docker-compose.prod.yml ps
+            # Report activation/counts only; never print credentials, file IDs, or page text.
+            ENVIRONMENT=dev TAG="$DEPLOY_TAG" docker --config "$registry_auth_dir" compose --env-file .env \
+              -f docker-compose.yml -f docker-compose.prod.yml exec -T ai-service python -c \
+              'import json; from edupilot_ai.settings import Settings; s=Settings(); p=s.edupilot_explainer_page_context_only_pages; print(json.dumps({"component": "explainerEvidenceConfig", "enabled": s.edupilot_explainer_page_context_only_enabled, "reviewedFiles": len(p), "reviewedPages": sum(len(v) for v in p.values())}))'
 
       - name: Smoke test
         shell: bash
