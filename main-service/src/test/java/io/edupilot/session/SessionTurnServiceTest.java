@@ -30,6 +30,8 @@ import java.util.function.LongSupplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -40,7 +42,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.AiClientProperties;
+import io.edupilot.ai.AiFailureCategory;
 import io.edupilot.ai.AiStreamCancellation;
+import io.edupilot.ai.QuizQuestionStreamFixtures;
 import io.edupilot.ai.TurnStreamEvent;
 import io.edupilot.ai.dto.QuizGeneration;
 import io.edupilot.ai.dto.NoteDraft;
@@ -1056,6 +1060,133 @@ class SessionTurnServiceTest {
 			any(AiClientException.class)
 		);
 		verify(claimService).release(100L, "request-1");
+	}
+
+	@Test
+	void quizPreviewCapabilityIsNeverSentOnNonStreamingJsonRequest() throws Exception {
+		stubQuizTurn(quizStreamSnapshot(true), new QuizGeneration.Coverage(3, 3));
+		when(persistenceService.persist(any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
+			.thenReturn(persisted(publicResponse()));
+
+		service().execute(1L, 100L, quizRequest());
+
+		ArgumentCaptor<io.edupilot.ai.dto.TurnRequest> captured =
+			ArgumentCaptor.forClass(io.edupilot.ai.dto.TurnRequest.class);
+		verify(aiClient).executeTurn(captured.capture());
+		assertThat(captured.getValue().capabilities()).isNull();
+		assertThat(objectMapper.writeValueAsString(captured.getValue())).doesNotContain("capabilities");
+		verify(aiClient, never()).executeTurnStream(any(), any(), any(), any());
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = {true, false})
+	void quizPreviewStreamPersistsOnlyValidatedCompletedAndLogsFirstQuestionLatency(boolean enabled)
+		throws Exception {
+		stubQuizStream(enabled);
+		AtomicLong clock = new AtomicLong();
+		when(aiClient.executeTurnStream(any(), any(), any(), any())).thenAnswer(invocation -> {
+			io.edupilot.ai.dto.TurnRequest request = invocation.getArgument(0);
+			assertThat(request.streamsQuizQuestions()).isEqualTo(enabled);
+			assertThat(objectMapper.writeValueAsString(request).contains("capabilities")).isEqualTo(enabled);
+			Consumer<TurnStreamEvent> listener = invocation.getArgument(1);
+			if (enabled) {
+				for (int index = 1; index <= 5; index++) {
+					clock.set(Duration.ofMillis(123 + index - 1).toNanos());
+					listener.accept(TurnStreamEvent.quizQuestion(QuizQuestionStreamFixtures.preview(index)));
+				}
+			}
+			verify(persistenceService, never()).persist(any(), any(), anyString(), any(), any(), any(), anyBoolean(), any());
+			return quizAiResponse(request.turnId());
+		});
+		TurnResponse publicQuiz = new TurnResponse("turn-public", 100L, List.of(), List.of(),
+			new TurnStateResponse(3, PageStatus.QUIZ_READY, 50L));
+		when(persistenceService.persist(any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
+			.thenReturn(persisted(publicQuiz));
+		Logger logger = (Logger) LoggerFactory.getLogger(SessionTurnService.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			TurnResponse response = service(clock::get).execute(1L, 100L, quizRequest());
+			assertThat(response.state().activeQuizId()).isEqualTo(50L);
+			var order = inOrder(streamConnection, responseValidator, persistenceService, streamService);
+			if (enabled) {
+				for (int index = 1; index <= 5; index++) {
+					order.verify(streamConnection).send(TurnStreamEvent.quizQuestion(QuizQuestionStreamFixtures.preview(index)));
+				}
+			}
+			order.verify(responseValidator).validate(any(), anyString(), any(),
+				eq(TurnEventType.QUIZ_TYPE_SELECTED), eq("MCQ"), any());
+			order.verify(persistenceService).persist(eq(1L), eq(100L), eq("request-quiz"),
+				eq(TurnEventType.QUIZ_TYPE_SELECTED), any(), eq(501L), eq(false), any());
+			order.verify(streamService).complete(streamConnection, "request-quiz", publicQuiz);
+			verify(aiUsageService).record(eq(1L), eq(AiFeature.TURN), any(), eq(true),
+				eq("request-quiz"), eq(QuizDecisionSource.PLANNER));
+			var metrics = logFields(appender, "AI quiz question stream finished");
+			if (enabled) {
+				assertThat(metrics).hasSize(1);
+				assertThat(metrics.getFirst()).containsEntry("quizQuestionFirstMs", 123L)
+					.containsEntry("quizQuestionCount", 5);
+			} else {
+				assertThat(metrics).isEmpty();
+			}
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"EOF", "ERROR", "USER_CANCEL", "CONNECTION_LOST"})
+	void interruptedQuizPreviewIsNeverPersistedOrRetried(String interruption) throws Exception {
+		stubQuizStream(true);
+		User owner = User.create("user@example.com", "hash", "학습자");
+		ReflectionTestUtils.setField(owner, "id", 1L);
+		var material = io.edupilot.material.LearningMaterial.create(owner, "자료", "materials/test.pdf");
+		ReflectionTestUtils.setField(material, "id", 10L);
+		material.markReady(5);
+		LearningSession storedSession = LearningSession.create(owner, material);
+		ReflectionTestUtils.setField(storedSession, "id", 100L);
+		LearningSessionRepository repository = mock(LearningSessionRepository.class);
+		when(repository.findByIdAndUser_Id(100L, 1L)).thenReturn(Optional.of(storedSession));
+		when(aiClient.executeTurnStream(any(), any(), any(), any())).thenAnswer(invocation -> {
+			Consumer<TurnStreamEvent> listener = invocation.getArgument(1);
+			listener.accept(TurnStreamEvent.quizQuestion(QuizQuestionStreamFixtures.preview(1)));
+			AiStreamCancellation cancellation = invocation.getArgument(2);
+			if ("USER_CANCEL".equals(interruption)) {
+				cancellation.cancelByUser();
+			} else if ("CONNECTION_LOST".equals(interruption)) {
+				cancellation.cancel();
+			}
+			throw new AiClientException(ErrorCode.AI_STREAM_INTERRUPTED, AiFailureCategory.INTERNAL, true, null);
+		});
+
+		assertThatThrownBy(() -> service().execute(1L, 100L, quizRequest()))
+			.isInstanceOf(BusinessException.class);
+
+		verify(aiClient, times(1)).executeTurnStream(any(), any(), any(), any());
+		verify(persistenceService, never()).persist(any(), any(), anyString(), any(), any(), any(), anyBoolean(), any());
+		verify(persistenceService, never()).persistCancelled(any(), any(), anyString(), anyString(), anyString());
+		verify(streamService, never()).complete(any(), anyString(), any());
+		verify(claimService).release(100L, "request-quiz");
+		SessionService polling = new SessionService(repository, userRepository, new StateReducer(),
+			Clock.systemUTC(), mock(io.edupilot.diagnosis.DiagnosisService.class), materialAccessService,
+			new UiActionResolver(), new QaQuizProposalSuppression(new QaQuizProposalProperties(false, 2, 5)));
+		assertThat(polling.detail(1L, 100L).activeQuizId()).isNull();
+	}
+
+	private TurnSnapshot quizStreamSnapshot(boolean enabled) {
+		return new TurnSnapshot(Map.of("sessionId", 100L, "currentPage", 3),
+			Map.of("currentPageText", "현재"), 10L, false,
+			enabled ? Map.of("qaQuizProposal", false, "quizQuestionStream", true) : null);
+	}
+
+	private void stubQuizStream(boolean enabled) {
+		when(preparationService.prepare(1L, 100L, "request-quiz", "퀴즈 유형 선택: MCQ", null))
+			.thenReturn(new PreparedTurn(501L));
+		when(snapshotService.buildQuiz(1L, 100L, 501L)).thenReturn(quizStreamSnapshot(enabled));
+		when(streamService.beginTurn(eq(1L), eq(100L), anyString(), any(AiStreamCancellation.class)))
+			.thenReturn(Optional.of(streamConnection));
 	}
 
 	@Test

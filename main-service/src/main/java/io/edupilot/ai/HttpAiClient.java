@@ -5,6 +5,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.math.BigDecimal;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpConnectTimeoutException;
@@ -68,6 +69,7 @@ import io.edupilot.ai.dto.OutlineRequest;
 import io.edupilot.ai.dto.OutlineResponse;
 import io.edupilot.ai.dto.QuizAssessmentRequest;
 import io.edupilot.ai.dto.QuizAssessmentResponse;
+import io.edupilot.ai.dto.QuizQuestionPreview;
 import io.edupilot.ai.dto.ReportGenerateRequest;
 import io.edupilot.ai.dto.ReportGenerateResponse;
 import io.edupilot.ai.dto.TurnRequest;
@@ -410,6 +412,9 @@ public class HttpAiClient implements AiClient {
 			AiClientException terminalError = null;
 			StringBuilder deltas = new StringBuilder();
 			int contentDeltaCount = 0;
+			int quizQuestionCount = 0;
+			int lastQuestionIndex = 0;
+			String previewGenerationId = null;
 			boolean terminalSeen = false;
 			String line;
 			while ((line = reader.readLine()) != null) {
@@ -442,6 +447,10 @@ public class HttpAiClient implements AiClient {
 						));
 					}
 					case "content_delta" -> {
+						// 퀴즈 원문은 정답을 포함할 수 있으므로 완료 검증 전에도 중계하지 않는다.
+						if ("QUIZ_TYPE_SELECTED".equals(eventType(request))) {
+							throw invalidStream(null);
+						}
 						requireFields(event, Set.of("type", "text"));
 						String text = textual(event, "text");
 						deltas.append(text);
@@ -451,6 +460,26 @@ public class HttpAiClient implements AiClient {
 					case "heartbeat" -> {
 						requireFields(event, Set.of("type"));
 						listener.accept(TurnStreamEvent.heartbeat());
+					}
+					case "quiz_question" -> {
+						if (!request.streamsQuizQuestions()) {
+							logPreviewIgnored(request, "capability-or-event-disabled", null);
+							continue;
+						}
+						QuizQuestionPreview preview = parseQuizQuestion(event);
+						if (preview.questionIndex() <= lastQuestionIndex) {
+							logPreviewIgnored(request, "duplicate-or-reversed-index", preview.questionIndex());
+							continue;
+						}
+						if (previewGenerationId != null
+							&& !previewGenerationId.equals(preview.generationId())) {
+							logPreviewIgnored(request, "generation-mismatch", preview.questionIndex());
+							continue;
+						}
+						previewGenerationId = preview.generationId();
+						lastQuestionIndex = preview.questionIndex();
+						quizQuestionCount++;
+						listener.accept(TurnStreamEvent.quizQuestion(preview));
 					}
 					case "completed" -> {
 						requireFields(event, Set.of("type", "result"));
@@ -490,6 +519,18 @@ public class HttpAiClient implements AiClient {
 				contentDeltaCount,
 				deltas.toString()
 			);
+			if (request.streamsQuizQuestions()
+				&& completed.quiz() != null
+				&& completed.quiz().questions() != null
+				&& (quizQuestionCount != completed.quiz().questions().size()
+					|| lastQuestionIndex != completed.quiz().questions().size())) {
+				log.atWarn()
+					.addKeyValue("turnId", request.turnId())
+					.addKeyValue("quizQuestionCount", quizQuestionCount)
+					.addKeyValue("lastQuestionIndex", lastQuestionIndex)
+					.addKeyValue("completedQuestionCount", completed.quiz().questions().size())
+					.log("Quiz preview count mismatch; completed takes precedence");
+			}
 			return completed;
 		} catch (IOException exception) {
 			if (hasCause(exception, SocketTimeoutException.class)) {
@@ -511,6 +552,91 @@ public class HttpAiClient implements AiClient {
 			scheduler.shutdownNow();
 			cancellation.unbind(body);
 		}
+	}
+
+	private QuizQuestionPreview parseQuizQuestion(JsonNode event) {
+		String quizType = requiredText(event, "quizType");
+		if (!Set.of("MCQ", "OX", "SHORT", "ESSAY").contains(quizType)) {
+			throw invalidStream(null);
+		}
+		int index = positiveInt(event, "questionIndex");
+		int count = positiveInt(event, "questionCount");
+		JsonNode provisional = event.get("provisional");
+		if (count != 5 || index > count || provisional == null
+			|| !provisional.isBoolean() || !provisional.booleanValue()) {
+			throw invalidStream(null);
+		}
+		JsonNode coverage = objectField(event, "coverage");
+		int startPage = positiveInt(coverage, "startPage");
+		int endPage = positiveInt(coverage, "endPage");
+		if (endPage < startPage) {
+			throw invalidStream(null);
+		}
+		JsonNode question = objectField(event, "question");
+		JsonNode points = question.get("points");
+		if (points == null || !points.isNumber()
+			|| points.decimalValue().compareTo(BigDecimal.ZERO) <= 0) {
+			throw invalidStream(null);
+		}
+		List<QuizQuestionPreview.Choice> choices = null;
+		if ("MCQ".equals(quizType)) {
+			JsonNode rawChoices = question.get("choices");
+			if (rawChoices == null || !rawChoices.isArray() || rawChoices.size() < 2) {
+				throw invalidStream(null);
+			}
+			List<QuizQuestionPreview.Choice> publicChoices = new ArrayList<>();
+			for (JsonNode choice : rawChoices) {
+				if (!choice.isObject()) {
+					throw invalidStream(null);
+				}
+				publicChoices.add(new QuizQuestionPreview.Choice(
+					requiredText(choice, "choiceId"), requiredText(choice, "text")
+				));
+			}
+			choices = List.copyOf(publicChoices);
+		}
+		// 원본 노드/Map이나 private 문항 DTO를 넘기지 않고 공개 필드를 직접 투영한다.
+		return new QuizQuestionPreview(
+			"quiz_question",
+			requiredText(event, "generationId"),
+			quizType,
+			requiredText(event, "title"),
+			new QuizQuestionPreview.Coverage(startPage, endPage),
+			index,
+			count,
+			true,
+			new QuizQuestionPreview.Question(
+				requiredText(question, "questionId"),
+				requiredText(question, "questionText"),
+				points.decimalValue(),
+				choices
+			)
+		);
+	}
+
+	private JsonNode objectField(JsonNode event, String field) {
+		JsonNode value = event.get(field);
+		if (value == null || !value.isObject()) {
+			throw invalidStream(null);
+		}
+		return value;
+	}
+
+	private int positiveInt(JsonNode event, String field) {
+		JsonNode value = event.get(field);
+		if (value == null || !value.isIntegralNumber()
+			|| !value.canConvertToInt() || value.intValue() < 1) {
+			throw invalidStream(null);
+		}
+		return value.intValue();
+	}
+
+	private void logPreviewIgnored(TurnRequest request, String reason, Integer index) {
+		log.atWarn()
+			.addKeyValue("turnId", request.turnId())
+			.addKeyValue("reason", reason)
+			.addKeyValue("questionIndex", index)
+			.log("Quiz preview ignored");
 	}
 
 	private void validateStreamCompletion(

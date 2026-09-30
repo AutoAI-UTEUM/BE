@@ -740,6 +740,12 @@ Spring은 snake_case 토큰 키도 수신하며 비용 기록 후 외부 API 응
   추론이 아니라 파이프라인이 만드는 결정적 한국어 진행 문구입니다.
 - Grok(xAI)의 스트리밍·구조화 출력 지원 방식은 실제 사용 모델의 공식 가이드를 기준으로 구현 시 확인합니다.
 - ToolDispatcher는 청크를 표준 스트림 이벤트로 변환하고 Spring이 FE에 중계합니다.
+- `capabilities.quizQuestionStream=true`인 `QUIZ_TYPE_SELECTED` NDJSON 턴의
+  `quiz_question`은 Spring의 명시적 공개 record 화이트리스트로만 SSE 중계합니다.
+  문항·선택지·coverage의 추가 필드도 제거하며 private DTO/원시 delta는 중계하지 않습니다.
+  임시 문항은 저장하지 않고 전체 completed 검증·저장 후 정본 quizId로 교체합니다.
+  Spring 플래그는 기본 OFF이며 JSON fallback·다른 이벤트에는 이 capability를 보내지 않습니다.
+  [공개 필드와 활성화 게이트](ai-integration-contract.md#51-fastapi--spring-내부-전송).
 - 완료 전에 받은 청크는 임시 UI 상태이며, 최종 결과 검증 후 확정 저장합니다.
 - 10초 동안 다른 이벤트가 없으면 `heartbeat`를 발행합니다. `completed`와 `error`는
   상호 배타이며 하나만 정확히 1회 마지막에 발행합니다.

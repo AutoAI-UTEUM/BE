@@ -66,7 +66,11 @@ public class SessionController {
 		value = "/{sessionId}/stream",
 		produces = MediaType.TEXT_EVENT_STREAM_VALUE
 	)
-	@Operation(summary = "인증된 학습 turn SSE 연결")
+	@Operation(
+		summary = "인증된 학습 turn SSE 연결",
+		description = "기본 턴 이벤트와 opt-in quiz_question 공개 문항 미리보기를 중계합니다. "
+			+ "미리보기는 제출할 수 없으며 completed의 activeQuizId로 정본 퀴즈를 조회합니다."
+	)
 	public ResponseEntity<SseEmitter> stream(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long sessionId

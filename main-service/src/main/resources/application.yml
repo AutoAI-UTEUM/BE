@@ -81,6 +81,7 @@ edupilot:
     internal-token: ${EDUPILOT_INTERNAL_TOKEN}
     capabilities:
       qa-quiz-proposal: ${EDUPILOT_AI_QA_QUIZ_PROPOSAL_ENABLED:false}
+      quiz-question-stream: ${EDUPILOT_AI_QUIZ_QUESTION_STREAM_ENABLED:false}
     qa-quiz-proposal:
       rejection-threshold: ${EDUPILOT_AI_QA_QUIZ_REJECTION_THRESHOLD:2}
       suppression-turns: ${EDUPILOT_AI_QA_QUIZ_SUPPRESSION_TURNS:5}

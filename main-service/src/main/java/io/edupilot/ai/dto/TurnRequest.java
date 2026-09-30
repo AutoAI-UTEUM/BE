@@ -22,4 +22,11 @@ public record TurnRequest(
 	) {
 		this(schemaVersion, turnId, session, event, context, null);
 	}
+
+	public boolean streamsQuizQuestions() {
+		return event != null
+			&& "QUIZ_TYPE_SELECTED".equals(event.get("eventType"))
+			&& capabilities != null
+			&& Boolean.TRUE.equals(capabilities.get("quizQuestionStream"));
+	}
 }

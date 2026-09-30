@@ -2948,8 +2948,9 @@ prod에서 메일 provider가 `logging`이면 기동을 거부하며, `EDUPILOT_
 > 2026-09-29 연동 초안(DEC-041): AI에서 개요 `includePageQuizPlan`/`pageQuizPlan`,
 > 턴 `context.pageQuizDecision`·`quizContext.learningFocus`와 opt-in `capabilities`를
 > 구현했다. 기존 호출자는 필드를 보내지 않아도 된다. 새 통합학습 퀴즈 생성은 5문항이다.
-> QA 위젯 수용·계획 저장·문항 미리보기 SSE 매핑은 **Spring·FE 미구현/합의 대기**이며
-> 이 문서의 기존 외부 API 계약을 변경한 것이 아니다. [필드·책임·활성화 순서](ai-quiz-latency-handoff.md).
+> Spring은 계획 저장·QA 위젯 수용·화이트리스트 문항 미리보기 SSE 중계를
+> 개별 기본 OFF 플래그로 제공한다. FE 미리보기 지원과 AI 실모델 검증·활성화는 별도다.
+> 기존 호출자는 변경 없이 동작한다. [필드·책임·활성화 순서](ai-quiz-latency-handoff.md).
 
 ### 호출 주체 원칙 (하이브리드)
 
@@ -3084,6 +3085,7 @@ DTO 상세·타임아웃·재시도·`usage` 필드는 [docs/ai-integration-cont
 
 AI 응답 스트리밍은 SSE를 기본 전송 방식으로 사용합니다. 이벤트는 `ready`,
 `status`, `thought_summary`, `content_delta`, `ui_action`, `completed`, `error`이며,
+선택적으로 `quiz_question` 공개 문항 미리보기를 제공합니다.
 `completed` 또는 `error`는 정확히 1회, 스트림의 마지막 이벤트입니다.
 
 ### 9.1 연결과 턴 호출 순서
@@ -3141,6 +3143,26 @@ data: {"text":"편차는 "}
 :heartbeat
 ```
 
+`quiz_question`은 `EDUPILOT_AI_QUIZ_QUESTION_STREAM_ENABLED=true`(기본 false)인
+`QUIZ_TYPE_SELECTED` 스트리밍 턴에서만 중계합니다. JSON fallback에는 전송하지 않습니다.
+공개 DTO 정본과 동일하게 data에 `type:"quiz_question"`도 포함합니다.
+
+```text
+event: quiz_question
+data: {"type":"quiz_question","generationId":"generation-1","quizType":"MCQ","title":"체크포인트 퀴즈","coverage":{"startPage":2,"endPage":4},"questionIndex":1,"questionCount":5,"provisional":true,"question":{"questionId":"q1","questionText":"표준편차의 의미는 무엇인가요?","points":10,"choices":[{"choiceId":"a","text":"평균 주위의 산포"},{"choiceId":"b","text":"관측값의 개수"}]}}
+```
+
+- `quizType=MCQ|OX|SHORT|ESSAY`, `questionIndex=1..5`, `questionCount=5`,
+  `provisional=true`입니다. `choices`는 MCQ에만 있고 OX/SHORT/ESSAY에서는 생략합니다.
+- `generationId`는 임시 생성 식별자이지 DB quizId가 아닙니다. 정답·해설·루브릭·
+  채점 힌트·점수 결과는 루트와 중첩 객체 어디에도 중계하지 않습니다.
+  `question.points`는 문항의 공개 배점입니다.
+- FE는 미리보기에서 제출을 비활성화합니다. completed 후
+  `result.state.activeQuizId`로 `GET /api/quizzes/{quizId}`를 호출해 저장된 정본으로
+  교체합니다. 문항 수·내용 불일치 시 completed/재조회 결과가 우선입니다.
+- error/취소/close 수신 시 임시 문항을 정리하고 세션 상세·퀴즈 목록을 재조회합니다.
+  이미 저장된 완료본이 있을 수 있으므로 POST를 자동 재실행하지 않습니다.
+
 사용자 위젯은 Spring이 §5 W1~W7 규칙으로 정본화합니다. 퀴즈 제안은 내부 AI의
 exact allowlist 입력을 받아 생성하고, 그 밖의 상태 전이 위젯은 Spring 규칙으로
 생성합니다.
@@ -3178,7 +3200,11 @@ data: {"code":"AI_SERVICE_TIMEOUT","category":"TIMEOUT","message":"AI 서비스 
 ### 9.3 검증·저장·timeout
 
 - Spring은 `status`, `thought_summary`, `content_delta`, `heartbeat`,
-  `completed`, `error` 외의 내부 이벤트를 거부합니다.
+  `completed`, `error`와 opt-in `quiz_question` 외의 내부 이벤트를 거부합니다.
+- `quiz_question`은 공개 필드만 명시적 매핑합니다. capability OFF/다른 이벤트,
+  중복·역순 순번 또는 generationId 불일치는 무시+WARN입니다. 미리보기 수·마지막
+  순번이 완료 문항 수와 다르면 WARN이며 completed 전체 검증·저장은 유지합니다.
+  퀴즈 턴에 잘못 들어온 `content_delta`는 중계 전에 거부합니다.
 - `content_delta` 누적 문자열은 내부
   `completed.result.messages[].content`를 순서대로 이은 문자열과 같아야
   합니다.
@@ -3198,6 +3224,8 @@ data: {"code":"AI_SERVICE_TIMEOUT","category":"TIMEOUT","message":"AI 서비스 
   인정합니다.
 - 스트림 턴 총 상한은 최초 FastAPI 호출부터 200초입니다. heartbeat가
   계속 와도 연장하지 않으며 제한된 재시도도 같은 총 예산을 공유합니다.
-- retryable 오류는 content delta 전달 전까지만 최대 1회 자동 재시도합니다.
-  일부 content가 전달된 뒤에는 서로 다른 시도의 본문을 섞지 않도록
+- retryable 오류는 content delta와 문항 미리보기 전달 전까지만 최대 1회 자동 재시도합니다.
+  일부 content 또는 문항이 전달된 뒤에는 서로 다른 시도의 결과를 섞지 않도록
   재시도하지 않습니다.
+- 문항 스트림 로그의 `quizQuestionFirstMs`는 AI 시도 시작부터 첫 문항까지의 ms
+  (없으면 null), `quizQuestionCount`는 중계 문항 수입니다. usage 저장은 기존대로입니다.
