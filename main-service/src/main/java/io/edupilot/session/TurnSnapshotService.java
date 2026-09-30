@@ -9,6 +9,7 @@ import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,6 +63,7 @@ public class TurnSnapshotService {
 	private final RepairResultRepository repairRepository;
 	private final PageQuizPlanProperties pageQuizPlanProperties;
 	private final QaQuizProposalProperties qaQuizProposalProperties;
+	private final boolean quizQuestionStreamEnabled;
 
 	public TurnSnapshotService(
 		LearningSessionRepository sessionRepository,
@@ -77,7 +79,9 @@ public class TurnSnapshotService {
 		DiagnosisRepository diagnosisRepository,
 		RepairResultRepository repairRepository,
 		PageQuizPlanProperties pageQuizPlanProperties,
-		QaQuizProposalProperties qaQuizProposalProperties
+		QaQuizProposalProperties qaQuizProposalProperties,
+		@Value("${edupilot.ai.capabilities.quiz-question-stream:false}")
+		boolean quizQuestionStreamEnabled
 	) {
 		this.sessionRepository = sessionRepository;
 		this.pageRepository = pageRepository;
@@ -93,6 +97,7 @@ public class TurnSnapshotService {
 		this.repairRepository = repairRepository;
 		this.pageQuizPlanProperties = pageQuizPlanProperties;
 		this.qaQuizProposalProperties = qaQuizProposalProperties;
+		this.quizQuestionStreamEnabled = quizQuestionStreamEnabled;
 	}
 
 	@Transactional(readOnly = true)
@@ -268,7 +273,12 @@ public class TurnSnapshotService {
 			xaiFileAttached,
 			questionTurn && qaQuizProposalProperties.enabled()
 				? Map.of("qaQuizProposal", true, "quizQuestionStream", false)
-				: null
+				: includeQuizContext && quizQuestionStreamEnabled
+					? Map.of(
+						"qaQuizProposal", qaQuizProposalProperties.enabled(),
+						"quizQuestionStream", true
+					)
+					: null
 		);
 	}
 

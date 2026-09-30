@@ -103,7 +103,7 @@
 | 채팅 | 질문 전송 | 같은 turns API | QA 답변과 후속 질문 문맥 반영. 서버 플래그 활성화 시 응답 `uiActions`에 기존 퀴즈 제안 위젯이 올 수 있으며 기존 수락·유형 선택 UI 재사용 | 빈 질문/AI 오류/일일 AI 쿼터 429 |
 | 채팅 | 노트 제안 수락 | 같은 turns API (`NOTE_REQUESTED`, `payload: {}`) | `noteDraft`를 편집 UI에 표시하고 확정 시 기존 노트 API로 저장 | 잘못된 초안/AI 오류 |
 | 채팅 | 진단 답변 제출 | 같은 turns API | 오개념 교정 답변 표시 | 진단 상태 충돌 |
-| 퀴즈 유형 선택 | MCQ/OX/SHORT/ESSAY 선택 | 같은 turns API | 응답의 `state.activeQuizId`로 퀴즈 문항 조회 후 UI 열기 | 지원하지 않는 타입 |
+| 퀴즈 유형 선택 | MCQ/OX/SHORT/ESSAY 선택 | 같은 turns API | opt-in `quiz_question`은 제출 비활성 미리보기로 표시, completed의 `state.activeQuizId`로 정본 문항 조회·교체 | 지원하지 않는 타입, error/close 시 미리보기 폐기·재조회 |
 | 퀴즈 풀이 | 문항 표시/새로고침 복원 | `GET /api/quizzes/{quizId}` | 공개 문항 렌더링 | 퀴즈 없음/세션 권한 |
 | 퀴즈 풀이 | 제출 | `POST /api/quizzes/{quizId}/submit` | 동기 채점·평가 결과, 기준 미달이면 `DIAGNOSIS_QUESTION` 표시 | 중복 제출/답안 오류/평가·진단 일일 AI 쿼터 429. 그 외 제출 후 AI 파이프라인 실패는 기본 이동 액션으로 격리 |
 | 퀴즈 결과 | 과거 제출 결과 진입 | `GET /api/quizzes/{quizId}/submission` | 제출 답안·문항별 판정·점수·피드백과 정답·해설 표시 | 미제출·비소유·없는 퀴즈는 `QUIZ_NOT_FOUND` 404로 은닉 |
@@ -125,9 +125,11 @@ callback·reader 종료는 새 연결 시도의 ready 상태를 변경하지 않
 
 ## 2. 학습 화면 상태 동기화
 
-> DEC-041 연동 대기: AI 내부의 opt-in `quiz_question`은 **생성 중 공개 문항 미리보기**다.
-> 현재 외부 화면 기능으로 배포된 것으로 간주하지 않는다. Spring 외부 이벤트 매핑과 FE 지원
-> 완료 뒤에만 활성화하며, 완료 검증·저장된 정본 quizId 확인 전 제출은 금지한다.
+> DEC-041: opt-in `quiz_question`은 **생성 중 공개 문항 미리보기**다.
+> Spring은 화이트리스트 DTO로 중계하며 `EDUPILOT_AI_QUIZ_QUESTION_STREAM_ENABLED`는
+> 기본 false다. FE 지원·AI 실모델 검증 후 활성화하며, 외부 화면 배포 완료로 간주하지 않는다.
+> 공개 스키마는 [api-spec §9.2](api-spec.md#92-외부-sse-data-스키마)를 따르고,
+> 완료 검증·저장된 정본 quizId 확인 전 제출은 금지한다. generationId는 quizId가 아니다.
 > error/취소/재연결에서는 임시 문항을 폐기하고 서버 결과를 재조회한다.
 > QA 추가 제안은 사용자 동의 뒤 기존 유형 선택 흐름을 재사용한다.
 > [연동 작업과 회귀 기준](ai-quiz-latency-handoff.md).

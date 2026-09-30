@@ -75,6 +75,29 @@ class TurnSnapshotServiceTest {
 	private RepairResultRepository repairRepository;
 
 	@Test
+	void quizStreamCapabilityIsFrozenOnlyInQuizSnapshotWhenEnabled() {
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session()));
+
+		assertThat(service(false, false, true).buildQuiz(1L, 100L, 501L)
+			.capabilities()).isEqualTo(Map.of(
+				"qaQuizProposal", false, "quizQuestionStream", true
+			));
+		assertThat(service(false, true, true).buildQuiz(1L, 100L, 501L)
+			.capabilities()).isEqualTo(Map.of(
+				"qaQuizProposal", true, "quizQuestionStream", true
+			));
+		assertThat(service(false, true, false).buildQuiz(1L, 100L, 501L)
+			.capabilities()).isNull();
+		assertThat(service(false, true, true).build(1L, 100L, 501L, true)
+			.capabilities()).isNull();
+		assertThat(service(false, false, true).buildQuestion(1L, 100L, 501L, true)
+			.capabilities()).isNull();
+		assertThat(service(false, true, true).buildQuestion(1L, 100L, 501L, true)
+			.capabilities()).containsEntry("quizQuestionStream", false);
+	}
+
+	@Test
 	void qaCapabilityIsFrozenOnlyInQuestionSnapshotWhenEnabled() {
 		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
 			.thenReturn(Optional.of(session()));
@@ -772,6 +795,14 @@ class TurnSnapshotServiceTest {
 		boolean pageQuizPlanEnabled,
 		boolean qaQuizProposalEnabled
 	) {
+		return service(pageQuizPlanEnabled, qaQuizProposalEnabled, false);
+	}
+
+	private TurnSnapshotService service(
+		boolean pageQuizPlanEnabled,
+		boolean qaQuizProposalEnabled,
+		boolean quizQuestionStreamEnabled
+	) {
 		return new TurnSnapshotService(
 			sessionRepository,
 			pageRepository,
@@ -786,7 +817,8 @@ class TurnSnapshotServiceTest {
 			diagnosisRepository,
 			repairRepository,
 			new PageQuizPlanProperties(pageQuizPlanEnabled, false),
-			new QaQuizProposalProperties(qaQuizProposalEnabled, 2, 5)
+			new QaQuizProposalProperties(qaQuizProposalEnabled, 2, 5),
+			quizQuestionStreamEnabled
 		);
 	}
 

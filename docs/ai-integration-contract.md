@@ -89,7 +89,14 @@ Spring의 `edupilot.ai.page-quiz-plan.enabled`는 기본 `false`다. 활성화 �
 페이지별 계획 단계 자체는 `capabilities`를 보내지 않는다. 별도로
 `edupilot.ai.capabilities.qa-quiz-proposal=true`인 `USER_QUESTION` 요청만 최상위
 `capabilities={qaQuizProposal:true,quizQuestionStream:false}`를 보낸다. 기본값은
-`false`이며 꺼져 있거나 다른 eventType이면 필드 자체를 생략한다. TURN 사용량의 `quizDecisionSource=PLAN`
+`false`이며 꺼져 있거나 다른 eventType이면 QA capability를 보내지 않는다.
+별도 `edupilot.ai.capabilities.quiz-question-stream`(환경변수
+`EDUPILOT_AI_QUIZ_QUESTION_STREAM_ENABLED`, 기본 `false`)이 켜진
+`QUIZ_TYPE_SELECTED` **NDJSON 요청에만**
+`capabilities={qaQuizProposal:<QA 플래그>,quizQuestionStream:true}`를 보낸다.
+퀴즈 JSON fallback에서는 capabilities를 생략하며, 설명·질문 등 다른 이벤트에는
+`quizQuestionStream:true`를 보내지 않는다. capability는 요청 스냅샷 기준으로 고정한다.
+TURN 사용량의 `quizDecisionSource=PLAN`
 은 해당 필드 전달, `PLANNER`는 미전달을 뜻하며 실제 Planner 호출 횟수의 확증은
 AI의 `planSource`·`plannerAttempts` 로그로 확인한다.
 AI 구버전은 새 필드를 거부할 수 있으므로 DEC-041 합의 및 AI 수용 버전 배포를
@@ -393,7 +400,8 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 
 기본 내부 NDJSON 이벤트는 다음 6종입니다. DEC-041의 명시적
 `capabilities.quizQuestionStream=true` + `QUIZ_TYPE_SELECTED` + NDJSON에만 임시
-`quiz_question`을 추가하는 AI 구현이 있다. Spring·FE 수용 전 이 옵션을 보내지 않는다.
+`quiz_question`을 추가한다. Spring은 아래 공개 DTO로 중계하며 기본 OFF다.
+FE 미리보기 지원·AI 실모델 형식 준수 검증 후 dev부터 활성화한다.
 문항의 공개 필드만 미리 보내며 최종 completed 전 저장·제출하지 않는다.
 오류·연결 중단 시 임시 문항은 폐기한다. [이벤트 구조 및 연동 경계](ai-quiz-latency-handoff.md#4-문항-선전달-외부-표시-준비가-된-뒤-활성화).
 
@@ -403,8 +411,28 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 | `thought_summary` | `text` | 파이프라인이 만드는 결정적 한국어 진행 문구. 모델 원시 추론이 아니며 저장하지 않음 |
 | `content_delta` | `text` | 학습자에게 보여 줄 Markdown 본문 청크 |
 | `heartbeat` | 없음 | 10초 동안 다른 이벤트가 없을 때 연결 유지용으로 발행 |
+| `quiz_question` (opt-in) | `type, generationId, quizType, title, coverage, questionIndex, questionCount, provisional, question` | 공개 문항 미리보기, 아래 화이트리스트만 중계 |
 | `completed` | `result` | 최종 `TurnResponse` 전체 — 정확히 1회, 마지막 |
 | `error` | `code, category, message, retryable` | 실패 종료 — `completed`와 상호 배타이며 정확히 1회, 마지막 |
+
+Spring 수용 조건·화이트리스트(#459):
+
+- 정본은 `ai-service/src/edupilot_ai/models/quiz_preview.py`의
+  `QuizQuestionStreamEvent`/`PublicQuizQuestion`과 상속한 공개 필드다.
+  `coverage={startPage,endPage}`, `question={questionId,questionText,points,choices?}`,
+  `choices[]={choiceId,text}`만 명시적 record 매핑한다. `type`은
+  `quiz_question` 상수, `questionIndex=1..5`, `questionCount=5`, `provisional=true`다.
+  `choices`는 MCQ에서만 포함하고 OX/SHORT/ESSAY에서는 필드 자체를 생략한다.
+- 원본 Map/JsonNode나 private 문항 DTO는 SSE로 전달하지 않는다. 루트와 모든
+  중첩 객체의 알 수 없는 필드(정답·해설·루브릭·채점 힌트 등)는 버린다.
+  공개 문자열 필드에 객체가 들어오는 등 타입 오류는 거부한다.
+- capability OFF/다른 이벤트, 중복·역순 인덱스, 다른 generationId의 미리보기는
+  무시하고 내용 없는 사유·순번만 WARN으로 기록한다. 임시 문항은 저장하지 않는다.
+- 문항 수·마지막 순번이 completed 문항 수와 다르면 WARN을 남기되 completed가
+  정본이다. 기존 전체 퀴즈 검증·저장·quizId 발급은 변경하지 않는다.
+- 퀴즈 턴의 `content_delta`는 완료 검증 전에도 중계하지 않고 거부한다.
+  미리보기 전송 후에는 자동 재시도하지 않는다. 턴 로그에
+  `quizQuestionFirstMs`(문항 없으면 null), `quizQuestionCount`를 기록하며 usage는 변경하지 않는다.
 
 - 첫 이벤트는 `status`를 포함해
   `TURN_FIRST_EVENT_TIMEOUT_SECONDS`(기본 30초) 안에 발행합니다.
@@ -447,10 +475,15 @@ DEC-041 opt-in QuizAgent는 기존 text stream에서 JSON 객체 하나를 받�
 
 - Spring은 내부 NDJSON의 `status`, `thought_summary`, `content_delta`,
   `completed`, `error`를 같은 이름의 외부 SSE 이벤트로 변환합니다.
+- opt-in `quiz_question`은 위 화이트리스트 record만 외부 `quiz_question` data로
+  직렬화합니다. FE는 제출을 비활성화한 미리보기만 렌더링하고, 완료 후
+  `completed.result.state.activeQuizId`로 정본 문항을 조회해 교체합니다.
+  error/취소/close 시 미리보기를 폐기하고 세션·퀴즈 목록을 재조회합니다.
+  `generationId`는 quizId가 아니며, 미리보기만 보고 POST를 자동 재실행하지 않습니다.
 - 내부 `{"type":"heartbeat"}`는 외부 SSE comment 라인으로 변환하며 FE는
   무시합니다.
 - **외부 `ui_action` (확정)**: 외부 SSE에는 내부에 없는 `ui_action` 이벤트가
-  추가됩니다(api-spec §9, DEC-013 — 외부 어휘 6종 유지). AI Service는 발행하지
+  추가됩니다(api-spec §9, DEC-013 — 기본 이벤트 유지, 문항 미리보기는 opt-in). AI Service는 발행하지
   않으며, Spring이 내부 `completed`를 검증·저장한 뒤 api-spec §5의 위젯 규칙
   (W1~W7)으로 생성합니다. 발행 순서는 **[위젯이 있으면 `ui_action`] →
   `completed` → 스트림 종료**이며, `completed`는 외부에서도 정확히 1회·마지막

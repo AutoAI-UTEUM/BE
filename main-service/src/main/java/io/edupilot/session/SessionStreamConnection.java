@@ -207,6 +207,7 @@ final class SessionStreamConnection {
 
 	synchronized void send(TurnStreamEvent event) {
 		switch (event.type()) {
+			case QUIZ_QUESTION -> sendEvent("quiz_question", event.quizQuestion());
 			case STATUS -> sendEvent(
 				"status",
 				Map.of("stage", event.stage())

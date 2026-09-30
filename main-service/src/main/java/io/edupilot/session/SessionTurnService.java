@@ -10,6 +10,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
 import org.slf4j.Logger;
@@ -349,9 +351,13 @@ public class SessionTurnService {
 				turnId,
 				eventType,
 				payload,
-				snapshot
+				snapshot,
+				true
 			);
 			boolean aiCallStarted = false;
+			long attemptStartedNanos = nanoTime.getAsLong();
+			AtomicInteger quizQuestionCount = new AtomicInteger();
+			AtomicLong quizQuestionFirstMs = new AtomicLong(-1);
 			try {
 				long remainingNanos = deadlineNanos - nanoTime.getAsLong();
 				if (remainingNanos <= 0) {
@@ -385,6 +391,17 @@ public class SessionTurnService {
 								contentForwarded.set(true);
 								partialContent.append(event.text());
 							}
+							if (event.type() == TurnStreamEvent.Type.QUIZ_QUESTION) {
+								if (!aiRequest.streamsQuizQuestions()) {
+									return;
+								}
+								// 미리보기를 보낸 뒤 재시도하면 서로 다른 생성 결과가 섞인다.
+								contentForwarded.set(true);
+								quizQuestionCount.incrementAndGet();
+								quizQuestionFirstMs.compareAndSet(-1, Math.max(
+									0, (nanoTime.getAsLong() - attemptStartedNanos) / 1_000_000
+								));
+							}
 							streamConnection.send(event);
 						},
 						cancellation,
@@ -406,8 +423,10 @@ public class SessionTurnService {
 					expectedQuizType(eventType, payload),
 					availableQuizPages(eventType, snapshot)
 				);
+				logQuizQuestionStream(request, aiRequest, quizQuestionCount.get(), quizQuestionFirstMs.get());
 				return StreamExecution.completed(response);
 			} catch (AiClientException exception) {
+				logQuizQuestionStream(request, aiRequest, quizQuestionCount.get(), quizQuestionFirstMs.get());
 				if (aiCallStarted) {
 					aiUsageService.record(
 						userId,
@@ -493,7 +512,8 @@ public class SessionTurnService {
 				turnId,
 				eventType,
 				payload,
-				snapshot
+				snapshot,
+				false
 			);
 			boolean aiCallStarted = false;
 			try {
@@ -574,7 +594,8 @@ public class SessionTurnService {
 		String turnId,
 		TurnEventType eventType,
 		Map<String, Object> payload,
-		TurnSnapshot snapshot
+		TurnSnapshot snapshot,
+		boolean streaming
 	) {
 		return new io.edupilot.ai.dto.TurnRequest(
 			SCHEMA_VERSION,
@@ -582,8 +603,25 @@ public class SessionTurnService {
 			snapshot.session(),
 			eventData(eventType, payload),
 			snapshot.context(),
-			snapshot.capabilities()
+			!streaming && eventType == TurnEventType.QUIZ_TYPE_SELECTED
+				? null : snapshot.capabilities()
 		);
+	}
+
+	private void logQuizQuestionStream(
+		TurnRequest request,
+		io.edupilot.ai.dto.TurnRequest aiRequest,
+		int count,
+		long firstMs
+	) {
+		if (aiRequest.streamsQuizQuestions()) {
+			log.atInfo()
+				.addKeyValue("requestId", request.requestId())
+				.addKeyValue("turnId", aiRequest.turnId())
+				.addKeyValue("quizQuestionFirstMs", firstMs < 0 ? null : firstMs)
+				.addKeyValue("quizQuestionCount", count)
+				.log("AI quiz question stream finished");
+		}
 	}
 
 	private QuizDecisionSource quizDecisionSource(TurnSnapshot snapshot) {
