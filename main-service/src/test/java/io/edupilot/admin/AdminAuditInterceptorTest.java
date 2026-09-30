@@ -44,6 +44,7 @@ class AdminAuditInterceptorTest {
 			AdminInfraController.class,
 			AdminXaiController.class,
 			AdminMailController.class,
+			AdminMaterialOverviewController.class,
 			AdminPolicyController.class
 		).flatMap(controller -> Arrays.stream(controller.getDeclaredMethods()))
 			.filter(method -> method.isAnnotationPresent(GetMapping.class)

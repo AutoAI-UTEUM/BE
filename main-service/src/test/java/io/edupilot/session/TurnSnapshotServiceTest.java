@@ -787,6 +787,7 @@ class TurnSnapshotServiceTest {
 			repairRepository,
 			new PageQuizPlanProperties(pageQuizPlanEnabled),
 			new QaQuizProposalProperties(qaQuizProposalEnabled, 2, 5)
+			new PageQuizPlanProperties(pageQuizPlanEnabled, false)
 		);
 	}
 

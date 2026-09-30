@@ -455,6 +455,115 @@ class MaterialOverviewJpaTest {
 	}
 
 	@Test
+	void timeoutOnReadyOverviewKeepsContentAndPreventsRetryFor24Hours() {
+		Fixture fixture = fixture();
+		MaterialOverview overview = MaterialOverview.createPending(fixture.material());
+		overview.markReady("legacy overview", outline());
+		overviewRepository.saveAndFlush(overview);
+		Long materialId = fixture.material().getId();
+
+		assertThat(outlinePersistenceService.claimAutomaticGeneration(materialId))
+			.isTrue();
+		assertThat(outlinePersistenceService.claimAutomaticGeneration(materialId))
+			.isFalse();
+		assertThat(outlinePersistenceService.markFailed(materialId)).isTrue();
+		entityManager.flush();
+		entityManager.clear();
+
+		MaterialOverview stored = overviewRepository.findByMaterial_Id(materialId)
+			.orElseThrow();
+		assertThat(stored.getStatus()).isEqualTo(MaterialOverviewStatus.READY);
+		assertThat(stored.getContent()).isEqualTo("legacy overview");
+		assertThat(stored.getGenerationFailureCount()).isEqualTo(1);
+		assertThat(outlinePersistenceService.findBackfillCandidates(10))
+			.doesNotContain(materialId);
+		when(clock.instant()).thenReturn(NOW.plus(Duration.ofHours(23)));
+		assertThat(outlinePersistenceService.findBackfillCandidates(10))
+			.doesNotContain(materialId);
+		when(clock.instant()).thenReturn(NOW.plus(Duration.ofHours(24)));
+		assertThat(outlinePersistenceService.findBackfillCandidates(10))
+			.contains(materialId);
+		assertThat(outlinePersistenceService.claimAutomaticGeneration(materialId))
+			.isTrue();
+		assertThat(outlinePersistenceService.markReady(materialId,
+			"recovered", outlineWithCheckpoints())).isTrue();
+		assertThat(overviewRepository.findByMaterial_Id(materialId).orElseThrow()
+			.getGenerationFailureCount()).isZero();
+	}
+
+	@Test
+	void threeFailuresExcludeAutomaticBackfillUntilManualReset() {
+		Fixture fixture = fixture();
+		Long materialId = fixture.material().getId();
+		for (int attempt = 0; attempt < 3; attempt++) {
+			when(clock.instant()).thenReturn(NOW.plus(Duration.ofHours(24L * attempt)));
+			assertThat(outlinePersistenceService.claimAutomaticGeneration(materialId))
+				.isTrue();
+			assertThat(outlinePersistenceService.markFailed(materialId)).isTrue();
+		}
+		when(clock.instant()).thenReturn(NOW.plus(Duration.ofDays(4)));
+		assertThat(outlinePersistenceService.findBackfillCandidates(10))
+			.doesNotContain(materialId);
+		assertThat(outlinePersistenceService.claimAutomaticGeneration(materialId))
+			.isFalse();
+
+		assertThat(outlinePersistenceService.prepareManualRegeneration(materialId))
+			.isTrue();
+		assertThat(overviewRepository.findByMaterial_Id(materialId).orElseThrow()
+			.getGenerationFailureCount()).isZero();
+		assertThat(outlinePersistenceService.markFailed(materialId)).isTrue();
+		entityManager.flush();
+		entityManager.clear();
+		assertThat(overviewRepository.findByMaterial_Id(materialId).orElseThrow()
+			.getGenerationFailureCount()).isEqualTo(1);
+		assertThat(outlinePersistenceService.findBackfillCandidates(10))
+			.doesNotContain(materialId);
+	}
+
+	@Test
+	void enabledPlanWithBackfillOffDoesNotRegenerateExistingOverview() {
+		Fixture fixture = fixture();
+		MaterialOverview overview = MaterialOverview.createPending(fixture.material());
+		overview.markReady("legacy", outlineWithCheckpoints());
+		overviewRepository.saveAndFlush(overview);
+		setOverviewUpdatedAt(fixture.material().getId(), NOW.minus(Duration.ofDays(2)));
+		entityManager.clear();
+		MaterialOutlinePersistenceService noPlanBackfill =
+			new MaterialOutlinePersistenceService(materialRepository,
+				pageRepository, overviewRepository, pageTextMerger, clock,
+				new PageQuizPlanProperties(true, false));
+
+		assertThat(noPlanBackfill.findBackfillCandidates(10))
+			.doesNotContain(fixture.material().getId());
+		assertThat(noPlanBackfill.claimAutomaticGeneration(
+			fixture.material().getId())).isFalse();
+	}
+
+	@Test
+	void missingPlanAfterRegenerationCountsAsFailureWithoutHidingReadyOverview() {
+		Fixture fixture = fixture();
+		MaterialOverview overview = MaterialOverview.createPending(fixture.material());
+		overview.markReady("legacy", outlineWithCheckpoints());
+		overviewRepository.saveAndFlush(overview);
+		Long materialId = fixture.material().getId();
+		setOverviewUpdatedAt(materialId, NOW.minus(Duration.ofDays(2)));
+		entityManager.clear();
+		MaterialOutlinePersistenceService service = planPersistenceService();
+
+		assertThat(service.claimAutomaticGeneration(materialId)).isTrue();
+		assertThat(service.markReady(materialId, "regenerated",
+			outlineWithCheckpoints())).isTrue();
+		entityManager.flush();
+		entityManager.clear();
+		MaterialOverview stored = overviewRepository.findByMaterial_Id(materialId)
+			.orElseThrow();
+		assertThat(stored.getStatus()).isEqualTo(MaterialOverviewStatus.READY);
+		assertThat(stored.getContent()).isEqualTo("regenerated");
+		assertThat(stored.getGenerationFailureCount()).isEqualTo(1);
+		assertThat(service.findBackfillCandidates(10)).doesNotContain(materialId);
+	}
+
+	@Test
 	void captionRoundTripPreservesOriginalTextAndCompletionExcludesBackfill() {
 		Fixture fixture = fixture();
 		Fixture pendingCaption = fixture();
@@ -545,7 +654,7 @@ class MaterialOverviewJpaTest {
 	private MaterialOutlinePersistenceService planPersistenceService() {
 		return new MaterialOutlinePersistenceService(materialRepository,
 			pageRepository, overviewRepository, pageTextMerger, clock,
-			new PageQuizPlanProperties(true));
+			new PageQuizPlanProperties(true, true));
 	}
 
 	private Fixture fixture() {

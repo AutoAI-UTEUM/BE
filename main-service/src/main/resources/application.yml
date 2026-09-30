@@ -86,6 +86,7 @@ edupilot:
       suppression-turns: ${EDUPILOT_AI_QA_QUIZ_SUPPRESSION_TURNS:5}
     page-quiz-plan:
       enabled: ${EDUPILOT_AI_PAGE_QUIZ_PLAN_ENABLED:false}
+      backfill-enabled: ${EDUPILOT_AI_PAGE_QUIZ_PLAN_BACKFILL_ENABLED:false}
     quota:
       enabled: ${EDUPILOT_AI_QUOTA_ENABLED:true}
       daily-default: ${EDUPILOT_AI_QUOTA_DAILY_DEFAULT:200}
