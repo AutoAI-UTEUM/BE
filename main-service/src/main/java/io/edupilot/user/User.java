@@ -190,10 +190,6 @@ public class User {
 		);
 	}
 
-	public void linkGoogle(String googleSub) {
-		this.googleSub = googleSub;
-	}
-
 	public void changePassword(String passwordHash) {
 		this.passwordHash = passwordHash;
 	}

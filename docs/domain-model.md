@@ -79,7 +79,7 @@ erDiagram
 - 역할은 `LEARNER`, `INSTRUCTOR`, `ADMIN`입니다. 공개 가입은 `LEARNER | INSTRUCTOR`만 허용하고 `ADMIN`은 기능 미구현·예약 상태로 유지합니다(DEC-017, DEC-029 Accepted).
 - `LEARNER`와 `INSTRUCTOR`는 개인 PDF 업로드와 개인 통합학습을 사용할 수 있습니다. 강의실 개설·관리·자료 연결은 소유 `INSTRUCTOR`만 가능하고, `LEARNER`와 타 강의실에 참여한 `INSTRUCTOR`는 승인 멤버로서 공개 자료를 조회·학습할 수 있습니다(DEC-030).
 - 상태는 `ACTIVE`, `SUSPENDED`, `DELETED`입니다. 정지는 관리자만 수행하며 사유·시각·담당자 ID를 저장하고 모든 refresh token·인증 세션을 폐기합니다. 기존 access token은 1분 캐시를 사용하는 인증 필터의 상태 재검증과 상태 변경 직후 캐시 무효화로 차단합니다. 복구는 정지 메타를 지우지만 세션은 복구하지 않습니다. 탈퇴(DEC-028)는 논리 삭제 + 즉시 익명화(email → `deleted_{id}`, name 고정 문구, password_hash 무효화)이며 복구는 MVP 미지원입니다.
-- 인증 제공자는 최초 가입 기준 `LOCAL | GOOGLE`입니다. Google 로그인은 검증된 `google_sub`를 우선 사용하고, 미연동이면 검증된 이메일과 같은 로컬 계정에 자동 연결합니다. Google 최초 가입 계정은 비밀번호 로그인을 허용하지 않으며 탈퇴 시 `google_sub`를 제거합니다.
+- 인증 제공자는 최초 가입 기준 `LOCAL | GOOGLE`입니다. Google 로그인은 검증된 `google_sub`를 우선 사용합니다. 미연결 subject의 정규화 이메일이 기존 로컬 계정 또는 다른 Google subject의 계정과 같으면 `EMAIL_ALREADY_EXISTS`로 거부하고 계정·자격증명·동의 이력을 변경하지 않습니다(#455). Google 최초 가입 계정은 비밀번호 로그인을 허용하지 않으며 탈퇴 시 `google_sub`를 제거합니다. 이미 자동 연결된 LOCAL 계정의 식별·복구와 기존 자격증명/세션/access token 종료 정책은 DEC-042의 후속 결정이며 이번 예방 차단으로 소급 처리하지 않습니다.
 - `lastActiveAt`은 관리자 회원 목록에 표시하는 사용자 단위 최근 인증 API 활동입니다. 인증 session의 idle 만료 정본으로 사용하지 않습니다.
 
 ### PolicyDocument / PolicyConsent

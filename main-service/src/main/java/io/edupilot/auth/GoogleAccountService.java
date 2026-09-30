@@ -42,13 +42,8 @@ public class GoogleAccountService {
 		user = userRepository.findByEmail(normalizedEmail).orElse(null);
 		if (user != null) {
 			assertActive(user);
-			user.linkGoogle(profile.sub());
-			try {
-				userRepository.flush();
-			} catch (DataIntegrityViolationException exception) {
-				throw new BusinessException(ErrorCode.TOKEN_INVALID);
-			}
-			return user;
+			// A verified Google email does not prove ownership of an existing local account.
+			throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);
 		}
 
 		SignupRole role = requiredSignupRole(request);

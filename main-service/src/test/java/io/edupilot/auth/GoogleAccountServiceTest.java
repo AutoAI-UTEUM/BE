@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
@@ -15,8 +16,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.edupilot.auth.dto.GoogleLoginRequest;
@@ -29,6 +33,7 @@ import io.edupilot.policy.dto.PolicyConsentChoice;
 import io.edupilot.user.AuthProvider;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
+import io.edupilot.user.UserStatus;
 
 @ExtendWith(MockitoExtension.class)
 class GoogleAccountServiceTest {
@@ -119,7 +124,7 @@ class GoogleAccountServiceTest {
 	}
 
 	@Test
-	void existingLocalEmailIsLinkedWithoutChangingOriginProvider() {
+	void existingLocalEmailIsRejectedWithoutLinkingOrChangingCredentials() {
 		User local = User.create("user@example.com", "encoded-password", "로컬 사용자");
 		ReflectionTestUtils.setField(local, "id", 3L);
 		when(userRepository.findByGoogleSub("google-subject"))
@@ -127,13 +132,66 @@ class GoogleAccountServiceTest {
 		when(userRepository.findByEmail("user@example.com"))
 			.thenReturn(Optional.of(local));
 
-		User user = resolve(minimalRequest(), PROFILE);
+		assertBusinessError(() -> resolve(minimalRequest(), PROFILE),
+			ErrorCode.EMAIL_ALREADY_EXISTS);
 
-		assertThat(user).isSameAs(local);
-		assertThat(user.getAuthProvider()).isEqualTo(AuthProvider.LOCAL);
-		assertThat(user.getGoogleSub()).isEqualTo("google-subject");
-		verify(userRepository).flush();
+		assertThat(local.getAuthProvider()).isEqualTo(AuthProvider.LOCAL);
+		assertThat(local.getGoogleSub()).isNull();
+		assertThat(local.getPasswordHash()).isEqualTo("encoded-password");
+		verify(userRepository, never()).flush();
 		verify(userRepository, never()).saveAndFlush(any());
+		verifyNoInteractions(policyService);
+	}
+
+	@Test
+	void differentGoogleSubjectWithSameEmailCannotReplaceExistingSubject() {
+		User existing = googleUser(7L);
+		GoogleProfile other = new GoogleProfile("different-subject", PROFILE.email(), PROFILE.name());
+		when(userRepository.findByGoogleSub(other.sub())).thenReturn(Optional.empty());
+		when(userRepository.findByEmail("user@example.com"))
+			.thenReturn(Optional.of(existing));
+
+		assertBusinessError(() -> resolve(completeRequest(), other),
+			ErrorCode.EMAIL_ALREADY_EXISTS);
+
+		assertThat(existing.getGoogleSub()).isEqualTo("google-subject");
+		verify(userRepository, never()).flush();
+		verify(userRepository, never()).saveAndFlush(any());
+		verifyNoInteractions(policyService);
+	}
+
+	@ParameterizedTest
+	@CsvSource({"DELETED,true", "SUSPENDED,true", "DELETED,false", "SUSPENDED,false"})
+	void inactiveAccountRemainsRejectedBeforeTokenIssuance(UserStatus status, boolean sameSubject) {
+		User existing = googleUser(7L);
+		ReflectionTestUtils.setField(existing, "status", status);
+		when(userRepository.findByGoogleSub(PROFILE.sub()))
+			.thenReturn(sameSubject ? Optional.of(existing) : Optional.empty());
+		if (!sameSubject) {
+			when(userRepository.findByEmail("user@example.com"))
+				.thenReturn(Optional.of(existing));
+		}
+
+		assertBusinessError(() -> resolve(minimalRequest(), PROFILE),
+			status == UserStatus.SUSPENDED ? ErrorCode.ACCOUNT_SUSPENDED : ErrorCode.USER_INACTIVE);
+
+		verify(userRepository, never()).flush();
+		verify(userRepository, never()).saveAndFlush(any());
+		verifyNoInteractions(policyService);
+	}
+
+	@Test
+	void concurrentSignupConstraintFailureDoesNotFallBackToEmailLinking() {
+		when(userRepository.findByGoogleSub(PROFILE.sub())).thenReturn(Optional.empty());
+		when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.empty());
+		when(userRepository.saveAndFlush(any(User.class)))
+			.thenThrow(new DataIntegrityViolationException("unique constraint"));
+
+		assertBusinessError(() -> resolve(completeRequest(), PROFILE),
+			ErrorCode.EMAIL_ALREADY_EXISTS);
+
+		verify(userRepository, never()).flush();
+		verify(policyService, never()).recordSignup(any(), any(), any(), any());
 	}
 
 	@Test
