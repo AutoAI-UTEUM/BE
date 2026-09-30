@@ -99,7 +99,7 @@
 
 | code | HTTP | 의미 |
 | --- | ---: | --- |
-| `MATERIAL_NOT_FOUND` | 404 | 자료 없음 |
+| `MATERIAL_NOT_FOUND` | 404 | 자료 없음·현재 접근권 없음. 퀴즈 신규 제출·기존 결과 재응답·결과 상세 조회에도 적용하며 정답·해설·feedback을 반환하지 않음 |
 | `MATERIAL_ACCESS_DENIED` | 403/404 | 자료 접근 불가 |
 | `INVALID_PDF_FILE` | 400 | PDF가 아니거나 손상됨 |
 | `FILE_TOO_LARGE` | 413 | 파일 제한 초과 |

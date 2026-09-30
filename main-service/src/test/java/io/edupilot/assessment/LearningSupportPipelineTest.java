@@ -62,6 +62,9 @@ class LearningSupportPipelineTest {
 	@Mock
 	private LearnerMemoryRepository memoryRepository;
 
+	@Mock
+	private io.edupilot.material.MaterialAccessService materialAccessService;
+
 	@BeforeEach
 	void setUpUser() {
 		org.mockito.Mockito.lenient()
@@ -330,8 +333,21 @@ class LearningSupportPipelineTest {
 			userRepository,
 			assessmentPersistenceService,
 			diagnosisPersistenceService,
-			memoryRepository
+			memoryRepository,
+			materialAccessService
 		);
+	}
+
+	@Test
+	void assessmentAccessDenialStopsDiagnosisInsteadOfReturningFallback() {
+		when(aiClient.quizAssessment(any())).thenReturn(assessmentResponse());
+		when(assessmentPersistenceService.save(any(), any()))
+			.thenThrow(new io.edupilot.global.error.BusinessException(io.edupilot.global.error.ErrorCode.MATERIAL_NOT_FOUND));
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> pipeline().onGraded(context(false)))
+			.isInstanceOfSatisfying(io.edupilot.global.error.BusinessException.class,
+				error -> assertThat(error.errorCode()).isEqualTo(io.edupilot.global.error.ErrorCode.MATERIAL_NOT_FOUND));
+		verify(aiClient, never()).diagnosis(any());
 	}
 
 	private QuizPostGradingContext context(boolean passed) {

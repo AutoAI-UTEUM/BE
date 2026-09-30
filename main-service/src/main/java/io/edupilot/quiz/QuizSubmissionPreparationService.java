@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -17,6 +18,7 @@ import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.MaterialPage;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.material.MaterialPageTextMerger;
 import io.edupilot.quiz.dto.QuizSubmitRequest;
@@ -29,18 +31,21 @@ public class QuizSubmissionPreparationService {
 	private final QuizRepository quizRepository;
 	private final MaterialPageRepository materialPageRepository;
 	private final MaterialPageTextMerger pageTextMerger;
+	private final MaterialAccessService materialAccessService;
 
 	public QuizSubmissionPreparationService(
 		QuizRepository quizRepository,
 		MaterialPageRepository materialPageRepository,
-		MaterialPageTextMerger pageTextMerger
+		MaterialPageTextMerger pageTextMerger,
+		MaterialAccessService materialAccessService
 	) {
 		this.quizRepository = quizRepository;
 		this.materialPageRepository = materialPageRepository;
 		this.pageTextMerger = pageTextMerger;
+		this.materialAccessService = materialAccessService;
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, isolation = Isolation.READ_COMMITTED)
 	public PreparedQuizSubmission prepare(
 		Long userId,
 		Long quizId,
@@ -48,6 +53,7 @@ public class QuizSubmissionPreparationService {
 	) {
 		Quiz quiz = quizRepository.findOwned(quizId, userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.QUIZ_NOT_FOUND));
+		materialAccessService.assertSessionAccessible(userId, quiz.getSessionId());
 		if (quiz.getSessionStatus() != SessionStatus.ACTIVE) {
 			throw new BusinessException(ErrorCode.QUIZ_NOT_SUBMITTABLE);
 		}

@@ -58,6 +58,9 @@ class LearningSupportPersistenceServiceTest {
 	@Mock
 	private DiagnosisRepository diagnosisRepository;
 
+	@Mock
+	private io.edupilot.material.MaterialAccessService materialAccessService;
+
 	@Test
 	void completedOrDeletedSessionDiscardsAssessmentResult() {
 		for (boolean deleted : List.of(false, true)) {
@@ -91,7 +94,8 @@ class LearningSupportPersistenceServiceTest {
 			new DiagnosisPersistenceService(
 				sessionRepository,
 				submissionRepository,
-				diagnosisRepository
+				diagnosisRepository,
+				materialAccessService
 			);
 
 		assertThat(service.savePending(
@@ -146,7 +150,8 @@ class LearningSupportPersistenceServiceTest {
 			assessmentRepository,
 			candidateRepository,
 			userRepository,
-			materialRepository
+			materialRepository,
+			materialAccessService
 		);
 	}
 

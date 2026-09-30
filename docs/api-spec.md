@@ -98,8 +98,8 @@
 | GET | `/api/sessions/{sessionId}/messages` | 메시지 조회 | Y | 세션 소유자 |
 | GET | `/api/sessions/{sessionId}/quizzes` | 퀴즈 기록 조회 | Y | 세션 소유자 |
 | GET | `/api/quizzes/{quizId}` | 퀴즈 공개 문항 조회 | Y | 세션 소유자 |
-| GET | `/api/quizzes/{quizId}/submission` | 내 퀴즈 제출 결과 조회 | Y | 제출한 세션 소유자 |
-| POST | `/api/quizzes/{quizId}/submit` | 퀴즈 제출 | Y | 세션 소유자 |
+| GET | `/api/quizzes/{quizId}/submission` | 내 퀴즈 제출 결과 조회 | Y | 제출한 세션 소유자 + 현재 자료 접근권 |
+| POST | `/api/quizzes/{quizId}/submit` | 퀴즈 제출 | Y | 세션 소유자 + 현재 자료 접근권 |
 | POST | `/api/classrooms/{classroomId}/exams` | 별도 시험 DRAFT 생성 | Y | 소유 INSTRUCTOR |
 | POST | `/api/classrooms/{classroomId}/exams/{examId}/draft-questions` | 자료 기반 AI 문항 초안 생성(무저장) | Y | 소유 INSTRUCTOR |
 | GET | `/api/classrooms/{classroomId}/exams` | 역할별 시험 목록 조회 | Y | 소유 INSTRUCTOR 또는 승인 멤버 |
@@ -1162,6 +1162,8 @@ Query:
 노출하며, 미제출 퀴즈·존재하지 않는 퀴즈·다른 사용자의 퀴즈는 모두
 `QUIZ_NOT_FOUND`(404)로 은닉합니다.
 
+현재 자료 접근권도 필요합니다. 자료 소유권이나 다른 강의실 접근권이 남아 있으면 허용하고, 마지막 접근권이 회수되면 `MATERIAL_NOT_FOUND`(404)로 거절하며 정답·해설·feedback을 반환하지 않습니다. 저장된 학습 기록은 삭제하지 않습니다.
+
 ```json
 {
   "quizId": 50,
@@ -1237,13 +1239,15 @@ Query:
 }
 ```
 
-`passed`는 `score/maxScore >= 0.6`(설정 `EDUPILOT_QUIZ_PASS_RATIO` — DEC-010)로 계산합니다. 동일한 `(quizId, userId, requestId)` 재전송은 저장된 제출·채점 결과와 현재 복원 가능한 UI 액션을 재구성해 HTTP 200으로 반환합니다. 다른 `requestId`로 재제출하면 `QUIZ_ALREADY_SUBMITTED`로 거부합니다(DEC-009).
+`passed`는 `score/maxScore >= 0.6`(설정 `EDUPILOT_QUIZ_PASS_RATIO` — DEC-010)로 계산합니다. 현재 자료 접근권이 유효한 경우에만 동일한 `(quizId, userId, requestId)` 재전송에서 저장된 제출·채점 결과와 현재 복원 가능한 UI 액션을 재구성해 HTTP 200으로 반환합니다. 접근권이 유효하고 다른 `requestId`로 재제출하면 `QUIZ_ALREADY_SUBMITTED`로 거부합니다(DEC-009).
+
+신규 제출과 모든 재응답 분기(최초 조회·claim 이후 조회·중복 저장 예외 복구)는 본인 퀴즈 소유권과 현재 자료 접근권을 검증합니다. 마지막 접근권 회수는 `MATERIAL_NOT_FOUND`(404)이며 비공개 feedback을 포함하지 않습니다. 채점 동안 DB 트랜잭션을 유지하지 않고, 저장 트랜잭션에서 자료·접근 근거를 잠가 권한을 재검사합니다. 회수가 먼저 커밋되면 저장·진행 변경·후속 처리를 중단합니다. 저장이 먼저 커밋되면 기록은 보존하지만 이후 권한 검사에서 회수가 확인되면 후속 처리와 응답을 차단합니다. 반환 직전 권한 검사 이후의 회수는 이미 승인된 응답을 소급 취소하지 않으며, 다음 요청부터 거절합니다(DEC-042). 거절·예외에서도 획득한 claim은 해제합니다.
 
 제출하려는 `quizId`는 세션의 현재 `activeQuizId`와 일치해야 하며, 불일치하거나 활성 퀴즈가 없으면 `SESSION_STATE_CONFLICT`(409)로 거부합니다. 페이지 이동 후에도 활성 퀴즈는 제출할 수 있지만 퀴즈의 생성 페이지가 현재 페이지와 다르면 제출·채점 결과만 저장하고 현재 페이지의 `pageStatus`·`uiActions`와 진단 흐름은 변경하지 않습니다.
 
 제출은 기존 세션 turn claim을 획득한 뒤 채점·평가·진단 파이프라인을 수행하고 성공·실패와 무관하게 마지막에 claim을 해제합니다. claim이 유지되는 동안 페이지 이동·turn·중복 제출은 `SESSION_STATE_CONFLICT`(409)로 차단되며, 동시 제출 중 claim을 획득한 한 요청만 AI 채점을 호출합니다.
 
-MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·채점·기본 UI 액션을 먼저 커밋한 다음, 같은 HTTP 요청 안에서 `quiz-assessment`를 항상 호출하고 기준 미달일 때만 `diagnosis`를 호출합니다. 두 사용자 직결 AI 호출은 각각 호출 직전에 일일 쿼터를 검사하며 한도 도달 시 `AI_QUOTA_EXCEEDED`(429)를 반환합니다. 외부 AI 호출 중에는 DB 트랜잭션을 유지하지 않습니다. 쿼터 초과를 제외한 파이프라인 실패와 무관하게 저장된 제출·채점은 유지하고 HTTP 200과 기본 `MOVE_NEXT_PAGE` 액션을 반환합니다. assessment 실패 시 diagnosis는 호출하지 않으며, diagnosis 실패 시 이미 저장된 assessment는 유지합니다. 기준 미달이지만 assessment의 `wrongItems`가 비어 있으면 SCHEMA 422를 피하기 위해 diagnosis 호출을 생략하고 기본 UI 액션을 반환하며 서버에 warn 로그를 남깁니다. AI 호출 뒤 저장 시점에 세션이 `COMPLETED` 또는 `DELETED`로 전이되었다면 늦게 도착한 assessment·diagnosis와 pending 상태·UI 액션을 폐기합니다.
+MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·채점·기본 UI 액션을 먼저 커밋한 다음, 같은 HTTP 요청 안에서 현재 접근권을 확인하고 `quiz-assessment`를 호출하며 기준 미달일 때만 `diagnosis`를 호출합니다. 두 사용자 직결 AI 호출은 각각 호출 직전에 일일 쿼터를 검사하며 한도 도달 시 `AI_QUOTA_EXCEEDED`(429)를 반환합니다. 외부 AI 호출 중에는 DB 트랜잭션을 유지하지 않습니다. 쿼터 초과·자료/세션 접근 거절을 제외한 파이프라인 실패에서는 저장된 제출·채점을 유지하고, 반환 직전 권한 재검사를 통과하면 HTTP 200과 기본 `MOVE_NEXT_PAGE` 액션을 반환합니다. 접근 거절을 fallback 성공으로 바꾸지 않습니다. assessment 실패 시 diagnosis는 호출하지 않으며, diagnosis 실패 시 이미 저장된 assessment는 유지합니다. 기준 미달이지만 assessment의 `wrongItems`가 비어 있으면 SCHEMA 422를 피하기 위해 diagnosis 호출을 생략하고 기본 UI 액션을 반환하며 서버에 warn 로그를 남깁니다. AI 호출 뒤 저장 시점에 세션이 `COMPLETED` 또는 `DELETED`로 전이되었다면 늦게 도착한 assessment·diagnosis와 pending 상태·UI 액션을 폐기합니다. 접근권이 회수됐으면 assessment·메모리 후보·diagnosis의 저장도 거절합니다.
 
 `pageStatus=DIAGNOSIS_PENDING`인 세션은 새 `QUIZ_TYPE_SELECTED` turn을 `SESSION_STATE_CONFLICT`(409)로 거부합니다. 진단 답변은 진단이 생성된 퀴즈 페이지와 현재 페이지가 달라도 교정 결과 저장과 진단 완료 처리를 유지하지만, 현재 페이지의 `pageStatus`와 `uiActions`는 변경하지 않습니다.
 
