@@ -2960,6 +2960,8 @@ prod에서 메일 provider가 `logging`이면 기동을 거부하며, `EDUPILOT_
 
 ## 8. Spring → FastAPI 내부 API
 
+캡션용 PDF 렌더링은 이미지 할당 전에 폭 1,600px·높이 2,400px·총 2,560,000픽셀을 모두 검사해 최대 150 DPI에서 비율 유지 축소합니다(DEC-043). 비정상 치수 또는 축소 후 1px 미만 출력은 내부 캡션 실패 코드로 기록해 자동 backfill에서 제외하되 자료 READY·개요·외부 응답은 유지합니다. 외부 AI 청크 실패의 기존 부분 처리·재업로드 정책은 변경하지 않습니다.
+
 > 2026-09-29 연동 초안(DEC-041): AI에서 개요 `includePageQuizPlan`/`pageQuizPlan`,
 > 턴 `context.pageQuizDecision`·`quizContext.learningFocus`와 opt-in `capabilities`를
 > 구현했다. 기존 호출자는 필드를 보내지 않아도 된다. 새 통합학습 퀴즈 생성은 5문항이다.

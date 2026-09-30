@@ -15,6 +15,22 @@ DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC
 | --- | --- | --- | --- | --- | --- |
 | DEC-041 | 페이지별 퀴즈 사전 계획·QA 추가 제안·문항 선전달 | `pageQuizPlan` 저장/버전·capabilities·외부 preview 매핑·제출/취소 경계 합의 TBD. [AI 구현/인계 초안](ai-quiz-latency-handoff.md) | 내부 선택 필드·opt-in 이벤트, Spring/FE 후속 | AI·BE·FE | 활성화 전 |
 | DEC-042 | Google 계정 연결·선점 계정 복구 | #455는 이메일 충돌 차단만 적용. 기존 자동 연결 계정 조사, 소유권 증명·연결/복구 승인, 이전 비밀번호·refresh·인증 세션·access token 종료 정책 TBD | Auth·FE·운영 | BE·FE·운영 | 복구 기능 도입 전 |
+| DEC-043 | PDF 캡션 렌더링 전 자원 예산 | #456 출력 W=1,600px / H=2,400px / P=2,560,000픽셀·영구 실패 정책 확정. 운영 힙·동시 4작업 실측·대표 PDF 가독성은 배포 전 완료 조건 | Material·BE·운영 | BE·운영 | 배포 전 |
+
+### DEC-043 — PDF 캡션 렌더링 전 자원 예산 (#456)
+
+- 상태: **출력 상한·실패 정책 확정** (사용자 승인, 2026-09-30). 근거: #456 / Finding `csf_c16808f77f45cf1db4d936ab`, 분기 기준 develop `f86a6e8`. 아래 운영 검증은 아직 완료되지 않았다.
+- 수정 전 문제: 고정 150 DPI로 래스터를 할당한 뒤 폭만 1,600px로 줄였다. 작은 업로드 파일도 페이지 치수에 따라 큰 이미지를 먼저 할당할 수 있다. 거대 래스터를 실제 할당하지 않고 PDFRenderer 호출 인자를 검사하는 합성 테스트로 재현했다.
+- 출력 상한: **W=1,600px, H=2,400px, P=2,560,000픽셀**을 모두 만족하도록 비율을 유지해 **최대 150 DPI**에서 처음부터 축소 렌더링한다. 세로형 A4·Letter는 150 DPI를 유지하며 가로형은 폭 1,600px 제한으로 축소된다. 기존 폭 기준·페이지 순서·저장 key·JPEG 품질 0.8·10페이지 청크는 유지한다.
+- 할당 전 검사 위치: `PageImageRenderer.renderPlan()`을 `PDFRenderer.renderImage()` 전에 호출한다. 사용 중인 [PDFBox 3.0.8 PDFRenderer](https://github.com/apache/pdfbox/blob/3.0.8/pdfbox/src/main/java/org/apache/pdfbox/rendering/PDFRenderer.java)는 유효 CropBox의 float 폭·높이×배율을 내림하고 90/270도 회전 시 출력 두 변을 교환한다. [PDPage](https://github.com/apache/pdfbox/blob/3.0.8/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPage.java)의 CropBox→MediaBox 클리핑도 적용한다. double 배율 산정 뒤 float 변환·실제 float 곱셈·내림 결과를 재검증하며 픽셀 곱은 long으로 계산한다.
+- 원본 처리: 유한한 양수 유효 치수는 비율 유지 축소를 허용한다. 치수가 0·음수·비유한 값이거나 좌표가 비유한 값이면 `INVALID_PAGE_DIMENSIONS`, 표현할 수 없는 배율이나 축소 후 한 변이 1px 미만이면 `RENDER_LIMIT_EXCEEDED`로 이미지 할당 전에 거부한다. 유한한 음수 원점 좌표 자체는 거부 사유가 아니다. 별도의 임의 원본 포인트 상한은 추가하지 않는다.
+- 영구 종료: V52의 nullable `learning_materials.caption_failure_reason VARCHAR(40)`에 위 코드만 저장하고 같은 트랜잭션에서 `captions_completed_at`에 시도 종료를 기록한다. 이 시각은 캡션 전량 성공 표시가 아니다. 실패 사유 또는 완료 시각이 있으면 snapshot·backfill에서 제외하며 캡션 반영 시에도 종료 상태를 확인한다. 자료 READY·개요·추출 원문은 유지하고 추출용 `failure_reason`을 재사용하지 않는다. 기존 행은 failure reason null을 유지하며 외부 자료 DTO는 변경하지 않는다.
+- 일시 실패 정책 유지: 현행 외부 AI 청크 실패는 해당 청크를 건너뛰고 다음 청크를 처리한 뒤 시도를 종료하며 자동 재시도하지 않는다(#268). 이 정책을 새로 변경하지 않는다. executor 전달 실패는 기존처럼 종료 시각을 기록하지 않아 backfill이 다시 전달할 수 있다. WARN에는 materialId·실패 코드/종류만 기록하고 PDF·캡션 본문을 넣지 않는다.
+- 자원 정리: PDDocument는 try-with-resources, 인코더는 dispose, 출력 스트림은 close, 반환받은 래스터는 성공·인코딩/저장/consumer 실패 모두 finally에서 flush한다. 사후 축소용 두 번째 래스터는 제거한다.
+- 래스터 산정: [Java TYPE_INT_RGB](https://docs.oracle.com/en/java/javase/21/docs/api/java.desktop/java/awt/image/BufferedImage.html#TYPE_INT_RGB)는 32비트 int 픽셀이다. P×4바이트 기준 **작업당 1장×4작업이면 약 39.1MiB**, **작업당 2장을 동시에 보유×4작업이면 약 78.1MiB**다. 두 번째 수치는 PDFBox 혼합 모드의 ARGB→RGB 변환 등 같은 크기 두 래스터가 겹친다는 가정이다. PDF 파싱·내장 이미지 디코딩·인코더·JPEG·10페이지 base64 청크·HTTP 버퍼·GC 잔존을 포함한 전체 힙 상한이 아니다.
+- 로컬 제한 프로세스 검증: Java 21, 테스트 JVM `-Xmx256m`, worker 4개, 각 자료에 Letter 1장+700×1,000pt 1장인 blank 합성 PDF로 수행했다. 최종 실행의 10ms 전체 힙 샘플 최고치는 245,072,864바이트(약 233.7MiB)였고 PDFBox·JPEG 인코딩/테스트용 디코딩 버퍼를 포함한다. 순간 최고치·RSS·실자료 내장 이미지·base64/AI 호출 버퍼·운영 동시 부하를 측정한 값은 아니다. `main-service`에서 `./gradlew -I src/test/resources/pdf-render-budget.gradle pdfRenderBudgetTest --rerun-tasks --no-daemon`으로 같은 제한을 재검증할 수 있다. 수치는 실행별로 달라질 수 있다.
+- **배포 전 완료 조건(미완료)**: 저장소 Dockerfile·compose에 명시적 JVM 힙 상한이 없다. BE·운영이 실제 운영 `-Xmx`/컨테이너 메모리 상한, 동시 4작업의 실제 힙·RSS와 다른 학습/채점 작업 여유, 대표 정상 PDF의 캡션용 가독성을 확인해야 한다. 합성 blank PDF의 제한된 별도 JVM 검증은 이 운영 검증을 대체하지 않는다.
+- 격리 범위 TBD: 출력 래스터 사전 제한만 포함한다. PDF 파싱·내장 이미지·복잡한 페이지의 CPU/메모리/시간 위험까지 해결했다고 간주하지 않는다. 별도 렌더링 프로세스 격리와 메모리·시간 상한은 BE·운영의 후속 작업이다.
 
 ### DEC-042 — Google 이메일 충돌 차단과 기존 연결 계정 복구
 
