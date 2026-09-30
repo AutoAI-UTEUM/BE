@@ -69,7 +69,12 @@ def get_turn_service(
     llm: Annotated[LlmBridge, Depends(get_llm_bridge)],
 ) -> TurnService:
     """Build one request-scoped turn pipeline from app-scoped dependencies."""
-    explainer = ExplainerAgent(llm=llm, profile=settings.explainer_llm_profile)
+    explainer = ExplainerAgent(
+        llm=llm,
+        profile=settings.explainer_llm_profile,
+        page_context_only_enabled=settings.edupilot_explainer_page_context_only_enabled,
+        page_context_only_pages=settings.edupilot_explainer_page_context_only_pages,
+    )
     qa = QaAgent(llm=llm, profile=settings.qa_llm_profile)
     quiz = QuizAgent(llm=llm, profile=settings.quiz_llm_profile)
     repair = RepairAgent(llm=llm, profile=settings.repair_llm_profile)

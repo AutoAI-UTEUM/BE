@@ -2,7 +2,7 @@
 
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, SecretStr, field_validator
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -111,6 +111,23 @@ class Settings(BaseSettings):
         default=False,
         validation_alias="EDUPILOT_PROMPT_CACHE_ROUTING_ENABLED",
     )
+    edupilot_explainer_page_context_only_enabled: bool = Field(
+        default=False,
+        validation_alias="EDUPILOT_EXPLAINER_PAGE_CONTEXT_ONLY_ENABLED",
+    )
+    # Explicitly reviewed PDF versions/pages only; empty means no attachment removal.
+    edupilot_explainer_page_context_only_pages: dict[str, list[PositiveInt]] = Field(
+        default_factory=dict,
+        validation_alias="EDUPILOT_EXPLAINER_PAGE_CONTEXT_ONLY_PAGES",
+    )
+
+    @field_validator("edupilot_explainer_page_context_only_pages")
+    @classmethod
+    def validate_explainer_reviewed_pages(cls, value: dict[str, list[int]]) -> dict[str, list[int]]:
+        if any(not file_id.strip() or file_id != file_id.strip() for file_id in value):
+            raise ValueError("reviewed PDF identifiers must not be blank or padded")
+        return value
+
     report_timeout_seconds: PositiveInt = Field(
         default=180,
         validation_alias="REPORT_TIMEOUT_SECONDS",

@@ -26,7 +26,7 @@ from edupilot_ai.models.stream import (
     TurnStreamEvent,
 )
 from edupilot_ai.models.turn import Adjustment, EventType, TurnRequest, TurnResponse
-from edupilot_ai.orchestration.context import AgentContext, ContextBuilder
+from edupilot_ai.orchestration.context import AgentContext, ContextBuilder, PlanSource
 from edupilot_ai.orchestration.dispatcher import (
     DispatchResult,
     DispatchStreamCompleted,
@@ -183,7 +183,8 @@ class TurnService:
         context = self._context_builder.build(turn)
         plan_candidate: TurnPlan | None = None
         try:
-            plan_candidate, plan_usages = await self._resolve_plan(context, deadline)
+            plan_candidate, plan_usages, plan_source = await self._resolve_plan(context, deadline)
+            context = context.model_copy(update={"plan_source": plan_source})
             plan, adjustments = self._verify_plan(plan_candidate, context)
             dispatched = await self._dispatcher.dispatch(
                 plan,
@@ -261,7 +262,8 @@ class TurnService:
             context = self._context_builder.build(turn)
             yield StatusStreamEvent(stage="PLANNING")
             yield ThoughtSummaryStreamEvent(text="학습 계획을 세우는 중입니다")
-            plan_candidate, plan_usages = await self._resolve_plan(context, deadline)
+            plan_candidate, plan_usages, plan_source = await self._resolve_plan(context, deadline)
+            context = context.model_copy(update={"plan_source": plan_source})
             plan, adjustments = self._verify_plan(plan_candidate, context)
 
             if turn.event.event_type is EventType.EXPLAIN_CURRENT_PAGE:
@@ -337,7 +339,7 @@ class TurnService:
         self,
         context: AgentContext,
         deadline: TurnDeadline,
-    ) -> tuple[TurnPlan, list[LlmUsage]]:
+    ) -> tuple[TurnPlan, list[LlmUsage], PlanSource]:
         started_at = time.perf_counter()
         fields: dict[str, object] = {
             "agent": "Orchestrator",
@@ -345,6 +347,21 @@ class TurnService:
             "sessionId": context.session.session_id,
             "eventType": context.event_type.value,
         }
+        if context.event_type is EventType.EXPLAIN_CURRENT_PAGE:
+            # Presence only: explain why a planned page may still need an LLM Planner.
+            fields["explanationPlanningSignals"] = {
+                "pageQuizDecisionPresent": context.page_quiz_decision is not None,
+                "pageTextPresent": bool((context.current_page_text or "").strip()),
+                "memoryCandidatesPresent": bool(context.memory.temporary_candidates),
+                "quizAssessmentsPresent": bool(context.quiz_assessments),
+                "pendingDiagnosisPresent": context.pending_diagnosis is not None,
+                "latestRepairPresent": context.latest_repair is not None,
+                "qaThreadPresent": context.qa_thread_digest is not None,
+                "recentUserMessagePresent": any(
+                    (message.get("senderType") or message.get("role")) == "USER"
+                    for message in context.recent_messages
+                ),
+            }
         logger.info("turn planning started", extra=fields)
         status = "FAILED"
         try:
@@ -353,11 +370,11 @@ class TurnService:
             if synthesized is not None:
                 fields["plannerAttempts"] = 0
                 status = "SUCCESS"
-                return synthesized, []
+                return synthesized, [], "DETERMINISTIC"
             planned = await self._orchestrator.create_plan(context, deadline)
             fields["plannerAttempts"] = planned.attempts
             status = "SUCCESS"
-            return planned.plan, [planned.usage]
+            return planned.plan, [planned.usage], "LLM"
         except GeneratorExit, asyncio.CancelledError:
             status = "CANCELLED"
             raise
