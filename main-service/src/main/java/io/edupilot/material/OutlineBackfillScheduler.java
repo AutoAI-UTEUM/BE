@@ -1,5 +1,6 @@
 package io.edupilot.material;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -33,10 +34,11 @@ public class OutlineBackfillScheduler {
 		List<Long> materialIds = persistenceService.findBackfillCandidates(
 			properties.backfillBatch()
 		);
-		materialIds.forEach(dispatcher::submit);
-		if (!materialIds.isEmpty()) {
+		LinkedHashSet<Long> uniqueMaterialIds = new LinkedHashSet<>(materialIds);
+		uniqueMaterialIds.forEach(dispatcher::submit);
+		if (!uniqueMaterialIds.isEmpty()) {
 			log.atInfo()
-				.addKeyValue("submitted", materialIds.size())
+				.addKeyValue("submitted", uniqueMaterialIds.size())
 				.log("Submitted material outline backfill tasks");
 		}
 	}

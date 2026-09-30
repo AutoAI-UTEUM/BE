@@ -45,10 +45,21 @@ public class MaterialOutlineGenerationService {
 	}
 
 	public void generate(Long materialId) {
+		if (!persistenceService.claimAutomaticGeneration(materialId)) {
+			return;
+		}
+		generateClaimed(materialId, false);
+	}
+
+	public void generateManual(Long materialId) {
+		generateClaimed(materialId, true);
+	}
+
+	private void generateClaimed(Long materialId, boolean manual) {
 		try {
-			Optional<OutlineSnapshot> snapshot = persistenceService.snapshot(
-				materialId
-			);
+			Optional<OutlineSnapshot> snapshot = manual
+				? persistenceService.snapshotForManual(materialId)
+				: persistenceService.snapshot(materialId);
 			if (snapshot.isEmpty()) {
 				return;
 			}
@@ -88,11 +99,15 @@ public class MaterialOutlineGenerationService {
 				response = response.withoutPageQuizPlan();
 			}
 			validate(response, request.totalPages());
-			persistenceService.markReady(
-				materialId,
-				renderer.render(response),
-				response
-			);
+			if (manual) {
+				persistenceService.markReadyManual(
+					materialId, renderer.render(response), response
+				);
+			} else {
+				persistenceService.markReady(
+					materialId, renderer.render(response), response
+				);
+			}
 		} catch (RuntimeException exception) {
 			persistenceService.markFailed(materialId);
 			log.atWarn()

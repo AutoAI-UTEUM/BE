@@ -755,7 +755,7 @@ class TurnSnapshotServiceTest {
 			candidateRepository,
 			diagnosisRepository,
 			repairRepository,
-			new PageQuizPlanProperties(pageQuizPlanEnabled)
+			new PageQuizPlanProperties(pageQuizPlanEnabled, false)
 		);
 	}
 

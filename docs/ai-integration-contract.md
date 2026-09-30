@@ -91,6 +91,9 @@ Spring의 `edupilot.ai.page-quiz-plan.enabled`는 기본 `false`다. 활성화 �
 AI의 `planSource`·`plannerAttempts` 로그로 확인한다.
 AI 구버전은 새 필드를 거부할 수 있으므로 DEC-041 합의 및 AI 수용 버전 배포를
 확인한 뒤 dev에서 먼저 활성화하고, prod 플래그는 별도 검증 후 켠다.
+별도 `edupilot.ai.page-quiz-plan.backfill-enabled`(기본 `false`)는 기존 READY
+개요의 계획 누락분 자동 재생성만 제어한다. 이 값이 꺼져 있어도 `enabled=true`이고
+계획이 저장돼 있다면 현재 페이지 `pageQuizDecision`은 전달된다.
 
 ```json
 {
@@ -612,9 +615,13 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
   보내지 않는다. 유효한 계획은 해당 자료의 `material_overviews.outline_json` 안에
   개요와 함께 저장한다(별도 계획 테이블 없음). 누락·중복·순서·범위·reason 위반은
   개요 실패가 아니라 계획만 absent로 강등하고 위반 유형만 WARN으로 남긴다.
-- 기존 ACTIVE·READY 자료의 계획 없는 READY 개요는 기존 bounded outline 백필의
-  남은 batch 슬롯에서 재생성한다. 실패·계획 부재 시 최소 24시간 후 다시 후보가
-  되며 기존 `quizCheckpoints` 백필 규칙은 유지한다. 계획이 없으면 턴은 기존 경로다.
+- `page-quiz-plan.enabled=true`와 별도 `page-quiz-plan.backfill-enabled=true`가
+  모두 설정됐을 때만 기존 ACTIVE·READY 자료의 계획 없는 READY 개요를 기존 bounded
+  outline 백필의 남은 batch 슬롯에서 재생성한다. 계획이 없으면 턴은 기존 경로다.
+  모든 개요 생성·재생성 실패(`AI_SERVICE_TIMEOUT`, `AI_RESPONSE_INVALID` 포함)는
+  자료별 24시간 백오프와 누적 3회 상한을 적용한다. 계획·checkpoint 산출물 부재도
+  재생성 관점의 실패로 센다. 배치 내 동일 자료는 한 번만 제출하며, 3회 실패한
+  자료는 ADMIN 수동 재생성이 카운터를 초기화하기 전까지 자동 후보에서 제외한다.
   새 자료 업로드는 새 material ID를 만들고, 개요를 재생성하면 같은 overview 행의
   계획도 함께 교체한다. 삭제·미준비 자료 또는 페이지 수가 바뀐 개요의 계획은 보내지 않는다.
 

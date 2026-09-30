@@ -146,6 +146,7 @@
 | GET | `/api/admin/xai/credits` | 관리자 xAI 선불 크레딧·후불 한도 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/xai/status` | 관리자 xAI Management 연동 상태 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/xai/overview` | 관리자 xAI 비용·소진 위험 요약 조회 | Y | ADMIN + DB role/status 재검증 |
+| POST | `/api/admin/materials/{id}/overview/regenerate` | 자료 개요 비동기 수동 재생성 | Y | ADMIN + DB role/status 재검증; ACTIVE·READY 자료; 자료당 분당 1회 |
 | POST | `/api/admin/xai/sync` | 관리자 xAI Management 캐시 즉시 동기화 | Y | ADMIN + DB role/status 재검증; 사용자별 분당 1회 |
 | GET | `/api/admin/xai/usage` | 내부 xAI 비용·토큰·호출 시계열 조회 | Y | ADMIN + DB role/status 재검증 |
 | GET | `/api/admin/xai/reconciliation` | 내부 비용과 xAI 청구 금액 대조 | Y | ADMIN + DB role/status 재검증 |
@@ -537,7 +538,7 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 ### GET `/api/materials/{materialId}/overview`
 
-자료 소유자 또는 자료가 연결된 강의실의 승인 멤버가 저장된 자료 개요를 조회합니다. 비접근·삭제·미존재 자료는 `MATERIAL_NOT_FOUND`(404)로 은닉합니다. `material_overviews` 행이 아직 없으면 404 대신 `PENDING` 합성 응답을 반환하며 `content`와 `updatedAt`은 `null`입니다. 행이 있으면 저장된 `status`와 `updatedAt`을 반환하되 `content`는 `READY`일 때만 반환하고 `PENDING | FAILED`에서는 `null`입니다. 조회 요청 자체는 AI를 호출하지 않습니다. 개요는 자료 추출 완료 후 비동기로 생성하며, 기존 READY 자료 중 개요 행이 없는 자료는 오래된 순으로 분당 최대 3건씩 백필합니다. 생성 실패는 자료 처리 상태와 무관하게 개요만 `FAILED`로 전환합니다.
+자료 소유자 또는 자료가 연결된 강의실의 승인 멤버가 저장된 자료 개요를 조회합니다. 비접근·삭제·미존재 자료는 `MATERIAL_NOT_FOUND`(404)로 은닉합니다. `material_overviews` 행이 아직 없으면 404 대신 `PENDING` 합성 응답을 반환하며 `content`와 `updatedAt`은 `null`입니다. 행이 있으면 저장된 `status`와 `updatedAt`을 반환하되 `content`는 `READY`일 때만 반환하고 `PENDING | FAILED`에서는 `null`입니다. 조회 요청 자체는 AI를 호출하지 않습니다. 개요는 자료 추출 완료 후 비동기로 생성하며, 기존 READY 자료 중 개요 행이 없는 자료는 오래된 순으로 분당 최대 3건씩 백필합니다. 자동 생성·재생성의 모든 실패는 자료별 24시간 후 재시도하고 누적 3회 실패 시 자동 백필에서 제외합니다. 기존 READY 개요의 재생성 실패는 이용 가능한 본문을 유지합니다. 자료 처리 상태는 변경하지 않습니다.
 
 ```json
 {
@@ -549,6 +550,14 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 ```
 
 `status`는 `PENDING | READY | FAILED` 중 하나입니다.
+
+### POST `/api/admin/materials/{id}/overview/regenerate`
+
+ADMIN이 ACTIVE·READY 자료의 개요를 수동 재생성 큐에 넣습니다. 본 요청은 AI 생성을 기다리지 않고 `202`를 반환하며, `GET /api/materials/{id}/overview`로 결과를 확인합니다. 기존 실패 카운터를 초기화하고 즉시 한 번 실행합니다. 이 시도가 실패하면 실패 카운터는 1부터 다시 누적되어 24시간 간격·최대 3회 자동 재시도 규칙을 따릅니다. 자료별 분당 1회로 제한하며 관리자 감사 로그에 `MATERIAL_OVERVIEW_REGENERATION_REQUESTED`를 남깁니다. 미존재·삭제·미준비 자료는 `MATERIAL_NOT_FOUND`(404), 제한 초과는 `RATE_LIMIT_EXCEEDED`(429), 작업 큐 접수 실패는 `AI_SERVICE_UNAVAILABLE`(503)입니다.
+
+```json
+{"success":true,"data":null,"message":"개요 재생성 작업을 접수했습니다."}
+```
 
 ### POST `/api/materials/{materialId}/doc-chat`
 
