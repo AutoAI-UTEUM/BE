@@ -69,6 +69,7 @@ public class AdminAuditInterceptor implements HandlerInterceptor {
 		return switch (resource) {
 			case "users" -> "USER";
 			case "classrooms" -> "CLASSROOM";
+			case "materials" -> "MATERIAL";
 			default -> resource.toUpperCase();
 		};
 	}
