@@ -141,7 +141,7 @@ class SessionTurnServiceTest {
 			"질문",
 			null
 		)).thenReturn(new PreparedTurn(501L));
-		when(snapshotService.build(1L, 100L, 501L, true))
+		when(snapshotService.buildQuestion(1L, 100L, 501L, true))
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L),
 				Map.of(
@@ -152,7 +152,8 @@ class SessionTurnServiceTest {
 						"reason", "핵심 개념")
 				),
 				10L,
-				true
+				true,
+				Map.of("qaQuizProposal", true, "quizQuestionStream", false)
 			));
 		io.edupilot.ai.dto.TurnResponse aiResponse = aiResponse("ignored");
 		when(aiClient.executeTurn(any()))
@@ -228,6 +229,11 @@ class SessionTurnServiceTest {
 				.containsEntry("pageQuizDecision", Map.of(
 					"pageNumber", 1, "suggestQuiz", true,
 					"reason", "핵심 개념")));
+		assertThat(requests.getAllValues())
+			.allSatisfy(value -> assertThat(value.capabilities())
+				.containsExactlyInAnyOrderEntriesOf(Map.of(
+					"qaQuizProposal", true,
+					"quizQuestionStream", false)));
 		verify(responseValidator).validate(
 			any(),
 			eq(requests.getAllValues().get(1).turnId()),
@@ -449,9 +455,9 @@ class SessionTurnServiceTest {
 			10L,
 			false
 		);
-		when(snapshotService.build(1L, 100L, 501L, true))
+		when(snapshotService.buildQuestion(1L, 100L, 501L, true))
 			.thenReturn(snapshot);
-		when(snapshotService.build(1L, 100L, 501L, false))
+		when(snapshotService.buildQuestion(1L, 100L, 501L, false))
 			.thenReturn(snapshot);
 		when(streamService.beginTurn(
 			eq(1L),
@@ -488,8 +494,8 @@ class SessionTurnServiceTest {
 		);
 
 		verify(snapshotService, org.mockito.Mockito.times(2))
-			.build(1L, 100L, 501L, true);
-		verify(snapshotService).build(1L, 100L, 501L, false);
+			.buildQuestion(1L, 100L, 501L, true);
+		verify(snapshotService).buildQuestion(1L, 100L, 501L, false);
 		ArgumentCaptor<io.edupilot.ai.dto.TurnRequest> requests =
 			ArgumentCaptor.forClass(io.edupilot.ai.dto.TurnRequest.class);
 		verify(aiClient, org.mockito.Mockito.times(3))
@@ -783,7 +789,7 @@ class SessionTurnServiceTest {
 	void streamsIntermediateEventsThenPersistsSnapshotBeforeCompleted()
 		throws Exception {
 		stubPreparedTurn();
-		when(snapshotService.build(1L, 100L, 501L, true))
+		when(snapshotService.buildQuestion(1L, 100L, 501L, true))
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L),
 				Map.of(),
@@ -1681,7 +1687,7 @@ class SessionTurnServiceTest {
 			"질문",
 			null
 		)).thenReturn(new PreparedTurn(501L));
-		when(snapshotService.build(1L, 100L, 501L, true))
+		when(snapshotService.buildQuestion(1L, 100L, 501L, true))
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L),
 				Map.of(),

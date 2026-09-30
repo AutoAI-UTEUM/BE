@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +30,9 @@ import io.edupilot.user.UserRepository;
 
 @Service
 public class TurnPersistenceService {
+	private static final Logger log = LoggerFactory.getLogger(
+		TurnPersistenceService.class
+	);
 
 	private final LearningSessionRepository sessionRepository;
 	private final SessionPageRecordRepository pageRecordRepository;
@@ -43,6 +48,8 @@ public class TurnPersistenceService {
 	private final UiActionResolver uiActionResolver;
 	private final ConversationSummaryDispatcher summaryDispatcher;
 	private final Clock clock;
+	private final QaQuizProposalProperties qaQuizProposalProperties;
+	private final QaQuizProposalSuppression qaQuizProposalSuppression;
 
 	public TurnPersistenceService(
 		LearningSessionRepository sessionRepository,
@@ -58,7 +65,9 @@ public class TurnPersistenceService {
 		DiagnosisService diagnosisService,
 		UiActionResolver uiActionResolver,
 		ConversationSummaryDispatcher summaryDispatcher,
-		Clock clock
+		Clock clock,
+		QaQuizProposalProperties qaQuizProposalProperties,
+		QaQuizProposalSuppression qaQuizProposalSuppression
 	) {
 		this.sessionRepository = sessionRepository;
 		this.pageRecordRepository = pageRecordRepository;
@@ -74,6 +83,8 @@ public class TurnPersistenceService {
 		this.uiActionResolver = uiActionResolver;
 		this.summaryDispatcher = summaryDispatcher;
 		this.clock = clock;
+		this.qaQuizProposalProperties = qaQuizProposalProperties;
+		this.qaQuizProposalSuppression = qaQuizProposalSuppression;
 	}
 
 	@Transactional
@@ -206,6 +217,10 @@ public class TurnPersistenceService {
 					nextPageStatus,
 					uiActions,
 					pageStatusChanged
+						|| (eventType == TurnEventType.USER_QUESTION
+							&& (uiActions.equals(List.of(UiAction.quizProposal()))
+								|| session.getLastUiActions().contains(
+									UiAction.quizProposal())))
 				);
 			}
 			if (eventType == TurnEventType.EXPLAIN_CURRENT_PAGE
@@ -246,6 +261,9 @@ public class TurnPersistenceService {
 			session.getMaterialId()
 		);
 		summaryDispatcher.dispatchAfterCommit(sessionId);
+		qaQuizProposalSuppression.turnCompletedAfterCommit(
+			sessionId, eventType
+		);
 		return persisted;
 	}
 
@@ -298,6 +316,41 @@ public class TurnPersistenceService {
 		List<UiAction> resolvedUiActions,
 		io.edupilot.ai.dto.TurnResponse aiResponse
 	) {
+		if (eventType == TurnEventType.USER_QUESTION) {
+			List<Map<String, Object>> quizProposals =
+				aiResponse.uiActions().stream()
+					.filter(TurnResponseValidator::isQuizProposal)
+					.toList();
+			String filtered = qaQuizProposalFilterReason(
+				session,
+				aiResponse,
+				quizProposals.size()
+			);
+			boolean passed = quizProposals.size() == 1
+				&& filtered == null;
+			log.atInfo()
+				.addKeyValue("sessionId", session.getId())
+				.addKeyValue("turnId", aiResponse.turnId())
+				.addKeyValue("qaQuizProposalPresent", !quizProposals.isEmpty())
+				.addKeyValue("qaQuizProposalPassed", passed)
+				.addKeyValue("qaQuizProposalFiltered", filtered)
+				.log("QA quiz proposal evaluated");
+			if ("CAPABILITY_OFF".equals(filtered)) {
+				log.atWarn()
+					.addKeyValue("sessionId", session.getId())
+					.addKeyValue("turnId", aiResponse.turnId())
+					.addKeyValue("qaQuizProposalFiltered", filtered)
+					.log("Ignored QA quiz proposal without capability");
+			}
+			if (passed) {
+				return List.of(UiAction.quizProposal());
+			}
+			if (filtered != null) {
+				resolvedUiActions = resolvedUiActions.stream()
+					.filter(action -> !action.equals(UiAction.quizProposal()))
+					.toList();
+			}
+		}
 		List<Map<String, Object>> moveNextPageProposals =
 			aiResponse.uiActions().stream()
 				.filter(TurnResponseValidator::isMoveNextPageProposal)
@@ -341,6 +394,37 @@ public class TurnPersistenceService {
 			));
 		}
 		return List.copyOf(accepted);
+	}
+
+	private String qaQuizProposalFilterReason(
+		LearningSession session,
+		io.edupilot.ai.dto.TurnResponse aiResponse,
+		int proposalCount
+	) {
+		if (proposalCount == 0) {
+			return null;
+		}
+		if (!qaQuizProposalProperties.enabled()) {
+			return "CAPABILITY_OFF";
+		}
+		if (proposalCount != 1 || aiResponse.uiActions().size() != 1) {
+			return "MULTIPLE_ACTIONS";
+		}
+		if (aiResponse.messages().size() != 1
+			|| !"QA".equals(
+				aiResponse.messages().getFirst().get("messageType"))) {
+			return "NON_QA_SHAPE";
+		}
+		if (session.getActiveQuizId() != null) {
+			return "ACTIVE_QUIZ";
+		}
+		if (session.getPendingDiagnosisId() != null) {
+			return "PENDING_DIAGNOSIS";
+		}
+		if (qaQuizProposalSuppression.isSuppressed(session.getId())) {
+			return "SUPPRESSED";
+		}
+		return null;
 	}
 
 	private boolean hasSingleQuizProposal(

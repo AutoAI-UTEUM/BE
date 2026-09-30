@@ -75,6 +75,29 @@ class TurnSnapshotServiceTest {
 	private RepairResultRepository repairRepository;
 
 	@Test
+	void qaCapabilityIsFrozenOnlyInQuestionSnapshotWhenEnabled() {
+		when(sessionRepository.findByIdAndUser_Id(100L, 1L))
+			.thenReturn(Optional.of(session()));
+
+		TurnSnapshot question = service(false, true)
+			.buildQuestion(1L, 100L, 501L, true);
+		TurnSnapshot explanation = service(false, true)
+			.build(1L, 100L, 501L, true);
+		TurnSnapshot quiz = service(false, true)
+			.buildQuiz(1L, 100L, 501L);
+		TurnSnapshot disabled = service(false, false)
+			.buildQuestion(1L, 100L, 501L, true);
+
+		assertThat(question.capabilities()).isEqualTo(Map.of(
+			"qaQuizProposal", true,
+			"quizQuestionStream", false
+		));
+		assertThat(explanation.capabilities()).isNull();
+		assertThat(quiz.capabilities()).isNull();
+		assertThat(disabled.capabilities()).isNull();
+	}
+
+	@Test
 	void pagePlanIsAttachedForCurrentPageAndFrozenInSnapshot() {
 		LearningSession session = session();
 		LearningMaterial material = (LearningMaterial) ReflectionTestUtils
@@ -742,6 +765,13 @@ class TurnSnapshotServiceTest {
 	}
 
 	private TurnSnapshotService service(boolean pageQuizPlanEnabled) {
+		return service(pageQuizPlanEnabled, false);
+	}
+
+	private TurnSnapshotService service(
+		boolean pageQuizPlanEnabled,
+		boolean qaQuizProposalEnabled
+	) {
 		return new TurnSnapshotService(
 			sessionRepository,
 			pageRepository,
@@ -755,7 +785,8 @@ class TurnSnapshotServiceTest {
 			candidateRepository,
 			diagnosisRepository,
 			repairRepository,
-			new PageQuizPlanProperties(pageQuizPlanEnabled)
+			new PageQuizPlanProperties(pageQuizPlanEnabled),
+			new QaQuizProposalProperties(qaQuizProposalEnabled, 2, 5)
 		);
 	}
 

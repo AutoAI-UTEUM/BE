@@ -186,14 +186,16 @@ public class SessionTurnService {
 				);
 			}
 			userMessageId = prepared.userMessageId();
-			TurnSnapshot snapshot = eventType == TurnEventType.QUIZ_TYPE_SELECTED
-				? snapshotService.buildQuiz(userId, sessionId, userMessageId)
-				: snapshotService.build(
-					userId,
-					sessionId,
-					userMessageId,
-					payload.includeCurrentPage()
-				);
+			TurnSnapshot snapshot = switch (eventType) {
+				case QUIZ_TYPE_SELECTED -> snapshotService.buildQuiz(
+					userId, sessionId, userMessageId);
+				case USER_QUESTION -> snapshotService.buildQuestion(
+					userId, sessionId, userMessageId,
+					payload.includeCurrentPage());
+				default -> snapshotService.build(
+					userId, sessionId, userMessageId,
+					payload.includeCurrentPage());
+			};
 			AiStreamCancellation cancellation = new AiStreamCancellation();
 			Optional<SessionStreamConnection> activeStream =
 				streamService.beginTurn(
@@ -579,7 +581,8 @@ public class SessionTurnService {
 			turnId,
 			snapshot.session(),
 			eventData(eventType, payload),
-			snapshot.context()
+			snapshot.context(),
+			snapshot.capabilities()
 		);
 	}
 

@@ -140,7 +140,8 @@ public class TurnResponseValidator {
 				.filter(action ->
 					!isMoveNextPageProposal(action)
 						&& !isNoteProposal(action)
-						&& !(eventType == TurnEventType.EXPLAIN_CURRENT_PAGE
+						&& !((eventType == TurnEventType.EXPLAIN_CURRENT_PAGE
+							|| eventType == TurnEventType.USER_QUESTION)
 							&& isQuizProposal(action)))
 				.toList()
 		);

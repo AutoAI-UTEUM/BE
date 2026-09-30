@@ -49,11 +49,15 @@ class SessionServiceTest {
 	private DiagnosisService diagnosisService;
 
 	private SessionService sessionService;
+	private QaQuizProposalSuppression qaQuizProposalSuppression;
 	private User owner;
 	private LearningMaterial material;
 
 	@BeforeEach
 	void setUp() {
+		qaQuizProposalSuppression = new QaQuizProposalSuppression(
+			new QaQuizProposalProperties(false, 2, 5)
+		);
 		sessionService = new SessionService(
 			sessionRepository,
 			userRepository,
@@ -61,7 +65,8 @@ class SessionServiceTest {
 			Clock.fixed(NOW, ZoneOffset.UTC),
 			diagnosisService,
 			materialAccessService,
-			new UiActionResolver()
+			new UiActionResolver(),
+			qaQuizProposalSuppression
 		);
 		owner = User.create("owner@example.com", "hash", "소유자");
 		ReflectionTestUtils.setField(owner, "id", 1L);
@@ -205,6 +210,28 @@ class SessionServiceTest {
 			.containsExactly(UiAction.moveNextPage());
 		assertThat(restored.uiActions()).doesNotContain(UiAction.quizProposal());
 		verify(sessionRepository, never()).flush();
+	}
+
+	@Test
+	void countsOnlyActualQuizProposalDeclinesTowardQaSuppression() {
+		material.markReady(3);
+		LearningSession session = persisted(
+			LearningSession.create(owner, material), 100L
+		);
+		when(sessionRepository.findOwnedForUpdate(100L, 1L))
+			.thenReturn(Optional.of(session));
+
+		session.moveTo(1, PageStatus.EXPLAINED,
+			List.of(UiAction.quizProposal()));
+		sessionService.declineQuizProposal(1L, 100L);
+		assertThat(qaQuizProposalSuppression.isSuppressed(100L)).isFalse();
+		sessionService.declineQuizProposal(1L, 100L);
+		assertThat(qaQuizProposalSuppression.isSuppressed(100L)).isFalse();
+
+		session.moveTo(1, PageStatus.EXPLAINED,
+			List.of(UiAction.quizProposal()));
+		sessionService.declineQuizProposal(1L, 100L);
+		assertThat(qaQuizProposalSuppression.isSuppressed(100L)).isTrue();
 	}
 
 	@Test
@@ -430,7 +457,9 @@ class SessionServiceTest {
 			Clock.fixed(nextStartedAt, ZoneOffset.UTC),
 			diagnosisService,
 			materialAccessService,
-			new UiActionResolver()
+			new UiActionResolver(),
+			new QaQuizProposalSuppression(
+				new QaQuizProposalProperties(false, 2, 5))
 		);
 		var second = nextService.startNewConversation(1L, 100L);
 

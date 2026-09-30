@@ -699,7 +699,12 @@ Spring이 인증된 PDF 스트림을 반환합니다. 자료 상세와 같은 �
 AI Service의 `uiActions`는 기본적으로 빈 배열입니다. PDF가 첨부된
 `EXPLAIN_CURRENT_PAGE`에서는 전체 자료 흐름을 본 Orchestrator가 exact
 `BINARY_DECISION/SHOW_QUIZ_TYPE_SELECT/WAIT` 퀴즈 제안을 반환할 수 있고, Spring은
-실제 설명 완료 전이에서만 `UiAction.quizProposal()` 정본으로 치환합니다. 예외적으로
+실제 설명 완료 전이에서만 `UiAction.quizProposal()` 정본으로 치환합니다.
+`edupilot.ai.capabilities.qa-quiz-proposal=true`일 때 일반·후속 `USER_QUESTION`
+응답에도 같은 exact 퀴즈 제안이 올 수 있으며, 진행 중 퀴즈·진단이 없고 반복
+거절 억제 중이 아니면 동일 정본 위젯으로 응답·저장합니다. 기능이 꺼졌거나
+상태 게이트에 걸리면 제안만 제외하고 QA 메시지는 정상 저장합니다. FE는 기존
+퀴즈 제안 위젯과 수락·유형 선택 흐름을 그대로 재사용합니다. 예외적으로
 `USER_QUESTION`의 `BINARY_DECISION/MOVE_NEXT_PAGE/WAIT` 제안은 Spring resolver
 산출이 비어 있고 현재 페이지가 마지막이 아닐 때만 수용하며, AI 객체 대신
 Spring `moveNextPage` 정본으로 치환해 저장·응답합니다. 그 외 제안은 무시합니다.
@@ -803,6 +808,8 @@ W4는 FE 로컬 상태이므로 W4 표시 중 재진입하면 저장된 W3 위�
 ### POST `/api/sessions/{sessionId}/quiz-decline`
 
 요청 바디 없이 현재 저장된 퀴즈 제안을 거절하고 다음 학습 제안으로 교체합니다. AI turn은 호출하지 않습니다.
+QA에서 나온 제안도 같은 엔드포인트를 사용하며, 실제 제안을 처음 거절한 호출만
+반복 거절 횟수에 반영됩니다(멱등 재호출은 미반영).
 
 `data`:
 

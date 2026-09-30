@@ -669,6 +669,280 @@ class TurnPersistenceServiceTest {
 	}
 
 	@Test
+	void acceptsExactQaQuizProposalAndPersistsCanonicalWidget() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINED, PageStatus.EXPLAINED, 1, 3
+		);
+		when(session.getId()).thenReturn(100L);
+		when(session.getActiveQuizId()).thenReturn(null);
+		when(session.getPendingDiagnosisId()).thenReturn(null);
+		stubUserQuestionMessage();
+		when(messageRepository.save(any())).thenAnswer(invocation ->
+			invocation.getArgument(0)
+		);
+
+		PersistedTurn persisted = qaService(new QaQuizProposalSuppression(
+			new QaQuizProposalProperties(true, 2, 5)
+		)).persist(
+			1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+			null, 501L, false,
+			responseWithUiActions(
+				Map.of("qaThread", Map.of("mode", "START_NEW")),
+				List.of(Map.of("messageType", "QA", "content", "답변")),
+				List.of(quizProposal())
+			)
+		);
+
+		assertThat(persisted.uiActions()).containsExactly(UiAction.quizProposal());
+		assertThat(persisted.messages()).singleElement()
+			.satisfies(message -> assertThat(message.content()).isEqualTo("답변"));
+		verify(session).applyAiTurn(null, List.of(UiAction.quizProposal()), true);
+	}
+
+	@Test
+	void exactQaProposalOverridesLegacyPageTransitionWidget() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINING, PageStatus.EXPLAINED, 1, 3
+		);
+		when(session.getId()).thenReturn(100L);
+		when(session.getActiveQuizId()).thenReturn(null);
+		when(session.getPendingDiagnosisId()).thenReturn(null);
+		stubUserQuestionMessage();
+		when(messageRepository.save(any())).thenAnswer(invocation ->
+			invocation.getArgument(0)
+		);
+
+		PersistedTurn persisted = qaService(new QaQuizProposalSuppression(
+			new QaQuizProposalProperties(true, 2, 5)
+		)).persist(
+			1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+			null, 501L, false,
+			responseWithUiActions(
+				Map.of(
+					"pageStatus", "EXPLAINED",
+					"qaThread", Map.of("mode", "START_NEW")
+				),
+				List.of(Map.of("messageType", "QA", "content", "답변")),
+				List.of(quizProposal())
+			)
+		);
+
+		assertThat(persisted.uiActions()).containsExactly(UiAction.quizProposal());
+		verify(session).applyAiTurn(
+			PageStatus.EXPLAINED,
+			List.of(UiAction.quizProposal()), true
+		);
+	}
+
+	@Test
+	void filtersQaQuizProposalForActiveQuizAndPendingDiagnosis() {
+		for (String gate : List.of("ACTIVE_QUIZ", "PENDING_DIAGNOSIS")) {
+			org.mockito.Mockito.reset(sessionRepository, messageRepository,
+				qaThreadRepository);
+			LearningSession session = activeSession(
+				PageStatus.EXPLAINED, PageStatus.EXPLAINED, 1, 3
+			);
+			when(session.getId()).thenReturn(100L);
+			if (gate.equals("ACTIVE_QUIZ")) {
+				when(session.getActiveQuizId()).thenReturn(99L);
+			} else {
+				when(session.getActiveQuizId()).thenReturn(null);
+				when(session.getPendingDiagnosisId()).thenReturn(99L);
+			}
+			stubUserQuestionMessage();
+			when(messageRepository.save(any())).thenAnswer(invocation ->
+				invocation.getArgument(0)
+			);
+
+			Logger logger = (Logger) LoggerFactory.getLogger(
+				TurnPersistenceService.class
+			);
+			ListAppender<ILoggingEvent> appender = new ListAppender<>();
+			appender.start();
+			logger.addAppender(appender);
+			PersistedTurn persisted;
+			try {
+				persisted = qaService(new QaQuizProposalSuppression(
+					new QaQuizProposalProperties(true, 2, 5)
+				)).persist(
+					1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+					null, 501L, false,
+					responseWithUiActions(
+						Map.of("qaThread", Map.of("mode", "START_NEW")),
+						List.of(Map.of("messageType", "QA", "content", "답변")),
+						List.of(quizProposal())
+					)
+				);
+			} finally {
+				logger.detachAppender(appender);
+				appender.stop();
+			}
+
+			assertThat(persisted.uiActions()).isEmpty();
+			assertThat(persisted.messages()).singleElement()
+				.satisfies(message -> assertThat(message.content())
+					.isEqualTo("답변"));
+			assertThat(appender.list)
+				.filteredOn(event -> event.getFormattedMessage().equals(
+					"QA quiz proposal evaluated"
+				))
+				.singleElement()
+				.satisfies(event -> assertThat(event.getKeyValuePairs())
+					.anySatisfy(pair -> {
+						assertThat(pair.key).isEqualTo("qaQuizProposalFiltered");
+						assertThat(pair.value).isEqualTo(gate);
+					}));
+		}
+	}
+
+	@Test
+	void filtersQaQuizProposalWhenSuppressedOrCapabilityOff() {
+		LearningSession session = activeSession(
+			PageStatus.EXPLAINED, PageStatus.EXPLAINED, 1, 3
+		);
+		when(session.getId()).thenReturn(100L);
+		when(session.getActiveQuizId()).thenReturn(null);
+		when(session.getPendingDiagnosisId()).thenReturn(null);
+		stubUserQuestionMessage();
+		when(messageRepository.save(any())).thenAnswer(invocation ->
+			invocation.getArgument(0)
+		);
+		QaQuizProposalSuppression suppression = new QaQuizProposalSuppression(
+			new QaQuizProposalProperties(true, 2, 5)
+		);
+		suppression.declined(100L);
+		suppression.declined(100L);
+		io.edupilot.ai.dto.TurnResponse response = responseWithUiActions(
+			Map.of("qaThread", Map.of("mode", "START_NEW")),
+			List.of(Map.of("messageType", "QA", "content", "답변")),
+			List.of(quizProposal())
+		);
+		Logger logger = (Logger) LoggerFactory.getLogger(
+			TurnPersistenceService.class
+		);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		PersistedTurn suppressed;
+		try {
+			suppressed = qaService(suppression).persist(
+				1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+				null, 501L, false, response
+			);
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+		assertThat(suppressed.uiActions()).isEmpty();
+		assertThat(suppressed.messages()).singleElement()
+			.satisfies(message -> assertThat(message.content())
+				.isEqualTo("답변"));
+		assertThat(appender.list)
+			.filteredOn(event -> event.getFormattedMessage().equals(
+				"QA quiz proposal evaluated"
+			))
+			.singleElement()
+			.satisfies(event -> assertThat(event.getKeyValuePairs())
+				.anySatisfy(pair -> {
+					assertThat(pair.key).isEqualTo("qaQuizProposalFiltered");
+					assertThat(pair.value).isEqualTo("SUPPRESSED");
+				}));
+
+		org.mockito.Mockito.reset(sessionRepository, messageRepository,
+			qaThreadRepository);
+		activeSession(PageStatus.EXPLAINED, PageStatus.EXPLAINED, 1, 3);
+		stubUserQuestionMessage();
+		when(messageRepository.save(any())).thenAnswer(invocation ->
+			invocation.getArgument(0)
+		);
+		assertThat(service().persist(
+			1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+			null, 501L, false, response
+		).uiActions()).isEmpty();
+	}
+
+	@Test
+	void nonExactQaQuizProposalRemainsIgnored() {
+		activeSession(PageStatus.EXPLAINED, PageStatus.EXPLAINED, 1, 3);
+		stubUserQuestionMessage();
+		Map<String, Object> nonExact = new LinkedHashMap<>(quizProposal());
+		nonExact.put("content", "퀴즈를 풀어볼까요?");
+
+		assertThat(qaService(new QaQuizProposalSuppression(
+			new QaQuizProposalProperties(true, 2, 5)
+		)).persist(
+			1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+			null, 501L, false,
+			responseWithUiActions(
+				Map.of("qaThread", Map.of("mode", "START_NEW")),
+				List.of(), List.of(nonExact)
+			)
+		).uiActions()).isEmpty();
+	}
+
+	@Test
+	void directNoteDoesNotAcceptQaQuizProposal() {
+		activeSession(PageStatus.EXPLAINED, PageStatus.EXPLAINED, 1, 3);
+		when(messageRepository.save(any())).thenAnswer(invocation ->
+			invocation.getArgument(0)
+		);
+		io.edupilot.ai.dto.TurnResponse directNote =
+			new io.edupilot.ai.dto.TurnResponse(
+				"1.0", "turn-1", "Write a note", List.of(),
+				List.of(Map.of("messageType", "SYSTEM", "content", "노트")),
+				Map.of(), List.of(quizProposal()), null, List.of(), null,
+				new io.edupilot.ai.dto.NoteDraft("복습", "내용"), null
+			);
+
+		assertThat(qaService(new QaQuizProposalSuppression(
+			new QaQuizProposalProperties(true, 2, 5)
+		)).persist(
+			1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+			null, 501L, false, directNote
+		).uiActions()).isEmpty();
+	}
+
+	@Test
+	void capabilityOffFiltersQaProposalWithWarnReason() {
+		activeSession(PageStatus.EXPLAINED, PageStatus.EXPLAINED, 1, 3);
+		stubUserQuestionMessage();
+		Logger logger = (Logger) LoggerFactory.getLogger(
+			TurnPersistenceService.class
+		);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			assertThat(service().persist(
+				1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+				null, 501L, false,
+				responseWithUiActions(
+					Map.of("qaThread", Map.of("mode", "START_NEW")),
+					List.of(), List.of(quizProposal())
+				)
+			).uiActions()).isEmpty();
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+		assertThat(appender.list)
+			.filteredOn(event -> event.getFormattedMessage().equals(
+				"Ignored QA quiz proposal without capability"
+			))
+			.singleElement()
+			.satisfies(event -> {
+				assertThat(event.getLevel()).isEqualTo(
+					ch.qos.logback.classic.Level.WARN
+				);
+				assertThat(event.getKeyValuePairs())
+					.anySatisfy(pair -> {
+						assertThat(pair.key).isEqualTo("qaQuizProposalFiltered");
+						assertThat(pair.value).isEqualTo("CAPABILITY_OFF");
+					});
+			});
+	}
+
+	@Test
 	void ignoresUnregisteredNoteWidgetShape() {
 		LearningSession session = activeSession(
 			PageStatus.EXPLAINED,
@@ -1451,6 +1725,30 @@ class TurnPersistenceServiceTest {
 	private TurnPersistenceService service(
 		QuizProposalPolicy quizProposalPolicy
 	) {
+		return service(
+			quizProposalPolicy,
+			new QaQuizProposalProperties(false, 2, 5),
+			new QaQuizProposalSuppression(
+				new QaQuizProposalProperties(false, 2, 5)
+			)
+		);
+	}
+
+	private TurnPersistenceService qaService(
+		QaQuizProposalSuppression suppression
+	) {
+		return service(
+			quizProposalPolicy(),
+			new QaQuizProposalProperties(true, 2, 5),
+			suppression
+		);
+	}
+
+	private TurnPersistenceService service(
+		QuizProposalPolicy quizProposalPolicy,
+		QaQuizProposalProperties properties,
+		QaQuizProposalSuppression suppression
+	) {
 		return new TurnPersistenceService(
 			sessionRepository,
 			pageRecordRepository,
@@ -1465,7 +1763,9 @@ class TurnPersistenceServiceTest {
 			diagnosisService,
 			new UiActionResolver(),
 			summaryDispatcher,
-			Clock.fixed(NOW, ZoneOffset.UTC)
+			Clock.fixed(NOW, ZoneOffset.UTC),
+			properties,
+			suppression
 		);
 	}
 }

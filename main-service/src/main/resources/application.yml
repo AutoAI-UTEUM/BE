@@ -79,6 +79,11 @@ edupilot:
     allowed-origins: ${EDUPILOT_CORS_ALLOWED_ORIGINS}
   ai:
     internal-token: ${EDUPILOT_INTERNAL_TOKEN}
+    capabilities:
+      qa-quiz-proposal: ${EDUPILOT_AI_QA_QUIZ_PROPOSAL_ENABLED:false}
+    qa-quiz-proposal:
+      rejection-threshold: ${EDUPILOT_AI_QA_QUIZ_REJECTION_THRESHOLD:2}
+      suppression-turns: ${EDUPILOT_AI_QA_QUIZ_SUPPRESSION_TURNS:5}
     page-quiz-plan:
       enabled: ${EDUPILOT_AI_PAGE_QUIZ_PLAN_ENABLED:false}
     quota:

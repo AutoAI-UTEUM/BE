@@ -86,7 +86,10 @@ Spring의 `edupilot.ai.page-quiz-plan.enabled`는 기본 `false`다. 활성화 �
 `context.pageQuizDecision`을 넣는다. 해당 페이지 번호가 다르거나 현재 페이지를
 포함하지 않는 질문이면 필드를 완전히 생략한다(`null`·`suggestQuiz=false` 대체 금지).
 스냅샷은 AI 호출·재시도 동안 고정하고 저장 시점 DB 상태로 다시 계산하지 않는다.
-이 단계는 `capabilities`를 보내지 않는다. TURN 사용량의 `quizDecisionSource=PLAN`
+페이지별 계획 단계 자체는 `capabilities`를 보내지 않는다. 별도로
+`edupilot.ai.capabilities.qa-quiz-proposal=true`인 `USER_QUESTION` 요청만 최상위
+`capabilities={qaQuizProposal:true,quizQuestionStream:false}`를 보낸다. 기본값은
+`false`이며 꺼져 있거나 다른 eventType이면 필드 자체를 생략한다. TURN 사용량의 `quizDecisionSource=PLAN`
 은 해당 필드 전달, `PLANNER`는 미전달을 뜻하며 실제 Planner 호출 횟수의 확증은
 AI의 `planSource`·`plannerAttempts` 로그로 확인한다.
 AI 구버전은 새 필드를 거부할 수 있으므로 DEC-041 합의 및 AI 수용 버전 배포를
@@ -203,10 +206,18 @@ AI 구버전은 새 필드를 거부할 수 있으므로 DEC-041 합의 및 AI �
 
 ### 3.3.1 uiActions allowlist (`quizProposal`, `moveNextPage`, `noteProposal`)
 
-> DEC-041 연동 초안: 아래 기본 설명 제안과 별도로 `capabilities.qaQuizProposal=true`인
-> USER_QUESTION에서 ANSWER_QUESTION 뒤 동일 exact 퀴즈 제안을 허용하는 AI 경로가 있다.
-> Spring의 QA/FOLLOW_UP 완료 allowlist·세션 상태 게이트 지원 전에는 옵션을 보내지 않는다.
-> 사전 false는 대화 기반 추가 제안을 금지하지 않으며, 실제 생성은 사용자 동의 이후다.
+> DEC-041: `capabilities.qaQuizProposal=true`인 `USER_QUESTION`(일반·후속 질문)에서
+> ANSWER_QUESTION 뒤 동일 exact 퀴즈 제안을 허용한다. Spring은 QA 메시지와 기존
+> statePatch를 보존하며 exact 제안 1건만 정본 `UiAction.quizProposal()`로 치환한다.
+> 진행 중 퀴즈·진단, 반복 거절 억제 중, capability OFF이면 제안만 필터하고 턴은
+> 정상 완료한다. capability OFF 수신은 WARN으로 기록한다. 사전 false는 대화 기반
+> 추가 제안을 금지하지 않으며 실제 퀴즈 생성은 사용자 동의·유형 선택 이후다.
+
+QA 반복 거절은 같은 세션에서 2회면 이후 완료 턴 5회 동안 제안을 숨긴다
+(`edupilot.ai.qa-quiz-proposal.rejection-threshold`,
+`edupilot.ai.qa-quiz-proposal.suppression-turns`, 기본 2/5). 수락 후
+`QUIZ_TYPE_SELECTED`가 완료되면 억제 상태를 초기화한다. 이 상태는 인메모리여서
+프로세스 재시작 시 초기화되며, DB·AI 계약은 변경하지 않는다.
 
 PDF가 첨부된 `EXPLAIN_CURRENT_PAGE` Plan에서 현재 페이지가 전체 학습 흐름의 의미 있는
 개념·가정·모델·공식 해석·예제 단위를 독립적으로 점검할 수 있게 도입하거나 완성하면
