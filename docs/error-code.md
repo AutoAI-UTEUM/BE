@@ -75,7 +75,7 @@
 
 | code | HTTP | 의미 |
 | --- | ---: | --- |
-| `EMAIL_ALREADY_EXISTS` | 409 | 이메일 중복 |
+| `EMAIL_ALREADY_EXISTS` | 409 | 가입 이메일 중복 또는 미연결 Google subject와 기존 계정의 이메일 충돌. Google 자동 연결·토큰/세션 발급 없이 거부하며 토큰 오류·`SIGNUP_REQUIRED`와 구분 |
 | `SIGNUP_REQUIRED` | 409 | Google 신규 가입을 위한 역할·약관 추가 정보 필요 |
 | `INVALID_CREDENTIALS` | 401 | 이메일/비밀번호 불일치 |
 | `LOGIN_RATE_LIMITED` | 429 | 계정 5회/15분 또는 IP 20회/15분 실패 후 로그인 차단, `Retry-After` 초 제공 |

@@ -1,7 +1,5 @@
 package io.edupilot.material;
 
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -17,6 +15,8 @@ import javax.imageio.stream.ImageOutputStream;
 
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.rendering.ImageType;
 import org.apache.pdfbox.rendering.PDFRenderer;
 import org.springframework.stereotype.Component;
@@ -29,6 +29,8 @@ public class PageImageRenderer {
 
 	private static final float DPI = 150;
 	private static final int MAX_WIDTH = 1_600;
+	private static final int MAX_HEIGHT = 2_400;
+	private static final long MAX_PIXELS = 2_560_000;
 	private static final float JPEG_QUALITY = 0.8f;
 	private static final String MATERIAL_PREFIX = "materials/";
 	private static final String PDF_SUFFIX = ".pdf";
@@ -52,23 +54,23 @@ public class PageImageRenderer {
 				if (pageNumber < 1 || pageNumber > document.getNumberOfPages()) {
 					throw new StorageException("PDF page number is out of range");
 				}
-				BufferedImage rendered = renderer.renderImageWithDPI(
+				RenderPlan plan = renderPlan(document.getPage(pageNumber - 1));
+				BufferedImage rendered = renderer.renderImage(
 					pageNumber - 1,
-					DPI,
+					plan.scale(),
 					ImageType.RGB
 				);
-				BufferedImage scaled = scaleDown(rendered);
-				byte[] jpeg = encodeJpeg(scaled);
-				if (scaled != rendered) {
+				try {
+					byte[] jpeg = encodeJpeg(rendered);
+					String imageKey = imageKey(storageKey, pageNumber);
+					fileStorage.storePageImage(
+						new ByteArrayInputStream(jpeg),
+						imageKey
+					);
+					consumer.accept(new RenderedPage(pageNumber, imageKey, jpeg));
+				} finally {
 					rendered.flush();
 				}
-				scaled.flush();
-				String imageKey = imageKey(storageKey, pageNumber);
-				fileStorage.storePageImage(
-					new ByteArrayInputStream(jpeg),
-					imageKey
-				);
-				consumer.accept(new RenderedPage(pageNumber, imageKey, jpeg));
 			}
 		} catch (IOException exception) {
 			throw new StorageException("Failed to render material pages", exception);
@@ -88,30 +90,42 @@ public class PageImageRenderer {
 		return MATERIAL_PREFIX + uuid + "-pages/" + pageNumber + ".jpg";
 	}
 
-	private BufferedImage scaleDown(BufferedImage source) {
-		if (source.getWidth() <= MAX_WIDTH) {
-			return source;
+	static RenderPlan renderPlan(PDPage page) {
+		PDRectangle box = page.getCropBox(); // PDFBox clips CropBox to MediaBox.
+		float width = box.getWidth();
+		float height = box.getHeight();
+		if (!Float.isFinite(box.getLowerLeftX()) || !Float.isFinite(box.getLowerLeftY())
+			|| !Float.isFinite(box.getUpperRightX()) || !Float.isFinite(box.getUpperRightY())
+			|| !Float.isFinite(width) || !Float.isFinite(height) || width <= 0 || height <= 0) {
+			throw new PageRenderingException(CaptionFailureReason.INVALID_PAGE_DIMENSIONS);
 		}
-		int height = Math.max(
-			1,
-			(int) Math.round(source.getHeight() * (MAX_WIDTH / (double) source.getWidth()))
-		);
-		BufferedImage target = new BufferedImage(
-			MAX_WIDTH,
-			height,
-			BufferedImage.TYPE_INT_RGB
-		);
-		Graphics2D graphics = target.createGraphics();
-		try {
-			graphics.setRenderingHint(
-				RenderingHints.KEY_INTERPOLATION,
-				RenderingHints.VALUE_INTERPOLATION_BILINEAR
-			);
-			graphics.drawImage(source, 0, 0, MAX_WIDTH, height, null);
-		} finally {
-			graphics.dispose();
+		boolean rotated = page.getRotation() == 90 || page.getRotation() == 270;
+		double outputWidth = rotated ? height : width;
+		double outputHeight = rotated ? width : height;
+		double scaleLimit = Math.min(DPI / 72f, Math.min(
+			Math.min(MAX_WIDTH / outputWidth, MAX_HEIGHT / outputHeight),
+			Math.sqrt(MAX_PIXELS / ((double) width * height))
+		));
+		float scale = (float) scaleLimit;
+		if (scale > scaleLimit) {
+			scale = Math.nextDown(scale);
 		}
-		return target;
+		while (Float.isFinite(scale) && scale > 0) {
+			// Match PDFBox's float multiplication followed by floor, before its 1px clamp.
+			double widthPixels = Math.floor(width * scale);
+			double heightPixels = Math.floor(height * scale);
+			if (widthPixels < 1 || heightPixels < 1) {
+				break;
+			}
+			double rotatedWidth = rotated ? heightPixels : widthPixels;
+			double rotatedHeight = rotated ? widthPixels : heightPixels;
+			if (rotatedWidth <= MAX_WIDTH && rotatedHeight <= MAX_HEIGHT
+				&& (long) rotatedWidth * (long) rotatedHeight <= MAX_PIXELS) {
+				return new RenderPlan(scale, (int) rotatedWidth, (int) rotatedHeight);
+			}
+			scale = Math.nextDown(scale);
+		}
+		throw new PageRenderingException(CaptionFailureReason.RENDER_LIMIT_EXCEEDED);
 	}
 
 	private byte[] encodeJpeg(BufferedImage image) throws IOException {
@@ -134,5 +148,8 @@ public class PageImageRenderer {
 		String storageKey,
 		byte[] jpeg
 	) {
+	}
+
+	record RenderPlan(float scale, int width, int height) {
 	}
 }

@@ -4,7 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -20,6 +24,8 @@ import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -55,6 +61,38 @@ class MaterialCaptionGenerationServiceTest {
 			aiUsageService,
 			Clock.fixed(NOW, ZoneOffset.UTC)
 		);
+	}
+
+	@ParameterizedTest
+	@EnumSource(CaptionFailureReason.class)
+	void storesPermanentRejectionAndSkipsSubsequentGeneration(CaptionFailureReason reason) {
+		when(persistenceService.snapshot(10L)).thenReturn(Optional.of(new CaptionSnapshot(
+			1L, "materials/test.pdf", List.of(new PageSnapshot(1, "text"))
+		)), Optional.empty());
+		doThrow(new PageRenderingException(reason)).when(imageRenderer).render(any(), any(), any());
+
+		service.generate(10L);
+		service.generate(10L);
+
+		verify(persistenceService).markPermanentlyFailed(10L, reason, NOW);
+		verify(persistenceService, never()).markCompleted(any(), any());
+		verify(imageRenderer, times(1)).render(any(), any(), any());
+		verifyNoInteractions(aiClient, aiUsageService);
+	}
+
+	@Test
+	void existingRenderingFailureStillEndsAttemptWithoutInvokingAi() {
+		when(persistenceService.snapshot(10L)).thenReturn(Optional.of(new CaptionSnapshot(
+			1L, "materials/test.pdf", List.of(new PageSnapshot(1, "text"))
+		)));
+		doThrow(new io.edupilot.material.storage.StorageException("render failed"))
+			.when(imageRenderer).render(any(), any(), any());
+
+		service.generate(10L);
+
+		verify(persistenceService).markCompleted(10L, NOW);
+		verify(persistenceService, never()).markPermanentlyFailed(any(), any(), any());
+		verifyNoInteractions(aiClient, aiUsageService);
 	}
 
 	@Test

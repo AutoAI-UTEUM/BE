@@ -53,6 +53,10 @@ public class LearningMaterial {
 	@Column(name = "captions_completed_at")
 	private Instant captionsCompletedAt;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "caption_failure_reason", length = 40)
+	private CaptionFailureReason captionFailureReason;
+
 	@Column(name = "xai_file_id", length = 255)
 	private String xaiFileId;
 
@@ -227,6 +231,15 @@ public class LearningMaterial {
 	}
 
 	public void completeCaptionGeneration(Instant completedAt) {
+		this.captionsCompletedAt = completedAt;
+	}
+
+	public CaptionFailureReason getCaptionFailureReason() {
+		return captionFailureReason;
+	}
+
+	public void failCaptionGeneration(CaptionFailureReason reason, Instant completedAt) {
+		this.captionFailureReason = reason;
 		this.captionsCompletedAt = completedAt;
 	}
 }

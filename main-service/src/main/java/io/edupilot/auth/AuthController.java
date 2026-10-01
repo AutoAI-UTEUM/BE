@@ -24,7 +24,11 @@ import io.edupilot.auth.dto.SignupRequest;
 import io.edupilot.auth.dto.SignupResponse;
 import io.edupilot.auth.validation.ValidEmail;
 import io.edupilot.global.response.ApiResponse;
+import io.edupilot.global.response.ErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -82,7 +86,22 @@ public class AuthController {
 	}
 
 	@PostMapping("/google")
-	@Operation(summary = "Google 로그인 또는 가입")
+	@Operation(
+		summary = "Google 로그인 또는 가입",
+		description = "같은 Google subject의 기존 로그인 또는 비충돌 신규 가입. "
+			+ "이메일만 같은 기존 계정에는 자동 연결하지 않으며 충돌 시 토큰·쿠키를 발급하지 않습니다."
+	)
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(
+			responseCode = "200", description = "로그인 성공", useReturnTypeSchema = true
+		),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(
+			responseCode = "409",
+			description = "EMAIL_ALREADY_EXISTS: 미연결 Google subject의 이메일이 기존 계정과 충돌. "
+				+ "SIGNUP_REQUIRED: 비충돌 신규 가입에 역할 등 추가 정보 필요.",
+			content = @Content(schema = @Schema(implementation = ErrorResponse.class))
+		)
+	})
 	public ResponseEntity<ApiResponse<LoginResponse>> googleLogin(
 		@Valid @RequestBody GoogleLoginRequest request,
 		HttpServletRequest servletRequest

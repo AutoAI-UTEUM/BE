@@ -292,7 +292,7 @@ refresh token은 응답 body에 포함하지 않고 쿠키로 발급합니다(DE
 
 Google ID 토큰을 검증해 기존 계정으로 로그인하거나 신규 계정을 생성합니다. 인증과 refresh 쿠키는 `POST /api/auth/login`과 동일한 `LoginResponse`·쿠키 계약을 사용합니다.
 
-기존 Google 계정 또는 검증된 이메일과 같은 로컬 계정은 추가 정보 없이 로그인할 수 있습니다.
+이미 같은 `googleSub`가 연결된 계정은 추가 정보 없이 로그인할 수 있습니다. 이메일이 같다는 이유만으로 다른 계정에 자동 연결하지 않습니다(#455).
 
 ```json
 {
@@ -300,7 +300,21 @@ Google ID 토큰을 검증해 기존 계정으로 로그인하거나 신규 계�
 }
 ```
 
-같은 이메일의 로컬 계정이 있으면 Google의 검증된 이메일 소유권을 근거로 `googleSub`를 자동 연동합니다. 이때 로컬 비밀번호 로그인은 계속 사용할 수 있으며 계정의 최초 생성 제공자는 `LOCAL`로 유지합니다. 이미 같은 `googleSub`가 연결돼 있으면 동일 사용자를 로그인 처리하며 중복 가입하지 않습니다.
+계정 결정은 `googleSub` 조회 → 계정 상태 검증 → 미연결 subject의 정규화 이메일 충돌 검사 → 비충돌 신규 가입 순서입니다. 이미 같은 `googleSub`가 연결돼 있으면 동일 사용자를 로그인 처리하며 중복 가입하지 않습니다. 미연결 subject의 이메일이 기존 로컬 계정 또는 다른 Google subject의 계정과 같으면 `EMAIL_ALREADY_EXISTS`(409)로 거부합니다. 기존 비밀번호·`googleSub`·프로필·동의 이력은 변경하지 않으며 access token·refresh 쿠키·인증 세션을 발급하지 않습니다. 정지·비활성 계정의 기존 상태 오류는 유지합니다.
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "EMAIL_ALREADY_EXISTS",
+    "message": "이미 사용 중인 이메일입니다.",
+    "details": []
+  },
+  "traceId": "trace-id"
+}
+```
+
+FE는 `EMAIL_ALREADY_EXISTS`를 토큰 오류나 `SIGNUP_REQUIRED`로 취급하지 않습니다. 추가 가입 폼으로 자동 재시도하거나 두 계정이 연결됐다고 표시하지 말고, 기존 로그인 방식 선택 또는 지원 문의를 안내합니다. 계정 소유권 확인·연결·복구 흐름은 DEC-042의 후속 결정 사항입니다.
 
 검증된 이메일로 가입된 계정이 없고 다음 필수 추가 정보가 빠졌으면 `SIGNUP_REQUIRED`(409)를 반환합니다. FE는 추가 정보 폼을 표시하고 같은 `idToken`과 함께 다시 요청합니다.
 
@@ -326,11 +340,12 @@ Google ID 토큰을 검증해 기존 계정으로 로그인하거나 신규 계�
 }
 ```
 
-- 신규 가입의 `role`은 `LEARNER | INSTRUCTOR`입니다. `consents` 필수 여부는 일반 가입과 같은 설정을 따르며 현재 `requiresConsent=true`인 버전만 보냅니다. 기존 계정 로그인·연동에는 재전송하지 않아도 되며, 응답의 `pendingConsents`가 재동의 필요 여부를 나타냅니다.
+- 신규 가입의 `role`은 `LEARNER | INSTRUCTOR`입니다. `consents` 필수 여부는 일반 가입과 같은 설정을 따르며 현재 `requiresConsent=true`인 버전만 보냅니다. 같은 `googleSub`의 기존 계정 로그인에는 재전송하지 않아도 되며, 응답의 `pendingConsents`가 재동의 필요 여부를 나타냅니다.
 - Google ID 토큰은 서버가 Google tokeninfo 응답의 audience, issuer, 이메일 검증 여부를 확인합니다. 검증 실패·Google 통신 실패는 `TOKEN_INVALID`(401)로 통일합니다.
 - 서버에 Google Client ID가 설정되지 않은 경우 기동은 허용하지만 요청은 `VALIDATION_FAILED`(400)로 거부하고 설정 오류만 서버 로그에 기록합니다.
 - Google 최초 가입 계정의 비밀번호 sentinel은 일반 비밀번호 검증을 통과하지 않으므로 비밀번호 로그인은 `INVALID_CREDENTIALS`입니다.
-- 주요 오류: `SIGNUP_REQUIRED`, `TOKEN_INVALID`, `ACCOUNT_SUSPENDED`, `USER_INACTIVE`, `VALIDATION_FAILED`.
+- 주요 오류: `EMAIL_ALREADY_EXISTS`, `SIGNUP_REQUIRED`, `TOKEN_INVALID`, `ACCOUNT_SUSPENDED`, `USER_INACTIVE`, `VALIDATION_FAILED`.
+- 이 차단은 신규 자동 연결 예방이며, 배포 전에 이미 연결된 계정·발급된 세션을 소급 복구하지 않습니다. 기존 연결 계정의 조사 기준과 잔여 접근 위험은 [DEC-042](decisions.md#dec-042--google-이메일-충돌-차단과-기존-연결-계정-복구)에 기록합니다.
 
 ### 정책 버전·동의 (#415)
 
@@ -2948,6 +2963,8 @@ prod에서 메일 provider가 `logging`이면 기동을 거부하며, `EDUPILOT_
 알림 메일 연결은 후속 이슈이며, 기존 인앱 알림은 변경되지 않습니다.
 
 ## 8. Spring → FastAPI 내부 API
+
+캡션용 PDF 렌더링은 이미지 할당 전에 폭 1,600px·높이 2,400px·총 2,560,000픽셀을 모두 검사해 최대 150 DPI에서 비율 유지 축소합니다(DEC-043). 비정상 치수 또는 축소 후 1px 미만 출력은 내부 캡션 실패 코드로 기록해 자동 backfill에서 제외하되 자료 READY·개요·외부 응답은 유지합니다. 외부 AI 청크 실패의 기존 부분 처리·재업로드 정책은 변경하지 않습니다.
 
 > 2026-09-29 연동 초안(DEC-041): AI에서 개요 `includePageQuizPlan`/`pageQuizPlan`,
 > 턴 `context.pageQuizDecision`·`quizContext.learningFocus`와 opt-in `capabilities`를

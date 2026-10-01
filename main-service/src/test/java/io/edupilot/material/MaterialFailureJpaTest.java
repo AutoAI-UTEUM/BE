@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -46,9 +47,74 @@ class MaterialFailureJpaTest {
 	@Autowired private UserRepository userRepository;
 	@Autowired private LearningMaterialRepository materialRepository;
 	@Autowired private MaterialExtractionPersistenceService persistenceService;
+	@Autowired private MaterialCaptionPersistenceService captionPersistenceService;
+	@Autowired private MaterialPageRepository pageRepository;
 	@Autowired private JdbcTemplate jdbcTemplate;
 	@Autowired private EntityManager entityManager;
 	@MockitoBean private MaterialExtractionRecoveryScheduler recoveryScheduler;
+
+	@ParameterizedTest
+	@EnumSource(CaptionFailureReason.class)
+	void permanentCaptionFailureStaysReadyAndIsExcludedFromBackfill(CaptionFailureReason reason) {
+		LearningMaterial material = material(owner(), "caption-rejection");
+		material.markReady(1);
+		pageRepository.saveAndFlush(MaterialPage.create(material, 1, "original text"));
+		Instant completedAt = Instant.parse("2026-09-30T00:00:00Z");
+
+		assertThat(captionPersistenceService.markPermanentlyFailed(material.getId(), reason, completedAt))
+			.isTrue();
+		entityManager.flush();
+		entityManager.clear();
+
+		LearningMaterial stored = materialRepository.findById(material.getId()).orElseThrow();
+		assertThat(stored.isReady()).isTrue();
+		assertThat(stored.isActive()).isTrue();
+		assertThat(stored.getCaptionFailureReason()).isEqualTo(reason);
+		assertThat(stored.getCaptionsCompletedAt()).isEqualTo(completedAt);
+		assertThat(stored.getFailureReason()).isNull();
+		assertThat(stored.getFailureTraceId()).isNull();
+		assertThat(captionPersistenceService.snapshot(material.getId())).isEmpty();
+		assertThat(captionPersistenceService.findBackfillCandidates(100)).doesNotContain(material.getId());
+		assertThat(captionPersistenceService.markCompleted(material.getId(), completedAt.plusSeconds(1)))
+			.isFalse();
+		captionPersistenceService.applyCaptions(material.getId(), Map.of(1, "late caption"));
+		entityManager.flush();
+		entityManager.clear();
+		MaterialPage storedPage = pageRepository.findByMaterial_IdOrderByPageNumberAsc(material.getId())
+			.getFirst();
+		assertThat(storedPage.getTextContent()).isEqualTo("original text");
+		assertThat(storedPage.getCaption()).isNull();
+	}
+
+	@Test
+	void captionReasonAlonePreventsAutomaticRetryAndPendingReadyMaterialRemainsEligible() {
+		User owner = owner();
+		LearningMaterial rejected = material(owner, "caption-guard");
+		rejected.markReady(1);
+		rejected.failCaptionGeneration(CaptionFailureReason.INVALID_PAGE_DIMENSIONS, Instant.now());
+		LearningMaterial pending = material(owner, "caption-pending");
+		pending.markReady(1);
+		LearningMaterial deleted = material(owner, "caption-deleted");
+		deleted.markReady(1);
+		deleted.delete();
+		LearningMaterial processing = material(owner, "caption-processing");
+		LearningMaterial failed = material(owner, "caption-failed");
+		failed.markFailed(MaterialFailureReason.EXTRACTION_FAILED, null);
+		LearningMaterial finished = material(owner, "caption-finished");
+		finished.markReady(1);
+		finished.completeCaptionGeneration(Instant.now());
+		entityManager.flush();
+		jdbcTemplate.update("update learning_materials set captions_completed_at = null where id = ?",
+			rejected.getId());
+		entityManager.clear();
+
+		assertThat(captionPersistenceService.snapshot(rejected.getId())).isEmpty();
+		assertThat(captionPersistenceService.findBackfillCandidates(100))
+			.contains(pending.getId())
+			.doesNotContain(rejected.getId(), deleted.getId(), processing.getId(), failed.getId(), finished.getId());
+		assertThat(materialRepository.findById(pending.getId()).orElseThrow().getCaptionFailureReason())
+			.isNull();
+	}
 
 	@Test
 	void persistsFailureMetadataWithFailedMaterial() {
