@@ -9,7 +9,7 @@
 
 `DEC-001` 같은 값은 이 문서 안에서 결정을 추적하기 위한 ID이며 GitHub 이슈 번호가 아닙니다. 기본적으로 관련 Epic의 `결정 필요` 체크박스로 관리합니다. 여러 팀의 합의가 필요하거나 실제 개발을 막는 항목만 별도 `[Decision]` 이슈로 만들고, 이 표에 GitHub 이슈 링크를 추가합니다.
 
-DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC-033의 잔여 TBD 목록에서 추적합니다. DEC-041은 AI 프로토타입의 Spring·FE 연동 합의 대기 항목이며 기존 승인 계약을 아직 대체하지 않습니다. DEC-044는 #457 퀴즈 제출 접근권 회수의 구현 정책과 검증 경계를 기록합니다.
+DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC-033의 잔여 TBD 목록에서 추적합니다. DEC-041은 AI 프로토타입의 Spring·FE 연동 합의 대기 항목이며 기존 승인 계약을 아직 대체하지 않습니다. DEC-044는 #457 퀴즈 제출 접근권 회수의 구현 정책과 검증 경계를 기록합니다. DEC-045는 #458의 실패 시험 결과 마스킹과 답안 고정 재채점 정책입니다.
 
 | ID | 결정 항목 | 현재 후보/질문 | 영향 | 소유자 | 목표 시점 |
 | --- | --- | --- | --- | --- | --- |
@@ -50,6 +50,19 @@ DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC
 - 동기화 문서: [API 명세](api-spec.md) §3, [화면-API 매핑](screen-api-map.md), [오류 코드](error-code.md), [도메인 모델](domain-model.md), [데이터베이스](database.md).
 
 ## 확정된 기본안
+
+### DEC-045 — 실패 시험 결과 공개 제한과 답안 고정 복구 (#458)
+
+- 상태: Accepted — 사용자 승인(2026-10-01): **학생 저장 답안 재채점 API 추가**. 근거: #458 / Finding `csf_3f022c090940d3570f7bb989`. 분기 기준 develop `f7c96f5`. DEC-032의 실패 결과 terminal 공개와 `allowRetake=false` 실패 시 새 attempt 허용을 부분 대체합니다.
+- 입력: 최종 제출에서 명시한 null·빈 값·공백 전용 답안은 기존 `INVALID_EXAM_ANSWER`(400)로 저장 전에 거부합니다. 기존 trim을 유지하고 `Character.isWhitespace || Character.isSpaceChar`로 공백만 있는 값을 검사합니다(U+2003·U+3000·NBSP U+00A0·U+202F 포함). 채점 준비도 같은 판정을 사용하며, 이미 저장된 비정상 공백 답안을 조용히 누락하거나 0점으로 바꾸지 않고 실패 종료합니다. 운영 답안 자동 보정은 하지 않습니다.
+- 미응답·임시저장: 문항 배열에서 생략한 답안만 null/0점/WRONG으로 처리하며 정상 한국어·영문 내용은 추가 변형하지 않습니다. 임시저장의 null·빈 답안 허용은 유지하되 복원 후 최종 제출 검증은 예외 없이 적용합니다. 거절 시 draft·start를 보존하고, 성공 시 기존 본문 우선·동일 트랜잭션 정리를 유지합니다.
+- 공개: PUBLISHED 시험의 **모든 GRADING_FAILED attempt**는 학생 문항 score·verdict·feedback을 null로 반환합니다. 본인 GET·지정 attempt·동일 requestId POST·동시 중복 복구에 동일한 마스킹을 적용합니다. 제출 총점·정규화·gradedAt도 null이며 본인 answer·questionId·maxScore와 식별/응시 시각은 유지합니다. DB 부분 점수와 강사 조회, 정상 GRADED 결과, CLOSED의 기존 복습 공개 정책은 바꾸지 않습니다. 이전 실패 attempt는 다음 시도 성공만으로 공개되지 않습니다.
+- 복구: `allowRetake=false`는 실패를 포함한 기존 제출의 새 requestId·답안 제출을 409로 차단하고 `submittable=false`로 안내합니다. `POST /api/exams/{examId}/submissions/me/regrade`(본문 없음)는 승인 LEARNER 멤버의 최신 실패 제출을 **저장된 원래 답안**으로만 재큐잉합니다. submissionId·attemptNo·requestId·제출/응시 시각을 유지하고 재시도 카운트를 0으로 초기화합니다. 기존 시험 행 잠금·lease claim·token CAS·afterCommit dispatch를 재사용하고 AI 호출은 트랜잭션 밖에서 실행합니다.
+- 멱등·권한: 이미 SUBMITTED면 추가 dispatch 없이 같은 제출/202, GRADED면 같은 제출/200을 반환합니다. 동시 호출도 새 attempt를 만들지 않습니다. 본인 최신 제출 부재/DRAFT는 EXAM_NOT_FOUND, 비멤버는 CLASSROOM_NOT_FOUND, 역할 부족은 ACCESS_DENIED입니다. CLOSED·완료 강의실에서도 저장 답안 복구는 허용하며 신규 제출 허용과 구분합니다. 소유 강사의 실패 재채점·GRADED 수동 점수 수정은 기존대로입니다.
+- 재응시: `allowRetake=true`의 terminal 결과 후 새 requestId·답안·다음 attempt 허용은 유지합니다. 최신 SUBMITTED는 항상 새 제출을 막습니다. 성적 대표값은 기존의 최신 GRADED attempt이며 실패 attempt를 0점 성적으로 계산하지 않습니다.
+- 이유·trade-off: 실패 상태에서 결정적 점수/판정을 먼저 보여 주고 답안 교체를 허용하면 실제 채점 장애도 정답 탐색·재응시 제한 우회에 사용됩니다. 복구를 막는 대신 같은 제출·답안 재채점으로 정상 장애 복구를 유지합니다. 과거 비정상 답안은 고정 재채점으로도 안전하게 실패하므로 별도의 운영 확인이 필요하며 이 이슈에서 데이터를 임의 수정하지 않습니다. 학생 수동 재채점의 별도 요청 빈도 제한은 기존 강사 재채점과 같이 이번 범위에 추가하지 않으며, 반복 진행 중 호출은 추가 AI 작업을 만들지 않습니다.
+- FE·배포: 마감 전 실패 점수·판정·피드백을 표시하지 않고 저장 답안 재채점 버튼(본문 없음)을 사용합니다. 202면 기존 GET polling을 재개하며 답안 편집·새 응시는 allowRetake=true에만 제공합니다. 임시저장 복원 시 최종 미응답 문항은 생략합니다. schema·AI wire·오류 코드 추가·환경 설정 변경은 없습니다. 학생/강사 계약 테스트와 로컬 mock/H2 검증, 코드 리뷰·CI·dev FE 검증은 구분해 보고합니다.
+- 후속 변경 문서: [API 명세](api-spec.md) §6.2, [화면-API 매핑](screen-api-map.md), [오류 코드](error-code.md), [도메인 모델](domain-model.md), [데이터베이스](database.md).
 
 ### DEC-044 — 퀴즈 제출의 현재 자료 접근권과 회수 경계 (#457)
 
@@ -466,13 +479,14 @@ DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC
 - 상태: Accepted — 시험 도메인 구현 후 발견된 고아 `SUBMITTED` 복구와 응답 지연 문제를 보완합니다. 신규 구현 이슈 번호는 원격 이슈 등록 후 연결합니다.
 - 결정일: 2026-08-03
 - 결정자: 프로젝트 담당자
+- #458 보완(2026-10-01): 실패 결과의 학생 공개와 재응시 불가 실패 복구는 DEC-045가 부분 대체합니다. 비동기 실행·lease/CAS·DB 부분 결과·성적 대표값은 유지합니다.
 - 선택:
   - 응답 있는 SHORT/ESSAY가 있으면 제출을 `SUBMITTED`로 커밋하고 동일한 `ExamSubmissionResponse` 봉투를 HTTP 202로 즉시 반환합니다. MCQ/OX 전용 또는 주관식 전부 미응답은 기존대로 즉시 `GRADED`, HTTP 200입니다. FE는 HTTP 코드가 아니라 본문의 `status`로 분기합니다.
-  - `SUBMITTED` 응답은 총점·정규화 점수·채점 시각뿐 아니라 이미 계산된 MCQ/OX의 문항별 `score`, `verdict`, `feedback`도 null로 마스킹합니다. 본인 `answer`, `maxScore`, `questionId`는 유지하며 문항별 결과는 `GRADED | GRADING_FAILED`에서만 공개합니다. 이는 재응시 허용 시험에서 객관식 정오답 선공개로 생기는 정보 이득을 막기 위함입니다.
+  - `SUBMITTED` 응답은 총점·정규화 점수·채점 시각뿐 아니라 이미 계산된 MCQ/OX의 문항별 `score`, `verdict`, `feedback`도 null로 마스킹합니다. 본인 `answer`, `maxScore`, `questionId`는 유지합니다. #458 이후 문항별 학생 결과는 `GRADED` 또는 CLOSED 시험의 `GRADING_FAILED`에서만 공개합니다(DEC-045). 이는 실패를 이용한 객관식 정오답 선공개와 재응시 정보 이득을 막기 위함입니다.
   - 제출 커밋 뒤 bounded executor(core 4, max 4, queue 100, AbortPolicy)에 직접 전달합니다. worker는 5분 lease를 조건부 claim하고 `status=SUBMITTED AND grading_lease_token=:token`일 때만 terminal 결과를 반영해 늦은 worker 덮어쓰기를 막습니다.
   - scheduler는 30초마다 최대 100건을 처리합니다. `SUBMITTED.updated_at`을 마지막 채점 시도 시작 시각으로 사용하며 30분 컷오프에서 첫 두 번은 재큐잉하고 세 번째는 `GRADING_FAILED`로 종결합니다. 카운트와 상태 변경은 기존 CAS 조건을 유지하며 active lease보다 우선합니다. 강사는 실패 제출을 저장 답안으로 재채점할 수 있고 이때 카운트를 0으로 초기화합니다. 일반 AI 오류와 잡힌 worker 예외는 즉시 실패 처리합니다.
   - 비동기 worker가 `AI_REQUEST_INVALID`을 받으면 재시도하지 않고 `GRADING_FAILED`로 종결하며 ERROR 로그로 Spring-AI 계약 결함을 구분합니다. 원 POST에 500을 반환하거나 이미 커밋된 제출을 보상 삭제하지 않습니다. 이 항목은 DEC-031의 동기 처리 규칙을 대체합니다.
-  - 같은 `requestId`는 기존 상태를 반환합니다. 최신 제출이 `SUBMITTED`이면 새 requestId를 거부하고, `GRADING_FAILED`는 `allowRetake`와 무관하게 응시권을 소모하지 않아 새 requestId로 다음 attempt를 만들 수 있습니다.
+  - 같은 `requestId`는 기존 상태를 반환합니다. 최신 제출이 `SUBMITTED`이면 새 requestId를 거부합니다. #458 이후 `allowRetake=false` 실패는 동일 제출·저장 답안 재채점으로만 복구하고, 새 requestId/attempt는 `allowRetake=true`의 terminal 제출에서만 허용합니다(DEC-045).
   - 운영 조회·polling·제출 제한의 최신 시도는 상태와 무관한 `MAX(attempt_no)`입니다. 성적·리포트 대표 제출은 `MAX(attempt_no WHERE status=GRADED)`이며 실패 시도는 제외합니다. 예를 들어 1회차 `GRADED` 80점 뒤 2회차 `GRADING_FAILED`이면 대표 성적은 1회차 80점입니다. GRADED 시도가 없는 학생은 점수·성취도 집계에서 제외합니다.
 - 이유: 외부 AI 호출을 요청 트랜잭션과 분리하면서 프로세스 종료·executor 포화·늦은 worker에도 제출을 회수할 수 있어야 합니다. 채점 실패는 시스템 장애이므로 이미 확정된 학생 성적을 지우거나 응시권을 영구 소모해서는 안 됩니다.
 - 대안과 trade-off: 동기 채점은 구현이 단순하지만 요청 지연과 고아 제출 복구가 어렵습니다. 단일 30분 절대 컷오프는 executor 적체와 일시 장애를 영구 실패로 만들 수 있어, 제한된 3개 채점 창과 강사 재채점 API를 추가하고 기존 lease·CAS 구조는 유지합니다.

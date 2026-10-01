@@ -160,6 +160,7 @@ public class ExamSubmission {
 
 	public Long getId() { return id; }
 	public Long getExamId() { return exam.getId(); }
+	public ExamStatus getExamStatus() { return exam.getStatus(); }
 	public Long getClassroomId() { return exam.getClassroomId(); }
 	public Long getUserId() { return user.getId(); }
 	public String getUserName() { return user.getName(); }

@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.List;
 
 import io.edupilot.exam.ExamAnswer;
+import io.edupilot.exam.ExamReviewPolicy;
 import io.edupilot.exam.ExamSubmission;
 import io.edupilot.exam.SubmissionStatus;
 
@@ -23,11 +24,12 @@ public record ExamSubmissionResponse(
 		ExamSubmission submission,
 		List<ExamAnswer> answers
 	) {
-		boolean revealResult = submission.getStatus() != SubmissionStatus.SUBMITTED;
+		boolean revealResult = ExamReviewPolicy.isStudentResultAvailable(submission);
 		return new ExamSubmissionResponse(
 			submission.getId(), submission.getAttemptNo(), submission.getStatus(),
-			submission.getScore(), submission.getMaxScore(), submission.getNormalizedScore(),
-			submission.getSubmittedAt(), submission.getGradedAt(),
+			revealResult ? submission.getScore() : null, submission.getMaxScore(),
+			revealResult ? submission.getNormalizedScore() : null,
+			submission.getSubmittedAt(), revealResult ? submission.getGradedAt() : null,
 			answers.stream()
 				.map(answer -> ExamAnswerResultResponse.from(answer, revealResult))
 				.toList()

@@ -7,6 +7,7 @@ import java.util.List;
 import io.edupilot.exam.ExamAnswer;
 import io.edupilot.exam.ExamPrivateAnswer;
 import io.edupilot.exam.ExamQuestionType;
+import io.edupilot.exam.ExamReviewPolicy;
 import io.edupilot.exam.ExamSubmission;
 import io.edupilot.exam.SubmissionStatus;
 import io.edupilot.exam.Verdict;
@@ -31,19 +32,19 @@ public record StudentExamSubmissionResponse(
 		List<ExamAnswer> answers,
 		boolean reviewAvailable
 	) {
-		boolean revealResult = submission.getStatus() != SubmissionStatus.SUBMITTED;
+		boolean revealResult = ExamReviewPolicy.isStudentResultAvailable(submission);
 		return new StudentExamSubmissionResponse(
 			submission.getId(),
 			submission.getAttemptNo(),
 			submission.getStatus(),
 			reviewAvailable,
-			submission.getScore(),
+			revealResult ? submission.getScore() : null,
 			submission.getMaxScore(),
-			submission.getNormalizedScore(),
+			revealResult ? submission.getNormalizedScore() : null,
 			submission.getStartedAt(),
 			submission.getDurationSeconds(),
 			submission.getSubmittedAt(),
-			submission.getGradedAt(),
+			revealResult ? submission.getGradedAt() : null,
 			answers.stream()
 				.map(answer -> item(answer, revealResult, reviewAvailable))
 				.toList()
