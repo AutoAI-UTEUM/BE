@@ -128,6 +128,31 @@ class QuizApiContractTest {
 	}
 
 	@Test
+	void revokedMaterialAccessUses404ForSubmitReplayAndDetailWithoutFeedback() throws Exception {
+		when(submissionService.submit(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq(50L),
+			org.mockito.ArgumentMatchers.any()))
+			.thenThrow(new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
+		when(submissionService.detail(1L, 50L))
+			.thenThrow(new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
+		for (String requestId : List.of("new-request", "existing-request")) {
+			mockMvc.perform(post("/api/quizzes/50/submit")
+					.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("{\"requestId\":\"" + requestId + "\",\"answers\":[]}"))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.error.code").value("MATERIAL_NOT_FOUND"))
+				.andExpect(jsonPath("$.data").doesNotExist())
+				.andExpect(content().string(not(containsString("feedback"))))
+				.andExpect(content().string(not(containsString("correctAnswer"))));
+		}
+		mockMvc.perform(get("/api/quizzes/50/submission")
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("MATERIAL_NOT_FOUND"))
+			.andExpect(jsonPath("$.data").doesNotExist());
+	}
+
+	@Test
 	void submissionDetailExposesCanonicalAnswerOnlyAfterSubmission()
 		throws Exception {
 		when(submissionService.detail(1L, 50L)).thenReturn(

@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.quiz.dto.QuizSubmitRequest;
 import io.edupilot.quiz.dto.QuizSubmissionDetailResponse;
 import io.edupilot.quiz.dto.QuizSubmitResponse;
@@ -30,6 +31,7 @@ public class QuizSubmissionService {
 	private final QuizProperties properties;
 	private final QuizPostGradingHook postGradingHook;
 	private final TurnClaimService claimService;
+	private final MaterialAccessService materialAccessService;
 
 	public QuizSubmissionService(
 		QuizSubmissionPreparationService preparationService,
@@ -37,7 +39,8 @@ public class QuizSubmissionService {
 		QuizSubmissionPersistenceService persistenceService,
 		QuizProperties properties,
 		QuizPostGradingHook postGradingHook,
-		TurnClaimService claimService
+		TurnClaimService claimService,
+		MaterialAccessService materialAccessService
 	) {
 		this.preparationService = preparationService;
 		this.gradingService = gradingService;
@@ -45,6 +48,7 @@ public class QuizSubmissionService {
 		this.properties = properties;
 		this.postGradingHook = postGradingHook;
 		this.claimService = claimService;
+		this.materialAccessService = materialAccessService;
 	}
 
 	public QuizSubmitResponse submit(
@@ -92,6 +96,7 @@ public class QuizSubmissionService {
 			if (persistenceService.exists(userId, quizId)) {
 				throw new BusinessException(ErrorCode.QUIZ_ALREADY_SUBMITTED);
 			}
+			materialAccessService.assertSessionAccessible(userId, prepared.sessionId());
 			GradingResult gradingResult = gradingService.grade(userId, prepared);
 			boolean passed = gradingResult.score().compareTo(
 				gradingResult.maxScore().multiply(properties.passRatio())
@@ -103,6 +108,7 @@ public class QuizSubmissionService {
 				passed
 			);
 			QuizSubmitResponse response = persisted.response();
+			materialAccessService.assertSessionAccessible(userId, prepared.sessionId());
 			if (!persisted.currentPageQuiz()) {
 				return response;
 			}
@@ -128,8 +134,9 @@ public class QuizSubmissionService {
 				);
 			} catch (RuntimeException exception) {
 				if (exception instanceof BusinessException businessException
-					&& businessException.errorCode()
-						== ErrorCode.AI_QUOTA_EXCEEDED) {
+					&& (businessException.errorCode() == ErrorCode.AI_QUOTA_EXCEEDED
+						|| businessException.errorCode() == ErrorCode.MATERIAL_NOT_FOUND
+						|| businessException.errorCode() == ErrorCode.SESSION_NOT_FOUND)) {
 					throw businessException;
 				}
 				log.atWarn()
@@ -145,6 +152,7 @@ public class QuizSubmissionService {
 					.log("Quiz learning-support pipeline failed");
 				uiActions = response.uiActions();
 			}
+			materialAccessService.assertSessionAccessible(userId, prepared.sessionId());
 			return response.withUiActions(uiActions);
 		} catch (DataIntegrityViolationException exception) {
 			return persistenceService.findByRequest(

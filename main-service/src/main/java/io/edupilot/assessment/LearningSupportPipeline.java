@@ -22,6 +22,7 @@ import io.edupilot.diagnosis.DiagnosisPersistenceService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.memory.LearnerMemoryRepository;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.quiz.GradingItem;
 import io.edupilot.quiz.PrivateQuizQuestion;
 import io.edupilot.quiz.PublicQuizQuestion;
@@ -45,6 +46,7 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 	private final AssessmentPersistenceService assessmentPersistenceService;
 	private final DiagnosisPersistenceService diagnosisPersistenceService;
 	private final LearnerMemoryRepository memoryRepository;
+	private final MaterialAccessService materialAccessService;
 
 	public LearningSupportPipeline(
 		AiClient aiClient,
@@ -53,7 +55,8 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 		UserRepository userRepository,
 		AssessmentPersistenceService assessmentPersistenceService,
 		DiagnosisPersistenceService diagnosisPersistenceService,
-		LearnerMemoryRepository memoryRepository
+		LearnerMemoryRepository memoryRepository,
+		MaterialAccessService materialAccessService
 	) {
 		this.aiClient = aiClient;
 		this.aiUsageService = aiUsageService;
@@ -62,10 +65,12 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 		this.assessmentPersistenceService = assessmentPersistenceService;
 		this.diagnosisPersistenceService = diagnosisPersistenceService;
 		this.memoryRepository = memoryRepository;
+		this.materialAccessService = materialAccessService;
 	}
 
 	@Override
 	public List<UiAction> onGraded(QuizPostGradingContext context) {
+		materialAccessService.assertSessionAccessible(context.userId(), context.sessionId());
 		String memoryDigest = memoryRepository.findByUser_IdAndMaterial_Id(
 				context.userId(),
 				context.materialId()
@@ -103,7 +108,7 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 			}
 		} catch (RuntimeException exception) {
 			recordFailure(context.userId(), AiFeature.QUIZ_ASSESSMENT, exception);
-			rethrowQuotaExceeded(exception);
+			rethrowProtectedFailure(exception);
 			logFailure("assessment", context, exception);
 			return defaultActions(context);
 		}
@@ -113,6 +118,7 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 		}
 
 		try {
+			materialAccessService.assertSessionAccessible(context.userId(), context.sessionId());
 			DiagnosisRequest request = diagnosisRequest(
 				context,
 				assessmentRequest,
@@ -140,7 +146,7 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 				.orElseGet(() -> defaultActions(context));
 		} catch (RuntimeException exception) {
 			recordFailure(context.userId(), AiFeature.DIAGNOSIS, exception);
-			rethrowQuotaExceeded(exception);
+			rethrowProtectedFailure(exception);
 			logFailure("diagnosis", context, exception);
 			return defaultActions(context);
 		}
@@ -335,9 +341,11 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 		}
 	}
 
-	private void rethrowQuotaExceeded(RuntimeException exception) {
+	private void rethrowProtectedFailure(RuntimeException exception) {
 		if (exception instanceof BusinessException businessException
-			&& businessException.errorCode() == ErrorCode.AI_QUOTA_EXCEEDED) {
+			&& (businessException.errorCode() == ErrorCode.AI_QUOTA_EXCEEDED
+				|| businessException.errorCode() == ErrorCode.MATERIAL_NOT_FOUND
+				|| businessException.errorCode() == ErrorCode.SESSION_NOT_FOUND)) {
 			throw businessException;
 		}
 	}

@@ -56,6 +56,19 @@ class MaterialAccessServiceTest {
 		);
 	}
 
+	@Test
+	void writeAccessLocksCurrentGrantsAndStillAllowsOwner() {
+		LearningMaterial material = material(1L, 10L);
+		when(materialRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(material));
+		assertThat(service().requireAccessibleForUpdate(1L, 10L)).isSameAs(material);
+		org.mockito.Mockito.verifyNoInteractions(weekMaterialRepository);
+		when(weekMaterialRepository.lockAccessGrants(2L, 10L)).thenReturn(java.util.List.of(5L));
+		assertThat(service().requireAccessibleForUpdate(2L, 10L)).isSameAs(material);
+		assertThatThrownBy(() -> service().requireAccessibleForUpdate(3L, 10L))
+			.isInstanceOfSatisfying(BusinessException.class,
+				error -> assertThat(error.errorCode()).isEqualTo(ErrorCode.MATERIAL_NOT_FOUND));
+	}
+
 	private LearningMaterial material(Long ownerId, Long materialId) {
 		User owner = User.create("owner@example.com", "hash", "Owner");
 		ReflectionTestUtils.setField(owner, "id", ownerId);

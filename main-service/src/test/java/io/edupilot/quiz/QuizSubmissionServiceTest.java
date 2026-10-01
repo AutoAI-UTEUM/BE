@@ -47,6 +47,9 @@ class QuizSubmissionServiceTest {
 	@Mock
 	private TurnClaimService claimService;
 
+	@Mock
+	private io.edupilot.material.MaterialAccessService materialAccessService;
+
 	@Test
 	void appliesConfiguredPassRatioWithoutDivisionRounding() {
 		PreparedQuizSubmission prepared = new PreparedQuizSubmission(
@@ -89,7 +92,8 @@ class QuizSubmissionServiceTest {
 			persistenceService,
 			new QuizProperties(new BigDecimal("0.6"), 200),
 			postGradingHook,
-			claimService
+			claimService,
+			materialAccessService
 		);
 
 		QuizSubmitResponse response = service.submit(1L, 50L, request);
@@ -338,8 +342,90 @@ class QuizSubmissionServiceTest {
 			persistenceService,
 			new QuizProperties(new BigDecimal(ratio), 200),
 			postGradingHook,
-			claimService
+			claimService,
+			materialAccessService
 		);
+	}
+
+	@Test
+	void deniedReplayAfterClaimStopsGradingAndReleasesClaim() {
+		var request = new QuizSubmitRequest("request-1", List.of());
+		when(preparationService.prepare(1L, 50L, request)).thenReturn(prepared());
+		when(persistenceService.findByRequest(1L, 50L, "request-1"))
+			.thenReturn(Optional.empty())
+			.thenThrow(new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
+
+		assertMaterialDenied(request);
+		verify(gradingService, never()).grade(any(), any());
+		verify(postGradingHook, never()).onGraded(any());
+		verify(claimService).release(eq(100L), any());
+	}
+
+	@Test
+	void deniedDuplicateInsertRecoveryDoesNotReturnProtectedResult() {
+		var request = new QuizSubmitRequest("request-1", List.of());
+		var prepared = prepared();
+		var grade = result("100.00");
+		when(preparationService.prepare(1L, 50L, request)).thenReturn(prepared);
+		when(gradingService.grade(1L, prepared)).thenReturn(grade);
+		when(persistenceService.findByRequest(1L, 50L, "request-1"))
+			.thenReturn(Optional.empty(), Optional.empty())
+			.thenThrow(new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
+		when(persistenceService.persist(1L, prepared, grade, true))
+			.thenThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate"));
+
+		assertMaterialDenied(request);
+		verify(postGradingHook, never()).onGraded(any());
+		verify(claimService).release(eq(100L), any());
+	}
+
+	@Test
+	void revocationImmediatelyAfterSaveSkipsPostGradingAndResponse() {
+		var request = stubPersistedSubmission();
+		doNothing().doThrow(new BusinessException(ErrorCode.MATERIAL_NOT_FOUND))
+			.when(materialAccessService).assertSessionAccessible(1L, 100L);
+
+		assertMaterialDenied(request);
+		verify(postGradingHook, never()).onGraded(any());
+		verify(claimService).release(eq(100L), any());
+	}
+
+	@Test
+	void postGradingAccessDenialIsNotDowngradedToSuccessfulFallback() {
+		var request = stubPersistedSubmission();
+		when(postGradingHook.onGraded(any()))
+			.thenThrow(new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
+
+		assertMaterialDenied(request);
+		verify(claimService).release(eq(100L), any());
+	}
+
+	@Test
+	void fallbackResponseStillChecksAccessAfterOtherPipelineFailure() {
+		var request = stubPersistedSubmission();
+		when(postGradingHook.onGraded(any())).thenThrow(new IllegalStateException("stub failure"));
+		doNothing().doNothing().doThrow(new BusinessException(ErrorCode.MATERIAL_NOT_FOUND))
+			.when(materialAccessService).assertSessionAccessible(1L, 100L);
+
+		assertMaterialDenied(request);
+		verify(claimService).release(eq(100L), any());
+	}
+
+	private QuizSubmitRequest stubPersistedSubmission() {
+		var request = new QuizSubmitRequest("request-1", List.of());
+		var prepared = prepared();
+		var grade = result("100.00");
+		when(preparationService.prepare(1L, 50L, request)).thenReturn(prepared);
+		when(gradingService.grade(1L, prepared)).thenReturn(grade);
+		when(persistenceService.persist(1L, prepared, grade, true))
+			.thenReturn(new PersistedQuizSubmission(response(grade, true), true));
+		return request;
+	}
+
+	private void assertMaterialDenied(QuizSubmitRequest request) {
+		assertThatThrownBy(() -> service("0.6").submit(1L, 50L, request))
+			.isInstanceOfSatisfying(BusinessException.class,
+				error -> assertThat(error.errorCode()).isEqualTo(ErrorCode.MATERIAL_NOT_FOUND));
 	}
 
 	private PreparedQuizSubmission prepared() {
