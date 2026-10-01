@@ -357,6 +357,35 @@ class ExamApiContractTest {
 	}
 
 	@Test
+	void studentRecoveryIsBodylessAuthenticatedAndIdempotentWith200Or202() throws Exception {
+		when(studentExamService.regradeMySubmission(2L, UserRole.LEARNER, 30L))
+			.thenReturn(submission(10L, SubmissionStatus.SUBMITTED),
+				submission(10L, SubmissionStatus.GRADED));
+		String path = "/api/exams/30/submissions/me/regrade";
+		mockMvc.perform(post(path)).andExpect(status().isUnauthorized());
+		mockMvc.perform(post(path).header(HttpHeaders.AUTHORIZATION, bearer(learnerToken)))
+			.andExpect(status().isAccepted())
+			.andExpect(jsonPath("$.data.submissionId").value(10))
+			.andExpect(jsonPath("$.data.attemptNo").value(1))
+			.andExpect(jsonPath("$.data.status").value("SUBMITTED"));
+		mockMvc.perform(post(path).header(HttpHeaders.AUTHORIZATION, bearer(learnerToken)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.submissionId").value(10))
+			.andExpect(jsonPath("$.data.status").value("GRADED"));
+		verify(studentExamService, times(2)).regradeMySubmission(2L, UserRole.LEARNER, 30L);
+		when(studentExamService.regradeMySubmission(2L, UserRole.LEARNER, 31L))
+			.thenThrow(new BusinessException(ErrorCode.EXAM_NOT_FOUND));
+		mockMvc.perform(post("/api/exams/31/submissions/me/regrade")
+				.header(HttpHeaders.AUTHORIZATION, bearer(learnerToken)))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("EXAM_NOT_FOUND"));
+		when(studentExamService.regradeMySubmission(1L, UserRole.INSTRUCTOR, 30L))
+			.thenThrow(new BusinessException(ErrorCode.ACCESS_DENIED));
+		mockMvc.perform(post(path).header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isForbidden());
+	}
+
+	@Test
 	void instructorCanAdjustAnswerScoreAndReceivesFullUpdatedDetail() throws Exception {
 		InstructorExamSubmissionResponse response = instructorSubmission();
 		when(instructorExamService.adjustAnswerScore(
@@ -461,6 +490,12 @@ class ExamApiContractTest {
 		assertThat(responses.get("200").get("content")).isNotNull();
 		assertThat(responses.get("202").get("content"))
 			.isEqualTo(responses.get("200").get("content"));
+		JsonNode recovery = objectMapper.readTree(result.getResponse().getContentAsByteArray())
+			.get("paths").get("/api/exams/{examId}/submissions/me/regrade").get("post");
+		assertThat(recovery.get("operationId").textValue()).isEqualTo("regradeMyExamSubmission");
+		assertThat(recovery.has("requestBody")).isFalse();
+		assertThat(recovery.get("responses").get("202").get("content"))
+			.isEqualTo(recovery.get("responses").get("200").get("content"));
 		assertThat(objectMapper.readTree(result.getResponse().getContentAsByteArray())
 			.get("paths")
 			.get("/api/exams/{examId}/submissions/{submissionId}/regrade")

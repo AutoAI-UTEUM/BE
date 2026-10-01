@@ -123,7 +123,7 @@ public class ExamSubmissionPersistenceService {
 			.orElse(null);
 		if (latest != null) {
 			if (latest.getStatus() == SubmissionStatus.SUBMITTED
-				|| latest.getStatus() == SubmissionStatus.GRADED && !exam.isAllowRetake()) {
+				|| !exam.isAllowRetake()) {
 				throw new BusinessException(ErrorCode.EXAM_ALREADY_SUBMITTED);
 			}
 		}
@@ -217,13 +217,18 @@ public class ExamSubmissionPersistenceService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.EXAM_NOT_FOUND));
 		List<ExamAnswer> answers = answerRepository
 			.findBySubmission_IdOrderByQuestion_Id(submissionId);
+		// An explicit legacy blank is invalid, not an omitted (zero-point) answer.
+		if (answers.stream().anyMatch(answer -> answer.getAnswer() != null
+			&& isBlankAnswer(answer.getAnswer()))) {
+			throw new BusinessException(ErrorCode.GRADING_RESULT_INVALID);
+		}
 		List<PreparedExamAiGrading.Group> groups = new ArrayList<>();
 		for (ExamQuestionType type : List.of(
 			ExamQuestionType.SHORT, ExamQuestionType.ESSAY
 		)) {
 			List<PreparedExamAiGrading.Item> items = answers.stream()
 				.filter(answer -> answer.getQuestionType() == type)
-				.filter(answer -> answer.getAnswer() != null && !answer.getAnswer().isBlank())
+				.filter(answer -> answer.getAnswer() != null)
 				.map(answer -> new PreparedExamAiGrading.Item(
 					"q" + answer.getQuestionNo(),
 					answer.getQuestionText(),
@@ -411,13 +416,19 @@ public class ExamSubmissionPersistenceService {
 			}
 			String answer = answerRequest.answer() == null
 				? null : answerRequest.answer().trim();
-			if (answer == null || answer.isEmpty()) {
+			if (isBlankAnswer(answer)) {
 				throw new BusinessException(ErrorCode.INVALID_EXAM_ANSWER);
 			}
 			validateAnswerType(question, answer);
 			answers.put(questionId, answer);
 		}
 		return Map.copyOf(answers);
+	}
+
+	private boolean isBlankAnswer(String answer) {
+		return answer == null || answer.trim().codePoints().allMatch(codePoint ->
+			Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint)
+		);
 	}
 
 	private void validateAnswerType(ExamQuestion question, String answer) {

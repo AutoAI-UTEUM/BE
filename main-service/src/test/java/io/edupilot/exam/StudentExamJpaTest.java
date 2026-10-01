@@ -65,6 +65,7 @@ class StudentExamJpaTest {
 	@Autowired private ExamRepository examRepository;
 	@Autowired private ExamQuestionRepository questionRepository;
 	@Autowired private ExamSubmissionRepository submissionRepository;
+	@Autowired private ExamAnswerRepository answerRepository;
 	@Autowired private StudentExamService studentExamService;
 	@Autowired private ExamSubmissionPersistenceService persistenceService;
 	@Autowired private ExamAiGradingService aiGradingService;
@@ -340,14 +341,23 @@ class StudentExamJpaTest {
 		assertThat(result.score()).isNull();
 		assertThat(result.normalizedScore()).isNull();
 		assertThat(result.gradedAt()).isNull();
-		assertThat(result.items().get(0).score()).isEqualByComparingTo("7.00");
+		assertThat(result.items().get(0).score()).isNull();
+		assertThat(result.items().get(0).verdict()).isNull();
+		assertThat(result.items().get(0).feedback()).isNull();
+		assertThat(answerRepository.findBySubmission_IdOrderByQuestion_Id(submitted.submissionId()))
+			.filteredOn(answer -> answer.getQuestionNo() == 1)
+			.singleElement().satisfies(answer -> {
+				assertThat(answer.getScore()).isEqualByComparingTo("7.00");
+				assertThat(answer.getVerdict()).isEqualTo(Verdict.PARTIAL);
+				assertThat(answer.getFeedback()).isEqualTo("Feedback");
+			});
 		assertThat(result.items().get(1).score()).isNull();
 		assertThat(result.items().get(1).verdict()).isNull();
 		assertThat(result.items().get(1).feedback()).isNull();
 	}
 
 	@Test
-	void gradingFailureDoesNotConsumeNonRetakeAttempt() {
+	void gradingFailureRetriesFixedNonRetakeAttemptInsteadOfCreatingAnother() {
 		Exam exam = Exam.create(classroom, 1, "Retry failure", null, false);
 		exam.replaceTotalScore(new BigDecimal("10.00"));
 		exam.publish(Instant.parse("2026-08-03T00:00:00Z"));
@@ -365,18 +375,16 @@ class StudentExamJpaTest {
 		assertThat(studentExamService.list(
 			learner.getId(), UserRole.LEARNER, classroom.getId(), 0, 20
 		).items()).singleElement().satisfies(item ->
-			assertThat(item.submittable()).isTrue()
+			assertThat(item.submittable()).isFalse()
 		);
-		var retry = studentExamService.submit(
-			learner.getId(), UserRole.LEARNER, exam.getId(),
-			new SubmitExamRequest(
-				"failed-attempt-2", List.of(new ExamAnswerRequest("q1", "Answer"))
-			)
+		var retry = studentExamService.regradeMySubmission(
+			learner.getId(), UserRole.LEARNER, exam.getId()
 		);
 
 		assertThat(failed.status()).isEqualTo(SubmissionStatus.GRADING_FAILED);
 		assertThat(retry.status()).isEqualTo(SubmissionStatus.SUBMITTED);
-		assertThat(retry.attemptNo()).isEqualTo(2);
+		assertThat(retry.attemptNo()).isEqualTo(1);
+		assertThat(retry.submissionId()).isEqualTo(first.submissionId());
 		assertThat(studentExamService.detail(
 			learner.getId(), UserRole.LEARNER, exam.getId()
 		).submittable()).isFalse();

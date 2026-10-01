@@ -1280,7 +1280,7 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 
 ### 6.2 별도 시험
 
-별도 시험 계약은 DEC-031을 따릅니다. 시험은 강의실에 귀속하며 강사가 직접 출제합니다. 페이지네이션은 `page=0`, `size=20`, 최대 100입니다.
+별도 시험 계약은 DEC-031·032와 실패 결과 공개·답안 고정 복구를 보완한 DEC-045(#458)를 따릅니다. 시험은 강의실에 귀속하며 강사가 직접 출제합니다. 페이지네이션은 `page=0`, `size=20`, 최대 100입니다.
 
 #### 권한·노출 기준
 
@@ -1429,13 +1429,14 @@ AI 응답의 `usage`는 서버 비용 기록에만 사용하며 외부 API 응�
 
 | Method | URL | 계약 |
 | --- | --- | --- |
-| GET | `/api/classrooms/{classroomId}/exams?page&size` | PUBLISHED·CLOSED 목록, nullable `dueAt`, 본인 최신 제출 요약·`submittable`을 반환합니다. GRADING_FAILED 최신 시도는 재제출 가능으로 계산합니다. |
+| GET | `/api/classrooms/{classroomId}/exams?page&size` | PUBLISHED·CLOSED 목록, nullable `dueAt`, 본인 최신 제출 요약·`submittable`을 반환합니다. 최신 GRADING_FAILED의 새 답안 제출은 `allowRetake=true`에서만 가능합니다. |
 | GET | `/api/exams/{examId}` | 공개 문항, nullable `dueAt`, `submittable`만 반환합니다. |
 | POST | `/api/exams/{examId}/attempts/start` | PUBLISHED 시험의 응시 시작 시각을 기록합니다. 동일 시험·사용자의 미소비 기록이 있으면 같은 `startedAt`을 반환합니다. |
 | PUT | `/api/exams/{examId}/attempts/draft` | 제출 요청과 같은 `answers[{questionId,answer}]` 형식으로 전체 임시 답안을 저장합니다. `version` 일치 시 증가시키며 충돌 시 최신 서버 답안을 반환합니다. |
 | GET | `/api/exams/{examId}/attempts/draft` | 본인 임시 답안이 있으면 `version`, `answers`, `savedAt`을 반환하고 없으면 204입니다. |
 | POST | `/api/exams/{examId}/submissions` | PUBLISHED 시험을 제출합니다. 주관식 AI 채점이 필요하면 `SUBMITTED`/202, 아니면 `GRADED`/200입니다. 두 응답은 같은 봉투와 `ExamSubmissionResponse` 스키마입니다. |
 | GET | `/api/exams/{examId}/submissions/me?attemptNo=` | 본인 결과를 조회하며 attemptNo 생략 시 최신 시도입니다. 공개 정책과 응시 시간 필드를 포함합니다. |
+| POST | `/api/exams/{examId}/submissions/me/regrade` | 본문 없이 본인의 최신 실패 제출을 저장 답안으로 재채점합니다. 동일 submissionId·attemptNo·requestId를 유지하며 SUBMITTED/202, 이미 GRADED이면 멱등 200입니다. |
 
 학생 시험 목록·상세의 문항 DTO는 `questionId`, `questionText`, `maxScore`, `questionType`, `options`만 포함합니다. 본인 결과 조회에서만 `reviewAvailable=true`일 때 문항별 `correctAnswer`, `explanation`을 추가하며 `rubric`과 비공개 정답 원본은 항상 제외합니다.
 
@@ -1465,7 +1466,7 @@ AI 응답의 `usage`는 서버 비용 기록에만 사용하며 외부 API 응�
 
 성공 시 `data: {"version": 1, "savedAt": "2026-08-02T12:00:00Z"}`를 반환합니다. GET은 `data: {"version": 1, "answers": [{"questionId": "q1", "answer": "a"}], "savedAt": "2026-08-02T12:00:00Z"}`를 반환합니다. 기존 버전으로 PUT하면 409 `DRAFT_VERSION_CONFLICT`이며 일반 오류 봉투에 최상위 `latestDraft`(GET의 `data`와 같은 구조, 현재 행이 없으면 null)를 추가합니다. FE는 서버 답안과 로컬 답안을 비교해 선택한 뒤 반환된 버전으로 재시도해야 하며 서버가 답안을 자동 병합하지 않습니다.
 
-승인 LEARNER 멤버와 PUBLISHED 시험만 사용할 수 있습니다. DRAFT는 `EXAM_NOT_FOUND`(404), CLOSED는 `EXAM_NOT_PUBLISHED`(409)입니다. PUT에는 해당 시험·학습자의 미소비 `attempts/start` 기록이 필요하며, 없으면 `EXAM_ALREADY_SUBMITTED`(409)로 거부합니다. 기존 제출이 있어도 `allowRetake=true`이고 새 응시 시작 기록이 있으면 재응시 draft를 저장할 수 있지만, `allowRetake=false`인 시험의 제출 완료 후 PUT은 409로 차단합니다. 제출 성공 시 같은 트랜잭션에서 임시 답안을 삭제하고, 제출 본문의 답안만 사용합니다. `dueAt` 경과 자체는 저장이나 제출을 막지 않습니다. 30일 이상 갱신되지 않은 임시 답안은 매일 03:30 KST 정리합니다.
+승인 LEARNER 멤버와 PUBLISHED 시험만 사용할 수 있습니다. DRAFT는 `EXAM_NOT_FOUND`(404), CLOSED는 `EXAM_NOT_PUBLISHED`(409)입니다. PUT에는 해당 시험·학습자의 미소비 `attempts/start` 기록이 필요하며, 없으면 `EXAM_ALREADY_SUBMITTED`(409)로 거부합니다. 기존 제출이 있어도 `allowRetake=true`이고 새 응시 시작 기록이 있으면 재응시 draft를 저장할 수 있지만, `allowRetake=false`인 시험의 제출 완료 후 PUT은 실패 상태도 포함해 409로 차단합니다. 제출 성공 시 같은 트랜잭션에서 임시 답안을 삭제하고, 제출 본문의 답안만 사용합니다. 복원한 임시 답안도 최종 제출 검증을 받으며, 검증 거절 시 임시 답안과 응시 시작 기록을 보존합니다. 미응답을 최종 제출하려면 해당 문항을 배열에서 생략해야 합니다. `dueAt` 경과 자체는 저장이나 제출을 막지 않습니다. 30일 이상 갱신되지 않은 임시 답안은 매일 03:30 KST 정리합니다.
 
 FE는 응시 화면 진입 시 GET하고 204이면 `sessionStorage` 답안을 폴백으로 사용합니다. 답안 변경 후 2초 디바운스와 30초 주기 저장을 권장합니다. 제출 시 draft 삭제 API를 별도로 호출할 필요가 없습니다.
 
@@ -1482,11 +1483,13 @@ FE는 응시 화면 진입 시 GET하고 204이면 `sessionStorage` 답안을 �
 ```
 
 - 답안 형식은 MCQ=`optionId`, OX=`"true"|"false"`, SHORT/ESSAY=자유 텍스트입니다.
-- 누락 questionId는 미응답으로 처리합니다. 알 수 없거나 중복된 questionId, 유형에 맞지 않는 답안은 `INVALID_EXAM_ANSWER`(400)입니다.
+- 배열에서 생략한 questionId만 미응답(`answer=null`, 0점, WRONG)으로 처리합니다. 명시한 답안의 null·빈 문자열·ASCII/유니코드 공백만 있는 값, 알 수 없거나 중복된 questionId, 유형에 맞지 않는 답안은 저장·worker 전달 전에 `INVALID_EXAM_ANSWER`(400)입니다. 기존 `trim()`을 유지하고 `Character.isWhitespace || Character.isSpaceChar`로 공백 전용 문자열을 판정하며 U+2003·U+3000·U+00A0·U+202F도 거부합니다. 공백 외 내용이 있는 한국어·영문 답안을 추가로 변형하지 않습니다.
 - 같은 제출의 통신 재시도는 동일 requestId를 사용하며 기존 제출을 반환합니다. 새로운 재응시는 반드시 새 requestId를 사용합니다.
 - 최신 제출이 `SUBMITTED`인 동안 새 requestId는 `EXAM_ALREADY_SUBMITTED`(409)입니다. 이 오류는 채점 중일 수 있으므로 기존 결과·polling 화면으로 유도합니다.
-- 최신 제출이 `GRADED`이면 `allowRetake=false`에서 새 requestId를 거부하고, `allowRetake=true`이면 다음 attemptNo를 생성합니다. `GRADING_FAILED`는 응시권을 소모하지 않아 allowRetake와 무관하게 새 requestId로 다음 attempt를 생성할 수 있습니다.
+- 최신 제출이 `GRADED | GRADING_FAILED`이면 `allowRetake=false`에서 새 requestId를 거부합니다. 실패는 새 답안 제출이 아니라 아래 학생 재채점 API로 복구합니다. `allowRetake=true`이면 terminal 상태에서 새 requestId와 답안으로 다음 attemptNo를 생성할 수 있습니다. `submittable`도 이 규칙을 따르며 재채점 가능 여부와는 별개입니다.
 - DRAFT 제출은 `EXAM_NOT_FOUND`(404)로 은닉하고 CLOSED 제출은 `EXAM_NOT_PUBLISHED`(409)로 거부합니다.
+
+학생 실패 복구는 `POST /api/exams/{examId}/submissions/me/regrade`를 **본문 없이** 호출합니다. 승인 LEARNER 멤버의 최신 제출만 선택하며 `GRADING_FAILED`이면 기존 lease/CAS 경로로 재큐잉하고 재시도 카운트를 0으로 초기화합니다. 원래 답안·submissionId·attemptNo·requestId·제출/응시 시각은 바뀌지 않습니다. 이미 SUBMITTED이면 추가 dispatch 없이 같은 제출을 202로, GRADED이면 같은 제출을 200으로 반환합니다. 반복·동시 호출은 새 attempt를 만들지 않습니다. 재응시 허용 여부와 무관하게 사용할 수 있고, CLOSED·완료 강의실에서도 이미 저장한 실패 답안의 복구는 허용합니다. DRAFT·본인 제출 부재는 `EXAM_NOT_FOUND`(404), 비멤버는 `CLASSROOM_NOT_FOUND`(404), 역할 부족은 `ACCESS_DENIED`(403)입니다. 응답 스키마는 기존 제출 POST와 같고 접수 후 기존 본인 결과 GET으로 polling합니다. FE는 실패 시 답안 편집 재제출 대신 **저장 답안 재채점** 버튼을 제공합니다(`allowRetake=true`의 별도 새 응시 동선은 유지).
 
 제출 응답의 형태:
 
@@ -1553,6 +1556,19 @@ FE는 응시 화면 진입 시 GET하고 204이면 `sessionStorage` 답안을 �
 
 - HTTP 202 응답 본문은 200과 동일한 API envelope 및 `ExamSubmissionResponse` 스키마입니다. FE는 HTTP 상태코드가 아니라 응답의 `status` 필드로 화면과 polling 여부를 분기합니다.
 - `SUBMITTED`에서는 `score`, `normalizedScore`, `gradedAt`과 모든 문항의 `score`, `verdict`, `feedback`을 null로 반환합니다. MCQ/OX 결과가 내부에서 이미 계산됐어도 terminal 상태 전에는 마스킹합니다. `answer`, `maxScore`, `questionId=q{questionNo}`는 유지합니다.
+- 시험이 PUBLISHED인 동안 **모든 GRADING_FAILED attempt**의 문항 `score`, `verdict`, `feedback`도 null로 마스킹합니다. 최신/지정 attempt GET, 같은 requestId POST, 동시 중복 복구 응답에 같은 정책을 적용합니다. 이전 실패 attempt도 다음 시도가 성공했다는 이유로 공개하지 않습니다. 정상 GRADED·강사 결과·CLOSED 복습의 공개 정책은 유지합니다.
+
+실패 제출의 학생 공개 필드(강사 조회와 DB의 부분 점수 보존은 불변):
+
+| 필드 | PUBLISHED + GRADING_FAILED | CLOSED + GRADING_FAILED |
+| --- | --- | --- |
+| submissionId·attemptNo·status·제출/응시 시각 | 유지 | 유지 |
+| 본인 answer·questionId·maxScore | 유지 | 유지 |
+| 제출 score·normalizedScore·gradedAt | null | null(완전한 채점 미완료) |
+| 문항 score·verdict·feedback | 모두 null | 저장된 부분 결과 반환, 미채점은 null |
+| correctAnswer·explanation | 키 생략 | 본인 결과 GET의 기존 복습 정책으로 공개(제출 POST에는 없음) |
+| manualScore·adjustedBy·adjustedAt·비공개 정답 원본/rubric | 항상 제외 | 항상 제외 |
+
 - 학생 목록·상세와 POST 제출 응답에는 `correctAnswer`, `explanation`을 포함하지 않습니다. 본인 결과 GET도 명시적 `correctAnswer`, `explanation` 외에 `answerChoiceId`, `answerValue`, `referenceAnswer`, `modelAnswer`, `rubric`, `privateAnswer`, `isCorrect` 키를 포함하지 않습니다.
 - 강사가 점수를 수동 조정한 문항은 학습자 결과의 문항 `score`와 제출 총점·정규화 점수에 유효 점수로 반영합니다. `manualScore`, `adjustedBy`, `adjustedAt`은 학습자 응답에 포함하지 않습니다. `reviewAvailable` 판정식은 변하지 않습니다.
 - POST가 `SUBMITTED`를 반환하면 기존 `GET /api/exams/{examId}/submissions/me`를 2초 간격으로 polling하고, 30초 뒤 5초 간격으로 전환합니다. `GRADED | GRADING_FAILED`에서 즉시 중단합니다. 31분을 넘기면 채점 지연 안내를 표시하되 polling은 유지하고, 세 번의 30분 채점 창과 scheduler 지연을 포함한 91분을 넘겨도 `SUBMITTED`이면 마지막 조회 후 중단하고 문의 안내를 표시합니다.
@@ -1563,9 +1579,9 @@ FE는 응시 화면 진입 시 GET하고 204이면 `sessionStorage` 답안을 �
 - 응답이 있는 SHORT가 하나 이상이면 SHORT grade를 1회, 응답이 있는 ESSAY가 하나 이상이면 ESSAY grade를 1회 호출합니다. 해당 문항이 없으면 그 유형을 호출하지 않습니다.
 - MCQ/OX만 있는 시험, SHORT/ESSAY가 모두 미응답인 시험과 전 문항 미응답 시험은 AI 호출 없이 `GRADED`로 완료합니다.
 - 한 AI 유형 호출이 일반 채점 오류로 실패해도 다른 유형 호출은 계속합니다. 성공한 AI·결정적 결과와 미응답 결과는 보존하며, 실제 AI 호출이 하나 이상 실패하면 제출을 `GRADING_FAILED`로 둡니다.
-- `GRADING_FAILED`에서는 제출 `score`, `normalizedScore`, `gradedAt`이 null입니다. 실패한 AI 문항의 `score`, `verdict`, `feedback`도 null이며 성공한 결정적·AI 결과와 미응답 결과는 보존합니다.
+- `GRADING_FAILED`에서는 제출 `score`, `normalizedScore`, `gradedAt`이 null입니다. 실패한 AI 문항의 `score`, `verdict`, `feedback`도 null이며 성공한 결정적·AI 결과와 미응답 결과는 **DB에 보존**합니다. 학생에게는 위 공개 정책에 따라 마스킹합니다. 이미 저장된 비정상 공백 답안을 worker가 만나면 `GRADING_RESULT_INVALID` 경로로 안전하게 실패하며 AI 대상으로부터 조용히 제외하거나 점수를 0으로 만들어내지 않습니다. 기존 답안을 일괄 보정하지 않고, 고정 답안 재채점으로도 해소되지 않는 과거 비정상 데이터는 강사/운영 확인이 필요합니다.
 - 내부 AI가 `AI_REQUEST_INVALID`을 반환하면 Spring 계약 결함입니다. 비동기 worker는 HTTP 400·422를 동일하게 재시도하지 않고 제출을 `GRADING_FAILED`로 종결하며 `submissionId`, `examId`, 오류 code만 ERROR 로그에 남깁니다.
-- 채점 worker는 5분 lease를 사용하고 scheduler는 30초마다 최대 100건을 회수합니다. `SUBMITTED.updatedAt`은 마지막 채점 시도 시작 시각이며 최초 제출·lease claim·컷오프 재큐잉·강사 재채점에서 현재 시각으로 갱신합니다. 마지막 시도 시작 후 30분이 지나면 active lease보다 우선해 첫 두 번은 `gradingRetryCount`를 증가시키고 재큐잉하며, 세 번째 30분 컷오프에서는 `gradingRetryCount=3`, `GRADING_FAILED`로 종결합니다. 강사 재채점은 카운트를 0으로 초기화합니다.
+- 채점 worker는 5분 lease를 사용하고 scheduler는 30초마다 최대 100건을 회수합니다. `SUBMITTED.updatedAt`은 마지막 채점 시도 시작 시각이며 최초 제출·lease claim·컷오프 재큐잉·강사/학생 재채점에서 현재 시각으로 갱신합니다. 마지막 시도 시작 후 30분이 지나면 active lease보다 우선해 첫 두 번은 `gradingRetryCount`를 증가시키고 재큐잉하며, 세 번째 30분 컷오프에서는 `gradingRetryCount=3`, `GRADING_FAILED`로 종결합니다. 강사/학생 재채점은 카운트를 0으로 초기화합니다.
 - AI 응답 점수는 문항 범위·소수 자릿수·questionId·verdict를 Spring이 재검증합니다. 문항 유효 점수는 `manualScore ?? score`이며, 총점과 `ROUND(유효점수 합/maxScore*100,2)` 정규화 점수는 Spring의 공용 계산기로 산출합니다. 시험 결과는 quiz-assessment·diagnosis 파이프라인을 호출하지 않습니다.
 - 운영용 최신 제출과 학생 결과 조회는 상태와 무관한 `MAX(attemptNo)`를 사용합니다. 성적·리포트 대표값은 `MAX(attemptNo WHERE status=GRADED)`이며, `GRADED 80점 → GRADING_FAILED` 순서라면 이전 80점 제출이 대표 성적입니다.
 

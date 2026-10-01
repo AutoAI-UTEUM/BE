@@ -6,6 +6,7 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -16,6 +17,7 @@ import jakarta.persistence.LockModeType;
 
 public interface ExamSubmissionRepository extends JpaRepository<ExamSubmission, Long> {
 
+	@EntityGraph(attributePaths = "exam")
 	Optional<ExamSubmission> findByExam_IdAndUser_IdAndRequestId(
 		Long examId,
 		Long userId,
