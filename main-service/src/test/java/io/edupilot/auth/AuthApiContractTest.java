@@ -1058,6 +1058,7 @@ class AuthApiContractTest {
 	@Test
 	void withdrawalRequiresPasswordAndAnonymizesCurrentUser() throws Exception {
 		when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+		when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
 		when(refreshTokenRepository.revokeAllActiveByUserId(any(), any())).thenReturn(1);
 		String accessToken = jwtTokenProvider.createAccessToken(user);
 
@@ -1073,6 +1074,26 @@ class AuthApiContractTest {
 
 		org.assertj.core.api.Assertions.assertThat(user.getEmail()).isEqualTo("deleted_1");
 		org.assertj.core.api.Assertions.assertThat(user.isActive()).isFalse();
+	}
+
+	@Test
+	void googleWithdrawalAcceptsVerifiedSameSubjectAndRejectsAmbiguousCredentials() throws Exception {
+		User google = User.createGoogle("google-withdraw@example.com", "!google", "Synthetic",
+			UserRole.LEARNER, null, false, null, null, null, "withdraw-google-sub");
+		ReflectionTestUtils.setField(google, "id", 2L);
+		when(userRepository.findByIdForUpdate(2L)).thenReturn(Optional.of(google));
+		when(googleIdTokenVerifier.verify("withdraw-id-token")).thenReturn(
+			new GoogleProfile("withdraw-google-sub", "different-email@example.com", "Synthetic"));
+		String bearer = "Bearer " + jwtTokenProvider.createAccessToken(google);
+		for (String invalid : java.util.List.of("{}", "{\"password\":\"pw\",\"googleIdToken\":\"id\"}")) {
+			mockMvc.perform(delete("/api/users/me").header(HttpHeaders.AUTHORIZATION, bearer)
+				.contentType(MediaType.APPLICATION_JSON).content(invalid))
+				.andExpect(status().isBadRequest());
+		}
+		mockMvc.perform(delete("/api/users/me").header(HttpHeaders.AUTHORIZATION, bearer)
+			.contentType(MediaType.APPLICATION_JSON).content("{\"googleIdToken\":\"withdraw-id-token\"}"))
+			.andExpect(status().isOk());
+		org.assertj.core.api.Assertions.assertThat(google.isActive()).isFalse();
 	}
 
 	private String logText(ILoggingEvent event) {

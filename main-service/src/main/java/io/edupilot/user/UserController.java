@@ -38,9 +38,11 @@ import jakarta.validation.Valid;
 public class UserController {
 
 	private final UserService userService;
+	private final UserWithdrawalService withdrawalService;
 
-	public UserController(UserService userService) {
+	public UserController(UserService userService, UserWithdrawalService withdrawalService) {
 		this.userService = userService;
+		this.withdrawalService = withdrawalService;
 	}
 
 	@GetMapping("/me")
@@ -145,7 +147,7 @@ public class UserController {
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@Valid @RequestBody WithdrawRequest request
 	) {
-		userService.withdraw(authenticatedUser.userId(), request.password());
+		withdrawalService.withdraw(authenticatedUser.userId(), request);
 		return ApiResponse.success(null);
 	}
 }

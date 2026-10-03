@@ -71,7 +71,7 @@
 | 전역 | access 만료 5분 전 최근 실제 활동이 있거나 일반 요청의 최초 401 시 | `POST /api/auth/refresh` (credentials 포함) | 탭 전체 single-flight로 같은 세션의 access/refresh를 1회 회전하고 원 요청은 최대 1회 재시도. `absoluteExpiresAt`은 유지 | `TOKEN_INVALID`, `AUTH_SESSION_IDLE_EXPIRED`, `AUTH_SESSION_ABSOLUTE_EXPIRED`, `USER_INACTIVE`, `ACCOUNT_SUSPENDED` → 전체 탭 로그인 이동; 5xx·통신 오류는 강제 로그아웃 금지 |
 | 헤더/메뉴 | 로그아웃 버튼 | `POST /api/auth/logout` | 현재 기기 인증 세션만 폐기하고 메모리 access 삭제 후 로그인 화면 | 없음(멱등) |
 | 계정 설정 | 현재·새 비밀번호 입력 후 변경 | `PATCH /api/users/me/password` | 성공 시 `reauthenticationRequired=true`를 확인하고 access 삭제 후 로그인 화면 이동 | GOOGLE 계정·동일 비밀번호 409, 현재 비밀번호 불일치·정책 위반 400, 5회 실패 후 429 |
-| 계정 설정 | 탈퇴 버튼 → 비밀번호 확인 모달 | `DELETE /api/users/me` | 토큰 정리 후 로그인 화면 이동 | 비밀번호 불일치 (DEC-028) |
+| 계정 설정 | 탈퇴 확인 → LOCAL 비밀번호 / Google ID 토큰 재인증 | `DELETE /api/users/me` | password·googleIdToken 중 해당 provider 증명 하나만 제출, 성공 후 토큰 정리·로그인 이동 | 누락/중복 증명, provider·sub 불일치, Google 만료/검증 실패 (DEC-028); 파일 보존·강사 강의실 정책은 #477 별도 |
 | 자료 목록 | 화면 진입/페이지 이동 | `GET /api/materials` | 자료 카드 목록. FAILED는 `failureReason`별 안내, null이면 일반 실패 문구, `traceId`가 있으면 문의 정보로 표시 | 권한, 네트워크 |
 | 자료 업로드 | 파일 제출 | `POST /api/materials` | 처리 상태 표시 후 목록 반영 | 파일 형식/크기/처리 실패 |
 | 자료 상세 | 화면 진입 | `GET /api/materials/{materialId}` | 제목, 페이지 수, 학습 시작 가능 여부. FAILED는 사유 코드와 업로드 traceId 표시 | 자료 없음/권한 |

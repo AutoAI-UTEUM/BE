@@ -76,7 +76,7 @@
 | GET | `/api/users/me/notifications` | 내 인앱 알림 목록 조회 | Y | 본인 |
 | PATCH | `/api/users/me/notifications/{notificationId}/read` | 내 인앱 알림 읽음 처리 | Y | 본인 |
 | DELETE | `/api/users/me/notifications/{notificationId}` | 내 인앱 알림 삭제 | Y | 본인 |
-| DELETE | `/api/users/me` | 회원 탈퇴(논리 삭제+익명화 — DEC-028) | Y | 본인 (비밀번호 재확인) |
+| DELETE | `/api/users/me` | 회원 탈퇴(논리 삭제+익명화 — DEC-028) | Y | 본인 (LOCAL 비밀번호 / Google ID 토큰 재확인) |
 | POST | `/api/materials` | 개인 PDF 업로드 또는 강의실 주차 업로드 | Y | LEARNER, INSTRUCTOR, ADMIN; 강의실 part는 소유 INSTRUCTOR만 |
 | GET | `/api/materials` | 자료 목록 | Y | 본인 소유 자료 (DEC-026) |
 | GET | `/api/materials/{materialId}` | 자료 상세 | Y | 소유자 또는 승인 멤버의 강의실 연결 자료 |
@@ -486,7 +486,15 @@ Bearer 인증 후 저장된 이미지의 실제 Media-Type으로 private/no-stor
 }
 ```
 
-회원 탈퇴(DEC-028). 비밀번호 재확인 후 `status=DELETED` 전환과 동시에 개인 식별 정보를 익명화합니다(email → `deleted_{id}`, name → 고정 문구, password_hash 무효화 — 재가입 허용). 인증 세션과 refresh token은 전부 폐기합니다. 소유 자료·학습 세션은 함께 논리 삭제하고, 퀴즈 제출·평가·메모리 레코드는 익명 상태로 보존합니다. 복구는 지원하지 않으므로 FE는 확인 모달을 거쳐 호출합니다. 주요 오류: `INVALID_CREDENTIALS`.
+LOCAL 계정은 위의 `password`를, Google 계정은 아래의 `googleIdToken`을 제출합니다. 두 자격 증명을 함께 보내거나 모두 누락하면 400 `VALIDATION_FAILED`입니다. 서버는 Google 토큰의 audience·issuer·이메일 검증·만료를 확인한 뒤 현재 계정의 `googleSub`와 검증 결과의 `sub`를 비교합니다. 이메일 문자열 일치만으로 탈퇴할 수 없습니다. 검증 중에는 삭제 DB 트랜잭션을 열지 않으며 Google 오류/만료는 `TOKEN_INVALID`, 계정 provider·sub 불일치/LOCAL 비밀번호 불일치는 `INVALID_CREDENTIALS`입니다.
+
+```json
+{"googleIdToken":"<Google가 발급한 ID 토큰>"}
+```
+
+회원 탈퇴(DEC-028). 재확인 후 사용자 행을 잠가 `status=DELETED` 전환과 동시에 개인 식별 정보를 익명화합니다(email → `deleted_{id}`, name → 고정 문구, password_hash 무효화 — 재가입 허용). 인증 세션과 refresh token은 전부 폐기하고 현재 서버의 사용자 접근 캐시를 커밋 후 무효화합니다. 소유 자료·학습 세션은 함께 논리 삭제하고, 퀴즈 제출·평가·메모리 레코드는 익명 상태로 보존합니다. 커밋 후 기존 원본 이메일로 탈퇴 완료 메일을 요청하며 롤백 시 발송하지 않습니다. 메일은 계정 사용 종료만 안내하고 물리 파일 정리 완료를 의미하지 않습니다. 복구는 지원하지 않으므로 FE는 확인 모달을 거쳐 호출합니다.
+
+원본·렌더·외부 파일 정리 추적/재시도, 파일 보존기간, 소유 강의실이 있는 강사의 종료/이전 처리는 #477의 별도 범위이며 아직 완료되지 않았습니다. 보호자/연령 확인 정책은 #478의 별도 결정입니다. 이 API 구현만으로 이 정책들의 출시 검증이 완료되었다고 간주하지 않습니다.
 
 ## 4. 자료 API
 

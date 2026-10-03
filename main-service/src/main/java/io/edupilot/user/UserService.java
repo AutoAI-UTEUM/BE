@@ -14,6 +14,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import io.edupilot.auth.RefreshTokenService;
+import io.edupilot.auth.UserAccessGuard;
+import io.edupilot.mail.EmailService;
+import io.edupilot.mail.EmailTemplates;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.storage.FileStorage;
@@ -47,6 +50,9 @@ public class UserService {
 	private final List<UserWithdrawalHook> withdrawalHooks;
 	private final FileStorage fileStorage;
 	private final PasswordChangeAttemptLimiter passwordChangeAttemptLimiter;
+	private final EmailService emailService;
+	private final EmailTemplates emailTemplates;
+	private final UserAccessGuard userAccessGuard;
 
 	public UserService(
 		UserRepository userRepository,
@@ -54,7 +60,10 @@ public class UserService {
 		RefreshTokenService refreshTokenService,
 		List<UserWithdrawalHook> withdrawalHooks,
 		FileStorage fileStorage,
-		PasswordChangeAttemptLimiter passwordChangeAttemptLimiter
+		PasswordChangeAttemptLimiter passwordChangeAttemptLimiter,
+		EmailService emailService,
+		EmailTemplates emailTemplates,
+		UserAccessGuard userAccessGuard
 	) {
 		this.userRepository = userRepository;
 		this.passwordEncoder = passwordEncoder;
@@ -62,6 +71,9 @@ public class UserService {
 		this.withdrawalHooks = withdrawalHooks;
 		this.fileStorage = fileStorage;
 		this.passwordChangeAttemptLimiter = passwordChangeAttemptLimiter;
+		this.emailService = emailService;
+		this.emailTemplates = emailTemplates;
+		this.userAccessGuard = userAccessGuard;
 	}
 
 	@Transactional(readOnly = true)
@@ -195,10 +207,36 @@ public class UserService {
 
 	@Transactional
 	public void withdraw(Long userId, String password) {
-		User user = activeUser(userId);
-		if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+		User user = withdrawalUser(userId);
+		if (user.getAuthProvider() != AuthProvider.LOCAL
+			|| !passwordEncoder.matches(password, user.getPasswordHash())) {
 			throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
 		}
+		finishWithdrawal(user);
+	}
+
+	@Transactional
+	public void withdrawGoogle(Long userId, String verifiedGoogleSub) {
+		User user = withdrawalUser(userId);
+		if (user.getAuthProvider() != AuthProvider.GOOGLE || verifiedGoogleSub == null
+			|| !verifiedGoogleSub.equals(user.getGoogleSub())) {
+			throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
+		}
+		finishWithdrawal(user);
+	}
+
+	private User withdrawalUser(Long userId) {
+		User user = userRepository.findByIdForUpdate(userId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+		if (!user.isActive()) {
+			throw new BusinessException(ErrorCode.USER_INACTIVE);
+		}
+		return user;
+	}
+
+	private void finishWithdrawal(User user) {
+		Long userId = user.getId();
+		String recipient = user.getEmail();
 
 		String avatarKey = user.getAvatarKey();
 		user.withdraw();
@@ -208,6 +246,8 @@ public class UserService {
 		}
 		withdrawalHooks.forEach(hook -> hook.onWithdraw(userId));
 		refreshTokenService.revokeAll(userId);
+		userAccessGuard.invalidateAfterCommit(userId);
+		emailService.sendAsync(emailTemplates.withdrawal().to(recipient));
 	}
 
 	private User activeUser(Long userId) {
