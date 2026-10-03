@@ -123,6 +123,7 @@ erDiagram
 
 ### Classroom / ClassroomMember
 
+- 소유자 탈퇴 시 그 사용자가 소유한 `ACTIVE` 강의실은 사용자 논리 삭제와 같은 트랜잭션에서 `COMPLETED`로 종료합니다. 실제 소유 관계를 기준으로 처리하며, 기존 멤버·평가·소유자 이력을 삭제하거나 다른 강사에게 이전하지 않습니다. 생성과 탈퇴는 소유자 사용자 행 잠금으로 직렬화합니다.
 - 강의실은 한 명의 `INSTRUCTOR`가 소유하며 `ACTIVE | COMPLETED` 상태를 가집니다. `COMPLETED`는 명시적 전환이고 날짜 경과로 자동 전환하지 않습니다.
 - `weekCount`와 `currentWeek`은 저장하지 않고 날짜에서 계산합니다. `currentWeek`의 날짜 기준은 `Asia/Seoul`입니다.
 - 초대 코드는 대문자·숫자의 `XXXX-XXXX` 형식이며 재발급하면 기존 코드는 즉시 무효화됩니다.
