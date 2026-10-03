@@ -23,6 +23,7 @@ from edupilot_ai.api.turn import router as turn_router
 from edupilot_ai.core.errors import register_exception_handlers
 from edupilot_ai.core.logging import LoggingRuntime
 from edupilot_ai.core.middleware import InternalTokenMiddleware
+from edupilot_ai.extraction.service import PdfExtractor
 from edupilot_ai.llm.bridge import LlmBridge
 from edupilot_ai.llm.files import XaiFileClient, XaiFileClientProtocol
 from edupilot_ai.llm.xai import XaiLlmBridge
@@ -86,6 +87,7 @@ def create_app(
         app.state.settings = resolved_settings
         app.state.llm_bridge = bridge
         app.state.xai_file_client = file_client
+        app.state.pdf_extractor = PdfExtractor()
         try:
             yield
         finally:
@@ -94,6 +96,7 @@ def create_app(
             logging_runtime.close()
             del app.state.llm_bridge
             del app.state.xai_file_client
+            del app.state.pdf_extractor
             del app.state.settings
 
     app = FastAPI(

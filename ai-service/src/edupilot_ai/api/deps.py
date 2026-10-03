@@ -8,6 +8,7 @@ from edupilot_ai.captions.service import CaptionService
 from edupilot_ai.criteria.service import CriteriaSuggestService
 from edupilot_ai.docchat.service import DocChatService
 from edupilot_ai.examdraft.service import ExamDraftService
+from edupilot_ai.extraction.service import PdfExtractor
 from edupilot_ai.grading.service import GraderAgent, GradeService
 from edupilot_ai.llm.bridge import LlmBridge
 from edupilot_ai.llm.files import XaiFileClientProtocol
@@ -51,6 +52,11 @@ def get_xai_file_client(request: Request) -> XaiFileClientProtocol:
     """Return the app-scoped xAI Files client."""
 
     return cast(XaiFileClientProtocol, request.app.state.xai_file_client)
+
+
+def get_pdf_extractor(request: Request) -> PdfExtractor:
+    """Share bounded PDF worker admission across requests on this app."""
+    return cast(PdfExtractor, request.app.state.pdf_extractor)
 
 
 def get_caption_service(

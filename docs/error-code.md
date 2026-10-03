@@ -208,6 +208,11 @@ FastAPI 내부 API의 공통 요청·인증 오류와 xAI Files 삭제 오류는
 | `AI_INTERNAL_ERROR` | 500 | `INTERNAL` | 분류되지 않은 AI Service 내부 오류 |
 | `FILE_UPLOAD_FAILED` | 502 | `INTERNAL` | upload-only xAI Files 업로드 실패. timeout·429·5xx는 `retryable=true`, 영구 4xx·응답 스키마 실패는 `false` |
 | `FILE_DELETE_FAILED` | 502 | `INTERNAL` | xAI Files 삭제 실패(404 제외), `retryable=true` |
+| `EXTRACTION_FAILED` | 400 | `INTERNAL` | PDF parser 자원/출력 한도 또는 worker 실패. 부분 텍스트를 성공으로 반환하지 않음, `retryable=false` |
+| `AI_SERVICE_UNAVAILABLE` | 503 | `INTERNAL` | PDF parser 동시 처리·대기 용량 소진, `retryable=true` |
+| `AI_SERVICE_TIMEOUT` | 504 | `TIMEOUT` | PDF parser 대기·기동·실행 총예산 소진 후 worker 종료·회수, `retryable=true` |
+
+위 PDF 경계 오류도 기존 오류 봉투를 사용한다. 정상 문서의 `UNSUPPORTED_FORMAT`·`ENCRYPTED_PDF`·`NO_TEXT_CONTENT`·`PAGE_LIMIT_EXCEEDED`·`FILE_TOO_LARGE` 분류는 유지한다. Spring의 현재 자료 추출은 자동 재시도가 없으므로 `retryable=true`가 자료 재처리를 보장하지 않는다. 새 자동 재시도 정책은 이 AI 변경에 포함하지 않는다.
 
 `FILE_UPLOAD_FAILED`는 `/internal/ai/extract`에서는 비치명적인 `warnings[].type`이고 upload-only `/internal/ai/files`에서는 표준 오류 봉투 code입니다. 추출 경로의 xAI Files 업로드 실패·48MiB 초과는 warning으로 알리며 텍스트 추출 성공 응답은 HTTP 200을 유지합니다.
 

@@ -3,7 +3,7 @@
 from http import HTTPStatus
 from typing import Annotated
 
-from anyio import to_thread
+from anyio import CancelScope, to_thread
 from fastapi import APIRouter, Depends, File, Path, Response, UploadFile
 
 from edupilot_ai.api.deps import get_xai_file_client
@@ -54,9 +54,10 @@ async def upload_xai_file(
                 retryable=getattr(exception, "retryable", True),
             ) from exception
     finally:
-        await file.close()
         if temporary_path is not None:
             _delete_temporary(temporary_path)
+        with CancelScope(shield=True):
+            await file.close()
 
 
 @router.delete("/files/{fileId}", status_code=HTTPStatus.NO_CONTENT)

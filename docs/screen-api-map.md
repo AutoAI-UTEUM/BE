@@ -126,6 +126,8 @@ callback·reader 종료는 새 연결 시도의 ready 상태를 변경하지 않
 
 ## 2. 학습 화면 상태 동기화
 
+PDF 추출의 자원 제한·용량 소진·시간 초과는 AI 내부 실패로 종결되며 부분 문서를 READY로 노출하지 않는다. 화면은 기존 자료 상세의 PROCESSING/READY/FAILED를 재조회한다. AI 내부 `retryable=true`를 근거로 FE가 업로드를 자동 재전송하지 않는다. 현재 Spring의 추출 재시도는 별도 구현되지 않았으며 내부 경계는 `ai-integration-contract.md` §6.1을 따른다.
+
 > DEC-041: opt-in `quiz_question`은 **생성 중 공개 문항 미리보기**다.
 > Spring은 화이트리스트 DTO로 중계하며 `EDUPILOT_AI_QUIZ_QUESTION_STREAM_ENABLED`는
 > 기본 false다. FE 지원·AI 실모델 검증 후 활성화하며, 외부 화면 배포 완료로 간주하지 않는다.
