@@ -672,6 +672,21 @@ class HttpAiClientContractTest {
 	}
 
 	@Test
+	void deletionRetryTreatsMissingFileAsAlreadyDeleted() {
+		server.enqueue(new MockResponse().setResponseCode(404));
+		org.assertj.core.api.Assertions.assertThatCode(() -> client(Duration.ofSeconds(1)).deleteFile("synthetic-missing"))
+			.doesNotThrowAnyException();
+		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
+	@Test
+	void deletionRetryDoesNotTreatProviderFailureAsSuccess() {
+		server.enqueue(new MockResponse().setResponseCode(503));
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).deleteFile("synthetic-failure"))
+			.isInstanceOf(AiClientException.class);
+	}
+
+	@Test
 	void extractRejectsNonContiguousPageNumbers() {
 		server.enqueue(jsonResponse(200, """
 			{

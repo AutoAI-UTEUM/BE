@@ -200,3 +200,6 @@ turn 응답의 `state.activeQuizId`는 nullable입니다. 퀴즈 생성 턴에�
 Mail history (#473): keep existing admin endpoints and status fields. Show uncertain delivery
 (FAILED/DELIVERY_RESULT_UNKNOWN) as requiring investigation; do not show it as received or offer
 an automatic replay. Body/token data is never provided. [Recovery contract](mail-outbox.md).
+
+
+Withdrawal and material-delete completion must not be presented as physical-file purge completion. These APIs commit logical deletion plus a retention-gated cleanup intent; retention remains pending. See [deletion journal](deletion-journal.md).

@@ -372,3 +372,8 @@ Before sending, a migration-created singleton lock serializes durable quota rese
 workers: five units per recipient in the rolling hour and 500 global units per KST day.
 Every new retry claim consumes one unit; repeated reservation of the same claim is idempotent.
 Created-at ordering and delivery IDs never reset this budget; abandoned reservations remain counted.
+
+
+### Deletion intent lifecycle (#477)
+
+Logical deletion and per-asset tombstones commit together. Unknown retention remains POLICY_PENDING; approved kinds use READY/LEASED/DONE, bounded RETRY/FAILED and active external-reference holds. Account tombstones retain identity fingerprints without raw email. Restore epochs invalidate old worker generations without shortening retention. See [deletion journal](deletion-journal.md).

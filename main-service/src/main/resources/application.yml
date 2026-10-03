@@ -43,6 +43,14 @@ springdoc:
     path: /swagger-ui.html
 
 edupilot:
+  deletion:
+    enabled: ${EDUPILOT_DELETION_ENABLED:false}
+    # Retention days and policy version are intentionally unset until explicitly approved.
+    policy-version: ${EDUPILOT_DELETION_POLICY_VERSION:}
+    original-retention-days: ${EDUPILOT_DELETION_ORIGINAL_RETENTION_DAYS:}
+    render-retention-days: ${EDUPILOT_DELETION_RENDER_RETENTION_DAYS:}
+    external-retention-days: ${EDUPILOT_DELETION_EXTERNAL_RETENTION_DAYS:}
+    avatar-retention-days: ${EDUPILOT_DELETION_AVATAR_RETENTION_DAYS:}
   policy:
     signup-consent-required: ${EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED:false}
   mail:

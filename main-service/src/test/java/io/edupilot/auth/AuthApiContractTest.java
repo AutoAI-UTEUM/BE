@@ -635,6 +635,7 @@ class AuthApiContractTest {
 	@Test
 	void profileAndAvatarEndpointsUseExpandedAuthenticatedContract() throws Exception {
 		when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+		when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
 		when(fileStorage.storeAvatar(any(), org.mockito.ArgumentMatchers.eq("png")))
 			.thenReturn("avatars/avatar.png");
 		String accessToken = jwtTokenProvider.createAccessToken(user);

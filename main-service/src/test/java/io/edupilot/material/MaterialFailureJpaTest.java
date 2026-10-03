@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +44,12 @@ import jakarta.persistence.EntityManager;
 @ActiveProfiles("jpa-context")
 @Transactional
 class MaterialFailureJpaTest {
+	@Autowired private io.edupilot.deletion.DeletionJournalLockRepository deletionLocks;
+	@BeforeEach
+	void seedDeletionJournal() {
+		// create-drop omits V56's migration-created mutex; production still requires the migration.
+		if(!deletionLocks.existsById(1)) { deletionLocks.saveAndFlush(io.edupilot.deletion.DeletionJournalLock.initial()); }
+	}
 
 	@Autowired private UserRepository userRepository;
 	@Autowired private LearningMaterialRepository materialRepository;

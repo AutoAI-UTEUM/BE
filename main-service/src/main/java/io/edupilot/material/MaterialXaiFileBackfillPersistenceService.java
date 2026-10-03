@@ -8,6 +8,7 @@ import java.util.Optional;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import io.edupilot.deletion.DeletionJournal;
 
 @Service
 public class MaterialXaiFileBackfillPersistenceService {
@@ -15,15 +16,18 @@ public class MaterialXaiFileBackfillPersistenceService {
 	private final LearningMaterialRepository materialRepository;
 	private final MaterialXaiFileBackfillProperties properties;
 	private final Clock clock;
+	private final DeletionJournal deletionJournal;
 
 	public MaterialXaiFileBackfillPersistenceService(
 		LearningMaterialRepository materialRepository,
 		MaterialXaiFileBackfillProperties properties,
-		Clock clock
+		Clock clock,
+		DeletionJournal deletionJournal
 	) {
 		this.materialRepository = materialRepository;
 		this.properties = properties;
 		this.clock = clock;
+		this.deletionJournal = deletionJournal;
 	}
 
 	@Transactional(readOnly = true)
@@ -50,6 +54,8 @@ public class MaterialXaiFileBackfillPersistenceService {
 	@Transactional
 	public boolean attachIfStillEligible(Long materialId, String fileId) {
 		return materialRepository.findByIdForUpdate(materialId)
+			.filter(material -> !deletionJournal.materialIsTombstoned(material.getStorageKey()))
+			.filter(material -> !deletionJournal.rejectsExternalAttachment(fileId))
 			.map(material -> material.attachXaiFileIfMissing(fileId))
 			.orElse(false);
 	}

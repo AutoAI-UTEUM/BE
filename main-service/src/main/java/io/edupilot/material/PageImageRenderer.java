@@ -36,9 +36,11 @@ public class PageImageRenderer {
 	private static final String PDF_SUFFIX = ".pdf";
 
 	private final FileStorage fileStorage;
+	private final MaterialRenderStorage renderStorage;
 
-	public PageImageRenderer(FileStorage fileStorage) {
+	public PageImageRenderer(FileStorage fileStorage,MaterialRenderStorage renderStorage) {
 		this.fileStorage = fileStorage;
+		this.renderStorage = renderStorage;
 	}
 
 	public void render(
@@ -63,10 +65,7 @@ public class PageImageRenderer {
 				try {
 					byte[] jpeg = encodeJpeg(rendered);
 					String imageKey = imageKey(storageKey, pageNumber);
-					fileStorage.storePageImage(
-						new ByteArrayInputStream(jpeg),
-						imageKey
-					);
+					if (!renderStorage.store(storageKey,imageKey,new ByteArrayInputStream(jpeg))) { return; }
 					consumer.accept(new RenderedPage(pageNumber, imageKey, jpeg));
 				} finally {
 					rendered.flush();

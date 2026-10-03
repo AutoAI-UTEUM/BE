@@ -22,6 +22,7 @@ import io.edupilot.user.User;
 
 @ExtendWith(MockitoExtension.class)
 class MaterialXaiFileBackfillPersistenceServiceTest {
+	@Mock private io.edupilot.deletion.DeletionJournal deletionJournal;
 
 	private static final Instant NOW = Instant.parse("2026-08-25T12:00:00Z");
 
@@ -39,7 +40,7 @@ class MaterialXaiFileBackfillPersistenceServiceTest {
 				2,
 				Duration.ofHours(6)
 			),
-			Clock.fixed(NOW, ZoneOffset.UTC)
+			Clock.fixed(NOW, ZoneOffset.UTC), deletionJournal
 		);
 	}
 

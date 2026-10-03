@@ -35,6 +35,7 @@ import io.edupilot.user.dto.UpdatePreferencesRequest;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
+	@Mock private io.edupilot.deletion.DeletionJournal deletionJournal;
 
 	@Mock
 	private UserRepository userRepository;
@@ -69,7 +70,8 @@ class UserServiceTest {
 			passwordChangeAttemptLimiter,
 			emailService,
 			new EmailTemplates(new MailProperties(true, "logging", "test@example.com", "", "https://dev.uteum.com", "ap-northeast-2")),
-			userAccessGuard
+			userAccessGuard,
+			deletionJournal
 		);
 		user = User.create(
 			"user@example.com",
@@ -262,7 +264,7 @@ class UserServiceTest {
 		assertThat(user.getName()).isEqualTo("탈퇴 사용자");
 		assertThat(user.getAvatarKey()).isNull();
 		assertThat(user.getPasswordHash()).isEqualTo("!withdrawn:1");
-		verify(fileStorage).delete("avatars/avatar.png");
+		verify(deletionJournal).recordAvatar("avatars/avatar.png");
 		InOrder order = inOrder(userRepository, withdrawalHook, refreshTokenService);
 		order.verify(userRepository).findByIdForUpdate(1L);
 		order.verify(userRepository).flush();

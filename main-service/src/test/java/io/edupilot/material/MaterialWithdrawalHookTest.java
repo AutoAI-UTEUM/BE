@@ -1,40 +1,25 @@
 package io.edupilot.material;
 
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
-import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneOffset;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.*;
 import java.util.List;
-
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import io.edupilot.user.User;
+import io.edupilot.deletion.DeletionJournal;
 
-@ExtendWith(MockitoExtension.class)
 class MaterialWithdrawalHookTest {
-	private static final Instant NOW = Instant.parse("2026-08-02T10:00:00Z");
-
-	@Mock
-	private LearningMaterialRepository materialRepository;
-
-	@Mock
-	private MaterialXaiFileLifecycleService xaiFileLifecycleService;
-
 	@Test
-	void withdrawalLogicallyDeletesOwnersMaterials() {
-		when(materialRepository.findActiveXaiFilesByOwnerId(7L))
-			.thenReturn(List.of("file-a", "file-b"));
-		new MaterialWithdrawalHook(
-			materialRepository,
-			Clock.fixed(NOW, ZoneOffset.UTC),
-			xaiFileLifecycleService
-		).onWithdraw(7L);
-
-		verify(materialRepository).deleteAllActiveByOwnerId(7L, NOW);
-		verify(xaiFileLifecycleService).deleteAfterCommit("file-a");
-		verify(xaiFileLifecycleService).deleteAfterCommit("file-b");
+	void withdrawalRecordsEachOwnedMaterialBeforeFlushing() {
+		var repository=mock(LearningMaterialRepository.class);
+		var journal=mock(DeletionJournal.class);
+		var owner=User.create("synthetic@example.com","hash","Synthetic");
+		var first=LearningMaterial.create(owner,"First","materials/one.pdf");
+		var second=LearningMaterial.create(owner,"Second","materials/two.pdf");
+		when(repository.findOwnedActiveForUpdate(7L)).thenReturn(List.of(first,second));
+		new MaterialWithdrawalHook(repository,journal).onWithdraw(7L);
+		assertThat(first.isActive()).isFalse(); assertThat(second.isActive()).isFalse();
+		var order=inOrder(journal,repository);
+		order.verify(journal).recordMaterial(first); order.verify(journal).recordMaterial(second);
+		order.verify(repository).flush();
 	}
 }

@@ -298,3 +298,8 @@ Encryption configuration, recovery boundaries and rollback limitations: [mail ou
 `V55__email_ownership_verification.sql` adds `users.email_verification_state VARCHAR(20) NOT NULL DEFAULT 'UNKNOWN'` and nullable `email_verified_at DATETIME(6)`. State and evidence checks require VERIFIED with a timestamp, or UNKNOWN/PENDING with no timestamp. Existing users stay UNKNOWN; no email confirmation is inferred from login history or previous signup.
 
 The migration creates `email_verification_tokens` with SHA-256 token/current-email binding, single-use metadata, unique token hash and user/expiry indexes. It neither deletes existing users nor backfills approval. The release migration order is V53 (#474), V54 (#473), then V55. Email expiry cleanup deletes only expired token rows. [Email verification](email-verification.md) describes the deliberate access change for legacy users and the release checks still required.
+
+
+### Durable deletion journal (#477)
+
+V56 adds deletion_intents and a seeded deletion_journal_lock singleton. Unique SHA-256 identity, typed status/binding/lease checks and a polling index support idempotent recording and restart recovery. No cascading FK removes tombstones. V53, V54 and V55 must precede V56. Physical retention days and policy version stay unset; deletion is disabled by default. See [deletion journal](deletion-journal.md) for the restore boundary and unimplemented operational export storage.
