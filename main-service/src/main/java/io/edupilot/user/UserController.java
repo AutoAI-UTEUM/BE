@@ -142,7 +142,7 @@ public class UserController {
 	}
 
 	@DeleteMapping("/me")
-	@Operation(summary = "회원 탈퇴")
+	@Operation(summary = "회원 탈퇴", description = "재인증 성공 시 계정을 논리 삭제하고 소유한 ACTIVE 강의실을 같은 트랜잭션에서 COMPLETED로 종료합니다. 기존 학생·평가 이력과 소유 관계는 보존하며 물리 파일 삭제 완료를 의미하지 않습니다.")
 	public ApiResponse<Void> withdraw(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@Valid @RequestBody WithdrawRequest request
