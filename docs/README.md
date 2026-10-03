@@ -43,6 +43,7 @@
 - [백엔드 실행 계획](backend-plan.md)
 - [백엔드 컨벤션](backend-convention.md)
 - [배포·롤백 운영 가이드](deploy.md)
+- [강사 탈퇴와 소유 강의실 종료](withdrawal-classrooms.md)
 - [Definition of Done](definition-of-done.md)
 
 ### 협업과 AI

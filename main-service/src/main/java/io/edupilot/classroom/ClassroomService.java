@@ -100,7 +100,7 @@ public class ClassroomService {
 		String name = normalizedRequired(request.name(), 100);
 		String description = normalizedOptional(request.description(), 255);
 		validateDates(request.startDate(), request.endDate());
-		User instructor = activeUser(userId);
+		User instructor = activeInstructorForUpdate(userId);
 		Classroom classroom = classroomRepository.saveAndFlush(Classroom.create(
 			instructor,
 			name,
@@ -708,6 +708,15 @@ public class ClassroomService {
 		return userRepository.findById(userId)
 			.filter(User::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+	}
+
+	private User activeInstructorForUpdate(Long userId) {
+		// Serialize creation with withdrawal so no ACTIVE classroom can be inserted after its owner's withdrawal.
+		User instructor = userRepository.findByIdForUpdate(userId)
+			.filter(User::isActive)
+			.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+		requireInstructor(instructor.getRole());
+		return instructor;
 	}
 
 	private void assertActive(Classroom classroom) {

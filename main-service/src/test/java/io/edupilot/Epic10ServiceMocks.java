@@ -18,6 +18,7 @@ import io.edupilot.auth.UserAccessGuard;
 import io.edupilot.auth.EmailVerificationTokenRepository;
 import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.classroom.ClassroomService;
+import io.edupilot.classroom.ClassroomRepository;
 import io.edupilot.aiusage.AiQuotaService;
 import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.classroom.ClassroomAnalyticsService;
@@ -80,6 +81,7 @@ import io.edupilot.usernote.WrongAnswerNoteService;
 	AiUsageService.class,
 	AiQuotaService.class,
 	ClassroomService.class,
+	ClassroomRepository.class,
 	ClassroomAnalyticsService.class,
 	ClassroomStudentService.class,
 	ClassroomWeekService.class,

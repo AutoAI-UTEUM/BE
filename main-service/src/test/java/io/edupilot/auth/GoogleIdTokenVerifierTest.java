@@ -64,6 +64,14 @@ class GoogleIdTokenVerifierTest {
 	}
 
 	@Test
+	void successfulProviderResponseStillRequiresAnUnexpiredExpiryClaim() {
+		enqueueTokenInfo("client-id", "true", 1L);
+		assertTokenInvalid(() -> verifier("client-id").verify("expired-token"));
+		enqueueTokenInfo("client-id", "true", null);
+		assertTokenInvalid(() -> verifier("client-id").verify("missing-expiry"));
+	}
+
+	@Test
 	void missingClientConfigurationUsesValidationErrorWithoutHttpCall() {
 		GoogleIdTokenVerifier verifier = verifier("");
 
@@ -84,6 +92,10 @@ class GoogleIdTokenVerifierTest {
 	}
 
 	private void enqueueTokenInfo(String audience, String emailVerified) {
+		enqueueTokenInfo(audience, emailVerified, 4102444800L);
+	}
+
+	private void enqueueTokenInfo(String audience, String emailVerified, Long expiry) {
 		server.enqueue(new MockResponse()
 			.setHeader("Content-Type", "application/json")
 			.setBody("""
@@ -93,9 +105,10 @@ class GoogleIdTokenVerifierTest {
 				  "name": "구글 사용자",
 				  "aud": "%s",
 				  "iss": "https://accounts.google.com",
-				  "email_verified": "%s"
+				  "email_verified": "%s",
+				  "exp": %s
 				}
-				""".formatted(audience, emailVerified)));
+				""".formatted(audience, emailVerified, expiry)));
 	}
 
 	private void assertTokenInvalid(Runnable action) {
