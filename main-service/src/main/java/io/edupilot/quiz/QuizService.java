@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -99,24 +100,32 @@ public class QuizService {
 
 	@Transactional(readOnly = true)
 	public QuizListResponse list(Long userId, Long sessionId) {
+		return list(userId, sessionId, 0, QUIZ_LIST_LIMIT);
+	}
+
+	@Transactional(readOnly = true)
+	public QuizListResponse list(Long userId, Long sessionId, int page, int size) {
+		if (page < 0 || size < 1 || size > QUIZ_LIST_LIMIT) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+		}
 		sessionRepository.findByIdAndUser_Id(sessionId, userId)
 			.filter(session -> session.getStatus() != SessionStatus.DELETED)
 			.orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
 
-		List<Quiz> quizzes = quizRepository
+		Page<Quiz> result = quizRepository
 			.findBySession_IdOrderByCreatedAtDescIdDesc(
 				sessionId,
-				PageRequest.of(0, QUIZ_LIST_LIMIT)
+				PageRequest.of(page, size)
 			);
-		if (quizzes.isEmpty()) {
-			return new QuizListResponse(List.of());
-		}
+		List<Quiz> quizzes = result.getContent();
 
 		List<Long> quizIds = quizzes.stream().map(Quiz::getId).toList();
 		Map<Long, QuizSubmission> submissions = new HashMap<>();
-		for (QuizSubmission submission :
-			submissionRepository.findByQuiz_IdInAndUser_Id(quizIds, userId)) {
-			submissions.put(submission.getQuizId(), submission);
+		if (!quizIds.isEmpty()) {
+			for (QuizSubmission submission :
+				submissionRepository.findByQuiz_IdInAndUser_Id(quizIds, userId)) {
+				submissions.put(submission.getQuizId(), submission);
+			}
 		}
 
 		return new QuizListResponse(quizzes.stream()
@@ -124,7 +133,8 @@ public class QuizService {
 				quiz,
 				submissions.get(quiz.getId())
 			))
-			.toList());
+			.toList(), result.getNumber(), result.getSize(), result.getTotalElements(),
+			result.getTotalPages(), result.hasNext());
 	}
 
 	private Quiz ownedVisibleQuiz(Long userId, Long quizId) {

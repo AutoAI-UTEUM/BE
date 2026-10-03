@@ -88,6 +88,7 @@ class QuizSubmissionAccessJpaTest {
 	@Autowired private LearningMaterialRepository materials;
 	@Autowired private LearningSessionRepository sessions;
 	@Autowired private QuizRepository quizzes;
+	@Autowired private QuizService quizService;
 	@Autowired private QuizSubmissionRepository submissions;
 	@Autowired private QuizSubmissionService service;
 	@Autowired private QuizSubmissionPreparationService preparation;
@@ -108,6 +109,39 @@ class QuizSubmissionAccessJpaTest {
 	void configureStubs() {
 		when(clock.instant()).thenReturn(NOW);
 		when(postGrading.onGraded(any())).thenReturn(List.of(UiAction.moveNextPage()));
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = QuizType.class, names = {"OX"})
+	void paginationIncludesRecordsBeyondOneHundredWithStableTieOrdering(QuizType type) {
+		Fixture f = fixture(type, true);
+		inTransaction(() -> {
+			LearningSession session = sessions.findById(f.session()).orElseThrow();
+			for (int index = 0; index < 100; index++) {
+				quizzes.save(Quiz.create(session, 1, "Pagination " + index, 1, 1, type,
+					List.of(new PublicQuizQuestion("q1", "Synthetic", BigDecimal.TEN, null)),
+					List.of(new PrivateQuizQuestion("q1", null, true, "Private", null, null, null, null)), "1.0"));
+			}
+			quizzes.flush();
+			jdbc.update("update quizzes set created_at = ? where session_id = ?", NOW, f.session());
+		});
+		var first = quizService.list(f.learner(), f.session());
+		var second = quizService.list(f.learner(), f.session(), 1, 100);
+		var beyond = quizService.list(f.learner(), f.session(), 2, 100);
+		assertThat(first.quizzes()).hasSize(100);
+		assertThat(first.totalElements()).isEqualTo(101);
+		assertThat(first.totalPages()).isEqualTo(2);
+		assertThat(first.hasNext()).isTrue();
+		assertThat(second.quizzes()).hasSize(1);
+		assertThat(second.quizzes().getFirst().quizId()).isEqualTo(f.quiz());
+		assertThat(second.hasNext()).isFalse();
+		assertThat(beyond.quizzes()).isEmpty();
+		assertThat(beyond.totalElements()).isEqualTo(101);
+		assertThat(first.quizzes().stream().map(value -> value.quizId()).toList())
+			.isSortedAccordingTo(java.util.Comparator.reverseOrder());
+		assertThatThrownBy(() -> quizService.list(f.instructor(), f.session(), 1, 100))
+			.isInstanceOfSatisfying(BusinessException.class,
+				error -> assertThat(error.errorCode()).isEqualTo(ErrorCode.SESSION_NOT_FOUND));
 	}
 
 	@ParameterizedTest

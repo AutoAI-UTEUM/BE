@@ -21,6 +21,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.edupilot.ai.dto.QuizGeneration;
@@ -280,7 +282,7 @@ class QuizServiceTest {
 		when(quizRepository.findBySession_IdOrderByCreatedAtDescIdDesc(
 			eq(100L),
 			any(Pageable.class)
-		)).thenReturn(List.of());
+		)).thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 100), 0));
 
 		quizService.list(1L, 100L);
 

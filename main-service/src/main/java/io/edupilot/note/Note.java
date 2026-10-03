@@ -15,12 +15,17 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
 @Entity
-@Table(name = "notes")
+@Table(name = "notes", indexes = @Index(name = "idx_notes_user_source_id",
+	columnList = "user_id, source_message_id, id"), uniqueConstraints = @UniqueConstraint(
+	name = "uk_notes_user_dedup_source", columnNames = {"user_id", "dedup_source_message_id"}
+))
 public class Note {
 
 	@Id
@@ -45,6 +50,9 @@ public class Note {
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "source_message_id")
 	private ChatMessage sourceMessage;
+
+	@Column(name = "dedup_source_message_id")
+	private Long dedupSourceMessageId;
 
 	@Column(nullable = false, columnDefinition = "TEXT")
 	private String content;
@@ -73,6 +81,7 @@ public class Note {
 		this.session = session;
 		this.pageNumber = pageNumber;
 		this.sourceMessage = sourceMessage;
+		this.dedupSourceMessageId = sourceMessage == null ? null : sourceMessage.getId();
 		this.content = content;
 	}
 
