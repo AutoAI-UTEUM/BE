@@ -71,6 +71,7 @@ import tools.jackson.databind.json.JsonMapper;
 @ActiveProfiles("jpa-context")
 @ExtendWith(OutputCaptureExtension.class)
 class EmailVerificationApiIntegrationTest {
+	@Autowired private io.edupilot.deletion.DeletionJournalLockRepository deletionLocks;
 	@DynamicPropertySource static void optionalIsolatedMysql(DynamicPropertyRegistry settings) {
 		String url=System.getenv("VERIFICATION_MYSQL_URL");
 		if(url==null||url.isBlank()){return;}
@@ -103,6 +104,8 @@ class EmailVerificationApiIntegrationTest {
 	private MockMvc mvc;
 	private String ip;
 
+	@BeforeEach
+	void seedDeletionJournal() { if(!deletionLocks.existsById(1)) { deletionLocks.saveAndFlush(io.edupilot.deletion.DeletionJournalLock.initial()); } }
 	@BeforeEach void setup() {
 		if(System.getenv("VERIFICATION_MYSQL_URL")!=null){
 			assertThat(jdbc.queryForObject("select @@port",Integer.class)).isEqualTo(33316);

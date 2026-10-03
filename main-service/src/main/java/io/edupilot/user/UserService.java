@@ -27,6 +27,7 @@ import io.edupilot.user.dto.UpdateProfileRequest;
 import io.edupilot.user.dto.UpdatePreferencesRequest;
 import io.edupilot.user.dto.UserPreferencesResponse;
 import io.edupilot.user.dto.UserResponse;
+import io.edupilot.deletion.DeletionJournal;
 
 @Service
 public class UserService {
@@ -53,6 +54,7 @@ public class UserService {
 	private final EmailService emailService;
 	private final EmailTemplates emailTemplates;
 	private final UserAccessGuard userAccessGuard;
+	private final DeletionJournal deletionJournal;
 
 	public UserService(
 		UserRepository userRepository,
@@ -63,7 +65,8 @@ public class UserService {
 		PasswordChangeAttemptLimiter passwordChangeAttemptLimiter,
 		EmailService emailService,
 		EmailTemplates emailTemplates,
-		UserAccessGuard userAccessGuard
+		UserAccessGuard userAccessGuard,
+		DeletionJournal deletionJournal
 	) {
 		this.userRepository = userRepository;
 		this.passwordEncoder = passwordEncoder;
@@ -74,6 +77,7 @@ public class UserService {
 		this.emailService = emailService;
 		this.emailTemplates = emailTemplates;
 		this.userAccessGuard = userAccessGuard;
+		this.deletionJournal = deletionJournal;
 	}
 
 	@Transactional(readOnly = true)
@@ -160,7 +164,7 @@ public class UserService {
 		}
 
 		try {
-			User user = activeUser(userId);
+			User user = withdrawalUser(userId);
 			String oldKey = user.getAvatarKey();
 			user.replaceAvatar(newKey);
 			userRepository.flush();
@@ -195,7 +199,7 @@ public class UserService {
 
 	@Transactional
 	public void deleteAvatar(Long userId) {
-		User user = activeUser(userId);
+		User user = withdrawalUser(userId);
 		String avatarKey = user.getAvatarKey();
 		if (avatarKey == null) {
 			return;
@@ -237,14 +241,15 @@ public class UserService {
 	private void finishWithdrawal(User user) {
 		Long userId = user.getId();
 		String recipient = user.getEmail();
+		java.time.Instant accountCreatedAt = user.getCreatedAt();
 
 		String avatarKey = user.getAvatarKey();
 		user.withdraw();
 		userRepository.flush();
-		if (avatarKey != null) {
-			fileStorage.delete(avatarKey);
-		}
 		withdrawalHooks.forEach(hook -> hook.onWithdraw(userId));
+		// Acquire material locks before the journal mutex, matching render/attachment/cleanup workers.
+		deletionJournal.recordAccount(userId,accountCreatedAt,recipient);
+		if (avatarKey != null) { deletionJournal.recordAvatar(avatarKey); }
 		refreshTokenService.revokeAll(userId);
 		userAccessGuard.invalidateAfterCommit(userId);
 		emailService.sendAsync(emailTemplates.withdrawal().to(recipient));

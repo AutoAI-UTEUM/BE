@@ -3311,3 +3311,8 @@ FAILED/errorSummary=DELIVERY_RESULT_UNKNOWN means provider outcome is unknown an
 is blocked; SENT means provider acceptance, not recipient delivery. EXECUTOR_REJECTED_RETRY_PENDING
 and THROTTLED_RETRY_PENDING remain QUEUED until recovery or expiry. No payload is exposed by API.
 See [mail outbox](mail-outbox.md) for encryption, restart recovery, migration and operating limits.
+
+
+### Deletion completion boundary (#477)
+
+Existing withdrawal/material-delete response shapes are unchanged. Success means committed logical deletion with a durable cleanup intent, not completed physical PDF/render/provider deletion. Cleanup is POLICY_PENDING while retention is undecided. Restore import and failure retry are internal maintenance services, not public HTTP endpoints. [Deletion journal](deletion-journal.md).

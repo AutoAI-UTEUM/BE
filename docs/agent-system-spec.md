@@ -879,3 +879,8 @@ error
 - timeout, 재시도, rate limit, fallback 모델 정책
 - 평가 큐 크기와 메모리 승격 근거 기준
 - AI 결과 및 prompt/response의 로그·보관·마스킹 정책
+
+
+### File deletion retry (#477)
+
+Spring durably queues discarded/material-deleted provider file cleanup. DELETE /internal/ai/files/{fileId} keeps its request contract: the AI endpoint translates provider 404 into idempotent 204. An internal endpoint 404 is not proof of deletion and remains a tracked failure in Spring. No new paid AI request or timeout-budget change is introduced. Physical cleanup is disabled pending approved retention policy. Existing AI provider fileId logging requires separate coordination with #469. [Deletion journal](deletion-journal.md).

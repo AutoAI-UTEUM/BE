@@ -52,6 +52,7 @@ import io.edupilot.user.UserStatus;
 })
 @ActiveProfiles("jpa-context")
 class ClassroomWithdrawalJpaTest {
+	@Autowired private io.edupilot.deletion.DeletionJournalLockRepository deletionLocks;
 	@DynamicPropertySource
 	static void isolatedMysql(DynamicPropertyRegistry properties) {
 		String url = System.getenv("CLASSROOM_WITHDRAWAL_MYSQL_URL");
@@ -79,6 +80,8 @@ class ClassroomWithdrawalJpaTest {
 	@MockitoBean private EmailService mail;
 	@MockitoBean private ClassroomInviteCodeGenerator inviteCodes;
 
+	@BeforeEach
+	void seedDeletionJournal() { if(!deletionLocks.existsById(1)) { deletionLocks.saveAndFlush(io.edupilot.deletion.DeletionJournalLock.initial()); } }
 	@BeforeEach
 	void cleanSyntheticRows() {
 		if (System.getenv("CLASSROOM_WITHDRAWAL_MYSQL_URL") != null) {

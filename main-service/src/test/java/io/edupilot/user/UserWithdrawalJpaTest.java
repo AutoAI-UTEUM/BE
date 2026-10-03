@@ -57,6 +57,7 @@ import io.edupilot.session.SessionStatus;
 })
 @ActiveProfiles("jpa-context")
 class UserWithdrawalJpaTest {
+	@Autowired private io.edupilot.deletion.DeletionJournalLockRepository deletionLocks;
 	@Autowired private UserRepository users;
 	@Autowired private LearningMaterialRepository materials;
 	@Autowired private LearningSessionRepository sessions;
@@ -71,6 +72,8 @@ class UserWithdrawalJpaTest {
 	@MockitoBean private EmailSender sender;
 	private final CopyOnWriteArrayList<EmailMessage> sent = new CopyOnWriteArrayList<>();
 
+	@BeforeEach
+	void seedDeletionJournal() { if(!deletionLocks.existsById(1)) { deletionLocks.saveAndFlush(io.edupilot.deletion.DeletionJournalLock.initial()); } }
 	@BeforeEach
 	void captureSyntheticMail() {
 		// create-drop skips V54, which seeds the singleton used by the durable send quota.
