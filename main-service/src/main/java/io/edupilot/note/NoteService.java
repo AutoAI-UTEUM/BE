@@ -4,6 +4,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.global.error.BusinessException;
@@ -48,7 +49,8 @@ public class NoteService {
 		this.userRepository = userRepository;
 	}
 
-	@Transactional
+	// Limit this create boundary to current reads without locking an absent note's index gap.
+	@Transactional(isolation = Isolation.READ_COMMITTED)
 	public NoteResponse create(
 		Long userId,
 		Long sessionId,
