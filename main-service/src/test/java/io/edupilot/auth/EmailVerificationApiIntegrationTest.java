@@ -25,6 +25,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -47,6 +49,8 @@ import io.edupilot.ai.AiClient;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.mail.*;
 import io.edupilot.user.*;
+import io.edupilot.user.dto.UpdatePreferencesRequest;
+import io.edupilot.user.dto.UpdateProfileRequest;
 import tools.jackson.databind.json.JsonMapper;
 
 @SpringBootTest(properties = {
@@ -74,6 +78,7 @@ class EmailVerificationApiIntegrationTest {
 	@Autowired private WebApplicationContext context;
 	@Autowired private TraceIdFilter traces;
 	@Autowired private UserRepository users;
+	@Autowired private UserService userService;
 	@Autowired private EmailVerificationTokenRepository tokens;
 	@Autowired private EmailDeliveryRepository deliveries;
 	@Autowired private EmailOutboxRepository outbox;
@@ -269,6 +274,60 @@ class EmailVerificationApiIntegrationTest {
 			.andExpect(status().isOk()).andExpect(jsonPath("$.data.emailVerification").value("UNKNOWN"));
 		mvc.perform(get("/api/sessions").header("Authorization","Bearer "+access)).andExpect(status().isForbidden());
 	}
+
+	@ParameterizedTest
+	@EnumSource(PendingAccountWrite.class)
+	void unrelatedAccountUpdateCannotOverwriteAConcurrentConfirmation(PendingAccountWrite write) throws Exception {
+		User user = unknown("update-race-" + write.name().toLowerCase(java.util.Locale.ROOT) + "@example.com");
+		request(user).andExpect(status().isAccepted());
+		String raw = token(user.getEmail());
+		String access = bearer(user);
+		CountDownLatch pendingRead = new CountDownLatch(1);
+		CountDownLatch confirmationCommitted = new CountDownLatch(1);
+		try (var executor = Executors.newSingleThreadExecutor()) {
+			var updated = executor.submit(() -> {
+				new TransactionTemplate(transactions).executeWithoutResult(transaction -> {
+					// Keep T1's real managed PENDING entity while T2 confirms in its own transaction.
+					assertThat(userService.me(user.getId()).emailVerification()).isEqualTo(EmailVerificationState.PENDING);
+					pendingRead.countDown();
+					try {
+						assertThat(confirmationCommitted.await(15, TimeUnit.SECONDS)).isTrue();
+					} catch (InterruptedException interrupted) {
+						Thread.currentThread().interrupt();
+						throw new IllegalStateException(interrupted);
+					}
+					switch (write) {
+						case PROFILE -> userService.updateProfile(user.getId(), new UpdateProfileRequest("Changed", "Synthetic school"));
+						case PREFERENCES -> userService.updatePreferences(user.getId(), new UpdatePreferencesRequest(false, false, AiAnswerStyle.CONCISE));
+						case PASSWORD -> userService.changePassword(user.getId(), "StrongPass123!", "ChangedPass123!");
+					}
+				});
+				return null;
+			});
+			try {
+				assertThat(pendingRead.await(15, TimeUnit.SECONDS)).isTrue();
+				confirm(raw).andExpect(status().isOk());
+				assertThat(users.findById(user.getId()).orElseThrow().isEmailVerified()).isTrue();
+				confirmationCommitted.countDown();
+				updated.get(15, TimeUnit.SECONDS);
+			} finally {
+				confirmationCommitted.countDown();
+			}
+		}
+		User persisted = users.findById(user.getId()).orElseThrow();
+		assertThat(persisted.isEmailVerified()).isTrue();
+		assertThat(persisted.getEmailVerifiedAt()).isNotNull();
+		switch (write) {
+			case PROFILE -> assertThat(persisted.getName()).isEqualTo("Changed");
+			case PREFERENCES -> assertThat(persisted.getAiAnswerStyle()).isEqualTo(AiAnswerStyle.CONCISE);
+			case PASSWORD -> assertThat(passwords.matches("ChangedPass123!", persisted.getPasswordHash())).isTrue();
+		}
+		assertThat(tokens.findAll()).singleElement().satisfies(token -> assertThat(token.getUsedAt()).isNotNull());
+		confirm(raw).andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("EMAIL_VERIFICATION_TOKEN_INVALID"));
+		mvc.perform(get("/api/materials").header("Authorization", access)).andExpect(status().isOk());
+	}
+
+	private enum PendingAccountWrite { PROFILE, PREFERENCES, PASSWORD }
 
 	private User unknown(String email) { return users.saveAndFlush(User.create(email,passwords.encode("StrongPass123!"),"Synthetic",UserRole.LEARNER)); }
 	private String bearer(User user) { return "Bearer "+jwt.createAccessToken(user); }
