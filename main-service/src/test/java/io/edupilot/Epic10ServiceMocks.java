@@ -39,6 +39,8 @@ import io.edupilot.material.MaterialOverviewService;
 import io.edupilot.mail.EmailDeliveryRepository;
 import io.edupilot.mail.EmailOutboxRepository;
 import io.edupilot.mail.EmailOutboxStore;
+import io.edupilot.mail.EmailQuotaLockRepository;
+import io.edupilot.mail.EmailSendReservationRepository;
 import io.edupilot.notification.NotificationBulkRepository;
 import io.edupilot.notification.NotificationService;
 import io.edupilot.notification.NotificationTriggerService;
@@ -84,6 +86,8 @@ import io.edupilot.usernote.WrongAnswerNoteService;
 	EmailDeliveryRepository.class,
 	EmailOutboxRepository.class,
 	EmailOutboxStore.class,
+	EmailQuotaLockRepository.class,
+	EmailSendReservationRepository.class,
 	NotificationService.class,
 	NotificationTriggerService.class,
 	NotificationBulkRepository.class,

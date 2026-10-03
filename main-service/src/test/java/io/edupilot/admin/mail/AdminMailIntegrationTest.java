@@ -39,6 +39,8 @@ import io.edupilot.mail.EmailService;
 import io.edupilot.mail.EmailOutboxStore;
 import io.edupilot.mail.EmailOutboxWorker;
 import io.edupilot.mail.MailProperties;
+import io.edupilot.mail.EmailQuotaLock;
+import io.edupilot.mail.EmailQuotaLockRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
@@ -71,6 +73,7 @@ class AdminMailIntegrationTest {
 	@Autowired private UserRepository userRepository;
 	@Autowired private EmailDeliveryRepository deliveryRepository;
 	@Autowired private EmailDeliveryStore deliveryStore;
+	@Autowired private EmailQuotaLockRepository quotaLocks;
 	@Autowired private EmailService emailService;
 	@Autowired private EmailOutboxStore outboxStore;
 	@Autowired private java.time.Clock clock;
@@ -84,6 +87,9 @@ class AdminMailIntegrationTest {
 	@BeforeEach
 	void setUp() {
 		deliveryRepository.deleteAll();
+		if (!quotaLocks.existsById(1)) {
+			quotaLocks.saveAndFlush(EmailQuotaLock.initial());
+		}
 		userRepository.deleteAll();
 		admin = saveUser(UserRole.ADMIN);
 		learner = saveUser(UserRole.LEARNER);
@@ -154,14 +160,14 @@ class AdminMailIntegrationTest {
 	}
 
 	@Test
-	void databaseQuotaCountsQueuedRowsAndRejectsSixthRecipientDelivery() {
+	void databaseQuotaReservesAttemptsAndRejectsSixthRecipientDelivery() {
 		Long lastId = null;
 		for (int index = 0; index < 6; index++) {
 			lastId = deliveryStore.queue(new EmailMessage(
 				"limit@example.com", "test", "body", null, EmailDeliveryType.TEST
 			));
+			assertThat(deliveryStore.reserve(lastId, "synthetic-claim-" + index)).isEqualTo(index < 5);
 		}
-		assertThat(deliveryStore.reserve(lastId)).isFalse();
 		assertThat(deliveryRepository.findById(lastId).orElseThrow().getStatus())
 			.isEqualTo(EmailDeliveryStatus.RATE_LIMITED);
 	}

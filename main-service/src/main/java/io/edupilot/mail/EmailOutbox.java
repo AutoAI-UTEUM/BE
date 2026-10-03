@@ -19,7 +19,8 @@ import jakarta.persistence.Table;
 @Entity
 @Table(name = "email_outbox", indexes = {
 	@Index(name = "idx_email_outbox_due", columnList = "status, next_attempt_at, delivery_id"),
-	@Index(name = "idx_email_outbox_lease", columnList = "status, lease_until")
+	@Index(name = "idx_email_outbox_lease", columnList = "status, lease_until"),
+	@Index(name = "idx_email_outbox_expiry", columnList = "status, expires_at, delivery_id")
 })
 public class EmailOutbox {
 	@Id @Column(name = "delivery_id")

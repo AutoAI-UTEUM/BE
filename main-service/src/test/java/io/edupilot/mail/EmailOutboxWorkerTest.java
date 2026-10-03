@@ -30,7 +30,7 @@ class EmailOutboxWorkerTest {
 		"synthetic@example.com", "title", "https://dev.uteum.com/reset?token=private-body", null, EmailDeliveryType.PASSWORD_RESET));
 	@BeforeEach void setup() {
 		lenient().when(outbox.claim(42L)).thenReturn(claim);
-		lenient().when(history.reserve(42L)).thenReturn(true);
+		lenient().when(history.reserve(42L, "fence")).thenReturn(true);
 		lenient().when(outbox.beginSending(claim)).thenReturn(true);
 	}
 	@Test void successfulSendRecordsReceiptOnce() {
@@ -43,10 +43,10 @@ class EmailOutboxWorkerTest {
 		when(outbox.claim(42L)).thenReturn(null);
 		worker(Runnable::run).kick(42L);
 		when(outbox.claim(42L)).thenReturn(claim);
-		when(history.reserve(42L)).thenReturn(false);
+		when(history.reserve(42L, "fence")).thenReturn(false);
 		worker(Runnable::run).kick(42L);
 		verify(outbox).rateLimited(claim);
-		when(history.reserve(42L)).thenReturn(true);
+		when(history.reserve(42L, "fence")).thenReturn(true);
 		when(outbox.beginSending(claim)).thenReturn(false);
 		worker(Runnable::run).kick(42L);
 		verify(sender, never()).send(any());

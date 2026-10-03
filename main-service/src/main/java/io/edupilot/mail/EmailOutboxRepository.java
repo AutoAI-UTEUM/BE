@@ -18,11 +18,19 @@ public interface EmailOutboxRepository extends JpaRepository<EmailOutbox, Long> 
 
 	@Query("""
 		select job.id from EmailOutbox job where
-		(job.status in (io.edupilot.mail.EmailOutboxStatus.READY, io.edupilot.mail.EmailOutboxStatus.RETRY)
-		 and (job.nextAttemptAt <= :now or job.expiresAt <= :now))
+		(job.status in (io.edupilot.mail.EmailOutboxStatus.READY, io.edupilot.mail.EmailOutboxStatus.RETRY,
+		 io.edupilot.mail.EmailOutboxStatus.CLAIMED) and job.expiresAt <= :now)
 		or (job.status in (io.edupilot.mail.EmailOutboxStatus.CLAIMED, io.edupilot.mail.EmailOutboxStatus.SENDING)
 		 and job.leaseUntil <= :now)
+		order by job.expiresAt, job.id
+		""")
+	List<Long> findCleanupIds(@Param("now") Instant now, Pageable pageable);
+
+	@Query("""
+		select job.id from EmailOutbox job where
+		job.status in (io.edupilot.mail.EmailOutboxStatus.READY, io.edupilot.mail.EmailOutboxStatus.RETRY)
+		and job.nextAttemptAt <= :now and job.expiresAt > :now
 		order by job.nextAttemptAt, job.id
 		""")
-	List<Long> findRecoverableIds(@Param("now") Instant now, Pageable pageable);
+	List<Long> findDispatchableIds(@Param("now") Instant now, Pageable pageable);
 }
