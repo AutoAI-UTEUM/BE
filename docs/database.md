@@ -277,3 +277,17 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 
 - 보존 레코드·storage 파일의 물리 삭제·아카이빙 배치 정책 (DEC-028·DEC-011의 "이후 개선안" — 운영 전환 전 확정)
 - LearnerMemory 항목별 변경 이력 테이블 (DEC-012 이후 개선안 — 필요 시)
+
+### Durable mail outbox (#473)
+
+`V54__durable_email_outbox.sql` adds `email_outbox(delivery_id PK/FK ON DELETE CASCADE,
+encrypted_payload LONGBLOB nullable, status, lease_token, lease_until, next_attempt_at,
+expires_at, created_at, attempt_count, last_error_code)`, due/lease/expiry indexes and status/attempt checks.
+`email_quota_lock(id=1)` serializes dispatch quota reservations. `email_send_reservations`
+stores `(delivery_id FK ON DELETE CASCADE, claim_token, reserved_at, units>0)` with a unique
+delivery/claim pair and time indexes. New claims reserve one unit before calling the provider;
+legacy attempted rows bootstrap their known attempt count at sent_at, or conservatively at migration time.
+Quota queries use reservation time across every delivery ID. Missing singleton state fails closed.
+Metadata stays in `email_deliveries`; terminal payloads are cleared. Legacy QUEUED rows without
+payload become FAILED/LEGACY_PAYLOAD_UNAVAILABLE. V53 must precede this migration in the release.
+Encryption configuration, recovery boundaries and rollback limitations: [mail outbox](mail-outbox.md).

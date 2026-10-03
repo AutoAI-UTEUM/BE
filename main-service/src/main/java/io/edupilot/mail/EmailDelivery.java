@@ -71,6 +71,12 @@ public class EmailDelivery {
 		attemptCount++;
 	}
 
+	public void queuedReason(String code) {
+		if (status == EmailDeliveryStatus.QUEUED) {
+			errorSummary = code;
+		}
+	}
+
 	public void sent(String messageId, Instant now) {
 		status = EmailDeliveryStatus.SENT;
 		providerMessageId = messageId;

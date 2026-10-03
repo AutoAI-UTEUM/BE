@@ -12,6 +12,7 @@ import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.retries.StandardRetryStrategy;
 import software.amazon.awssdk.services.sesv2.SesV2Client;
 
 @Configuration(proxyBeanMethods = false)
@@ -37,6 +38,7 @@ public class MailConfig {
 			.credentialsProvider(DefaultCredentialsProvider.create())
 			.httpClientBuilder(UrlConnectionHttpClient.builder())
 			.overrideConfiguration(ClientOverrideConfiguration.builder()
+				.retryStrategy(StandardRetryStrategy.builder().maxAttempts(1).build())
 				.apiCallTimeout(Duration.ofSeconds(10))
 				.build())
 			.build();

@@ -1,6 +1,7 @@
 package io.edupilot.mail;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -18,6 +19,7 @@ import org.springframework.mock.env.MockEnvironment;
 import software.amazon.awssdk.services.sesv2.SesV2Client;
 import software.amazon.awssdk.services.sesv2.model.SendEmailRequest;
 import software.amazon.awssdk.services.sesv2.model.SendEmailResponse;
+import software.amazon.awssdk.services.sesv2.model.SesV2Exception;
 
 @ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
 class EmailSenderTest {
@@ -44,12 +46,18 @@ class EmailSenderTest {
 	}
 
 	@Test
-	void loggingProviderShowsBodyOnlyOutsideProd(CapturedOutput output) {
-		LoggingEmailSender sender = new LoggingEmailSender(
-			new MockEnvironment().withProperty("spring.profiles.active", "dev")
-		);
-		assertThat(sender.send(message()).providerMessageId()).startsWith("logging-");
-		assertThat(output).contains("Test subject", "secret body");
+	void loggingProviderSuppressesContentAndTokenLinksInEveryNonprodProfile(CapturedOutput output) {
+		for (String profile : java.util.List.of("local", "dev", "test")) {
+			MockEnvironment environment = new MockEnvironment();
+			environment.setActiveProfiles(profile);
+			LoggingEmailSender sender = new LoggingEmailSender(environment);
+			assertThat(sender.send(new EmailMessage("person@example.com", "subject secret-token",
+				"https://dev.uteum.com/reset?token=secret-token",
+				"<a href='https://dev.uteum.com/reset?token=html-secret'>Reset</a>",
+				EmailDeliveryType.PASSWORD_RESET)).providerMessageId()).startsWith("logging-");
+		}
+		assertThat(output).contains("Mail delivery simulated; content suppressed")
+			.doesNotContain("person@example.com", "secret-token", "html-secret", "textBody", "htmlBody");
 	}
 
 	@Test
@@ -76,6 +84,20 @@ class EmailSenderTest {
 		});
 		assertThat(output).contains("Logging mail provider selected in prod")
 			.doesNotContain("secret body");
+	}
+
+	@Test
+	void onlyDefiniteThrottleRejectionsAreMarkedRetryable() {
+		SesEmailSender sender = new SesEmailSender(client, new MailProperties(
+			true, "ses", "no-reply@uteum.com", "", "https://dev.uteum.com", "ap-northeast-2"));
+		when(client.sendEmail(any(SendEmailRequest.class))).thenThrow(SesV2Exception.builder().statusCode(429).build());
+		assertThatThrownBy(() -> sender.send(message())).isInstanceOfSatisfying(EmailSendRejection.class,
+			error -> assertThat(error.retryable()).isTrue());
+		when(client.sendEmail(any(SendEmailRequest.class))).thenThrow(SesV2Exception.builder().statusCode(400).build());
+		assertThatThrownBy(() -> sender.send(message())).isInstanceOfSatisfying(EmailSendRejection.class,
+			error -> assertThat(error.retryable()).isFalse());
+		when(client.sendEmail(any(SendEmailRequest.class))).thenThrow(SesV2Exception.builder().statusCode(500).build());
+		assertThatThrownBy(() -> sender.send(message())).isInstanceOf(SesV2Exception.class);
 	}
 
 	private ApplicationContextRunner productionLoggingContext() {

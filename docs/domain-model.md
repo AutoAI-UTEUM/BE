@@ -349,3 +349,15 @@ MVP는 세션 단일 `pageStatus`를 유지하고 페이지 이동 시 초기화
 16. 시험 응시 시작은 시험·사용자별 미소비 기록 하나로 멱등 처리하고, 성공한 제출만 같은 트랜잭션에서 이를 소비합니다.
 17. 시험 임시 답안은 시험·사용자당 한 행과 버전 조건부 갱신으로 보호하고, 미소비 응시 시작 기록이 있는 `allowRetake=true` 재응시에는 새 임시저장을 허용합니다.
 
+
+### Durable mail delivery (#473)
+
+READY -> CLAIMED -> SENDING -> SENT uses a DB lock and fencing token; provider calls hold no DB
+transaction. Expired pre-send claims recover; uncertain sends become UNKNOWN and cannot auto-resend.
+Definite SES 429 rejection permits bounded RETRY. Caller rollback removes sendable payload while
+keeping metadata audit. Terminal/expired payloads are cleared. See [mail outbox](mail-outbox.md).
+Expiry/lease cleanup is independent of READY dispatch, including while mail is disabled.
+Before sending, a migration-created singleton lock serializes durable quota reservations across
+workers: five units per recipient in the rolling hour and 500 global units per KST day.
+Every new retry claim consumes one unit; repeated reservation of the same claim is idempotent.
+Created-at ordering and delivery IDs never reset this budget; abandoned reservations remain counted.

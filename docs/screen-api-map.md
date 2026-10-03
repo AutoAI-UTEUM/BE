@@ -191,3 +191,7 @@ turn 응답의 `state.activeQuizId`는 nullable입니다. 퀴즈 생성 턴에�
 - 오류별 사용자 문구와 재시도 버튼 정책
 - 타 사용자 아바타가 필요한 Epic 10 강의실 범위에서 공개 또는 사용자 ID 기반 아바타 endpoint 검토
 - 강의실 색상은 `BLUE | GREEN | PURPLE | ORANGE | RED | GRAY`와 DEC-030의 고정 hex 매핑을 사용
+
+Mail history (#473): keep existing admin endpoints and status fields. Show uncertain delivery
+(FAILED/DELIVERY_RESULT_UNKNOWN) as requiring investigation; do not show it as received or offer
+an automatic replay. Body/token data is never provided. [Recovery contract](mail-outbox.md).

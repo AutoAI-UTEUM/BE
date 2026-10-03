@@ -1,6 +1,8 @@
 package io.edupilot.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -10,6 +12,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -29,6 +33,7 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -44,6 +49,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.mail.EmailDeliveryRepository;
 import io.edupilot.mail.EmailDeliveryStatus;
+import io.edupilot.mail.EmailSender;
+import io.edupilot.mail.EmailMessage;
+import io.edupilot.mail.EmailDeliveryResult;
+import io.edupilot.mail.EmailQuotaLock;
+import io.edupilot.mail.EmailQuotaLockRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
@@ -82,18 +92,29 @@ class PasswordResetApiIntegrationTest {
 	@Autowired private UserRepository users;
 	@Autowired private PasswordResetTokenRepository tokens;
 	@Autowired private EmailDeliveryRepository deliveries;
+	@Autowired private EmailQuotaLockRepository quotaLocks;
 	@Autowired private RefreshTokenRepository refreshTokens;
 	@Autowired private AuthSessionRepository sessions;
 	@Autowired private PasswordResetCleanupScheduler cleanupScheduler;
 	@Autowired private PasswordEncoder passwordEncoder;
+	@MockitoBean private EmailSender emailSender;
+	private final List<EmailMessage> sentMessages = new CopyOnWriteArrayList<>();
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	private MockMvc mockMvc;
 
 	@BeforeEach
 	void setUp() {
+		sentMessages.clear();
+		when(emailSender.send(any())).thenAnswer(invocation -> {
+			sentMessages.add(invocation.getArgument(0));
+			return new EmailDeliveryResult("synthetic-reset-message");
+		});
 		tokens.deleteAll();
 		deliveries.deleteAll();
+		if (!quotaLocks.existsById(1)) {
+			quotaLocks.saveAndFlush(EmailQuotaLock.initial());
+		}
 		refreshTokens.deleteAll();
 		sessions.deleteAll();
 		users.deleteAll();
@@ -138,7 +159,7 @@ class PasswordResetApiIntegrationTest {
 	}
 
 	@Test
-	void loggedLinkResetsPasswordAndRevokesRefreshAndAuthSession(CapturedOutput output)
+	void capturedMailLinkResetsPasswordAndRevokesRefreshAndAuthSession(CapturedOutput output)
 		throws Exception {
 		User user = saveUser("normal-reset@example.com");
 		Cookie oldRefresh = mockMvc.perform(post("/api/auth/login")
@@ -306,7 +327,7 @@ class PasswordResetApiIntegrationTest {
 	}
 
 	@Test
-	void auditLogsExcludePlainEmailAndTokenButDevMailShowsLink(CapturedOutput output)
+	void auditLogsExcludePlainEmailAndTokenWhileMockMailReceivesLink(CapturedOutput output)
 		throws Exception {
 		Logger logger = (Logger) org.slf4j.LoggerFactory.getLogger(PasswordResetService.class);
 		ListAppender<ILoggingEvent> audit = new ListAppender<>();
@@ -316,7 +337,7 @@ class PasswordResetApiIntegrationTest {
 			User user = saveUser("private-reset@example.com");
 			request(user.getEmail(), "192.0.2.11");
 			String rawToken = awaitToken(output, 1);
-			assertThat(output).contains(rawToken); // LoggingEmailSender is dev-only by design.
+			assertThat(output).doesNotContain(rawToken, "reset-password?token=");
 			String serviceLogs = audit.list.stream()
 				.map(event -> event.getFormattedMessage() + event.getKeyValuePairs())
 				.reduce("", String::concat);
@@ -412,7 +433,8 @@ class PasswordResetApiIntegrationTest {
 	private String awaitToken(CapturedOutput output, int expectedCount) throws Exception {
 		long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
 		while (System.nanoTime() < deadline) {
-			Matcher matcher = LINK_TOKEN.matcher(output.getAll());
+			Matcher matcher = LINK_TOKEN.matcher(sentMessages.stream()
+				.map(EmailMessage::textBody).reduce("", String::concat));
 			Set<String> uniqueTokens = new LinkedHashSet<>();
 			while (matcher.find()) {
 				uniqueTokens.add(matcher.group(1));
@@ -422,7 +444,7 @@ class PasswordResetApiIntegrationTest {
 			}
 			Thread.sleep(20);
 		}
-		throw new AssertionError("LoggingEmailSender did not emit the expected reset link");
+		throw new AssertionError("Mock EmailSender did not receive the expected reset link");
 	}
 
 	private String loginJson(String email, String password) {

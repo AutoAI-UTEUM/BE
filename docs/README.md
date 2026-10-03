@@ -66,3 +66,6 @@
 - 도메인 규칙이나 상태가 바뀌면 `domain-model.md`, `database.md`, 관련 테스트를 함께 갱신합니다.
 - FastAPI 계약이 바뀌면 `ai-integration-contract.md`, `agent-system-spec.md`와 Spring 내부 API 계약을 함께 갱신합니다.
 - 확정되지 않은 항목에는 날짜와 소유자를 포함한 TBD를 남깁니다.
+
+
+- [Durable mail outbox and restart recovery](mail-outbox.md)
