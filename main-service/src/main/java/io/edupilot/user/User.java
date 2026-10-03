@@ -213,6 +213,10 @@ public class User {
 	/** Input capture only, restricted to creation. No age, timezone or guardian approval is inferred. */
 	public void recordSignupDateOfBirth(java.time.LocalDate date) {
 		if(id!=null || date==null) { throw new IllegalStateException("Birth date can only be captured during signup"); }
+		// SQL DATE storage capacity only; no current-date/timezone/age policy is selected here.
+		if(date.getYear()<1 || date.getYear()>9999) {
+			throw new io.edupilot.global.error.BusinessException(io.edupilot.global.error.ErrorCode.VALIDATION_FAILED);
+		}
 		this.dateOfBirth=date;
 	}
 	public void beginGuardianVerification() {

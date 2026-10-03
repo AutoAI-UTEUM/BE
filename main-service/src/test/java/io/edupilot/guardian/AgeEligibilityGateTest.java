@@ -12,7 +12,7 @@ class AgeEligibilityGateTest {
  @Test void everyRoleWithUnknownAgeIsDeniedEvenWithDobOrVerifiedEmail() {
   for(UserRole role:UserRole.values()){
    var user=User.create("synthetic@example.com","hash","Synthetic",role);user.recordSignupDateOfBirth(LocalDate.of(2000,1,1));
-   user.confirmEmailVerification(java.time.Instant.now());var users=mock(UserRepository.class);when(users.findById(1L)).thenReturn(Optional.of(user));
+   user.verifyEmail(java.time.Instant.now());var users=mock(UserRepository.class);when(users.findById(1L)).thenReturn(Optional.of(user));
    assertError(new AgeEligibilityGate(users),ErrorCode.AGE_VERIFICATION_REQUIRED);
   }
  }

@@ -303,3 +303,8 @@ The migration creates `email_verification_tokens` with SHA-256 token/current-ema
 ### Durable deletion journal (#477)
 
 V56 adds deletion_intents and a seeded deletion_journal_lock singleton. Unique SHA-256 identity, typed status/binding/lease checks and a polling index support idempotent recording and restart recovery. No cascading FK removes tombstones. V53, V54 and V55 must precede V56. Physical retention days and policy version stay unset; deletion is disabled by default. See [deletion journal](deletion-journal.md) for the restore boundary and unimplemented operational export storage.
+
+
+### Birthdate and guardian pending foundation (#478)
+
+V57 adds nullable users.date_of_birth and age_verification_state default UNKNOWN, restricted to UNKNOWN/MANUAL_PENDING. Existing rows are not approved/backfilled. guardian_verification_requests stores per-user PENDING/CANCELLED intake metadata with unique user binding and FK. No proof/contact or approval evidence is stored; retention and approval schema remain pending. V53 through V56 precede V57. [Foundation](birthdate-guardian-foundation.md).

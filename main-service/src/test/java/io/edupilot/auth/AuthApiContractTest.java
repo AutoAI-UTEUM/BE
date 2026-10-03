@@ -391,6 +391,7 @@ class AuthApiContractTest {
 				.content("""
 					{
 					  "email":"profile@example.com",
+					  "dateOfBirth":"2000-01-01",
 					  "password":"password123",
 					  "name":"학습자",
 					  "role":"LEARNER",
