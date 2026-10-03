@@ -95,7 +95,8 @@ class UserWithdrawalJpaTest {
 		assertThat(guard.check(principal)).isEqualTo(ErrorCode.TOKEN_INVALID);
 		assertThat(sent).hasSize(1);
 		assertThat(sent.getFirst().to()).isEqualTo(f.email());
-		assertThat(sent.getFirst().textBody()).contains("파일의 정리 상태는 별도로 관리");
+		assertThat(sent.getFirst().textBody()).contains("계정을 더 이상 이용할 수 없습니다")
+			.doesNotContain("파일 삭제 완료", "자료 삭제 완료");
 	}
 
 	@Test

@@ -31,8 +31,7 @@ public class EmailTemplates {
 
 	public Template withdrawal() {
 		return template("[UTEUM] 회원 탈퇴 완료",
-			"회원 탈퇴가 처리되어 계정을 더 이상 이용할 수 없습니다."
-				+ "\n자료 및 파일의 정리 상태는 별도로 관리됩니다." + FOOTER,
+			"회원 탈퇴가 처리되어 계정을 더 이상 이용할 수 없습니다." + FOOTER,
 			EmailDeliveryType.NOTIFICATION);
 	}
 
