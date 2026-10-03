@@ -85,18 +85,18 @@ class ExamGradingRecoveryJpaTest {
 		answerRepository.deleteAll();
 		submissionRepository.deleteAll();
 		String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
-		User instructor = userRepository.save(User.create(
+		User instructor = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"recovery-instructor-" + suffix + "@example.com",
 			"hash",
 			"Instructor",
 			UserRole.INSTRUCTOR
-		));
-		learner = userRepository.save(User.create(
+		)));
+		learner = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"recovery-learner-" + suffix + "@example.com",
 			"hash",
 			"Learner",
 			UserRole.LEARNER
-		));
+		)));
 		Classroom classroom = classroomRepository.save(Classroom.create(
 			instructor,
 			"Recovery classroom",

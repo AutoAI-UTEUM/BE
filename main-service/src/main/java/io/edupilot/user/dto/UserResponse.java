@@ -2,6 +2,8 @@ package io.edupilot.user.dto;
 
 import io.edupilot.user.User;
 import io.edupilot.user.UserRole;
+import io.edupilot.user.EmailVerificationState;
+import java.time.Instant;
 
 public record UserResponse(
 	Long id,
@@ -10,7 +12,10 @@ public record UserResponse(
 	UserRole role,
 	String affiliation,
 	String avatarUrl,
-	boolean learningEmailOptIn
+	boolean learningEmailOptIn,
+	EmailVerificationState emailVerification,
+	boolean emailVerificationRequired,
+	Instant emailVerifiedAt
 ) {
 	public static UserResponse from(User user) {
 		return new UserResponse(
@@ -20,7 +25,10 @@ public record UserResponse(
 			user.getRole(),
 			user.getAffiliation(),
 			user.getAvatarUrl(),
-			user.isLearningEmailOptIn()
+			user.isLearningEmailOptIn(),
+			user.getEmailVerificationState(),
+			!user.isEmailVerified(),
+			user.getEmailVerifiedAt()
 		);
 	}
 }

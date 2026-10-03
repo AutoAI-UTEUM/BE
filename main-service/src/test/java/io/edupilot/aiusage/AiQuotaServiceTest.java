@@ -104,7 +104,8 @@ class AiQuotaServiceTest {
 		return new AiQuotaService(
 			repository,
 			new AiQuotaProperties(enabled, 200, 500),
-			Clock.fixed(NOW, ZoneOffset.UTC)
+			Clock.fixed(NOW, ZoneOffset.UTC),
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class)
 		);
 	}
 }

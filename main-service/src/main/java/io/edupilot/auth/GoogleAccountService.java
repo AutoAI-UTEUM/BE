@@ -22,10 +22,12 @@ public class GoogleAccountService {
 
 	private final UserRepository userRepository;
 	private final PolicyService policyService;
+	private final EmailVerificationService emailVerification;
 
-	public GoogleAccountService(UserRepository userRepository, PolicyService policyService) {
+	public GoogleAccountService(UserRepository userRepository, PolicyService policyService, EmailVerificationService emailVerification) {
 		this.userRepository = userRepository;
 		this.policyService = policyService;
+		this.emailVerification = emailVerification;
 	}
 
 	@Transactional
@@ -67,6 +69,8 @@ public class GoogleAccountService {
 			throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);
 		}
 		policyService.recordSignup(saved, consent, ip, userAgent);
+		// A provider login is not used as an automatic email-ownership or guardian approval.
+		emailVerification.signup(saved, ip);
 		return saved;
 	}
 

@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.CaptionsRequest;
 import io.edupilot.ai.dto.CaptionsResponse;
@@ -30,6 +31,7 @@ public class MaterialCaptionGenerationService {
 	private static final int CHUNK_SIZE = 10;
 	private static final String SCHEMA_VERSION = "1.0";
 
+	private final EmailVerificationGate emailVerification;
 	private final MaterialCaptionPersistenceService persistenceService;
 	private final PageImageRenderer imageRenderer;
 	private final AiClient aiClient;
@@ -41,8 +43,10 @@ public class MaterialCaptionGenerationService {
 		PageImageRenderer imageRenderer,
 		AiClient aiClient,
 		AiUsageService aiUsageService,
-		Clock clock
+		Clock clock,
+		EmailVerificationGate emailVerification
 	) {
+		this.emailVerification = emailVerification;
 		this.persistenceService = persistenceService;
 		this.imageRenderer = imageRenderer;
 		this.aiClient = aiClient;
@@ -65,6 +69,7 @@ public class MaterialCaptionGenerationService {
 		List<CaptionsRequest.Page> chunk = new ArrayList<>(CHUNK_SIZE);
 		CaptionFailureReason permanentFailure = null;
 		try {
+			emailVerification.requireVerified(snapshot.ownerId());
 			imageRenderer.render(
 				snapshot.storageKey(),
 				pageNumbers,
@@ -117,6 +122,7 @@ public class MaterialCaptionGenerationService {
 	) {
 		List<CaptionsRequest.Page> requestPages = List.copyOf(pages);
 		try {
+			emailVerification.requireVerified(ownerId);
 			CaptionsResponse response = aiClient.captions(
 				new CaptionsRequest(SCHEMA_VERSION, requestPages)
 			);

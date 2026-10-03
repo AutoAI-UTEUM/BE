@@ -6,6 +6,7 @@ public enum ErrorCode {
 
 	VALIDATION_FAILED("VALIDATION_FAILED", HttpStatus.BAD_REQUEST, "요청 값을 확인해 주세요."),
 	MALFORMED_REQUEST("MALFORMED_REQUEST", HttpStatus.BAD_REQUEST, "요청 형식을 확인해 주세요."),
+	METHOD_NOT_ALLOWED("METHOD_NOT_ALLOWED", HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 요청 메서드입니다."),
 	UNSUPPORTED_MEDIA_TYPE(
 		"UNSUPPORTED_MEDIA_TYPE",
 		HttpStatus.UNSUPPORTED_MEDIA_TYPE,
@@ -89,6 +90,10 @@ public enum ErrorCode {
 		HttpStatus.CONFLICT,
 		"이미 사용 중인 이메일입니다."
 	),
+	EMAIL_VERIFICATION_REQUIRED("EMAIL_VERIFICATION_REQUIRED", HttpStatus.FORBIDDEN,
+		"이메일 소유 확인 후 이용해 주세요."),
+	EMAIL_VERIFICATION_TOKEN_INVALID("EMAIL_VERIFICATION_TOKEN_INVALID", HttpStatus.BAD_REQUEST,
+		"유효하지 않거나 만료된 이메일 확인 링크입니다."),
 	SIGNUP_REQUIRED(
 		"SIGNUP_REQUIRED",
 		HttpStatus.CONFLICT,

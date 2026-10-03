@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
@@ -25,6 +26,7 @@ import io.edupilot.global.error.ErrorCode;
 @Service
 public class QuizGradingService {
 
+	private final EmailVerificationGate emailVerification;
 	private final AiClient aiClient;
 	private final AiUsageService aiUsageService;
 	private final DeterministicAnswerGrader deterministicAnswerGrader;
@@ -32,14 +34,17 @@ public class QuizGradingService {
 	public QuizGradingService(
 		AiClient aiClient,
 		AiUsageService aiUsageService,
-		DeterministicAnswerGrader deterministicAnswerGrader
+		DeterministicAnswerGrader deterministicAnswerGrader,
+		EmailVerificationGate emailVerification
 	) {
+		this.emailVerification = emailVerification;
 		this.aiClient = aiClient;
 		this.aiUsageService = aiUsageService;
 		this.deterministicAnswerGrader = deterministicAnswerGrader;
 	}
 
 	public GradingResult grade(Long userId, PreparedQuizSubmission prepared) {
+		emailVerification.requireVerified(userId);
 		if (!prepared.quizType().usesAiGrading()) {
 			return gradeDeterministically(prepared);
 		}

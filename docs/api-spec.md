@@ -55,6 +55,9 @@
 | GET | `/api/auth/email-availability?email={email}` | 회원가입 이메일 중복 확인 | N | 전체 |
 | POST | `/api/auth/login` | 로그인 | N | 전체 |
 | POST | `/api/auth/google` | Google ID 토큰 로그인·가입 | N | 전체 |
+| POST | `/api/auth/email-verification/request` | 내 계정 이메일 확인 링크 재발급 | Y | 본인; 미확인 상태에서도 허용 |
+| GET | `/api/auth/email-verification/status` | 내 이메일 소유 확인 상태 | Y | 본인; 미확인 상태에서도 허용 |
+| POST | `/api/auth/email-verification/confirm` | 30분 유효·1회용 링크 확정 | N | 토큰에 연결된 현재 활성 계정만 확인 |
 | GET | `/api/policies/current` | 현재 유효한 정책 버전·요약 조회 | N | 전체 |
 | GET | `/api/policies/{type}/{version}` | 정책 버전 본문 조회 | N | 전체 |
 | GET | `/api/users/me/consents` | 내 동의 이력·현재 미동의 버전 조회 | Y | 본인 |
@@ -216,7 +219,9 @@
   "role": "LEARNER",
   "affiliation": "EduPilot University",
   "avatarUrl": null,
-  "learningEmailOptIn": true
+  "learningEmailOptIn": true,
+  "emailVerification": "PENDING",
+  "emailVerificationRequired": true
 }
 ```
 
@@ -227,6 +232,26 @@
 비밀번호 정책(확정): **8~64자, 영문·숫자 각 1자 이상 포함**(특수문자 허용). 위반 시 `VALIDATION_FAILED` + `details: [{ "field": "password", "reason": "..." }]`.
 
 주요 오류: `VALIDATION_FAILED`, `POLICY_CONSENT_REQUIRED`, `EMAIL_ALREADY_EXISTS`.
+
+LOCAL·Google 신규 계정은 `PENDING`으로 생성하고 가입 트랜잭션에 이메일 확인 작업을 저장합니다. Google ID 토큰의 검증된 이메일도 이 변경에서는 별도의 BE 확인 링크를 사용하며 자동 `VERIFIED` 처리하지 않습니다. 기존 계정은 근거 없이 `VERIFIED`로 백필하지 않고 `UNKNOWN`으로 유지합니다. 로그인 응답의 `user` 및 `/api/users/me`에는 `emailVerification`, `emailVerificationRequired`, nullable `emailVerifiedAt`을 추가합니다. 이메일 미확인 계정의 로그인·refresh·본인 계정 관리·정책 동의는 허용하지만 학습·자료·파일·SSE·노트·강의실 등 업무 API는 `EMAIL_VERIFICATION_REQUIRED`(403)으로 거부합니다. 이메일 확인은 연령·보호자 확인이나 외부 AI 동의를 대신하지 않습니다.
+
+### 이메일 소유 확인 API (#471)
+
+`POST /api/auth/email-verification/request`는 Bearer 인증이 필요하며 본인에게만 링크를 발급합니다. 202와 `Cache-Control: no-store`를 반환하고 원문 토큰·수신자 존재 여부를 응답에 싣지 않습니다. 재발급은 이전 미사용 링크를 무효화합니다. 이미 확인한 계정은 새 메일 없이 202를 반환합니다. 재요청 한도는 사용자당 3회/시간, IP당 10회/시간이며 초과 시 `RATE_LIMIT_EXCEEDED`(429)입니다.
+
+`GET /api/auth/email-verification/status`와 `POST /api/auth/email-verification/confirm`의 성공 `data` 예시:
+
+```json
+{
+  "emailVerification": "VERIFIED",
+  "emailVerificationRequired": false,
+  "emailVerifiedAt": "2026-10-03T09:00:00Z"
+}
+```
+
+확정 요청은 `{"token":"43-character-base64url-value"}` 형태입니다. 32바이트 난수의 Base64URL 원문이 실제 토큰이며 예시는 유효한 토큰이 아닙니다. 익명 확정은 JWT나 세션을 발급하지 않습니다. 만료·재사용·탈퇴·현재 이메일 불일치·유효하지 않은 링크는 같은 `EMAIL_VERIFICATION_TOKEN_INVALID`(400)로 처리하고, 형식 오류는 `VALIDATION_FAILED`(400)입니다. 확정 IP 한도는 10회/15분입니다. 동시 확정은 1회만 성공하며 GET 확정은 405 `METHOD_NOT_ALLOWED`이고 상태를 바꾸지 않습니다. 성공 응답은 `no-store`입니다.
+
+기존 계정 재확인·FE 링크 연동·배포 경계와 백그라운드 AI 검증은 [이메일 소유 확인](email-verification.md)을 따릅니다.
 
 ### GET `/api/auth/email-availability?email={email}`
 

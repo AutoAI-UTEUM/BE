@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.OutlineRequest;
 import io.edupilot.ai.dto.OutlineResponse;
@@ -24,6 +25,7 @@ public class MaterialOutlineGenerationService {
 	);
 	private static final String SCHEMA_VERSION = "1.0";
 
+	private final EmailVerificationGate emailVerification;
 	private final MaterialOutlinePersistenceService persistenceService;
 	private final MaterialOutlineMarkdownRenderer renderer;
 	private final AiClient aiClient;
@@ -35,8 +37,10 @@ public class MaterialOutlineGenerationService {
 		MaterialOutlineMarkdownRenderer renderer,
 		AiClient aiClient,
 		AiUsageService aiUsageService,
-		PageQuizPlanProperties pageQuizPlanProperties
+		PageQuizPlanProperties pageQuizPlanProperties,
+		EmailVerificationGate emailVerification
 	) {
+		this.emailVerification = emailVerification;
 		this.persistenceService = persistenceService;
 		this.renderer = renderer;
 		this.aiClient = aiClient;
@@ -79,6 +83,7 @@ public class MaterialOutlineGenerationService {
 			);
 			OutlineResponse response;
 			try {
+				emailVerification.requireVerified(snapshot.get().ownerId());
 				response = aiClient.outline(request);
 				aiUsageService.record(
 					snapshot.get().ownerId(),

@@ -15,6 +15,8 @@ import io.edupilot.admin.xai.XaiAlertConfigService;
 import io.edupilot.auth.AuthSessionRepository;
 import io.edupilot.auth.PasswordResetTokenRepository;
 import io.edupilot.auth.UserAccessGuard;
+import io.edupilot.auth.EmailVerificationTokenRepository;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.classroom.ClassroomService;
 import io.edupilot.aiusage.AiQuotaService;
 import io.edupilot.aiusage.AiUsageService;
@@ -73,6 +75,8 @@ import io.edupilot.usernote.WrongAnswerNoteService;
 	AuthSessionRepository.class,
 	PasswordResetTokenRepository.class,
 	UserAccessGuard.class,
+	EmailVerificationTokenRepository.class,
+	EmailVerificationGate.class,
 	AiUsageService.class,
 	AiQuotaService.class,
 	ClassroomService.class,

@@ -8,6 +8,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.material.MaterialXaiFileBackfillPersistenceService.UploadClaim;
 import io.edupilot.material.storage.FileStorage;
 
@@ -18,6 +19,7 @@ public class MaterialXaiFileBackfillService {
 		MaterialXaiFileBackfillService.class
 	);
 
+	private final EmailVerificationGate emailVerification;
 	private final MaterialXaiFileBackfillPersistenceService persistenceService;
 	private final FileStorage fileStorage;
 	private final AiClient aiClient;
@@ -27,8 +29,10 @@ public class MaterialXaiFileBackfillService {
 		MaterialXaiFileBackfillPersistenceService persistenceService,
 		FileStorage fileStorage,
 		AiClient aiClient,
-		MaterialXaiFileLifecycleService lifecycleService
+		MaterialXaiFileLifecycleService lifecycleService,
+		EmailVerificationGate emailVerification
 	) {
+		this.emailVerification = emailVerification;
 		this.persistenceService = persistenceService;
 		this.fileStorage = fileStorage;
 		this.aiClient = aiClient;
@@ -43,6 +47,7 @@ public class MaterialXaiFileBackfillService {
 
 		String uploadedFileId = null;
 		try {
+			emailVerification.requireMaterialOwnerVerified(materialId);
 			Resource resource = fileStorage.load(claim.get().storageKey());
 			uploadedFileId = aiClient.uploadFile(resource);
 			if (!persistenceService.attachIfStillEligible(

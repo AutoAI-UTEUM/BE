@@ -8,6 +8,7 @@ import java.time.ZoneId;
 import org.springframework.stereotype.Service;
 
 import io.edupilot.global.error.BusinessException;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.user.UserRole;
 
@@ -16,6 +17,7 @@ public class AiQuotaService {
 
 	private static final ZoneId ZONE_SEOUL = ZoneId.of("Asia/Seoul");
 
+	private final EmailVerificationGate emailVerification;
 	private final AiUsageLogRepository repository;
 	private final AiQuotaProperties properties;
 	private final Clock clock;
@@ -23,14 +25,17 @@ public class AiQuotaService {
 	public AiQuotaService(
 		AiUsageLogRepository repository,
 		AiQuotaProperties properties,
-		Clock clock
+		Clock clock,
+		EmailVerificationGate emailVerification
 	) {
+		this.emailVerification = emailVerification;
 		this.repository = repository;
 		this.properties = properties;
 		this.clock = clock;
 	}
 
 	public void checkQuota(Long userId, UserRole role) {
+		emailVerification.requireVerified(userId);
 		if (!properties.enabled() || role == UserRole.ADMIN) {
 			return;
 		}

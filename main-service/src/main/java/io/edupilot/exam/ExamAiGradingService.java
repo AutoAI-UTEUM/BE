@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
@@ -26,6 +27,7 @@ public class ExamAiGradingService {
 	private static final Logger log = LoggerFactory.getLogger(ExamAiGradingService.class);
 	private static final String SCHEMA_VERSION = "1.0";
 
+	private final EmailVerificationGate emailVerification;
 	private final AiClient aiClient;
 	private final AiUsageService aiUsageService;
 	private final ExamSubmissionPersistenceService persistenceService;
@@ -33,8 +35,10 @@ public class ExamAiGradingService {
 	public ExamAiGradingService(
 		AiClient aiClient,
 		AiUsageService aiUsageService,
-		ExamSubmissionPersistenceService persistenceService
+		ExamSubmissionPersistenceService persistenceService,
+		EmailVerificationGate emailVerification
 	) {
+		this.emailVerification = emailVerification;
 		this.aiClient = aiClient;
 		this.aiUsageService = aiUsageService;
 		this.persistenceService = persistenceService;
@@ -47,6 +51,7 @@ public class ExamAiGradingService {
 		boolean requestInvalid = false;
 		for (PreparedExamAiGrading.Group group : prepared.groups()) {
 			try {
+				emailVerification.requireVerified(prepared.userId());
 				GradeResponse response = aiClient.grade(toRequest(prepared.examId(), group));
 				aiUsageService.record(
 					prepared.userId(),

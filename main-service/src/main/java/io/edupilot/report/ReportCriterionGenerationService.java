@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.CriteriaSuggestRequest;
 import io.edupilot.ai.dto.CriteriaSuggestResponse;
@@ -43,6 +44,7 @@ public class ReportCriterionGenerationService {
 	private static final String FAILURE_MESSAGE =
 		"평가 지표 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.";
 
+	private final EmailVerificationGate emailVerification;
 	private final ClassroomService classroomService;
 	private final MaterialOverviewRepository overviewRepository;
 	private final ReportCriterionService criterionService;
@@ -58,8 +60,10 @@ public class ReportCriterionGenerationService {
 		ReportCriterionService criterionService,
 		AiClient aiClient,
 		AiUsageService aiUsageService,
-		@Qualifier("reportGenerationExecutor") Executor executor
+		@Qualifier("reportGenerationExecutor") Executor executor,
+		EmailVerificationGate emailVerification
 	) {
+		this.emailVerification = emailVerification;
 		this.classroomService = classroomService;
 		this.overviewRepository = overviewRepository;
 		this.criterionService = criterionService;
@@ -150,6 +154,7 @@ public class ReportCriterionGenerationService {
 
 	private void generate(GenerationCommand command) {
 		try {
+			emailVerification.requireVerified(command.instructorId());
 			CriteriaSuggestResponse response = aiClient.suggestCriteria(
 				command.request()
 			);

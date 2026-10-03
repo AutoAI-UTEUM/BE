@@ -25,6 +25,13 @@ public class User {
 	@Column(nullable = false, unique = true, length = 255)
 	private String email;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "email_verification_state", nullable = false, length = 20)
+	private EmailVerificationState emailVerificationState = EmailVerificationState.UNKNOWN;
+
+	@Column(name = "email_verified_at")
+	private Instant emailVerifiedAt;
+
 	@Column(name = "password_hash", nullable = false, length = 255)
 	private String passwordHash;
 
@@ -194,8 +201,29 @@ public class User {
 		this.passwordHash = passwordHash;
 	}
 
+	public void beginEmailVerification() {
+		if (!isEmailVerified()) {
+			emailVerificationState = EmailVerificationState.PENDING;
+			emailVerifiedAt = null;
+		}
+	}
+
+	public void verifyEmail(Instant verifiedAt) {
+		emailVerifiedAt = java.util.Objects.requireNonNull(verifiedAt);
+		emailVerificationState = EmailVerificationState.VERIFIED;
+	}
+
+	public boolean isEmailVerified() {
+		return emailVerificationState == EmailVerificationState.VERIFIED && emailVerifiedAt != null;
+	}
+
+	public EmailVerificationState getEmailVerificationState() { return emailVerificationState; }
+	public Instant getEmailVerifiedAt() { return emailVerifiedAt; }
+
 	public void withdraw() {
 		this.email = "deleted_" + id;
+		this.emailVerificationState = EmailVerificationState.UNKNOWN;
+		this.emailVerifiedAt = null;
 		this.name = "탈퇴 사용자";
 		this.affiliation = null;
 		this.avatarKey = null;

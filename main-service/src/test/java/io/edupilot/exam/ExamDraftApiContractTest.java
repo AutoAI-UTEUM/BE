@@ -279,18 +279,18 @@ class ExamDraftApiContractTest {
 
 	private Fixture createFixture() {
 		long suffix = SEQUENCE.incrementAndGet();
-		User instructor = userRepository.save(User.create(
+		User instructor = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"draft-instructor-" + suffix + "@example.com", "hash", "Instructor",
 			UserRole.INSTRUCTOR
-		));
-		User other = userRepository.save(User.create(
+		)));
+		User other = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"draft-other-" + suffix + "@example.com", "hash", "Other",
 			UserRole.INSTRUCTOR
-		));
-		User learner = userRepository.save(User.create(
+		)));
+		User learner = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"draft-learner-" + suffix + "@example.com", "hash", "Learner",
 			UserRole.LEARNER
-		));
+		)));
 		Classroom classroom = classroomRepository.save(Classroom.create(
 			instructor, "Draft classroom", LocalDate.of(2026, 9, 1),
 			LocalDate.of(2026, 12, 15), ClassroomColor.BLUE, null,

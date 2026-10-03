@@ -75,6 +75,8 @@ class ReportJpaTest {
 	@Autowired private JdbcTemplate jdbcTemplate;
 	@Autowired private ObjectMapper objectMapper;
 	@MockitoBean private AiClient aiClient;
+	// These persistence tests use rollback-only fixtures. Committed email eligibility is tested by EmailVerificationApiIntegrationTest.
+	@MockitoBean private io.edupilot.auth.EmailVerificationGate emailVerificationGate;
 
 	private User instructor;
 	private User student;
@@ -83,15 +85,15 @@ class ReportJpaTest {
 
 	@BeforeEach
 	void setUp() {
-		instructor = userRepository.save(User.create(
+		instructor = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"report-instructor@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
-		));
-		student = userRepository.save(User.create(
+		)));
+		student = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"report-student@example.com", "hash", "Student", UserRole.LEARNER
-		));
-		otherStudent = userRepository.save(User.create(
+		)));
+		otherStudent = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"report-other@example.com", "hash", "Other", UserRole.LEARNER
-		));
+		)));
 		classroom = classroomRepository.save(Classroom.create(
 			instructor,
 			"Report classroom",

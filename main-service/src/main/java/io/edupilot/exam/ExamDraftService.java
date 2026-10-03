@@ -10,6 +10,7 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.ExamDraftRequest;
@@ -28,6 +29,7 @@ public class ExamDraftService {
 
 	private static final String SCHEMA_VERSION = "1.0";
 
+	private final EmailVerificationGate emailVerification;
 	private final ExamDraftPreparationService preparationService;
 	private final AiClient aiClient;
 	private final AiUsageService aiUsageService;
@@ -35,8 +37,10 @@ public class ExamDraftService {
 	public ExamDraftService(
 		ExamDraftPreparationService preparationService,
 		AiClient aiClient,
-		AiUsageService aiUsageService
+		AiUsageService aiUsageService,
+		EmailVerificationGate emailVerification
 	) {
+		this.emailVerification = emailVerification;
 		this.preparationService = preparationService;
 		this.aiClient = aiClient;
 		this.aiUsageService = aiUsageService;
@@ -54,6 +58,7 @@ public class ExamDraftService {
 		);
 		ExamDraftResponse response;
 		try {
+			emailVerification.requireVerified(userId);
 			response = aiClient.generateExamDraft(prepared.aiRequest());
 			aiUsageService.record(
 				userId,

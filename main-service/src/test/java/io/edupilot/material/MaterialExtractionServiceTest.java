@@ -71,7 +71,8 @@ class MaterialExtractionServiceTest {
 			new MaterialProperties(45, 300, Duration.ofMinutes(30)),
 			outlineTaskDispatcher,
 			captionTaskDispatcher,
-			xaiFileLifecycleService
+			xaiFileLifecycleService,
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class)
 		);
 		resource = new ByteArrayResource("%PDF-test".getBytes());
 		when(persistenceService.snapshot(10L)).thenReturn(Optional.of(

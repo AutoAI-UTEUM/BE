@@ -10,6 +10,7 @@ import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.ExtractResponse;
 import io.edupilot.aiusage.AiFeature;
@@ -24,6 +25,7 @@ public class MaterialExtractionService {
 
 	private static final Logger log = LoggerFactory.getLogger(MaterialExtractionService.class);
 
+	private final EmailVerificationGate emailVerification;
 	private final MaterialExtractionPersistenceService persistenceService;
 	private final FileStorage fileStorage;
 	private final AiClient aiClient;
@@ -41,8 +43,10 @@ public class MaterialExtractionService {
 		MaterialProperties properties,
 		MaterialOutlineTaskDispatcher outlineTaskDispatcher,
 		MaterialCaptionTaskDispatcher captionTaskDispatcher,
-		MaterialXaiFileLifecycleService xaiFileLifecycleService
+		MaterialXaiFileLifecycleService xaiFileLifecycleService,
+		EmailVerificationGate emailVerification
 	) {
+		this.emailVerification = emailVerification;
 		this.persistenceService = persistenceService;
 		this.fileStorage = fileStorage;
 		this.aiClient = aiClient;
@@ -68,6 +72,7 @@ public class MaterialExtractionService {
 
 			ExtractResponse response;
 			try {
+				emailVerification.requireVerified(snapshot.get().ownerId());
 				response = aiClient.extract(
 					fileStorage.load(snapshot.get().storageKey())
 				);

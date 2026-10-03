@@ -69,3 +69,4 @@
 
 
 - [Durable mail outbox and restart recovery](mail-outbox.md)
+- [가입 이메일 소유 확인과 배포 경계](email-verification.md)
