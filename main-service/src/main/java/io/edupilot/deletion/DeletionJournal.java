@@ -26,10 +26,10 @@ public class DeletionJournal {
 		lock();
 		Instant now=clock.instant().truncatedTo(ChronoUnit.MICROS);
 		String key=material.getStorageKey();
-		put(new DeletionSnapshot(DeletionKind.ORIGINAL_PDF,key,key,null,null,null,now),null);
-		put(new DeletionSnapshot(DeletionKind.RENDERED_PAGES,key,key,null,null,null,now),null);
+		put(new DeletionSnapshot(DeletionKind.ORIGINAL_PDF,key,key,null,null,null,now,null),null);
+		put(new DeletionSnapshot(DeletionKind.RENDERED_PAGES,key,key,null,null,null,now,null),null);
 		if(material.getXaiFileId()!=null&&!material.getXaiFileId().isBlank()) {
-			put(new DeletionSnapshot(DeletionKind.EXTERNAL_AI,material.getXaiFileId(),key,null,null,null,now),null);
+			put(new DeletionSnapshot(DeletionKind.EXTERNAL_AI,material.getXaiFileId(),key,null,null,null,now,null),null);
 		}
 	}
 	@Transactional(propagation = Propagation.MANDATORY)
@@ -38,20 +38,20 @@ public class DeletionJournal {
 		Instant created=createdAt.truncatedTo(ChronoUnit.MICROS);
 		String emailHash=hash(originalEmail);
 		put(new DeletionSnapshot(DeletionKind.ACCOUNT,accountKey(userId,created,emailHash),
-			null,userId,created,emailHash,clock.instant().truncatedTo(ChronoUnit.MICROS)),null);
+			null,userId,created,emailHash,clock.instant().truncatedTo(ChronoUnit.MICROS),null),null);
 	}
 	@Transactional
 	public void recordExternal(String fileId) {
 		if(fileId==null||fileId.isBlank()) { return; }
 		lock();
 		put(new DeletionSnapshot(DeletionKind.EXTERNAL_AI,fileId,null,null,null,null,
-			clock.instant().truncatedTo(ChronoUnit.MICROS)),null);
+			clock.instant().truncatedTo(ChronoUnit.MICROS),null),null);
 	}
 	@Transactional(propagation=Propagation.MANDATORY)
 	public void recordAvatar(String key) {
 		lock();
 		put(new DeletionSnapshot(DeletionKind.AVATAR,key,null,null,null,null,
-			clock.instant().truncatedTo(ChronoUnit.MICROS)),null);
+			clock.instant().truncatedTo(ChronoUnit.MICROS),null),null);
 	}
 	@Transactional(propagation=Propagation.MANDATORY)
 	public boolean rejectsExternalAttachment(String fileId) {
@@ -92,11 +92,11 @@ public class DeletionJournal {
 			if(!existing.resourceKey().equals(snapshot.resourceKey())||existing.getKind()!=snapshot.kind()) {
 				throw new IllegalStateException("Deletion journal identity conflict");
 			}
-			if(restoreEpoch!=null) { existing.restore(snapshot.requestedAt(),restoreEpoch); }
+			if(restoreEpoch!=null) { existing.restore(snapshot.requestedAt(),snapshot.retainUntil(),restoreEpoch); }
 			return existing;
 		}
 		DeletionIntent created=DeletionIntent.create(snapshot);
-		if(restoreEpoch!=null) { created.restore(snapshot.requestedAt(),restoreEpoch); }
+		if(restoreEpoch!=null) { created.restore(snapshot.requestedAt(),snapshot.retainUntil(),restoreEpoch); }
 		return intents.saveAndFlush(created);
 	}
 	private void lock() {

@@ -883,4 +883,4 @@ error
 
 ### File deletion retry (#477)
 
-Spring durably queues discarded/material-deleted provider file cleanup. DELETE /internal/ai/files/{fileId} keeps its request contract; a 404 means already absent and other failures remain retryable/trackable in Spring. No new paid AI request or timeout-budget change is introduced. Physical cleanup is disabled pending approved retention policy. [Deletion journal](deletion-journal.md).
+Spring durably queues discarded/material-deleted provider file cleanup. DELETE /internal/ai/files/{fileId} keeps its request contract: the AI endpoint translates provider 404 into idempotent 204. An internal endpoint 404 is not proof of deletion and remains a tracked failure in Spring. No new paid AI request or timeout-budget change is introduced. Physical cleanup is disabled pending approved retention policy. Existing AI provider fileId logging requires separate coordination with #469. [Deletion journal](deletion-journal.md).

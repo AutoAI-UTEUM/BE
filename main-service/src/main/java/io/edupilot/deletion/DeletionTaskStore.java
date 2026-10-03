@@ -83,7 +83,7 @@ public class DeletionTaskStore {
 	public boolean retryFailed(Long id) {
 		DeletionIntent task=intents.findForUpdate(id).orElse(null);
 		if(task==null||task.getStatus()!=DeletionStatus.FAILED) { return false; }
-		task.restore(task.requestedAt(),"retry_"+java.util.UUID.randomUUID()); return true;
+		task.restore(task.requestedAt(),task.getRetainUntil(),"retry_"+java.util.UUID.randomUUID()); return true;
 	}
 	private boolean inUse(DeletionIntent task) {
 		return task.getKind()==DeletionKind.EXTERNAL_AI

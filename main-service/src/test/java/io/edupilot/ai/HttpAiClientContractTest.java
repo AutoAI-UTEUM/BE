@@ -672,10 +672,10 @@ class HttpAiClientContractTest {
 	}
 
 	@Test
-	void deletionRetryTreatsMissingFileAsAlreadyDeleted() {
+	void internalDeleteRoute404CannotBeRecordedAsCompletedCleanup() {
 		server.enqueue(new MockResponse().setResponseCode(404));
-		org.assertj.core.api.Assertions.assertThatCode(() -> client(Duration.ofSeconds(1)).deleteFile("synthetic-missing"))
-			.doesNotThrowAnyException();
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).deleteFile("synthetic-missing"))
+			.isInstanceOf(AiClientException.class);
 		assertThat(server.getRequestCount()).isEqualTo(1);
 	}
 

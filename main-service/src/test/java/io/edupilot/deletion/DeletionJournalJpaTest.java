@@ -212,6 +212,39 @@ class DeletionJournalJpaTest {
   restore.restoreBatch(exported,"synthetic_restore_1");assertThat(intents.findById(id).orElseThrow().getStatus()).isEqualTo(DeletionStatus.DONE);
   assertThat(intents.findById(id).orElseThrow().getGeneration()).isEqualTo(generation);verify(files,times(2)).delete(f.key());
  }
+ @Test void emptyJournalRestorePreservesExportedDeadlineAgainstShorterCurrentPolicy() {
+  journal.recordExternal("synthetic-retention-restore");permit(DeletionKind.EXTERNAL_AI,30);
+  Long originalId=intent(DeletionKind.EXTERNAL_AI).getId();assertThat(store.claim(originalId)).isNull();
+  Instant originalDeadline=intents.findById(originalId).orElseThrow().getRetainUntil();
+  var exported=journal.exportPage(0,100).entries();intents.deleteAll(); // Backup predates every deletion intent.
+  days.put(DeletionKind.EXTERNAL_AI,7);when(policy.policyVersion()).thenReturn("SYNTHETIC_SHORTER_RESTORE");clock.advance(8*86400L);
+  restore.restoreBatch(exported,"synthetic_empty_restore");var restored=intent(DeletionKind.EXTERNAL_AI);
+  assertThat(restored.getRetainUntil()).isEqualTo(originalDeadline);
+  worker().process(restored.getId());assertThat(intents.findById(restored.getId()).orElseThrow().getStatus()).isNotEqualTo(DeletionStatus.DONE);
+  assertThat(intents.findById(restored.getId()).orElseThrow().getRetainUntil()).isEqualTo(originalDeadline);verifyNoInteractions(ai,files);
+ }
+ @Test void restoreImportRaisesExistingDeadlineToExportedMaximum() {
+  journal.recordExternal("synthetic-existing-retention");permit(DeletionKind.EXTERNAL_AI,30);
+  assertThat(store.claim(intent(DeletionKind.EXTERNAL_AI).getId())).isNull();Instant originalDeadline=intent(DeletionKind.EXTERNAL_AI).getRetainUntil();
+  var exported=journal.exportPage(0,100).entries();intents.deleteAll();
+  days.put(DeletionKind.EXTERNAL_AI,7);when(policy.policyVersion()).thenReturn("SYNTHETIC_SHORTER_EXISTING");
+  journal.recordExternal("synthetic-existing-retention");assertThat(store.claim(intent(DeletionKind.EXTERNAL_AI).getId())).isNull();
+  assertThat(intent(DeletionKind.EXTERNAL_AI).getRetainUntil()).isBefore(originalDeadline);
+  restore.restoreBatch(exported,"synthetic_existing_restore");assertThat(intent(DeletionKind.EXTERNAL_AI).getRetainUntil()).isEqualTo(originalDeadline);
+ }
+ @Test void replayQueuesRestoredAvatarFromBackupBeforeAvatarReplacement() {
+  var f=fixture(null);String originalEmail=users.findById(f.user()).orElseThrow().getEmail();
+  String oldAvatar="avatars/"+UUID.randomUUID()+".png",newAvatar="avatars/"+UUID.randomUUID()+".png";
+  tx(()->users.findByIdForUpdate(f.user()).orElseThrow().replaceAvatar(oldAvatar)); // Earlier backup contains A.
+  tx(()->users.findByIdForUpdate(f.user()).orElseThrow().replaceAvatar(newAvatar)); // Later account uses B.
+  userService.withdrawGoogle(f.user(),f.subject());var exported=journal.exportPage(0,100).entries();
+  assertThat(intents.findAll().stream().filter(i->i.getKind()==DeletionKind.AVATAR).map(DeletionIntent::resourceKey)).containsExactly(newAvatar);
+  jdbc.update("update users set status='ACTIVE',email=?,avatar_key=? where id=?",originalEmail,oldAvatar,f.user());
+  restore.restoreBatch(exported,"synthetic_avatar_backup");
+  assertThat(users.findById(f.user()).orElseThrow().getAvatarKey()).isNull();
+  assertThat(intents.findAll().stream().filter(i->i.getKind()==DeletionKind.AVATAR).map(DeletionIntent::resourceKey)).containsExactlyInAnyOrder(oldAvatar,newAvatar);
+  verifyNoInteractions(files,ai);
+ }
  @Test void restoredAccountIsReanonymizedWithoutCompletionMail() {
   var f=fixture("synthetic-restore-account");User before=users.findById(f.user()).orElseThrow();String original=before.getEmail();
   userService.withdrawGoogle(f.user(),f.subject());var export=journal.exportPage(0,100).entries();clearInvocations(mail);

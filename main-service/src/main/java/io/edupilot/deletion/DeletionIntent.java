@@ -36,11 +36,15 @@ public class DeletionIntent {
 		intent.sourceMaterialKey = snapshot.sourceMaterialKey(); intent.sourceUserId = snapshot.sourceUserId();
 		intent.accountCreatedAt = snapshot.accountCreatedAt(); intent.originalEmailHash = snapshot.originalEmailHash();
 		intent.requestedAt = snapshot.requestedAt(); intent.nextAttemptAt = intent.requestedAt;
+		intent.retainUntil = snapshot.retainUntil();
 		intent.status = intent.kind == DeletionKind.ACCOUNT ? DeletionStatus.RECORDED : DeletionStatus.POLICY_PENDING;
 		return intent;
 	}
-	void restore(Instant importedRequestedAt, String epoch) {
+	void restore(Instant importedRequestedAt, Instant importedRetainUntil, String epoch) {
 		if (importedRequestedAt.isBefore(requestedAt)) { requestedAt = importedRequestedAt; }
+		if (importedRetainUntil != null && (retainUntil == null || importedRetainUntil.isAfter(retainUntil))) {
+			retainUntil = importedRetainUntil;
+		}
 		if (epoch.equals(restoreEpoch)) { return; }
 		restoreEpoch = epoch;
 		if (kind == DeletionKind.ACCOUNT) { return; }
@@ -95,6 +99,6 @@ public class DeletionIntent {
 	Instant nextAttemptAt() { return nextAttemptAt; }
 	String policyVersion() { return policyVersion; }
 	DeletionSnapshot snapshot() { return new DeletionSnapshot(kind, resourceKey, sourceMaterialKey, sourceUserId,
-		accountCreatedAt, originalEmailHash, requestedAt); }
+		accountCreatedAt, originalEmailHash, requestedAt, retainUntil); }
 	DeletionClaim claimSnapshot() { return new DeletionClaim(id, kind, resourceKey, leaseToken, generation); }
 }

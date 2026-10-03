@@ -19,9 +19,11 @@ public class DeletionReplay {
 	private final List<UserWithdrawalHook> hooks;
 	private final RefreshTokenService tokens;
 	private final UserAccessGuard access;
+	private final DeletionJournal journal;
 	public DeletionReplay(DeletionIntentRepository intents,UserRepository users,LearningMaterialRepository materials,
-		List<UserWithdrawalHook> hooks,RefreshTokenService tokens,UserAccessGuard access) {
+		List<UserWithdrawalHook> hooks,RefreshTokenService tokens,UserAccessGuard access,DeletionJournal journal) {
 		this.intents=intents;this.users=users;this.materials=materials;this.hooks=hooks;this.tokens=tokens;this.access=access;
+		this.journal=journal;
 	}
 	@Transactional(propagation=Propagation.REQUIRES_NEW)
 	public Result reapply(Long id) {
@@ -32,7 +34,9 @@ public class DeletionReplay {
 			if(!user.getCreatedAt().truncatedTo(ChronoUnit.MICROS).equals(intent.accountCreatedAt())) { return Result.IDENTITY_MISMATCH; }
 			if(!user.isActive()&&user.getEmail().equals("deleted_"+user.getId())) { return Result.ALREADY_APPLIED; }
 			if(!DeletionJournal.hash(user.getEmail()).equals(intent.originalEmailHash())) { return Result.IDENTITY_MISMATCH; }
+			String restoredAvatar=user.getAvatarKey();
 			user.withdraw(); users.flush(); hooks.forEach(hook->hook.onWithdraw(user.getId()));
+			if(restoredAvatar!=null) { journal.recordAvatar(restoredAvatar); }
 			tokens.revokeAll(user.getId()); access.invalidateAfterCommit(user.getId());
 			return Result.APPLIED;
 		}

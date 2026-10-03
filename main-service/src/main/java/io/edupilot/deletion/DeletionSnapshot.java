@@ -4,13 +4,14 @@ import java.time.Instant;
 
 /** Trusted operator export/import boundary, never an HTTP request or user supplied proof. */
 public record DeletionSnapshot(DeletionKind kind, String resourceKey, String sourceMaterialKey,
-	Long sourceUserId, Instant accountCreatedAt, String originalEmailHash, Instant requestedAt) {
+	Long sourceUserId, Instant accountCreatedAt, String originalEmailHash, Instant requestedAt, Instant retainUntil) {
 	void validate() {
 		if (kind == null || requestedAt == null || !validKey(resourceKey)) { throw invalid(); }
+		if (retainUntil != null && retainUntil.isBefore(requestedAt)) { throw invalid(); }
 		if (kind == DeletionKind.ACCOUNT) {
 			if (sourceUserId == null || sourceUserId <= 0 || accountCreatedAt == null
 				|| originalEmailHash == null || !originalEmailHash.matches("[0-9a-f]{64}")
-				|| sourceMaterialKey != null || !resourceKey.equals(DeletionJournal.accountKey(
+				|| sourceMaterialKey != null || retainUntil != null || !resourceKey.equals(DeletionJournal.accountKey(
 					sourceUserId, accountCreatedAt, originalEmailHash))) { throw invalid(); }
 		} else {
 			if (sourceUserId != null || accountCreatedAt != null || originalEmailHash != null

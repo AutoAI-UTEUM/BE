@@ -1223,7 +1223,6 @@ public class HttpAiClient implements AiClient {
 			() -> fileDeleteRestClient.delete()
 				.uri(FILE_DELETE_PATH, fileId)
 				.retrieve()
-				.onStatus(status -> status.value() == 404, (request, response) -> {})
 				.toBodilessEntity()
 		);
 	}
