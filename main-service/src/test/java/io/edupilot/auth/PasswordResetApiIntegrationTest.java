@@ -52,6 +52,8 @@ import io.edupilot.mail.EmailDeliveryStatus;
 import io.edupilot.mail.EmailSender;
 import io.edupilot.mail.EmailMessage;
 import io.edupilot.mail.EmailDeliveryResult;
+import io.edupilot.mail.EmailQuotaLock;
+import io.edupilot.mail.EmailQuotaLockRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
@@ -90,6 +92,7 @@ class PasswordResetApiIntegrationTest {
 	@Autowired private UserRepository users;
 	@Autowired private PasswordResetTokenRepository tokens;
 	@Autowired private EmailDeliveryRepository deliveries;
+	@Autowired private EmailQuotaLockRepository quotaLocks;
 	@Autowired private RefreshTokenRepository refreshTokens;
 	@Autowired private AuthSessionRepository sessions;
 	@Autowired private PasswordResetCleanupScheduler cleanupScheduler;
@@ -109,6 +112,9 @@ class PasswordResetApiIntegrationTest {
 		});
 		tokens.deleteAll();
 		deliveries.deleteAll();
+		if (!quotaLocks.existsById(1)) {
+			quotaLocks.saveAndFlush(EmailQuotaLock.initial());
+		}
 		refreshTokens.deleteAll();
 		sessions.deleteAll();
 		users.deleteAll();

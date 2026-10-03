@@ -42,8 +42,13 @@ public class EmailOutboxStore {
 	}
 
 	@Transactional(readOnly = true)
-	public List<Long> recoverableIds() {
-		return jobs.findRecoverableIds(clock.instant(), PageRequest.of(0, properties.batchSize()));
+	public List<Long> cleanupIds() {
+		return jobs.findCleanupIds(clock.instant(), PageRequest.of(0, properties.batchSize()));
+	}
+
+	@Transactional(readOnly = true)
+	public List<Long> dispatchableIds() {
+		return jobs.findDispatchableIds(clock.instant(), PageRequest.of(0, properties.batchSize()));
 	}
 
 	@Transactional(propagation = Propagation.REQUIRES_NEW)

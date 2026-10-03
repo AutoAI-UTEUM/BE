@@ -19,7 +19,8 @@ import io.edupilot.MainServiceApplication;
 @Sql(statements = {
 	"insert into email_deliveries(id,recipient,type,status,subject,created_at) values(1,'a@example.com','TEST','QUEUED','old pending',current_timestamp)",
 	"insert into email_deliveries(id,recipient,type,status,subject,created_at) values(2,'b@example.com','TEST','SENT','old accepted',current_timestamp)",
-	"insert into email_deliveries(id,recipient,type,status,subject,created_at) values(3,'c@example.com','TEST','FAILED','old failed',current_timestamp)"
+	"insert into email_deliveries(id,recipient,type,status,subject,created_at) values(3,'c@example.com','TEST','FAILED','old failed',current_timestamp)",
+	"insert into email_deliveries(id,recipient,type,status,subject,created_at,attempt_count) values(4,'d@example.com','TEST','FAILED','old attempted failure',current_timestamp,3)"
 })
 @Sql(scripts = "classpath:db/migration/V54__durable_email_outbox.sql")
 class EmailOutboxMigrationTest {
@@ -29,8 +30,12 @@ class EmailOutboxMigrationTest {
 		assertThat(jdbc.queryForObject("select status from email_deliveries where id=2", String.class)).isEqualTo("SENT");
 		assertThat(jdbc.queryForObject("select status from email_deliveries where id=3", String.class)).isEqualTo("FAILED");
 		assertThat(jdbc.queryForObject("select count(*) from email_outbox", Long.class)).isZero();
+		assertThat(jdbc.queryForObject("select count(*) from email_quota_lock where id=1", Long.class)).isEqualTo(1);
+		assertThat(jdbc.queryForObject("select sum(units) from email_send_reservations", Long.class)).isEqualTo(4);
+		assertThat(jdbc.queryForObject("select count(*) from email_send_reservations where delivery_id in (1,3)", Long.class)).isZero();
 		jdbc.update("insert into email_outbox(delivery_id, status,next_attempt_at,expires_at,created_at) values(2,'SENT',current_timestamp,current_timestamp,current_timestamp)");
 		jdbc.update("delete from email_deliveries where id=2");
 		assertThat(jdbc.queryForObject("select count(*) from email_outbox", Long.class)).isZero();
+		assertThat(jdbc.queryForObject("select sum(units) from email_send_reservations", Long.class)).isEqualTo(3);
 	}
 }

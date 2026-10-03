@@ -58,6 +58,7 @@ class EmailOutboxJpaTest {
 	@Autowired private EmailOutboxRepository jobs;
 	@Autowired private EmailDeliveryStore history;
 	@Autowired private EmailDeliveryRepository deliveries;
+	@Autowired private EmailQuotaLockRepository quotaLocks;
 	@Autowired private MailProperties properties;
 	@Autowired private Clock clock;
 	@Autowired private JdbcTemplate jdbc;
@@ -71,6 +72,9 @@ class EmailOutboxJpaTest {
 		}
 		jobs.deleteAll();
 		deliveries.deleteAll();
+		if (!quotaLocks.existsById(1)) {
+			quotaLocks.saveAndFlush(EmailQuotaLock.initial());
+		}
 		when(sender.send(any())).thenReturn(new EmailDeliveryResult("synthetic-receipt"));
 	}
 
@@ -87,6 +91,107 @@ class EmailOutboxJpaTest {
 		assertThat(deliveries.findById(id).orElseThrow().getStatus()).isEqualTo(EmailDeliveryStatus.SENT);
 		assertPayloadRemoved(id);
 		verify(sender, times(1)).send(any());
+	}
+
+	@Test void oldBacklogStillReservesRecipientQuotaAtActualDispatchTime() {
+		var ids = new java.util.ArrayList<Long>();
+		for (int index = 0; index < 6; index++) {
+			ids.add(queuedNotification());
+		}
+		jdbc.update("update email_deliveries set created_at = ?", java.sql.Timestamp.from(clock.instant().minusSeconds(7200)));
+		worker().recoverPending();
+		assertThat(deliveries.findAll().stream().filter(delivery -> delivery.getStatus() == EmailDeliveryStatus.SENT)).hasSize(5);
+		assertThat(ids.stream().map(this::job).filter(job -> "RATE_LIMITED".equals(job.getLastErrorCode()))).hasSize(1);
+		verify(sender, times(5)).send(any());
+	}
+
+	@Test void oldBacklogConcurrentWorkersShareTheRecipientQuota() throws Exception {
+		var ids = new java.util.ArrayList<Long>();
+		for (int index = 0; index < 6; index++) {
+			ids.add(queuedNotification());
+		}
+		jdbc.update("update email_deliveries set created_at = ?", java.sql.Timestamp.from(clock.instant().minusSeconds(7200)));
+		CountDownLatch start = new CountDownLatch(1);
+		try (var threads = Executors.newFixedThreadPool(6)) {
+			var pending = ids.stream().map(id -> threads.submit(() -> {
+				assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+				worker().kick(id);
+				return null;
+			})).toList();
+			start.countDown();
+			for (var task : pending) {
+				task.get(15, TimeUnit.SECONDS);
+			}
+		}
+		assertThat(deliveries.findAll().stream().filter(delivery -> delivery.getStatus() == EmailDeliveryStatus.SENT)).hasSize(5);
+		verify(sender, times(5)).send(any());
+	}
+
+	@Test void disabledDispatchStillPurgesExpiredSecretsBehindAFullBatchOfReadyNotifications() {
+		for (int index = 0; index < 50; index++) {
+			queuedNotification();
+		}
+		Long expired = queued();
+		jdbc.update("update email_outbox set expires_at = ? where delivery_id = ?",
+			java.sql.Timestamp.from(clock.instant().minusSeconds(1)), expired);
+		var disabled = new MailProperties(false, properties.provider(), properties.from(), properties.replyTo(),
+			properties.baseUrl(), properties.region());
+		new EmailOutboxWorker(outbox, history, sender, disabled, Runnable::run).recoverPending();
+		assertThat(job(expired).getLastErrorCode()).isEqualTo("PAYLOAD_EXPIRED");
+		assertPayloadRemoved(expired);
+		verify(sender, never()).send(any());
+	}
+
+	@Test void lowerIdBacklogCannotBypassQuotaReservedByANewerDelivery() {
+		Long backlog = queuedNotification();
+		jdbc.update("update email_deliveries set created_at = ? where id = ?",
+			java.sql.Timestamp.from(clock.instant().minusSeconds(7200)), backlog);
+		Long newer = history.queue(new EmailMessage("other-synthetic@example.com", "Existing budget", "Synthetic", null,
+			EmailDeliveryType.NOTIFICATION));
+		seedLegacyBudget(newer, 500);
+		worker().kick(backlog);
+		assertThat(job(backlog).getLastErrorCode()).isEqualTo("RATE_LIMITED");
+		assertPayloadRemoved(backlog);
+		verify(sender, never()).send(any());
+	}
+
+	@Test void concurrentDifferentRecipientsShareTheLastGlobalDailyReservation() throws Exception {
+		Long legacy = history.queue(new EmailMessage("legacy-synthetic@example.com", "Existing budget", "Synthetic", null,
+			EmailDeliveryType.NOTIFICATION));
+		seedLegacyBudget(legacy, 499);
+		var ids = new java.util.ArrayList<Long>();
+		for (int index = 0; index < 6; index++) {
+			ids.add(queuedNotification("synthetic-" + index + "@example.com"));
+		}
+		CountDownLatch start = new CountDownLatch(1);
+		try (var threads = Executors.newFixedThreadPool(6)) {
+			var pending = ids.stream().map(id -> threads.submit(() -> {
+				assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+				worker().kick(id);
+				return null;
+			})).toList();
+			start.countDown();
+			for (var task : pending) {
+				task.get(15, TimeUnit.SECONDS);
+			}
+		}
+		assertThat(ids.stream().map(this::job).filter(job -> job.getStatus() == EmailOutboxStatus.SENT)).hasSize(1);
+		assertThat(ids.stream().map(this::job).filter(job -> "RATE_LIMITED".equals(job.getLastErrorCode()))).hasSize(5);
+		verify(sender, times(1)).send(any());
+	}
+
+	@Test void sameClaimIsIdempotentAndOldReservationsLeaveTheRollingHourWindow() {
+		Long first = queuedNotification();
+		var claim = outbox.claim(first);
+		assertThat(history.reserve(first, claim.token())).isTrue();
+		assertThat(history.reserve(first, claim.token())).isTrue();
+		assertThat(jdbc.queryForObject("select count(*) from email_send_reservations where delivery_id = ?", Long.class, first)).isEqualTo(1);
+		jdbc.update("update email_send_reservations set reserved_at = ? where delivery_id = ?",
+			java.sql.Timestamp.from(clock.instant().minusSeconds(7200)), first);
+		for (int index = 0; index < 5; index++) {
+			worker().kick(queuedNotification());
+		}
+		verify(sender, times(5)).send(any());
 	}
 
 	@Test void simultaneousWorkersHaveOneProviderCallWithoutHoldingTheDbLockDuringTheCall() throws Exception {
@@ -233,11 +338,18 @@ class EmailOutboxJpaTest {
 				assertThat(identity.getInt(1)).isEqualTo(33316);
 				assertThat(identity.getString(2)).isEqualTo("mail_migration_synthetic");
 			}
+			sql.execute("drop table if exists email_send_reservations");
+			sql.execute("drop table if exists email_quota_lock");
 			sql.execute("drop table if exists email_outbox");
 			sql.execute("drop table if exists email_deliveries");
 			ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/migration/V43__email_deliveries.sql"));
 			sql.execute("insert into email_deliveries(id,recipient,type,status,subject,created_at) values(1,'synthetic@example.com','TEST','QUEUED','Synthetic',current_timestamp),(2,'synthetic@example.com','TEST','SENT','Synthetic',current_timestamp)");
 			ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/migration/V54__durable_email_outbox.sql"));
+			try (var quota = sql.executeQuery("select (select count(*) from email_quota_lock where id=1), (select sum(units) from email_send_reservations)")) {
+				assertThat(quota.next()).isTrue();
+				assertThat(quota.getInt(1)).isEqualTo(1);
+				assertThat(quota.getInt(2)).isEqualTo(1);
+			}
 			try (var history = sql.executeQuery("select status,error_summary from email_deliveries where id=1")) {
 				assertThat(history.next()).isTrue();
 				assertThat(history.getString(1)).isEqualTo("FAILED");
@@ -249,6 +361,10 @@ class EmailOutboxJpaTest {
 				assertThat(jobs.next()).isTrue();
 				assertThat(jobs.getInt(1)).isZero();
 			}
+			try (var quota = sql.executeQuery("select count(*) from email_send_reservations")) {
+				assertThat(quota.next()).isTrue();
+				assertThat(quota.getInt(1)).isZero();
+			}
 		}
 	}
 
@@ -256,6 +372,20 @@ class EmailOutboxJpaTest {
 		Long id = history.queue(message());
 		outbox.enqueue(id, message(), clock.instant().plusSeconds(1800));
 		return id;
+	}
+	private Long queuedNotification() {
+		return queuedNotification("synthetic@example.com");
+	}
+	private Long queuedNotification(String recipient) {
+		var notification = new EmailMessage(recipient, "Synthetic notification", "Synthetic body", null,
+			EmailDeliveryType.NOTIFICATION);
+		Long id = history.queue(notification);
+		outbox.enqueue(id, notification, clock.instant().plusSeconds(86400));
+		return id;
+	}
+	private void seedLegacyBudget(Long id, int units) {
+		jdbc.update("insert into email_send_reservations(delivery_id, claim_token, reserved_at, units) values(?, 'synthetic-legacy', ?, ?)",
+			id, java.sql.Timestamp.from(clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS)), units);
 	}
 	private void expireLease(Long id) { jdbc.update("update email_outbox set lease_until = '2000-01-01 00:00:00' where delivery_id = ?", id); }
 	private EmailOutbox job(Long id) { return jobs.findById(id).orElseThrow(); }

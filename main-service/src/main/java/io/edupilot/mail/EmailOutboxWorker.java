@@ -33,9 +33,12 @@ public class EmailOutboxWorker {
 		initialDelayString = "${edupilot.mail.outbox.recovery-delay-ms:30000}")
 	public void recoverPending() {
 		try {
-			for (Long id : outbox.recoverableIds()) {
+			// Expired payloads and leases must make progress even when sending is disabled.
+			for (Long id : outbox.cleanupIds()) {
 				outbox.recover(id);
-				if (properties.enabled()) {
+			}
+			if (properties.enabled()) {
+				for (Long id : outbox.dispatchableIds()) {
 					kick(id);
 				}
 			}
@@ -66,7 +69,7 @@ public class EmailOutboxWorker {
 			if (claim == null) {
 				return;
 			}
-			if (!history.reserve(id)) {
+			if (!history.reserve(id, claim.token())) {
 				outbox.rateLimited(claim);
 				return;
 			}

@@ -356,3 +356,8 @@ READY -> CLAIMED -> SENDING -> SENT uses a DB lock and fencing token; provider c
 transaction. Expired pre-send claims recover; uncertain sends become UNKNOWN and cannot auto-resend.
 Definite SES 429 rejection permits bounded RETRY. Caller rollback removes sendable payload while
 keeping metadata audit. Terminal/expired payloads are cleared. See [mail outbox](mail-outbox.md).
+Expiry/lease cleanup is independent of READY dispatch, including while mail is disabled.
+Before sending, a migration-created singleton lock serializes durable quota reservations across
+workers: five units per recipient in the rolling hour and 500 global units per KST day.
+Every new retry claim consumes one unit; repeated reservation of the same claim is idempotent.
+Created-at ordering and delivery IDs never reset this budget; abandoned reservations remain counted.
