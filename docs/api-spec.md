@@ -1043,6 +1043,8 @@ Query:
 
 `content`는 비공백·10,000자 이하입니다. `pageNumber`는 해당 자료의 페이지 범위여야 하고, `sourceMessageId`는 요청 경로의 세션에 속한 채팅 메시지여야 합니다. `pageNumber`와 `sourceMessageId`는 생략할 수 있습니다. 다른 사용자의 세션 또는 삭제된 세션은 `SESSION_NOT_FOUND`, 삭제된 자료는 `MATERIAL_NOT_FOUND`로 처리합니다.
 
+`sourceMessageId`가 있으면 동일 사용자·원본 메시지의 저장은 멱등입니다. 재요청·동시 요청은 같은 노트를 반환하고 이미 수정한 내용을 덮어쓰지 않습니다. 접근권과 페이지 범위 검증은 재요청에도 적용합니다. 기존 중복 행은 보존하며 재요청 시 가장 먼저 생성된 행을 반환합니다. 메시지 참조 없는 수동 생성은 매번 별도 노트를 생성합니다.
+
 ### GET `/api/materials/{materialId}/notes?page=0&size=50`
 
 자료에 속한 현재 사용자의 노트를 페이지 응답으로 반환합니다.

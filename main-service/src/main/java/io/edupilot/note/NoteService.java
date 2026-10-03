@@ -65,6 +65,14 @@ public class NoteService {
 			sessionId,
 			request.sourceMessageId()
 		);
+		if (sourceMessage != null) {
+			// The message row lock serializes all requests for this source, including legacy rows.
+			Note existing = noteRepository.findFirstByUser_IdAndSourceMessage_IdOrderByIdAsc(
+				userId, sourceMessage.getId()).orElse(null);
+			if (existing != null) {
+				return NoteResponse.from(existing);
+			}
+		}
 		User user = userRepository.getReferenceById(userId);
 		Note note = noteRepository.saveAndFlush(Note.create(
 			user,
