@@ -27,7 +27,7 @@ class TemporaryPasswordGeneratorTest {
 				null,
 				false,
 				null
-			);
+			, java.time.LocalDate.of(2000,1,1));
 
 			assertThat(password).hasSize(16);
 			assertThat(validator.validateProperty(request, "password")).isEmpty();

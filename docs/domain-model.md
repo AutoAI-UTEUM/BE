@@ -377,3 +377,8 @@ Created-at ordering and delivery IDs never reset this budget; abandoned reservat
 ### Deletion intent lifecycle (#477)
 
 Logical deletion and per-asset tombstones commit together. Unknown retention remains POLICY_PENDING; approved kinds use READY/LEASED/DONE, bounded RETRY/FAILED and active external-reference holds. Account tombstones retain identity fingerprints without raw email. Restore epochs invalidate old worker generations without shortening retention. See [deletion journal](deletion-journal.md).
+
+
+### Age input and pending intake (#478 foundation)
+
+New signup captures an input birthdate without calculating age. Legacy DOB stays null/UNKNOWN. Manual intake persists PENDING and cannot produce an approved state. User-row locking serializes request/withdrawal; withdrawal clears DOB and cancels pending intake. AgeEligibilityGate rejects UNKNOWN/PENDING as an internal building block, but full endpoint/AI binding is not yet implemented. [Foundation](birthdate-guardian-foundation.md).

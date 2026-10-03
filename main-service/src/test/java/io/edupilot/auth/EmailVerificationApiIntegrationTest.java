@@ -236,7 +236,7 @@ class EmailVerificationApiIntegrationTest {
 	@Test void googleSignupAlsoRemainsPendingAndQueuesItsOwnVerificationLink() throws Exception {
 		when(google.verify("synthetic-google-token")).thenReturn(new GoogleProfile("synthetic-sub","google-verify@example.com","Synthetic"));
 		mvc.perform(post("/api/auth/google").contentType(MediaType.APPLICATION_JSON)
-			.content("{\"idToken\":\"synthetic-google-token\",\"role\":\"LEARNER\"}")
+			.content("{\"idToken\":\"synthetic-google-token\",\"role\":\"LEARNER\",\"dateOfBirth\":\"2000-01-01\"}")
 			.with(request->{request.setRemoteAddr(ip);return request;})).andExpect(status().isOk());
 		User user=users.findByEmail("google-verify@example.com").orElseThrow(); token(user.getEmail());
 		assertThat(user.getEmailVerificationState()).isEqualTo(EmailVerificationState.PENDING);
@@ -428,7 +428,7 @@ class EmailVerificationApiIntegrationTest {
 	private String bearer(User user) { return "Bearer "+jwt.createAccessToken(user); }
 	private MvcResult signup(String email) throws Exception {
 		return mvc.perform(post("/api/auth/signup").contentType(MediaType.APPLICATION_JSON)
-			.content("{\"email\":\""+email+"\",\"password\":\"StrongPass123!\",\"name\":\"Synthetic\",\"role\":\"LEARNER\"}")
+			.content("{\"email\":\""+email+"\",\"password\":\"StrongPass123!\",\"name\":\"Synthetic\",\"role\":\"LEARNER\",\"dateOfBirth\":\"2000-01-01\"}")
 			.with(request->{request.setRemoteAddr(ip);return request;})).andReturn();
 	}
 	private org.springframework.test.web.servlet.ResultActions request(User user) throws Exception {

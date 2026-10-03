@@ -73,3 +73,5 @@
 - [가입 이메일 소유 확인과 배포 경계](email-verification.md)
 
 - [Deletion journal, retention gates and restore replay](deletion-journal.md)
+
+- [신규 DOB·수동 보호자 접수 기반과 정책 대기 경계](birthdate-guardian-foundation.md)

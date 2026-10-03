@@ -307,7 +307,7 @@ class AuthApiContractTest {
 		mockMvc.perform(post("/api/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
-					{
+					{"dateOfBirth":"2000-01-01",
 					  "email":"bad-email",
 					  "password":"short",
 					  "name":"홍길동",
@@ -333,7 +333,7 @@ class AuthApiContractTest {
 		mockMvc.perform(post("/api/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
-					{
+					{"dateOfBirth":"2000-01-01",
 					  "email":"instructor@example.com",
 					  "password":"password123",
 					  "name":"강사",
@@ -349,7 +349,7 @@ class AuthApiContractTest {
 		mockMvc.perform(post("/api/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
-					{
+					{"dateOfBirth":"2000-01-01",
 					  "email":"missing-role@example.com",
 					  "password":"password123",
 					  "name":"학습자"
@@ -365,7 +365,7 @@ class AuthApiContractTest {
 			mockMvc.perform(post("/api/auth/signup")
 					.contentType(MediaType.APPLICATION_JSON)
 					.content("""
-						{
+						{"dateOfBirth":"2000-01-01",
 						  "email":"invalid-role@example.com",
 						  "password":"password123",
 						  "name":"사용자",
@@ -391,6 +391,7 @@ class AuthApiContractTest {
 				.content("""
 					{
 					  "email":"profile@example.com",
+					  "dateOfBirth":"2000-01-01",
 					  "password":"password123",
 					  "name":"학습자",
 					  "role":"LEARNER",
@@ -419,7 +420,7 @@ class AuthApiContractTest {
 		mockMvc.perform(post("/api/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
-					{"email":"no-consent@example.com","password":"password123",
+					{"dateOfBirth":"2000-01-01","email":"no-consent@example.com","password":"password123",
 					 "name":"학습자","role":"LEARNER"}
 					"""))
 			.andExpect(status().isOk())
@@ -438,7 +439,7 @@ class AuthApiContractTest {
 			mockMvc.perform(post("/api/auth/signup")
 					.contentType(MediaType.APPLICATION_JSON)
 					.content("""
-						{
+						{"dateOfBirth":"2000-01-01",
 						  "email":"consent@example.com",
 						  "password":"password123",
 						  "name":"학습자",

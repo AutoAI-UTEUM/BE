@@ -291,11 +291,11 @@ class GoogleAccountLinkingIntegrationTest {
 
 	private Map<String, Object> signupBody(String email) {
 		return Map.of("email", email, "password", PASSWORD, "name", "Local user",
-			"role", "LEARNER", "consents", CONSENTS);
+			"role", "LEARNER", "consents", CONSENTS, "dateOfBirth", "2000-01-01");
 	}
 
 	private Map<String, Object> googleBody(String token) {
-		return Map.of("idToken", token, "role", "LEARNER", "consents", CONSENTS);
+		return Map.of("idToken", token, "role", "LEARNER", "consents", CONSENTS, "dateOfBirth", "2000-01-01");
 	}
 
 	private MvcResult postJson(String path, Object body) throws Exception {

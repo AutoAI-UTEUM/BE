@@ -3316,3 +3316,8 @@ See [mail outbox](mail-outbox.md) for encryption, restart recovery, migration an
 ### Deletion completion boundary (#477)
 
 Existing withdrawal/material-delete response shapes are unchanged. Success means committed logical deletion with a durable cleanup intent, not completed physical PDF/render/provider deletion. Cleanup is POLICY_PENDING while retention is undecided. Restore import and failure retry are internal maintenance services, not public HTTP endpoints. [Deletion journal](deletion-journal.md).
+
+
+### New-signup DOB input (#478 foundation)
+
+LOCAL signup requires ISO dateOfBirth; new Google signup also requires it but existing subject login omits it and never overwrites stored DOB. The field is input-only; it does not approve age/guardian status. Guardian intake and AgeEligibilityGate are internal services in this unit. No public approval endpoint or global HTTP/SSE/worker age gate binding is provided yet. [Foundation and pending policy](birthdate-guardian-foundation.md).

@@ -240,3 +240,6 @@ FE는 `message` 문자열을 파싱하지 않고 `code`로 분기합니다.
 - 서버 로그에는 `traceId`, 사용자/세션의 안전한 식별자, 에러 코드, 처리 구간을 남깁니다.
 - 비밀번호, JWT, Grok(xAI) API Key, 전체 PDF 텍스트, 학생 답안 원문은 기본 오류 로그에 남기지 않습니다.
 - AI 원문 로깅이 꼭 필요하면 마스킹, 접근 통제, 보관 기간을 먼저 결정합니다.
+
+
+#478 foundation adds internal gate errors AGE_VERIFICATION_REQUIRED (403) and GUARDIAN_VERIFICATION_PENDING (403). Their existence does not imply global HTTP/SSE/worker binding. LOCAL DOB missing uses VALIDATION_FAILED (400); new Google signup details/DOB missing uses existing SIGNUP_REQUIRED (409). [Scope](birthdate-guardian-foundation.md).

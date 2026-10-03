@@ -95,6 +95,13 @@ public class User {
 	@Column(name = "last_active_at")
 	private Instant lastActiveAt;
 
+	@Column(name = "date_of_birth")
+	private java.time.LocalDate dateOfBirth;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "age_verification_state",nullable = false,length = 30,columnDefinition = "varchar(30) default 'UNKNOWN'")
+	private io.edupilot.guardian.AgeVerificationState ageVerificationState = io.edupilot.guardian.AgeVerificationState.UNKNOWN;
+
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
@@ -203,6 +210,22 @@ public class User {
 		this.passwordHash = passwordHash;
 	}
 
+	/** Input capture only, restricted to creation. No age, timezone or guardian approval is inferred. */
+	public void recordSignupDateOfBirth(java.time.LocalDate date) {
+		if(id!=null || date==null) { throw new IllegalStateException("Birth date can only be captured during signup"); }
+		// SQL DATE storage capacity only; no current-date/timezone/age policy is selected here.
+		if(date.getYear()<1 || date.getYear()>9999) {
+			throw new io.edupilot.global.error.BusinessException(io.edupilot.global.error.ErrorCode.VALIDATION_FAILED);
+		}
+		this.dateOfBirth=date;
+	}
+	public void beginGuardianVerification() {
+		if(!isActive()) { throw new IllegalStateException("Inactive account cannot request verification"); }
+		ageVerificationState=io.edupilot.guardian.AgeVerificationState.MANUAL_PENDING;
+	}
+	public java.time.LocalDate getDateOfBirth() { return dateOfBirth; }
+	public io.edupilot.guardian.AgeVerificationState getAgeVerificationState() { return ageVerificationState; }
+
 	public void beginEmailVerification() {
 		if (!isEmailVerified()) {
 			emailVerificationState = EmailVerificationState.PENDING;
@@ -223,6 +246,8 @@ public class User {
 	public Instant getEmailVerifiedAt() { return emailVerifiedAt; }
 
 	public void withdraw() {
+		this.dateOfBirth=null;
+		this.ageVerificationState=io.edupilot.guardian.AgeVerificationState.UNKNOWN;
 		this.email = "deleted_" + id;
 		this.emailVerificationState = EmailVerificationState.UNKNOWN;
 		this.emailVerifiedAt = null;

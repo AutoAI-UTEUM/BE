@@ -36,7 +36,7 @@ class DeletionMigrationTest {
   try(var connection=DriverManager.getConnection(url,"root","");var sql=connection.createStatement();var identity=sql.executeQuery("select @@port,database()")) {
    assertThat(identity.next()).isTrue();assertThat(identity.getInt(1)).isEqualTo(33316);assertThat(identity.getString(2)).isEqualTo("deletion_journal_full_migration_synthetic");
   }
-  var flyway=org.flywaydb.core.Flyway.configure().dataSource(url,"root","").locations("classpath:db/migration").load();
+  var flyway=org.flywaydb.core.Flyway.configure().dataSource(url,"root","").locations("classpath:db/migration").target("56").load();
   flyway.migrate();assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
   assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("56");
  }

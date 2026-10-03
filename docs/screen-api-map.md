@@ -203,3 +203,6 @@ an automatic replay. Body/token data is never provided. [Recovery contract](mail
 
 
 Withdrawal and material-delete completion must not be presented as physical-file purge completion. These APIs commit logical deletion plus a retention-gated cleanup intent; retention remains pending. See [deletion journal](deletion-journal.md).
+
+
+New LOCAL/Google signup screens must provide dateOfBirth; existing Google login has no DOB reentry requirement. Saving DOB is not approval. Full age/access-state UI and global protection binding await policy. [Foundation](birthdate-guardian-foundation.md).

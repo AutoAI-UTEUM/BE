@@ -96,6 +96,8 @@ public class AuthService {
 			consent.agreedAt()
 		);
 		User savedUser;
+		if(request.dateOfBirth()==null) { throw new BusinessException(ErrorCode.VALIDATION_FAILED); }
+		user.recordSignupDateOfBirth(request.dateOfBirth());
 		try {
 			savedUser = userRepository.saveAndFlush(user);
 		} catch (DataIntegrityViolationException exception) {
