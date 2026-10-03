@@ -3108,6 +3108,8 @@ body가 없는 204를 제외한 내부 API 성공 응답은 최상위 optional `
 
 세션 `status` 전이(`ACTIVE`/`COMPLETED`/`DELETED`)는 statePatch로 허용하지 않으며 Spring 외부 API(complete/delete)로만 변경합니다. 목록의 세부 값은 구현 시 domain-model과 함께 확정합니다.
 
+PDF `extract`의 파싱은 별도 프로세스(활성 2개·대기 6개, 기본 총예산 120초)로 격리합니다. 자원/출력 한도는 기존 `EXTRACTION_FAILED` 400, 용량 소진은 `AI_SERVICE_UNAVAILABLE` 503, 시간 초과는 `AI_SERVICE_TIMEOUT` 504로 반환합니다. 성공 응답·원문 텍스트·선택적 Files 업로드 동작은 동일하며 실패 시 부분 결과나 업로드는 없습니다. 현재 Spring 자료 추출은 자동 재시도가 없으므로 일시적 거부도 FAILED로 반영될 수 있습니다. 상세 한도와 소유권은 내부 계약 §6.1을 따릅니다.
+
 DTO 상세·타임아웃·재시도·`usage` 필드는 [docs/ai-integration-contract.md](ai-integration-contract.md) v0.6이 기준입니다(turn 요청/응답 구조, grade/quiz-assessment/diagnosis/extract/exam draft DTO, 오류 category 5종 AUTH/TIMEOUT/SCHEMA/POLICY/INTERNAL과 Spring 매핑 포함).
 
 내부 API 필수 정책:

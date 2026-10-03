@@ -10,7 +10,9 @@ def _escape_pdf_text(text: str) -> str:
     return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
-def make_pdf(*page_texts: str | None, password: str | None = None) -> bytes:
+def make_pdf(
+    *page_texts: str | None, password: str | None = None, cmap: bytes | None = None
+) -> bytes:
     """Build a small PDF with optional text on each page."""
     writer = PdfWriter()
     for text in page_texts:
@@ -25,6 +27,10 @@ def make_pdf(*page_texts: str | None, password: str | None = None) -> bytes:
                 NameObject("/BaseFont"): NameObject("/Helvetica"),
             }
         )
+        if cmap is not None:
+            mapping = DecodedStreamObject()
+            mapping.set_data(cmap)
+            font[NameObject("/ToUnicode")] = writer._add_object(mapping)
         resources = DictionaryObject(
             {NameObject("/Font"): DictionaryObject({NameObject("/F1"): writer._add_object(font)})}
         )

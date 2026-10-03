@@ -506,6 +506,9 @@ DEC-041 opt-in QuizAgent는 기존 text stream에서 JSON 객체 하나를 받�
 
 ### 6.1 POST /internal/ai/extract
 
+- PDF parser는 요청별 별도 프로세스에서 실행한다. 앱당 활성 worker 2개 + 대기 6개까지 허용하며, 대기·기동·파싱에 `EXTRACT_TIMEOUT_SECONDS`(기본 120초) 하나를 적용한다. 초과/취소 시 worker를 종료·회수한 뒤 임시 파일을 제거한다. Linux worker는 주소 공간 512MiB·CPU 시간·core dump 금지 제한을 적용하고, 전체 추출 텍스트 8,000,000자를 넘으면 절단 성공 대신 기존 `EXTRACTION_FAILED`(400, INTERNAL, retryable=false)로 거부한다. 프로세스 격리는 파일/네트워크 권한 샌드박스를 뜻하지 않는다.
+- 용량 초과는 `AI_SERVICE_UNAVAILABLE`(503, INTERNAL, retryable=true), parser 총예산 초과는 `AI_SERVICE_TIMEOUT`(504, TIMEOUT, retryable=true)이며 기존 봉투를 유지한다. Spring 추출 경로는 이 플래그만으로 자동 재시도하지 않는다. 파싱 성공 후 선택적 Files 업로드 최대 60초는 별도이며 Spring 200초 read timeout을 유지한다. macOS 로컬 실행은 주소 공간 강제 제한의 증거가 아니므로 Linux CI에서 확인한다. 의존 parser의 문서 조각 진단은 로그에 전달하지 않는다.
+
 - 요청: multipart PDF (≤45MB — DEC-016).
 - 응답: `{ "schemaVersion": "1.0", "pageCount": 42, "pages": [{ "pageNumber": 1, "text": "..." }], "xaiFileId": "file-...", "warnings": [] }`. `xaiFileId`는 nullable이며 `warnings[]` 항목은 `{type,message}` 형식입니다.
 - `EDUPILOT_XAI_FILES_ENABLED=true`일 때만 추출 성공 후 원본 PDF를 xAI Files에 업로드합니다. 기본값은 `false`입니다. 업로드 실패 또는 xAI 제한인 48MiB 초과 시 `xaiFileId=null`, `warnings=[{"type":"FILE_UPLOAD_FAILED","message":"..."}]`로 반환하되 페이지 추출 응답은 HTTP 200을 유지합니다.

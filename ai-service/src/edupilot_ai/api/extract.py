@@ -6,17 +6,17 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Annotated
 
-from anyio import to_thread
+from anyio import CancelScope, to_thread
 from fastapi import APIRouter, Depends, File, UploadFile
 
-from edupilot_ai.api.deps import get_settings, get_xai_file_client
-from edupilot_ai.core.errors import ErrorCategory, InternalApiError
+from edupilot_ai.api.deps import get_pdf_extractor, get_settings, get_xai_file_client
+from edupilot_ai.core.errors import ErrorCategory, InternalApiError, InternalErrorResponse
 from edupilot_ai.extraction import (
     PdfExtractionError,
     PdfFailureReason,
     PdfPageLimitError,
-    extract_pdf,
 )
+from edupilot_ai.extraction.service import PdfExtractor
 from edupilot_ai.llm.files import (
     XAI_FILE_MAX_BYTES,
     XaiFileClientError,
@@ -37,12 +37,14 @@ _FAILURE_MESSAGES = {
     PdfFailureReason.CORRUPTED: "PDF extraction failed because the file is invalid or corrupted.",
     PdfFailureReason.ENCRYPTED: "PDF extraction failed because the file is encrypted.",
     PdfFailureReason.NO_TEXT: "PDF extraction failed because no text layer was found.",
+    PdfFailureReason.RESOURCE_LIMIT: "PDF extraction exceeded safe processing limits.",
 }
 
 _FAILURE_CODES = {
     PdfFailureReason.CORRUPTED: "UNSUPPORTED_FORMAT",
     PdfFailureReason.ENCRYPTED: "ENCRYPTED_PDF",
     PdfFailureReason.NO_TEXT: "NO_TEXT_CONTENT",
+    PdfFailureReason.RESOURCE_LIMIT: "EXTRACTION_FAILED",
 }
 
 
@@ -192,7 +194,7 @@ async def _stage_upload(
                     )
                     raise error
                 temporary.write(chunk)
-    except Exception:
+    except BaseException:
         _delete_temporary(path)
         raise
 
@@ -211,11 +213,20 @@ async def _stage_upload(
     return path
 
 
-@router.post("/extract", response_model=ExtractResponse)
+@router.post(
+    "/extract",
+    response_model=ExtractResponse,
+    responses={
+        400: {"model": InternalErrorResponse, "description": "Invalid or resource-limited PDF"},
+        503: {"model": InternalErrorResponse, "description": "PDF extraction capacity exhausted"},
+        504: {"model": InternalErrorResponse, "description": "PDF extraction budget exhausted"},
+    },
+)
 async def extract_document(
     file: Annotated[UploadFile, File(description="PDF document to extract")],
     settings: Annotated[Settings, Depends(get_settings)],
     file_client: Annotated[XaiFileClientProtocol, Depends(get_xai_file_client)],
+    extractor: Annotated[PdfExtractor, Depends(get_pdf_extractor)],
 ) -> ExtractResponse:
     """Return complete page text without persisting the PDF or extracted content."""
     temporary_path: Path | None = None
@@ -225,11 +236,12 @@ async def extract_document(
         temporary_path = await _stage_upload(file, max_bytes=settings.upload_max_bytes)
         size_bytes = temporary_path.stat().st_size
         try:
-            document = extract_pdf(
+            document = await extractor.extract(
                 temporary_path,
                 max_pages=settings.edupilot_extract_max_pages,
                 min_chars_per_page=settings.edupilot_extract_min_chars_per_page,
                 min_meaningful_page_ratio=settings.edupilot_extract_min_meaningful_page_ratio,
+                timeout_seconds=settings.extract_timeout_seconds,
             )
         except PdfPageLimitError as exception:
             raise _logged_extraction_failure(
@@ -248,6 +260,8 @@ async def extract_document(
                 _extraction_failure(exception.reason),
                 size_bytes=size_bytes,
             ) from exception
+        except InternalApiError as exception:
+            raise _logged_extraction_failure(exception, size_bytes=size_bytes) from None
 
         xai_file_id: str | None = None
         warnings: list[ExtractWarning] = []
@@ -269,6 +283,7 @@ async def extract_document(
             warnings=warnings,
         )
     finally:
-        await file.close()
         if temporary_path is not None:
             _delete_temporary(temporary_path)
+        with CancelScope(shield=True):
+            await file.close()
