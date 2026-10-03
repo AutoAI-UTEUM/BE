@@ -106,14 +106,14 @@ class PolicyApiIntegrationTest {
 			"확정 약관", "변경", true, now.minusSeconds(1), admin.getId(), now));
 		mvc.perform(post("/api/auth/signup").contentType(MediaType.APPLICATION_JSON)
 			.content("""
-				{"email":"new@example.com","password":"password123",
+				{"dateOfBirth":"2000-01-01","email":"new@example.com","password":"password123",
 				 "name":"신규","role":"LEARNER"}
 				"""))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.error.code").value("POLICY_CONSENT_REQUIRED"));
 		mvc.perform(post("/api/auth/signup").contentType(MediaType.APPLICATION_JSON)
 			.content("""
-				{"email":"new@example.com","password":"password123",
+				{"dateOfBirth":"2000-01-01","email":"new@example.com","password":"password123",
 				 "name":"신규","role":"LEARNER",
 				 "consents":[{"type":"TERMS","version":"1.0"}]}
 				"""))

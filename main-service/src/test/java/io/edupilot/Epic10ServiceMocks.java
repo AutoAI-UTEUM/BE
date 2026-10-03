@@ -73,6 +73,8 @@ import io.edupilot.usernote.WrongAnswerNoteService;
 	io.edupilot.deletion.DeletionJournalLockRepository.class,
 	io.edupilot.deletion.DeletionWorker.class,
 	io.edupilot.material.MaterialRenderStorage.class,
+	io.edupilot.guardian.GuardianVerificationRequestRepository.class,
+	io.edupilot.guardian.GuardianWithdrawalHook.class,
 	AdminAiUsageService.class,
 	AdminClassroomService.class,
 	AdminUserService.class,

@@ -36,6 +36,11 @@ public record SignupRequest(
 	Boolean learningEmailOptIn,
 
 	@Schema(description = "현재 TERMS·PRIVACY 버전 동의. 서버 설정에 따라 필수 여부가 달라집니다.")
-	List<PolicyConsentChoice> consents
+	List<PolicyConsentChoice> consents,
+
+	@NotNull(message = "신규 가입에는 생년월일이 필요합니다.")
+	@Schema(accessMode = Schema.AccessMode.WRITE_ONLY, type = "string", format = "date",
+		description = "신규 가입의 사용자 입력 생년월일. 입력만으로 연령 또는 보호자 확인이 완료되지 않습니다.")
+	java.time.LocalDate dateOfBirth
 ) {
 }

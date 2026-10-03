@@ -3,6 +3,8 @@ package io.edupilot.global.error;
 import org.springframework.http.HttpStatus;
 
 public enum ErrorCode {
+	AGE_VERIFICATION_REQUIRED("AGE_VERIFICATION_REQUIRED", HttpStatus.FORBIDDEN, "연령 확인이 필요합니다."),
+	GUARDIAN_VERIFICATION_PENDING("GUARDIAN_VERIFICATION_PENDING", HttpStatus.FORBIDDEN, "보호자 확인이 대기 중입니다."),
 
 	VALIDATION_FAILED("VALIDATION_FAILED", HttpStatus.BAD_REQUEST, "요청 값을 확인해 주세요."),
 	MALFORMED_REQUEST("MALFORMED_REQUEST", HttpStatus.BAD_REQUEST, "요청 형식을 확인해 주세요."),

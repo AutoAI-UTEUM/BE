@@ -227,11 +227,11 @@ class GoogleAccountServiceTest {
 				new PolicyConsentChoice(PolicyType.PRIVACY, "0.9")),
 			true,
 			" EduPilot University "
-		);
+		, java.time.LocalDate.of(2000,1,1));
 	}
 
 	private GoogleLoginRequest minimalRequest() {
-		return new GoogleLoginRequest("id-token", null, null, null, null);
+		return new GoogleLoginRequest("id-token", null, null, null, null, java.time.LocalDate.of(2000,1,1));
 	}
 
 	@Test
@@ -244,7 +244,7 @@ class GoogleAccountServiceTest {
 			new BusinessException(ErrorCode.POLICY_CONSENT_REQUIRED));
 
 		assertBusinessError(() -> resolve(new GoogleLoginRequest(
-			"id-token", "LEARNER", null, false, null), PROFILE),
+			"id-token", "LEARNER", null, false, null, java.time.LocalDate.of(2000,1,1)), PROFILE),
 			ErrorCode.POLICY_CONSENT_REQUIRED);
 		verify(userRepository, never()).saveAndFlush(any());
 	}

@@ -63,6 +63,8 @@ public class GoogleAccountService {
 			profile.sub()
 		);
 		User saved;
+		if(request.dateOfBirth()==null) { throw new BusinessException(ErrorCode.SIGNUP_REQUIRED); }
+		newUser.recordSignupDateOfBirth(request.dateOfBirth());
 		try {
 			saved = userRepository.saveAndFlush(newUser);
 		} catch (DataIntegrityViolationException exception) {
