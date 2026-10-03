@@ -37,6 +37,8 @@ import io.edupilot.material.MaterialOutlinePersistenceService;
 import io.edupilot.material.MaterialOverviewRepository;
 import io.edupilot.material.MaterialOverviewService;
 import io.edupilot.mail.EmailDeliveryRepository;
+import io.edupilot.mail.EmailOutboxRepository;
+import io.edupilot.mail.EmailOutboxStore;
 import io.edupilot.notification.NotificationBulkRepository;
 import io.edupilot.notification.NotificationService;
 import io.edupilot.notification.NotificationTriggerService;
@@ -80,6 +82,8 @@ import io.edupilot.usernote.WrongAnswerNoteService;
 	MaterialOverviewRepository.class,
 	MaterialOverviewService.class,
 	EmailDeliveryRepository.class,
+	EmailOutboxRepository.class,
+	EmailOutboxStore.class,
 	NotificationService.class,
 	NotificationTriggerService.class,
 	NotificationBulkRepository.class,

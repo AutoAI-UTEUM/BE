@@ -3268,3 +3268,11 @@ data: {"code":"AI_SERVICE_TIMEOUT","category":"TIMEOUT","message":"AI 서비스 
   재시도하지 않습니다.
 - 문항 스트림 로그의 `quizQuestionFirstMs`는 AI 시도 시작부터 첫 문항까지의 ms
   (없으면 null), `quizQuestionCount`는 중계 문항 수입니다. usage 저장은 기존대로입니다.
+
+### Mail recovery and administrator history (#473)
+
+Existing admin mail endpoints and QUEUED/SENT/FAILED/RATE_LIMITED response values remain.
+FAILED/errorSummary=DELIVERY_RESULT_UNKNOWN means provider outcome is unknown and automatic resend
+is blocked; SENT means provider acceptance, not recipient delivery. EXECUTOR_REJECTED_RETRY_PENDING
+and THROTTLED_RETRY_PENDING remain QUEUED until recovery or expiry. No payload is exposed by API.
+See [mail outbox](mail-outbox.md) for encryption, restart recovery, migration and operating limits.

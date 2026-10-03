@@ -36,6 +36,8 @@ import io.edupilot.mail.EmailDeliveryType;
 import io.edupilot.mail.EmailMessage;
 import io.edupilot.mail.EmailSender;
 import io.edupilot.mail.EmailService;
+import io.edupilot.mail.EmailOutboxStore;
+import io.edupilot.mail.EmailOutboxWorker;
 import io.edupilot.mail.MailProperties;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
@@ -70,6 +72,8 @@ class AdminMailIntegrationTest {
 	@Autowired private EmailDeliveryRepository deliveryRepository;
 	@Autowired private EmailDeliveryStore deliveryStore;
 	@Autowired private EmailService emailService;
+	@Autowired private EmailOutboxStore outboxStore;
+	@Autowired private java.time.Clock clock;
 	@Autowired private PlatformTransactionManager transactionManager;
 
 	private MockMvc mockMvc;
@@ -166,9 +170,11 @@ class AdminMailIntegrationTest {
 	void rollbackKeepsHistoryButNeverDispatchesMail() {
 		EmailSender sender = mock(EmailSender.class);
 		EmailService enabledService = new EmailService(
-			deliveryStore, sender, Runnable::run,
+			deliveryStore, outboxStore,
+			new EmailOutboxWorker(outboxStore, deliveryStore, sender,
+				new MailProperties(true, "logging", "no-reply@uteum.com", "", "https://www.uteum.com", "ap-northeast-2"), Runnable::run),
 			new MailProperties(true, "ses", "no-reply@uteum.com", "",
-				"https://www.uteum.com", "ap-northeast-2")
+				"https://www.uteum.com", "ap-northeast-2"), clock
 		);
 		AtomicReference<Long> id = new AtomicReference<>();
 		new TransactionTemplate(transactionManager).executeWithoutResult(transaction -> {
