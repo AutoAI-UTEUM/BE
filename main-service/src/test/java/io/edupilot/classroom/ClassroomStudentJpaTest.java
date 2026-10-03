@@ -260,12 +260,12 @@ class ClassroomStudentJpaTest {
 	}
 
 	private User user(String email, String name, UserRole role) {
-		return userRepository.saveAndFlush(User.create(
+		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
 			email,
 			"hash",
 			name,
 			role
-		));
+		)));
 	}
 
 	private LearningMaterial material(User owner) {

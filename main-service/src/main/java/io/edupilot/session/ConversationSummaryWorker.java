@@ -10,6 +10,7 @@ import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.dto.ConversationSummaryResponse;
 import io.edupilot.global.security.TraceIdFilter;
 
@@ -20,13 +21,16 @@ public class ConversationSummaryWorker implements ConversationSummaryTask {
 		ConversationSummaryWorker.class
 	);
 
+	private final EmailVerificationGate emailVerification;
 	private final ConversationSummaryPersistenceService persistenceService;
 	private final AiClient aiClient;
 
 	public ConversationSummaryWorker(
 		ConversationSummaryPersistenceService persistenceService,
-		AiClient aiClient
+		AiClient aiClient,
+		EmailVerificationGate emailVerification
 	) {
+		this.emailVerification = emailVerification;
 		this.persistenceService = persistenceService;
 		this.aiClient = aiClient;
 	}
@@ -47,6 +51,7 @@ public class ConversationSummaryWorker implements ConversationSummaryTask {
 				return;
 			}
 			ConversationSummaryBatch batch = candidate.get();
+			emailVerification.requireSessionOwnerVerified(sessionId);
 			ConversationSummaryResponse response =
 				aiClient.summarizeConversation(
 					batch.previousSummary(),

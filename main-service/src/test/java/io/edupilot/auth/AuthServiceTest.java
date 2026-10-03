@@ -87,7 +87,8 @@ class AuthServiceTest {
 			userActivityTracker,
 			loginAttemptLimiter,
 			policyService,
-			Clock.fixed(NOW, ZoneOffset.UTC)
+			Clock.fixed(NOW, ZoneOffset.UTC),
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationService.class)
 		);
 		lenient().when(policyService.validateSignup(any())).thenReturn(
 			new SignupSelection("0.9", "0.9", NOW)

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.ai.dto.ReportGenerateRequest;
@@ -27,6 +28,7 @@ public class ReportAiGenerationService {
 
 	private static final String SCHEMA_VERSION = "1.0";
 
+	private final EmailVerificationGate emailVerification;
 	private final ReportGenerationRepository generationRepository;
 	private final ReportEvidenceSnapshotRepository evidenceRepository;
 	private final StudentReportRepository reportRepository;
@@ -42,8 +44,10 @@ public class ReportAiGenerationService {
 		ReportCriterionResultRepository resultRepository,
 		AiClient aiClient,
 		AiUsageService aiUsageService,
-		ObjectMapper objectMapper
+		ObjectMapper objectMapper,
+		EmailVerificationGate emailVerification
 	) {
+		this.emailVerification = emailVerification;
 		this.generationRepository = generationRepository;
 		this.evidenceRepository = evidenceRepository;
 		this.reportRepository = reportRepository;
@@ -57,6 +61,7 @@ public class ReportAiGenerationService {
 		Prepared prepared = prepare(generationId);
 		ReportGenerateResponse response;
 		try {
+			emailVerification.requireVerified(prepared.userId());
 			response = aiClient.generateReport(prepared.request());
 			aiUsageService.record(
 				prepared.userId(),

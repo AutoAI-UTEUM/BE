@@ -75,6 +75,7 @@ erDiagram
 ### User
 
 - 이메일은 중복될 수 없습니다.
+- 이메일 소유 확인은 계정 상태와 별도로 `UNKNOWN | PENDING | VERIFIED`입니다. 기존 계정은 확인 근거 없이 `UNKNOWN`으로 유지하고 LOCAL·Google 신규 계정은 BE 확인 링크를 발급해 `PENDING`으로 시작합니다. `VERIFIED`에는 `emailVerifiedAt`이 반드시 있어야 합니다. 확인 전 로그인·refresh·본인 계정 관리는 가능하고 업무 API와 백그라운드 외부 AI 처리는 서버에서 차단합니다. 탈퇴는 상태를 `UNKNOWN`, 확인 시각을 null로 지웁니다. 이메일 확인을 보호자·연령·AI 동의로 해석하지 않습니다.
 - 비밀번호 원문을 저장하지 않습니다.
 - 역할은 `LEARNER`, `INSTRUCTOR`, `ADMIN`입니다. 공개 가입은 `LEARNER | INSTRUCTOR`만 허용하고 `ADMIN`은 기능 미구현·예약 상태로 유지합니다(DEC-017, DEC-029 Accepted).
 - `LEARNER`와 `INSTRUCTOR`는 개인 PDF 업로드와 개인 통합학습을 사용할 수 있습니다. 강의실 개설·관리·자료 연결은 소유 `INSTRUCTOR`만 가능하고, `LEARNER`와 타 강의실에 참여한 `INSTRUCTOR`는 승인 멤버로서 공개 자료를 조회·학습할 수 있습니다(DEC-030).
@@ -95,6 +96,13 @@ erDiagram
 - refresh token 회전은 같은 `AuthSession`을 유지하고 token 행만 교체합니다. 폐기 token 재사용은 현재 session family만 폐기하며, family를 알 수 없는 V41 이전 legacy token만 사용자 전체를 폐기합니다.
 - 로그아웃은 현재 session만 폐기합니다. 비밀번호 변경·관리자 초기화·회원 탈퇴·관리자 정지·역할 변경은 해당 사용자의 모든 `AuthSession`과 refresh token을 폐기합니다. 정지·역할 변경 전 발급한 access token은 인증 필터의 계정 상태·역할 재검증으로 차단합니다.
 - 이메일 비밀번호 재설정은 활성 `LOCAL` 사용자에게만 30분 유효한 단일 사용 링크를 발급합니다. 원문은 메일에만 싣고 DB에는 SHA-256 해시만 저장하며 재요청 시 이전 링크를 무효화합니다. 확정 성공 시 비밀번호 변경과 모든 `AuthSession`·refresh token 폐기를 한 트랜잭션에서 처리합니다.
+
+### EmailVerificationToken
+
+- 가입 이메일 소유 확인 전용 32바이트 난수이며 DB에는 원문 대신 SHA-256 토큰 해시와 발급 당시 이메일 해시를 저장합니다. 만료는 발급 후 30분, 경계 시각 포함입니다.
+- 재발급·확정·탈퇴는 사용자 행을 먼저 잠그는 순서로 직렬화합니다. 사용 완료·만료·현재 이메일 변경·비활성 계정의 링크는 무효입니다. 확정은 확인 시각 저장과 미사용 링크 폐기를 같은 트랜잭션에서 처리하며 인증 세션은 만들지 않습니다.
+- 가입·확인 링크 발급과 암호화 메일 outbox 저장은 호출자 트랜잭션에 참여합니다. 롤백이면 발송하지 않습니다. 비밀번호 재설정 링크는 이 확인 상태를 자동 변경하지 않습니다.
+- 업무 API와 외부 AI 호출 직전에 별도 읽기 트랜잭션으로 현재 커밋된 사용자 상태를 확인합니다. JWT·계정 캐시·아직 커밋하지 않은 상태를 확인 근거로 사용하지 않습니다. 상세 계약은 [이메일 소유 확인](email-verification.md)을 따릅니다.
 
 ### LearningMaterial
 

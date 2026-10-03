@@ -42,11 +42,11 @@ class MaterialRenameJpaTest {
 
 	@Test
 	void renamePersistsTitleAndAdvancesUpdatedAt() {
-		User owner = userRepository.saveAndFlush(User.create(
+		User owner = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"material-rename@example.com",
 			"hash",
 			"owner"
-		));
+		)));
 		LearningMaterial material = LearningMaterial.create(
 			owner,
 			"기존 제목",

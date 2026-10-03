@@ -186,12 +186,12 @@ class AdminApiIntegrationTest {
 	@Test
 	void adminPasswordResetReturnsPasswordOnceRevokesTokensAndAuditsWithoutSecret()
 		throws Exception {
-		User target = userRepository.saveAndFlush(User.create(
+		User target = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"reset-target@example.com",
 			passwordEncoder.encode("oldPassword123"),
 			"초기화 대상",
 			UserRole.LEARNER
-		));
+		)));
 		refreshTokenService.issue(target);
 		refreshTokenService.issue(target);
 		Logger logger = (Logger)LoggerFactory.getLogger(AdminAuditInterceptor.class);
@@ -288,12 +288,12 @@ class AdminApiIntegrationTest {
 
 	@Test
 	void suspendAndReinstateRevokesSessionsAndBlocksExistingAccessToken() throws Exception {
-		User target = userRepository.saveAndFlush(User.create(
+		User target = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"suspend-target@example.com",
 			passwordEncoder.encode("password123"),
 			"정지 대상",
 			UserRole.LEARNER
-		));
+		)));
 		String accessToken = bearer(target);
 		String refreshToken = refreshTokenService.issue(target).rawToken();
 
@@ -390,9 +390,9 @@ class AdminApiIntegrationTest {
 	@Test
 	void loginAndRefreshRateLimitsExposeRetryAfterWithoutLeakingAccountExistence()
 		throws Exception {
-		User target = userRepository.saveAndFlush(User.create(
+		User target = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"limited@example.com", passwordEncoder.encode("password123"), "제한 대상"
-		));
+		)));
 		String loginBody = "{\"email\":\"limited@example.com\",\"password\":\"wrong123\"}";
 		for (int attempt = 0; attempt < 5; attempt++) {
 			mockMvc.perform(post("/api/auth/login")
@@ -465,7 +465,7 @@ class AdminApiIntegrationTest {
 
 	@Test
 	void adminPasswordResetRejectsGoogleDeletedAndSelfTargets() throws Exception {
-		User googleTarget = userRepository.saveAndFlush(User.createGoogle(
+		User googleTarget = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.createGoogle(
 			"google-target@example.com",
 			"!google-account",
 			"구글 대상",
@@ -476,7 +476,7 @@ class AdminApiIntegrationTest {
 			null,
 			null,
 			"google-target-sub"
-		));
+		)));
 		assertThat(googleTarget.getAuthProvider()).isEqualTo(AuthProvider.GOOGLE);
 
 		mockMvc.perform(post(
@@ -534,7 +534,7 @@ class AdminApiIntegrationTest {
 
 	@Test
 	void listsSearchesAndFiltersUsersIncludingDeletedAccounts() throws Exception {
-		User googleUser = userRepository.saveAndFlush(User.createGoogle(
+		User googleUser = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.createGoogle(
 			"case.match@example.com",
 			"password-hash",
 			"Search Person",
@@ -545,7 +545,7 @@ class AdminApiIntegrationTest {
 			"privacy-v1",
 			Instant.parse("2026-08-01T00:00:00Z"),
 			"private-google-sub"
-		));
+		)));
 
 		mockMvc.perform(get("/api/admin/users")
 				.header(HttpHeaders.AUTHORIZATION, bearer(admin))
@@ -590,7 +590,7 @@ class AdminApiIntegrationTest {
 
 	@Test
 	void userResponsesCannotSerializeCredentialFields() throws Exception {
-		User googleUser = userRepository.saveAndFlush(User.createGoogle(
+		User googleUser = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.createGoogle(
 			"secret@example.com",
 			"private-password-hash",
 			"민감정보 검증",
@@ -601,7 +601,7 @@ class AdminApiIntegrationTest {
 			"privacy-v1",
 			Instant.parse("2026-08-01T00:00:00Z"),
 			"private-google-sub"
-		));
+		)));
 
 		String listBody = mockMvc.perform(get("/api/admin/users")
 				.header(HttpHeaders.AUTHORIZATION, bearer(admin)))
@@ -813,12 +813,12 @@ class AdminApiIntegrationTest {
 	}
 
 	private User saveUser(String email, String name, UserRole role) {
-		return userRepository.saveAndFlush(User.create(
+		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
 			email,
 			"password-hash",
 			name,
 			role
-		));
+		)));
 	}
 
 	private Classroom saveClassroom(String name, String inviteCode) {

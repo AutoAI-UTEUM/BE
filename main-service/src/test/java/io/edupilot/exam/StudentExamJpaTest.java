@@ -71,18 +71,20 @@ class StudentExamJpaTest {
 	@Autowired private ExamAiGradingService aiGradingService;
 	private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 	@MockitoBean private AiClient aiClient;
+	// These persistence tests use rollback-only fixtures. Committed email eligibility is tested by EmailVerificationApiIntegrationTest.
+	@MockitoBean private io.edupilot.auth.EmailVerificationGate emailVerificationGate;
 
 	private User learner;
 	private Classroom classroom;
 
 	@BeforeEach
 	void setUp() {
-		User instructor = userRepository.save(User.create(
+		User instructor = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"student-exam-instructor@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
-		));
-		learner = userRepository.save(User.create(
+		)));
+		learner = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"student-exam-learner@example.com", "hash", "Learner", UserRole.LEARNER
-		));
+		)));
 		classroom = classroomRepository.save(Classroom.create(
 			instructor,
 			"Student exam classroom",

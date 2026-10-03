@@ -68,6 +68,7 @@ class UserServiceTest {
 		);
 		ReflectionTestUtils.setField(user, "id", 1L);
 		lenient().when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+		lenient().when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
 	}
 
 	@Test
@@ -253,7 +254,7 @@ class UserServiceTest {
 		assertThat(user.getPasswordHash()).isEqualTo("!withdrawn:1");
 		verify(fileStorage).delete("avatars/avatar.png");
 		InOrder order = inOrder(userRepository, withdrawalHook, refreshTokenService);
-		order.verify(userRepository).findById(1L);
+		order.verify(userRepository).findByIdForUpdate(1L);
 		order.verify(userRepository).flush();
 		order.verify(withdrawalHook).onWithdraw(1L);
 		order.verify(refreshTokenService).revokeAll(1L);
@@ -269,7 +270,7 @@ class UserServiceTest {
 			);
 
 		assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
-		verify(userRepository).findById(1L);
+		verify(userRepository).findByIdForUpdate(1L);
 	}
 
 	private byte[] pngBytes() {

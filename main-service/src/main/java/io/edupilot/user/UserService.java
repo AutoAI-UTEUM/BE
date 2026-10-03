@@ -195,7 +195,7 @@ public class UserService {
 
 	@Transactional
 	public void withdraw(Long userId, String password) {
-		User user = activeUser(userId);
+		User user = withdrawalUser(userId);
 		if (!passwordEncoder.matches(password, user.getPasswordHash())) {
 			throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
 		}
@@ -208,6 +208,15 @@ public class UserService {
 		}
 		withdrawalHooks.forEach(hook -> hook.onWithdraw(userId));
 		refreshTokenService.revokeAll(userId);
+	}
+
+	private User withdrawalUser(Long userId) {
+		User user = userRepository.findByIdForUpdate(userId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+		if (!user.isActive()) {
+			throw new BusinessException(ErrorCode.USER_INACTIVE);
+		}
+		return user;
 	}
 
 	private User activeUser(Long userId) {

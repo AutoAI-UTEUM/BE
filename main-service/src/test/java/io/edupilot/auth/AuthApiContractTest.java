@@ -1058,6 +1058,7 @@ class AuthApiContractTest {
 	@Test
 	void withdrawalRequiresPasswordAndAnonymizesCurrentUser() throws Exception {
 		when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+		when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
 		when(refreshTokenRepository.revokeAllActiveByUserId(any(), any())).thenReturn(1);
 		String accessToken = jwtTokenProvider.createAccessToken(user);
 

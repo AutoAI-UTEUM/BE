@@ -320,7 +320,7 @@ class UserNoteJpaTest {
 
 	private User user() {
 		int id = IDS.incrementAndGet();
-		return users.saveAndFlush(User.create("note-" + id + "@test.com", "hash", "학습자"));
+		return users.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create("note-" + id + "@test.com", "hash", "학습자")));
 	}
 
 	private LearningMaterial material(User owner) {

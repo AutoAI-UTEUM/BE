@@ -61,7 +61,8 @@ class ReportAiGenerationServiceTest {
 			resultRepository,
 			aiClient,
 			aiUsageService,
-			objectMapper
+			objectMapper,
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class)
 		);
 		instructor = User.create(
 			"instructor@example.com", "hash", "Instructor", UserRole.INSTRUCTOR

@@ -102,6 +102,8 @@ class TurnAiUsageIntegrationTest {
 	@MockitoBean
 	private AiClient aiClient;
 	@MockitoBean
+	private io.edupilot.auth.EmailVerificationGate emailVerificationGate;
+	@MockitoBean
 	private TurnResponseValidator responseValidator;
 	@MockitoBean
 	private TurnPersistenceService persistenceService;

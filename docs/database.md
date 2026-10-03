@@ -17,6 +17,7 @@
 | `auth_sessions` | id, user_id, last_activity_at, idle_expires_at, absolute_expires_at, revoked_at(nullable), timestamps | `FK(user_id)`, `IDX(user_id,revoked_at)`, 만료 순서 CHECK |
 | `refresh_tokens` | id, user_id, session_id(nullable), token_hash, expires_at, revoked_at, created_at | `FK(user_id)`, `FK(session_id)`, `UK(token_hash)`, `IDX(user_id)`, `IDX(session_id,revoked_at)` |
 | `password_reset_tokens` | id, user_id, token_hash(SHA-256 hex), expires_at, used_at(nullable), requested_ip, created_at | `FK(user_id)`, `UK(token_hash)`, `IDX(user_id,created_at)`; 원문 미저장 |
+| `email_verification_tokens` | id, user_id, token_hash(SHA-256 hex), email_hash(SHA-256 hex), expires_at, used_at(nullable), created_at | `FK(user_id) ON DELETE CASCADE`, `UK(token_hash)`, `IDX(user_id,created_at)`, `IDX(expires_at)`; 원문 미저장 |
 | `policy_documents` | id, type(TERMS/PRIVACY), version, title, content, summary(nullable), requires_consent, effective_at, created_by, created_at | `UK(type,version)`, `IDX(type,effective_at,id)`, type CHECK; 내용 불변, 현재 버전은 시행 시각 기준 |
 | `policy_consents` | id, user_id, policy_type, policy_version, agreed_at, ip, user_agent(nullable) | `FK(user_id)`, `UK(user_id,policy_type,policy_version)`, `IDX(user_id,policy_type)`; 이력 삭제·수정 없음 |
 | `learning_materials` | id, owner_id, title, storage_key, page_count, processing_status, failure_reason(nullable), failure_trace_id(nullable), captions_completed_at(nullable), caption_failure_reason(nullable), xai_file_id(nullable), xai_file_upload_attempted_at(nullable), status, timestamps | `FK(owner_id)`, `UK(storage_key)`, `IDX(owner_id,status)`, `IDX(status,processing_status,xai_file_id,xai_file_upload_attempted_at,id)`, 상태·추출/캡션 실패 사유·page_count CHECK |
@@ -291,3 +292,9 @@ Quota queries use reservation time across every delivery ID. Missing singleton s
 Metadata stays in `email_deliveries`; terminal payloads are cleared. Legacy QUEUED rows without
 payload become FAILED/LEGACY_PAYLOAD_UNAVAILABLE. V53 must precede this migration in the release.
 Encryption configuration, recovery boundaries and rollback limitations: [mail outbox](mail-outbox.md).
+
+### Email ownership verification (#471)
+
+`V55__email_ownership_verification.sql` adds `users.email_verification_state VARCHAR(20) NOT NULL DEFAULT 'UNKNOWN'` and nullable `email_verified_at DATETIME(6)`. State and evidence checks require VERIFIED with a timestamp, or UNKNOWN/PENDING with no timestamp. Existing users stay UNKNOWN; no email confirmation is inferred from login history or previous signup.
+
+The migration creates `email_verification_tokens` with SHA-256 token/current-email binding, single-use metadata, unique token hash and user/expiry indexes. It neither deletes existing users nor backfills approval. The release migration order is V53 (#474), V54 (#473), then V55. Email expiry cleanup deletes only expired token rows. [Email verification](email-verification.md) describes the deliberate access change for legacy users and the release checks still required.

@@ -60,12 +60,15 @@
 | `UNSUPPORTED_GROUP_BY` | 400 | xAI 사용량의 `groupBy=API_KEY`처럼 내부 로그가 지원하지 않는 그룹 기준 |
 | `MALFORMED_REQUEST` | 400 | JSON/요청 구조 오류 |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | 지원하지 않는 콘텐츠 타입 |
+| `METHOD_NOT_ALLOWED` | 405 | 지원하지 않는 HTTP 메서드; `Allow` 반환. 이메일 확인 GET은 비소비 |
 | `AUTHENTICATION_REQUIRED` | 401 | 인증 정보 없음 |
 | `TOKEN_INVALID` | 401 | 위조/형식 오류 토큰 |
 | `TOKEN_EXPIRED` | 401 | 만료된 토큰 |
 | `AUTH_SESSION_IDLE_EXPIRED` | 401 | 역할별 idle timeout 동안 실제 사용자 활동이 없어 인증 세션 종료 |
 | `AUTH_SESSION_ABSOLUTE_EXPIRED` | 401 | 최초 로그인 기준 14일 절대 만료로 인증 세션 종료 |
 | `ACCESS_DENIED` | 403 | 역할/권한 부족 |
+| `EMAIL_VERIFICATION_REQUIRED` | 403 | 이메일 소유 확인 근거 없는 계정의 업무 API·외부 AI 접근 차단 |
+| `EMAIL_VERIFICATION_TOKEN_INVALID` | 400 | 이메일 확인 링크의 만료·재사용·탈퇴·현재 이메일 불일치·유효하지 않은 토큰을 동일 처리 |
 | `RESOURCE_NOT_FOUND` | 404 | 일반 리소스 없음 |
 | `RATE_LIMIT_EXCEEDED` | 429 | 호출 제한 초과 |
 | `AI_QUOTA_EXCEEDED` | 429 | 사용자별 일일 AI 호출 횟수 한도 초과 |

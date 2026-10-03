@@ -417,7 +417,7 @@ class ReportSnapshotBuilderJpaTest {
 	}
 
 	private User user(String email, String name, UserRole role) {
-		return userRepository.save(User.create(email, "hash", name, role));
+		return userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(email, "hash", name, role)));
 	}
 
 	private Classroom classroom(User owner, String name, String inviteCode) {

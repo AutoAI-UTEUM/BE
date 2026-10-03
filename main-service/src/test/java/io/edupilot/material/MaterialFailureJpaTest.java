@@ -118,11 +118,11 @@ class MaterialFailureJpaTest {
 
 	@Test
 	void persistsFailureMetadataWithFailedMaterial() {
-		User owner = userRepository.saveAndFlush(User.create(
+		User owner = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"material-failure@example.com",
 			"hash",
 			"owner"
-		));
+		)));
 		LearningMaterial material = materialRepository.saveAndFlush(
 			LearningMaterial.create(
 				owner,
@@ -345,11 +345,11 @@ class MaterialFailureJpaTest {
 	}
 
 	private User owner() {
-		return userRepository.saveAndFlush(User.create(
+		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"material-recovery-" + UUID.randomUUID() + "@example.com",
 			"hash",
 			"owner"
-		));
+		)));
 	}
 
 	private LearningMaterial material(User owner, String name) {

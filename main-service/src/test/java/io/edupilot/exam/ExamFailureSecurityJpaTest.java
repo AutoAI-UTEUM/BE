@@ -109,12 +109,12 @@ class ExamFailureSecurityJpaTest {
 	@BeforeEach
 	void setUp() {
 		String suffix = UUID.randomUUID().toString().substring(0, 8);
-		instructor = userRepository.saveAndFlush(User.create(
+		instructor = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"security-instructor-" + suffix + "@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
-		));
-		learner = userRepository.saveAndFlush(User.create(
+		)));
+		learner = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"security-learner-" + suffix + "@example.com", "hash", "Learner", UserRole.LEARNER
-		));
+		)));
 		Classroom classroom = classroomRepository.saveAndFlush(Classroom.create(
 			instructor, "Security exam", LocalDate.of(2026, 9, 1), LocalDate.of(2026, 12, 15),
 			ClassroomColor.BLUE, null, "SEC" + suffix

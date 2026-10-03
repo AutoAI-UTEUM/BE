@@ -47,6 +47,7 @@ public class AuthService {
 	private final PolicyService policyService;
 	private final String dummyPasswordHash;
 	private final Clock clock;
+	private final EmailVerificationService emailVerification;
 
 	public AuthService(
 		UserRepository userRepository,
@@ -58,7 +59,8 @@ public class AuthService {
 		UserActivityTracker userActivityTracker,
 		LoginAttemptLimiter loginAttemptLimiter,
 		PolicyService policyService,
-		Clock clock
+		Clock clock,
+		EmailVerificationService emailVerification
 	) {
 		this.userRepository = userRepository;
 		this.passwordEncoder = passwordEncoder;
@@ -71,6 +73,7 @@ public class AuthService {
 		this.policyService = policyService;
 		this.dummyPasswordHash = passwordEncoder.encode(DUMMY_PASSWORD);
 		this.clock = clock;
+		this.emailVerification = emailVerification;
 	}
 
 	@Transactional
@@ -99,6 +102,7 @@ public class AuthService {
 			throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);
 		}
 		policyService.recordSignup(savedUser, consent, ip, userAgent);
+		emailVerification.signup(savedUser, ip);
 		return SignupResponse.from(savedUser);
 	}
 
