@@ -1008,6 +1008,8 @@ Query:
 
 퀴즈 제목, 유형, 범위, 제출 상태, 점수 요약을 반환합니다. 정답/루브릭은 포함하지 않습니다.
 
+`page`는 0부터 시작하며 기본값 0, `size`는 1~100이며 기본값 100입니다. `createdAt DESC, quizId DESC` 정렬로 페이지를 조회합니다. 기존 `data.quizzes` 배열을 유지하고 `page`, `size`, `totalElements`, `totalPages`, `hasNext`를 함께 반환합니다. 예를 들어 101건이 있으면 첫 응답은 100건과 `hasNext=true`, `page=1&size=100`은 남은 1건과 `hasNext=false`를 반환합니다. 마지막 이후 페이지는 빈 배열입니다. 잘못된 페이지/크기는 `VALIDATION_FAILED`(400), 타인 또는 삭제 세션은 `SESSION_NOT_FOUND`(404)입니다. 조회 사이 신규 생성이 생길 수 있으므로 여러 페이지를 하나의 고정 스냅샷으로 간주하지 않습니다.
+
 ### POST `/api/sessions/{sessionId}/complete`
 
 활성 세션을 완료 처리하고 최종 상태를 반환합니다. `COMPLETED → ACTIVE` 재개는 MVP에서 지원하지 않으며, 재학습은 새 세션 생성으로 처리합니다(DEC-024 부가 확정).
