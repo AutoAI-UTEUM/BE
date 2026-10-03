@@ -2,6 +2,9 @@ package io.edupilot.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -18,6 +21,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
@@ -38,6 +42,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -86,7 +91,7 @@ class EmailVerificationApiIntegrationTest {
 	@Autowired private AuthSessionRepository authSessions;
 	@Autowired private RefreshTokenRepository refreshTokens;
 	@Autowired private JwtTokenProvider jwt;
-	@Autowired private PasswordEncoder passwords;
+	@MockitoSpyBean private PasswordEncoder passwords;
 	@Autowired private JdbcTemplate jdbc;
 	@Autowired private Clock clock;
 	@Autowired private EmailVerificationGate gate;
@@ -102,6 +107,12 @@ class EmailVerificationApiIntegrationTest {
 		if(System.getenv("VERIFICATION_MYSQL_URL")!=null){
 			assertThat(jdbc.queryForObject("select @@port",Integer.class)).isEqualTo(33316);
 			assertThat(jdbc.queryForObject("select database()",String.class)).isEqualTo("verification_synthetic");
+		}
+		// Hibernate create-drop omits V55's cross-column evidence CHECK. Exercise that
+		// same production invariant in both the H2 and disposable MySQL API fixtures.
+		String schema = System.getenv("VERIFICATION_MYSQL_URL") == null ? "current_schema" : "database()";
+		if (jdbc.queryForObject("select count(*) from information_schema.table_constraints where lower(table_name)='users' and lower(constraint_name)='chk_user_email_verified_evidence' and lower(table_schema)=lower(" + schema + ")", Integer.class) == 0) {
+			jdbc.execute("alter table users add constraint chk_user_email_verified_evidence check ((email_verification_state='VERIFIED' and email_verified_at is not null) or (email_verification_state in ('UNKNOWN','PENDING') and email_verified_at is null))");
 		}
 		ip = "192.0.2." + IPS.incrementAndGet();
 		messages.clear();
@@ -325,6 +336,87 @@ class EmailVerificationApiIntegrationTest {
 		assertThat(tokens.findAll()).singleElement().satisfies(token -> assertThat(token.getUsedAt()).isNotNull());
 		confirm(raw).andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("EMAIL_VERIFICATION_TOKEN_INVALID"));
 		mvc.perform(get("/api/materials").header("Authorization", access)).andExpect(status().isOk());
+	}
+
+	@Test
+	void withdrawalAndConfirmationSerializeWhenWithdrawalHasAlreadyReadThePendingAccount() throws Exception {
+		User user = unknown("withdraw-first-race@example.com");
+		request(user).andExpect(status().isAccepted());
+		String raw = token(user.getEmail());
+		CountDownLatch accountRead = new CountDownLatch(1);
+		CountDownLatch allowWithdrawal = new CountDownLatch(1);
+		doAnswer(invocation -> {
+			// UserService has read its real managed User before checking the real BCrypt hash.
+			accountRead.countDown();
+			assertThat(allowWithdrawal.await(15, TimeUnit.SECONDS)).isTrue();
+			return invocation.callRealMethod();
+		}).when(passwords).matches(eq("StrongPass123!"), anyString());
+		try (var executor = Executors.newFixedThreadPool(2)) {
+			var withdrawn = executor.submit(() -> { userService.withdraw(user.getId(), "StrongPass123!"); return null; });
+			try {
+				assertThat(accountRead.await(15, TimeUnit.SECONDS)).isTrue();
+				var confirmed = executor.submit(() -> confirm(raw).andReturn().getResponse().getStatus());
+				Integer statusBeforeWithdrawal = null;
+				try { statusBeforeWithdrawal = confirmed.get(500, TimeUnit.MILLISECONDS); }
+				catch (TimeoutException waitingForAccountLock) { /* Expected with serialized writes. */ }
+				allowWithdrawal.countDown();
+				withdrawn.get(15, TimeUnit.SECONDS);
+				assertThat(confirmed.get(15, TimeUnit.SECONDS)).isEqualTo(400);
+				assertThat(statusBeforeWithdrawal).isNull();
+			} finally { allowWithdrawal.countDown(); }
+		}
+		assertWithdrawnAndOldLinkRejected(user, raw);
+	}
+
+	@Test
+	void withdrawalAfterAnUncommittedConfirmationClearsBothConfirmationColumns() throws Exception {
+		User user = unknown("confirm-first-withdraw-race@example.com");
+		request(user).andExpect(status().isAccepted());
+		String raw = token(user.getEmail());
+		CountDownLatch confirmationApplied = new CountDownLatch(1);
+		CountDownLatch allowConfirmationCommit = new CountDownLatch(1);
+		CountDownLatch withdrawalStarted = new CountDownLatch(1);
+		try (var executor = Executors.newFixedThreadPool(2)) {
+			var confirmed = executor.submit(() -> {
+				new TransactionTemplate(transactions).executeWithoutResult(transaction -> {
+					try { confirm(raw).andExpect(status().isOk()); }
+					catch (Exception failure) { throw new AssertionError(failure); }
+					users.flush();
+					confirmationApplied.countDown();
+					try { assertThat(allowConfirmationCommit.await(15, TimeUnit.SECONDS)).isTrue(); }
+					catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new IllegalStateException(interrupted); }
+				});
+				return null;
+			});
+			try {
+				assertThat(confirmationApplied.await(15, TimeUnit.SECONDS)).isTrue();
+				var withdrawn = executor.submit(() -> {
+					withdrawalStarted.countDown();
+					userService.withdraw(user.getId(), "StrongPass123!");
+					return null;
+				});
+				assertThat(withdrawalStarted.await(15, TimeUnit.SECONDS)).isTrue();
+				org.assertj.core.api.Assertions.assertThatThrownBy(() -> withdrawn.get(500, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+				allowConfirmationCommit.countDown();
+				confirmed.get(15, TimeUnit.SECONDS);
+				withdrawn.get(15, TimeUnit.SECONDS);
+			} finally { allowConfirmationCommit.countDown(); }
+		}
+		assertThat(tokens.findAll()).singleElement().satisfies(token -> assertThat(token.getUsedAt()).isNotNull());
+		assertWithdrawnAndOldLinkRejected(user, raw);
+	}
+
+	private void assertWithdrawnAndOldLinkRejected(User user, String raw) throws Exception {
+		User persisted = users.findById(user.getId()).orElseThrow();
+		assertThat(persisted.getStatus()).isEqualTo(UserStatus.DELETED);
+		assertThat(persisted.getEmailVerificationState()).isEqualTo(EmailVerificationState.UNKNOWN);
+		assertThat(persisted.getEmailVerifiedAt()).isNull();
+		confirm(raw).andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("EMAIL_VERIFICATION_TOKEN_INVALID"));
+		MvcResult denied = mvc.perform(get("/api/materials").header("Authorization", bearer(user)))
+			.andExpect(status().is4xxClientError()).andReturn();
+		assertThat(new JsonMapper().readTree(denied.getResponse().getContentAsString()).get("error").get("code").asText())
+			.isIn("USER_INACTIVE", "TOKEN_INVALID");
+		verifyNoInteractions(ai);
 	}
 
 	private enum PendingAccountWrite { PROFILE, PREFERENCES, PASSWORD }
