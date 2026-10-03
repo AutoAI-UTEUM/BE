@@ -31,19 +31,9 @@ public class LoggingEmailSender implements EmailSender {
 	@Override
 	public EmailDeliveryResult send(EmailMessage message) {
 		String providerMessageId = "logging-" + UUID.randomUUID();
-		if (production) {
-			log.atInfo()
-				.addKeyValue("recipient", message.to())
-				.addKeyValue("subject", message.subject())
-				.log("Mail delivery simulated; body suppressed in prod");
-		} else {
-			log.atInfo()
-				.addKeyValue("recipient", message.to())
-				.addKeyValue("subject", message.subject())
-				.addKeyValue("textBody", message.textBody())
-				.addKeyValue("htmlBody", message.htmlBody())
-				.log("Mail delivery simulated");
-		}
+		log.atInfo()
+			.addKeyValue("mailType", message.type())
+			.log("Mail delivery simulated; content suppressed");
 		return new EmailDeliveryResult(providerMessageId);
 	}
 }

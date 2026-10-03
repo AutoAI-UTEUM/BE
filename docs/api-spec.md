@@ -364,7 +364,7 @@ FE는 `EMAIL_ALREADY_EXISTS`를 토큰 오류나 `SIGNUP_REQUIRED`로 취급하�
 {"message":"등록된 이메일이면 재설정 안내를 발송했습니다."}
 ```
 
-활성 `LOCAL` 계정에만 `/reset-password?token=...` 링크를 발송합니다. 링크는 30분 유효하며 재요청하면 이전 미사용 링크가 무효화됩니다. 이메일당 시간 3회, IP당 시간 10회 초과 시 내부 발송·토큰 생성만 생략합니다. 운영 감사 로그에는 이메일·토큰 원문을 남기지 않습니다. dev의 `logging` 메일 provider는 링크 확인을 위해 본문을 출력하므로 실사용자 정보를 넣지 않습니다.
+활성 `LOCAL` 계정에만 `/reset-password?token=...` 링크를 발송합니다. 링크는 30분 유효하며 재요청하면 이전 미사용 링크가 무효화됩니다. 이메일당 시간 3회, IP당 시간 10회 초과 시 내부 발송·토큰 생성만 생략합니다. 운영 감사 로그에는 이메일·토큰 원문을 남기지 않습니다. `logging` 메일 provider는 모든 프로파일에서 본문·HTML·제목·수신 주소를 출력하지 않으며 메일 종류와 모의 발송 상태만 기록합니다. 테스트는 EmailSender mock으로 메일을 확인합니다.
 
 ### POST `/api/auth/password-reset/confirm`
 
@@ -2973,7 +2973,7 @@ GET은 단일 임계값 설정을 반환하며 행이 없으면 1차 기본값�
 `attemptCount`, `createdAt`, `sentAt`을 포함합니다. `type`은
 `PASSWORD_RESET|EMAIL_VERIFY|NOTIFICATION|TEST`입니다. 본문은 이력·응답에 포함하지
 않습니다. `enabled=false`일 때는 `FAILED`/`errorSummary=DISABLED`입니다.
-prod에서 메일 provider가 `logging`이면 기동을 거부하며, `EDUPILOT_MAIL_ALLOW_LOGGING_IN_PROD=true`를 명시한 경우에만 본문을 숨긴 채 발송 없이 기동합니다.
+prod에서 메일 provider가 `logging`이면 기동을 거부하며, `EDUPILOT_MAIL_ALLOW_LOGGING_IN_PROD=true`를 명시한 경우에만 발송 없이 기동합니다. 본문·HTML·제목·수신 주소는 dev/local/test를 포함해 로그에 출력하지 않습니다.
 
 이 이슈는 발송 기반과 관리자 검증 API만 제공합니다. 비밀번호 재설정·가입 이메일 인증·
 알림 메일 연결은 후속 이슈이며, 기존 인앱 알림은 변경되지 않습니다.

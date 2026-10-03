@@ -44,12 +44,18 @@ class EmailSenderTest {
 	}
 
 	@Test
-	void loggingProviderShowsBodyOnlyOutsideProd(CapturedOutput output) {
-		LoggingEmailSender sender = new LoggingEmailSender(
-			new MockEnvironment().withProperty("spring.profiles.active", "dev")
-		);
-		assertThat(sender.send(message()).providerMessageId()).startsWith("logging-");
-		assertThat(output).contains("Test subject", "secret body");
+	void loggingProviderSuppressesContentAndTokenLinksInEveryNonprodProfile(CapturedOutput output) {
+		for (String profile : java.util.List.of("local", "dev", "test")) {
+			MockEnvironment environment = new MockEnvironment();
+			environment.setActiveProfiles(profile);
+			LoggingEmailSender sender = new LoggingEmailSender(environment);
+			assertThat(sender.send(new EmailMessage("person@example.com", "subject secret-token",
+				"https://dev.uteum.com/reset?token=secret-token",
+				"<a href='https://dev.uteum.com/reset?token=html-secret'>Reset</a>",
+				EmailDeliveryType.PASSWORD_RESET)).providerMessageId()).startsWith("logging-");
+		}
+		assertThat(output).contains("Mail delivery simulated; content suppressed")
+			.doesNotContain("person@example.com", "secret-token", "html-secret", "textBody", "htmlBody");
 	}
 
 	@Test
