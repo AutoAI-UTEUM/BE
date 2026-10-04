@@ -31,7 +31,7 @@ public class GuardianWebPersistence {
 		if (requests.countByUser_IdAndIssuedAtAfter(userId, now.minusSeconds(3600)) >= 3) {
 			throw new BusinessException(ErrorCode.RATE_LIMIT_EXCEEDED);
 		}
-		requests.findByUser_IdOrderByIssuedAtDescIdDesc(userId).forEach(GuardianWebRequest::cancel);
+		requests.findByUserIdForUpdate(userId).forEach(GuardianWebRequest::cancel);
 		String raw = secrets.token();
 		var row = GuardianWebRequest.issue(user, GuardianWebSecrets.hash(raw), policy, now);
 		requests.saveAndFlush(row);
@@ -87,7 +87,7 @@ public class GuardianWebPersistence {
 	@Transactional(propagation = Propagation.MANDATORY)
 	public void cancelUser(Long userId) {
 		// Withdrawal already holds the User row. This method is called by its MANDATORY hook.
-		requests.findByUser_IdOrderByIssuedAtDescIdDesc(userId).forEach(GuardianWebRequest::cancel);
+		requests.findByUserIdForUpdate(userId).forEach(GuardianWebRequest::cancel);
 	}
 	@Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
 	public List<String> expiredIds() { return requests.expiredIds(now(), PageRequest.of(0, 100)); }
@@ -95,7 +95,7 @@ public class GuardianWebPersistence {
 		Long owner = requests.ownerOfId(id).orElse(null);
 		if (owner == null) { return; }
 		users.findByIdForUpdate(owner).orElseThrow(this::invalid);
-		var row = requests.findById(id).orElseThrow();
+		var row = requests.findByIdForUpdate(id).orElseThrow();
 		if (row.state() == GuardianWebRequest.State.AWAITING_CONSENT && !row.expiresAt().isAfter(now())) { row.cancel(); }
 		else if (row.phoneExpiresAt() != null && !row.phoneExpiresAt().isAfter(now())) {
 			if (row.state() == GuardianWebRequest.State.SENDING || row.state() == GuardianWebRequest.State.VERIFYING) {
@@ -107,15 +107,16 @@ public class GuardianWebPersistence {
 		Long userId = requests.ownerOfToken(hash).orElseThrow(this::invalid);
 		User user = users.findByIdForUpdate(userId).orElseThrow(this::invalid);
 		if (!user.isActive() || user.isLegacyAccessExempt()) { throw invalid(); }
-		var row = requests.findByTokenHash(hash).orElseThrow(this::invalid);
+		var row = requests.findByTokenHashForUpdate(hash).orElseThrow(this::invalid);
+		if (!row.userId().equals(userId)) { throw invalid(); }
 		if (!row.usable(now())) { throw invalid(); }
 		return row;
 	}
 	private GuardianWebRequest forCompletion(Attempt attempt, GuardianWebRequest.State expected) {
 		User user = users.findByIdForUpdate(attempt.userId()).orElse(null);
 		if (user == null || !user.isActive() || user.isLegacyAccessExempt()) { return null; }
-		var row = requests.findById(attempt.id()).orElse(null);
-		if (row == null || !row.matchesAttempt(attempt.nonce(), expected) || !row.usable(now())
+		var row = requests.findByIdForUpdate(attempt.id()).orElse(null);
+		if (row == null || !row.userId().equals(attempt.userId()) || !row.matchesAttempt(attempt.nonce(), expected) || !row.usable(now())
 			|| !row.phoneExpiresAt().isAfter(now())) { return null; }
 		return row;
 	}
