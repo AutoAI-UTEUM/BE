@@ -5,6 +5,8 @@
 현재 `fixture.mjs`는 SQLite `:memory:`만 사용하며 이 계획을 실제 DB에 적용할 기능이 없다.
 배포/auth/schema 확인 순서는 [PR501 고정 런북](https://github.com/AutoAI-UTEUM/BE/blob/fd12b01ecfef34b45629e2a8efe4068a4b5861c1/docs/launch-deployment-preflight.md),
 목록의 101개/정렬/404/400 계약은 [PR481 절차](https://github.com/AutoAI-UTEUM/BE/pull/481#issuecomment-5969927454)를 재사용한다.
+PR501 링크는 최초 준비 근거이며 최종 통합의 설정·수동 FE 활성화·복구 조건은
+[현재 배포 사전 점검](../../launch-deployment-preflight.md)과 [현재 auth handoff](fe-handoff.md)를 우선 대조한다.
 
 ## 선택할 실제 생성 경로
 

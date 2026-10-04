@@ -8,6 +8,12 @@
 인증 준비와 실제 배포를 연결하는 조건은 [PR501의 배포 사전 점검](https://github.com/AutoAI-UTEUM/BE/blob/fd12b01ecfef34b45629e2a8efe4068a4b5861c1/docs/launch-deployment-preflight.md)을 참조한다.
 PR495 후보의 신규 인증 동작이 현재 DEV에 적용됐다고 가정하지 않는다.
 
+위 PR501/502 고정 링크는 최초 준비 시점의 근거다. 최종 통합을 검토할 때는 이 후보의
+[현재 가입 계약](../fe-auth-contract/README.md), [FE 후속 답변](../fe-auth-contract/FE-FOLLOWUP.md),
+[현재 배포 사전 점검](../../launch-deployment-preflight.md)을 함께 사용한다.
+필수 정책 0개·기존 LEGACY_EXEMPT·새 API 없는 수동 활성화안은 이 최신 문서와 대조한다.
+NOTE04의 실제 인증 readiness·전용 IDs·원장/adapter 승인과 구현은 여전히 완료되지 않았다.
+
 현재 인계 가능한 값은 run label, manifest ID, A/B 별칭, 고정 BE base, 합성 구성, mock 응답,
 승인 대기 목록뿐이다. 실제 user/material/session/quiz IDs, 배포 SHA, 인증/동의 상태는 조회하지 않았다.
 로컬 숫자 ID는 `idsAreDevIds=false`이고 실제 호출에 사용하지 않는다.
