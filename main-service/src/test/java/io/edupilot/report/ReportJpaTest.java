@@ -19,6 +19,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
@@ -60,6 +62,14 @@ import tools.jackson.databind.ObjectMapper;
 @ActiveProfiles("jpa-context")
 @Transactional
 class ReportJpaTest {
+	@DynamicPropertySource
+	static void isolatedMysql(DynamicPropertyRegistry registry) {
+		if (!"true".equals(System.getenv("RUNTIME_REGRESSIONS_MYSQL"))) { return; }
+		registry.add("spring.datasource.url", () -> "jdbc:mysql://127.0.0.1:33316/runtime_report_synthetic");
+		registry.add("spring.datasource.username", () -> "root");
+		registry.add("spring.datasource.password", () -> "");
+		registry.add("spring.datasource.driver-class-name", () -> "com.mysql.cj.jdbc.Driver");
+	}
 
 	@Autowired private UserRepository userRepository;
 	@Autowired private ClassroomRepository classroomRepository;
@@ -85,6 +95,10 @@ class ReportJpaTest {
 
 	@BeforeEach
 	void setUp() {
+		if ("true".equals(System.getenv("RUNTIME_REGRESSIONS_MYSQL"))) {
+			assertThat(jdbcTemplate.queryForObject("select @@port", Integer.class)).isEqualTo(33316);
+			assertThat(jdbcTemplate.queryForObject("select database()", String.class)).isEqualTo("runtime_report_synthetic");
+		}
 		instructor = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
 			"report-instructor@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
 		)));
