@@ -300,7 +300,7 @@ Encryption configuration, recovery boundaries and rollback limitations: [mail ou
 
 `V55__email_ownership_verification.sql` adds `users.email_verification_state VARCHAR(20) NOT NULL DEFAULT 'UNKNOWN'` and nullable `email_verified_at DATETIME(6)`. State and evidence checks require VERIFIED with a timestamp, or UNKNOWN/PENDING with no timestamp. Existing users stay UNKNOWN; no email confirmation is inferred from login history or previous signup.
 
-The migration creates `email_verification_tokens` with SHA-256 token/current-email binding, single-use metadata, unique token hash and user/expiry indexes. It neither deletes existing users nor backfills approval. The release migration order is V53 (#474), V54 (#473), then V55. Email expiry cleanup deletes only expired token rows. [Email verification](email-verification.md) describes the deliberate access change for legacy users and the release checks still required.
+The migration creates `email_verification_tokens` with SHA-256 token/current-email binding, single-use metadata, unique token hash and user/expiry indexes. It neither deletes existing users nor backfills approval. V53 (#474) and V54 (#473) precede V55; the integrated candidate continues through V56–V59. V58 retains access for migration-existing LEGACY_EXEMPT accounts without changing UNKNOWN/PENDING evidence, while later NEW_SIGNUP accounts require email verification. Email expiry cleanup deletes only expired token rows. See [email verification](email-verification.md) and [legacy access](legacy-account-access.md) for the current access boundary and release checks.
 
 
 ### Durable deletion journal (#477)
