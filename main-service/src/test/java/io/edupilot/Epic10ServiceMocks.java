@@ -68,6 +68,7 @@ import io.edupilot.usernote.WrongAnswerNoteService;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @MockitoBean(types = {
+	jakarta.persistence.EntityManager.class,
 	io.edupilot.deletion.DeletionJournal.class,
 	io.edupilot.deletion.DeletionIntentRepository.class,
 	io.edupilot.deletion.DeletionJournalLockRepository.class,
