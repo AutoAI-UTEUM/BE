@@ -3329,3 +3329,7 @@ LOCAL signup requires ISO dateOfBirth; new Google signup also requires it but ex
 ### Current authorization and SSE reconnect (#479)
 
 Every authenticated request reads current DB role/status without a process-local positive cache. Committed suspension returns ACCOUNT_SUSPENDED(401), while deleted/missing accounts and JWT role mismatch return TOKEN_INVALID(401). New SSE connections also require current material access after the existing owner/ACTIVE checks; removed membership, unlinked or withdrawn-owner material returns MATERIAL_NOT_FOUND(404) before emitter registration. Existing request/response fields are unchanged. [Runtime regression evidence and limits](release-runtime-regressions.md).
+
+### Guardian web consent and phone-control intake (#491)
+
+POST /api/auth/guardian-verification/link requires authentication. Public POST view/consent/verify/dispute accept the bearer token only in JSON bodies. All success responses use no-store/no-referrer; GET never records consent. The disabled default and disconnected provider return GUARDIAN_VERIFICATION_UNAVAILABLE. PHONE_CONFIRMED is phone-control evidence only, guardianRelationshipVerified remains false, and User eligibility is unchanged. [Request/response and activation boundary](guardian-web-sms-intake.md).

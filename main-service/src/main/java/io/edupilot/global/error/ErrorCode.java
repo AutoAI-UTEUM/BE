@@ -3,6 +3,11 @@ package io.edupilot.global.error;
 import org.springframework.http.HttpStatus;
 
 public enum ErrorCode {
+	GUARDIAN_VERIFICATION_UNAVAILABLE("GUARDIAN_VERIFICATION_UNAVAILABLE", HttpStatus.SERVICE_UNAVAILABLE,
+		"보호자 문자 확인이 준비되지 않았습니다."),
+	GUARDIAN_LINK_INVALID("GUARDIAN_LINK_INVALID", HttpStatus.BAD_REQUEST, "유효하지 않거나 만료된 보호자 확인 링크입니다."),
+	GUARDIAN_STATE_CONFLICT("GUARDIAN_STATE_CONFLICT", HttpStatus.CONFLICT, "현재 보호자 확인 상태에서는 처리할 수 없습니다."),
+	GUARDIAN_NOTICE_CHANGED("GUARDIAN_NOTICE_CHANGED", HttpStatus.CONFLICT, "보호자 동의문이 변경되었습니다. 새 링크를 요청해 주세요."),
 	AGE_VERIFICATION_REQUIRED("AGE_VERIFICATION_REQUIRED", HttpStatus.FORBIDDEN, "연령 확인이 필요합니다."),
 	GUARDIAN_VERIFICATION_PENDING("GUARDIAN_VERIFICATION_PENDING", HttpStatus.FORBIDDEN, "보호자 확인이 대기 중입니다."),
 

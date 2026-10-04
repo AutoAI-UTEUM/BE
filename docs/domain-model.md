@@ -387,3 +387,5 @@ New signup captures an input birthdate without calculating age. Legacy DOB stays
 ### Committed authorization revocation (#479)
 
 Authentication reads a role/status scalar from the User primary key on every request, so another instance's committed revocation applies to the next request. A new session SSE connection requires both owned ACTIVE session and current material access. This does not retroactively cancel in-flight AI streams. [Runtime regression evidence](release-runtime-regressions.md).
+
+Guardian web/SMS intake (#491) stores AWAITING_CONSENT -> SENDING -> PHONE_PENDING -> VERIFYING -> PHONE_CONFIRMED separately from User eligibility. Provider failures, code mismatch, dispute and uncertain interrupted calls become REVIEW_REQUIRED. User-row locks and attempt nonce checks fence late completions; withdrawal atomically cancels links and clears phone identifiers. Phone confirmation is not guardian relationship approval. [Lifecycle and scope](guardian-web-sms-intake.md).
