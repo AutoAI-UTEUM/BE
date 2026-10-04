@@ -107,3 +107,20 @@ cohort 집계만으로 migration 전 존재한 개별 계정과 migration 후 �
 ## 6. 결과 기록
 
 이슈 #479/통합 PR에는 승인 범위, upstream/후보/FE/실행 중 이미지 SHA·digest, 같은 SHA CI, 로컬 검사와 실제 운영 검사를 구분한 결과, migration·백업 무결성, 키 유지 여부, 합성 역할별 접근 결과, 미완료/실패/미실행 및 복구 담당자를 남긴다. 비밀·실학생·실메일 본문은 포함하지 않는다. 실DEV NOTE04 fixture는 별도 계획·승인 작업이며 로컬 103개 dry-run이 실제 DEV 쓰기 승인이 되지 않는다.
+
+## 7. AI 팀 보고와 Spring 계약의 연결
+
+2026-10-04 10:05:04 UTC의 AI 팀 전달 메시지는 #496/#497/#499/#500의 develop/DEV 반영, `ef8f0f7`의 Linux CI 1053개, 추가 무료 합성 110개(PDF 12/report 98) 통과·paid model 0회를 보고했다. 이 후보에 #500의 merge SHA `ef8f0f74a3d2d46a0adc9aabf1d9dad9577dd938`와 그 이전 변경이 포함된 것은 Git 이력으로 확인했다. **110개 실행·실행 중 이미지·health/readiness·로그 운영 상태는 AI 팀 보고이며 이 작업의 독립 실측이 아니다.** 두 서비스의 개별 CI나 무료 합성 수량을 Spring↔AI↔FE 전체 연동·부하·실모델 품질 인수로 합산하지 않는다.
+
+Spring 쪽 독립 증거는 #499 이후 후보 `b6f4f5f3155f8e1799698bcdea956fbd64f22d61`에서 실행한 아래 두 suite의 **57/57, 실패/오류/skip 0**이다. 이후 #500과 FE/fixture/preflight 변경은 Main tree `20a4c0c7c55b44d8b792ce282e622eddb4d573d9`를 바꾸지 않는다. 이전 실행을 최종 head의 로컬 재실행이라고 쓰지 않고, 최종 후보 head의 CI와 별도로 기록한다.
+
+| 경계 | 기존 Spring 증거 | 입증 범위와 남은 연결 |
+| --- | --- | --- |
+| 요청·오류·재시도 | [HttpAiClientContractTest](../main-service/src/test/java/io/edupilot/ai/HttpAiClientContractTest.java) 50개: internal/trace header, 요청 DTO, schema/auth 오류, remote retryable INTERNAL/TIMEOUT의 1회 재시도, transport timeout 무재시도, 안전한 구조 로그 | MockWebServer 응답과 Main client의 계약이다. 실제 AI 라우트·배포 토큰·provider 호출을 함께 실행한 증거가 아니다. |
+| PDF·외부 파일 | 같은 suite의 multipart/extract 페이지·upload ID 검증, delete 204 성공·route 404/provider 실패를 완료로 처리하지 않는 검사 | AI 팀 PDF 12개와 대조할 route/schema/hash/오류별 합성 case manifest가 필요하다. provider 삭제 완료·원본/렌더 운영 복구로 확대하지 않는다. |
+| report source·중복·권한 | [ReportSnapshotBuilderJpaTest](../main-service/src/test/java/io/edupilot/report/ReportSnapshotBuilderJpaTest.java) 7개: 7개 source 수집·대표 제출·중복 방지, 최신 graded 선택·실패 제외, 다른 학생/강의실·탈퇴 수강생 차단. HTTP suite는 report JSON/usage/전용 timeout 검사 | Main snapshot/H2와 mock HTTP의 증거다. AI 팀 report 98개의 sourceType·duplicate 판정과 같은 synthetic 입력/hash로 연결해야 한다. 실제 두 서비스 왕복·동시 report 생성 인수는 별도다. |
+| 시험 초안·timeout | HTTP suite의 `/internal/ai/exams/draft`와 questionType 계약, per-call turn/extract/report timeout. [ExamDraftApiContractTest](../main-service/src/test/java/io/edupilot/exam/ExamDraftApiContractTest.java)는 기존 draft/권한/응답 검증 경로다 | 단일 read timeout이나 AI 자체 timeout만으로 queue·내부 재시도·Spring HTTP·클라이언트까지 포함한 총예산을 입증하지 않는다. 기존 API를 다시 만들지 않는다. |
+
+추가로 유용한 비용 없는 검증은 (1) AI 팀의 비밀 없는 110-case manifest와 exact source/CI artifact를 위 case에 매핑하고, (2) 독립 합성 환경에서 실제 Main→로컬 AI 양쪽 라우트를 연결해 schema/오류/중복 판정을 확인하며, (3) 가짜 provider·제어된 지연으로 총 deadline·취소·포화/재시작의 종단 결과를 관찰하는 것이다. 현재 이 추가 연결 실행은 **NOT_RUN**이고 새 결함을 확정한 결과도 아니다. 실DEV 구성/이미지/로그 접근 조회는 승인된 운영 경로에서 별도 확인한다.
+
+#500의 [monetary reservation 설명](../ai-service/tests/benchmarks/MONETARY-RESERVATIONS.md)은 offline 평가 원장이지 기관/강의별 서비스 quota 구현이 아니다. reasoning을 포함한 신뢰할 비용 상한이 없다는 AI 팀 보류와 일치하며, paid 호출을 실행하지 않는다. 월 기관 예산은 미정이다. 회신의 로그 14일 보존·한승준 운영 담당은 타팀 보고/제안이고 이 문서가 사용자 승인이나 실제 접근 권한 설정을 확정하지 않는다. 로그 정책·권한·보존 설정은 변경하지 않았다.
