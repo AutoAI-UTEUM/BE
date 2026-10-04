@@ -8,6 +8,8 @@
 PR495의 미배포 후보와 현재 DEV schema/auth를 같은 환경으로 간주하지 않는다.
 전용 ID/허용 조회 열/권한과 실제 quiz INSERT·원자적 공유 원장의 선택안은 [실행계획](dev-execution-plan.md)에 있다.
 현재 숫자 IDs·권한·원장 존재는 미확인이고 운영 adapter/DDL은 제공하지 않는다.
+실제 schema용 [로컬 MySQL adapter/원장/grant](mysql-local-adapter.md)는 별도 제공했다. 아래 승인 표의 0회는
+실환경 실행을 뜻하며 로컬 합성 DB의 CREATE/INSERT/DELETE와 분리한다.
 
 | 단계 | 필요한 명시적 범위 | 현재 상태 |
 | --- | --- | --- |
@@ -55,9 +57,11 @@ PDF upload나 학습 턴으로 AI를 호출하여 101개를 만들지 않는다.
 
 ## 실행 manifest 구조
 
-로컬 실행기가 출력하는 manifest는 `environment=local-synthetic-memory`, `idsAreDevIds=false`,
+SQLite 실행기가 출력하는 manifest는 `environment=local-synthetic-memory`, `idsAreDevIds=false`,
 `devExecuted=false`, 모든 approval=false다. 로컬 정리만을 위한 connection 원장/행 hash에 묶인다.
 이 값을 편집하거나 숫자 IDs를 복사해 실제 환경용 승인 manifest로 사용하지 않는다.
+MySQL 로컬 manifest도 `environment=LOCAL_OWNED_MYSQL_SCHEMA`로 표시하며 real DEV ID/승인이 아니다.
+그 원장은 재사용8+생성103의 관계111개를 보존하고 cleanup은 quiz103만 대상으로 한다.
 
 실제 승인 후에는 다음 **별도 실행 manifest**를 채워 검토한다. 지금은 모든 실환경 ID/승인이 미정이다.
 

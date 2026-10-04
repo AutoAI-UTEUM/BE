@@ -7,6 +7,8 @@
 DEV를 조회하지 않았고, 서버·SSH·실AI·메일·SMS·영구삭제를 실행하지 않았다.
 10/4 FE 후속 요청에 따라 현행 FE224의 자동 전체 조회·세션 단위 결과·실패 세션 page0 재시작에 맞춰 인수 문구를 정정했다.
 전용 ID/최소 메타와 실제 생성 방법·공유 DB 원장도 [실행계획](dev-execution-plan.md)에 구체화했다.
+작업 재개 후 [실제 schema 기반 로컬 MySQL adapter](mysql-local-adapter.md)를 추가했다.
+이 adapter도 본인이 시작한 임시 process만 사용하며 실환경 target을 수락하지 않는다.
 
 ## 기준과 재사용한 자료
 
@@ -25,7 +27,8 @@ DEV를 조회하지 않았고, 서버·SSH·실AI·메일·SMS·영구삭제를 
   저장소 `AGENTS.md`, 협업/PR/테스트 지침과 실제 controller/service/DTO/migration을 읽었다.
   clone에 별도 `.agents/skills` 또는 하위 `AGENTS.md`는 없었다.
 - 통합 검토 대상은 [draft PR495](https://github.com/AutoAI-UTEUM/BE/pull/495)의
-  `ee69e4259b1b80871fdc1805a7b42d8628ac57e9`다. 이는 배포 SHA가 아니다.
+  재개 시 읽은 `e949fbecbe8f6cd414ee9f18605d1a15dca2fa6e` snapshot이다. 이는 배포 SHA가 아니다.
+  V1–V53 baseline과 이 후보의 V1–V59를 각각 local MySQL에서 검증한다. 둘 모두 immutable Git source를 읽는다.
   배포 설정·FE/메일 준비·migration·복구 조건은 [PR501의 고정 문서](https://github.com/AutoAI-UTEUM/BE/blob/fd12b01ecfef34b45629e2a8efe4068a4b5861c1/docs/launch-deployment-preflight.md)를 읽고 참조한다.
   이 디렉터리에서 배포/rollback 런북을 중복 작성하거나 설정을 바꾸지 않는다.
 
@@ -58,7 +61,7 @@ FE는 더 보기 없이 자동 조회하며, A 계정의 완료 목록은 A1 101
 
 ## 실행
 
-Node 24 이상(`node:sqlite` 내장)을 사용한다. npm 설치·서버·포트·MySQL·Docker·Gradle이 필요 없다.
+SQLite/FE mock은 Node 24 이상(`node:sqlite` 내장)을 사용한다. 이 경로에는 npm 설치·서버·포트·MySQL·Docker·Gradle이 필요 없다.
 저장소 루트에서:
 
 ```text
@@ -92,16 +95,30 @@ SQLite experimental 경고는 Node 런타임 안내다. 이 작업의 실제 실
 생성한 stdout JSON은 로컬 모의 증거이며 source에 commit할 DEV manifest가 아니다.
 로컬 숫자 ID를 DEV API/SQL/정리 요청에 복사하면 안 된다.
 
+실제 MySQL schema를 검증하는 별도 로컬 경로는 Windows의 설치된 MySQL 8.0 계열(8.0.22 이상)을 사용한다.
+전용 datadir/shared-memory process·실제 V1–V53·최소 권한 seed/cleanup 역할과 원장을 준비한다.
+TCP·기존 MySQL 서비스·Docker·Gradle은 사용하지 않는다. 자세한 입력/권한/검증 한계는 [adapter 문서](mysql-local-adapter.md)에 있다.
+
+```powershell
+node scripts/qa/note04-fixture/mysql-rehearsal.mjs
+node scripts/qa/note04-fixture/mysql-rehearsal.mjs --mode=local-rehearsal --local-approval=LOCAL_SYNTHETIC_COMMIT --cleanup-local-approval=LOCAL_SYNTHETIC_DELETE
+node scripts/qa/note04-fixture/mysql-rehearsal.mjs --schema=pr495-v59
+node --test scripts/qa/note04-fixture/mysql-adapter.test.mjs
+```
+
+`pr495-v59`는 위 후보 SHA의 Git object를 독립 clone에 읽기용 fetch한 뒤 사용한다. 실행기는 fetch/download하지 않는다.
+input과 manifest의 schema source SHA가 일치해야 하며, 다른 schema/target으로 바꾸면 거절한다.
+
 ## 다음 단계
 
 1. [승인·manifest·invariants·최소권한](approvals-and-manifest.md)을 검토한다.
-2. [전용 ID·메타 조회·103개 생성·원자적 DB 원장 계획](dev-execution-plan.md)을 검토한다. 실제 IDs/권한/원장 schema/adapter는 미확정·미구현이다.
+2. [전용 ID·메타 조회·103개 생성·원자적 DB 원장 계획](dev-execution-plan.md)과 [로컬 구현](mysql-local-adapter.md)을 검토한다. 실환경 IDs/권한/원장 설치/운영 adapter는 여전히 미확정·미구현이다.
 3. [비밀값 없는 FE handoff와 현행 인수 시나리오](fe-handoff.md)를 별도 auth 계약 문서 작업과 연결한다.
 4. [로컬 검증 기록](local-validation.md)을 실제 DEV 실응답 증거와 별도로 보관한다.
 
 실DEV 재사용 메타조회·쓰기·계정 생성·인증 전달·동의·영구삭제 승인은 아직 없다.
-런타임/공통 코드/migration/최종 통합은 기존 구현 세션 담당이다. 이 전용 실행기를 MySQL용 seed로 확장하지 않는다.
-실제 실행 adapter가 필요하면 승인된 범위와 당시 배포 schema를 기준으로 별도 검토한다.
+런타임/공통 코드/migration/최종 통합은 기존 구현 세션 담당이다. SQLite 실행기는 그대로 유지하며 별도 로컬 MySQL adapter만 추가했다.
+실환경 실행기는 승인된 범위와 당시 배포 schema를 기준으로 별도 검토한다. 로컬 target 차단을 제거해 DEV에 사용하지 않는다.
 
 Related to [#479](https://github.com/AutoAI-UTEUM/BE/issues/479), NOTE-04, BE PR481/486, FE PR224.
 전체 출시 인수 완료를 의미하지 않는다.
