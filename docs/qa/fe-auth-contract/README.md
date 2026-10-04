@@ -4,18 +4,20 @@
 
 | 기준 | 정확한 head / 역할 |
 | --- | --- |
-| BE 계약 base, [PR495](https://github.com/AutoAI-UTEUM/BE/pull/495) | `ee69e4259b1b80871fdc1805a7b42d8628ac57e9` / PR500 보존 후 가입·V58·이메일 gate 구현 후보 |
+| 원 독립 단위 base, [PR495](https://github.com/AutoAI-UTEUM/BE/pull/495) | `ee69e4259b1b80871fdc1805a7b42d8628ac57e9` / PR500 보존 후 가입·V58·이메일 gate 구현 후보 |
 | 확인한 BE upstream `develop` | `ef8f0f74a3d2d46a0adc9aabf1d9dad9577dd938` / PR500 merge, 최신 후보의 조상 |
 | 읽기 전용 FE `develop` | `1b6987d8472a064a080a00bd43232993e9bd41eb` |
 | 독립 브랜치 | `feature/471-fe-auth-contract` — 가입·DOB·이메일 계약을 기존 문서에 연결하고 FE 소비자 누락을 오프라인 재현한다. |
 
 이 브랜치는 PR495 위에 문서·검증만 쌓는다. 최초 확인 후보 `b6f4f5f3155f8e1799698bcdea956fbd64f22d61`에서 최신 후보로 fast-forward했고 차이는 PR500의 AI 테스트 자료 3개뿐이다. `main-service` tree는 같아 계약 구현은 변하지 않았다. head가 바뀌면 이 표의 기준과 검증 결과를 다시 확인한다.
 
+2026-10-04 후속 질의의 답변·현재 BE capability 부재·메일 담당/링크 origin·공통 문서 정정 확인은 [FE-FOLLOWUP.md](FE-FOLLOWUP.md)를 따른다. 후속 검토 snapshot은 `dbd148352753e2b52f8f9cbf8599c5024c61dd8d`이며 최종 후보 SHA/FE 활성화 합의가 완료됐다는 뜻은 아니다.
+
 ## 기존 자료와 읽는 순서
 
 기능·DB 설명을 중복 작성하지 않는다. [API 명세](../../api-spec.md), [화면 매핑](../../screen-api-map.md), [이메일 확인](../../email-verification.md), [DOB 기반](../../birthdate-guardian-foundation.md), [기존 계정 정책](../../legacy-account-access.md), [메일 outbox](../../mail-outbox.md), [보호자 웹/SMS 기반](../../guardian-web-sms-intake.md)을 재사용한다. 이 문서는 DTO/controller/gate/migration과 기존 회귀 테스트를 읽어 FE가 구현해야 할 차이만 모은다.
 
-배포 순서·설정·rollback 조건은 별도 [PR501](https://github.com/AutoAI-UTEUM/BE/pull/501)의 [배포 사전 점검 문서](https://github.com/AutoAI-UTEUM/BE/blob/fd12b01ecfef34b45629e2a8efe4068a4b5861c1/docs/launch-deployment-preflight.md)를 재사용한다. 해당 문서는 아직 이 base에 합쳐지지 않아 exact head 링크로 연결한다.
+배포 순서·설정·rollback 조건은 [배포 사전 점검 문서](../../launch-deployment-preflight.md)를 재사용한다. 원 독립 단위에서는 병합 전 [PR501 exact head](https://github.com/AutoAI-UTEUM/BE/blob/fd12b01ecfef34b45629e2a8efe4068a4b5861c1/docs/launch-deployment-preflight.md)로 연결했고, 후속 검토 snapshot에는 이 문서가 포함된 것을 확인했다.
 
 초기 단위에서 발견한 문서 차이는 최종 통합의 공통 문서 정합성 작업으로 보완한다. LOCAL·새 Google 예시에 DOB를 넣고, 이메일·DOB·DB 문서의 V58 기존 이용 예외와 현재 동의 대상 없는 경우의 동작을 실제 코드/기존 테스트에 맞춘다. `UNKNOWN/PENDING + emailVerificationRequired=false`는 확인 성공 표시가 아니며 false만으로 cohort를 추정할 수도 없다. 발견 시점과 근거는 [증거 기록](EVIDENCE.md)에 보존한다. 이 원래 독립 단위의25개 검사는 runtime·FE 화면 인수 완료를 뜻하지 않는다.
 
@@ -54,6 +56,8 @@ Google 첫 요청은 `{"idToken":"..."}`로 가능하다. 기존 **같은 Google
 DOB는 사용자 입력 저장만 구현돼 있다. 미래 날짜 제한, 정정 API, 나이 계산 기준일/시간대·윤년 생일·보호자 승인 절차는 확정되지 않았다. 화면이 DOB만 보고 성인/만14세 이상/보호자 승인 상태를 만들면 안 된다.
 
 현재 가입 동의 설정 기본값은 false다. 동의 대상 정책이 있으면 설정 true일 때 누락/빈 배열을 거부하고, 설정 false일 때 생략/빈 배열은 가능하다. 배열을 제출하면 현재 `requiresConsent=true` 항목의 정확한 버전을 한 번씩 보내야 한다. 누락·중복·버전 오류는 `POLICY_CONSENT_REQUIRED`다. 동의 비대상 문서는 열람 안내를 제공하고 배열에 넣지 않는다. 동의 대상이 아예 없는 경우에는 현재 런타임·기존 테스트가 설정 true여도 가입을 허용한다. 이 작업에서 해당 정책이나 defaults를 바꾸지 않는다.
+
+동의 대상 0개이면 FE는 `consents` 생략 또는 `[]`를 사용한다. 서비스는 역직렬화 가능한 배열도 무시하고 동의 이력을 쓰지 않지만 잘못된 JSON/알 수 없는 enum 같은 요청 파싱 오류를 허용하는 것은 아니다. POLICY_CONSENT_REQUIRED의 현재 원문이 두 문서 모두를 언급해도 FE의 실제 동의 대상은 현재 `requiresConsent=true` 목록이다.
 
 응답 DTO는 다음처럼 다르다. 모든 성공 데이터의 정확한 합성 예시는 [fixtures.json](fixtures.json)에 있다.
 

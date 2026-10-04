@@ -52,3 +52,12 @@
 3. [PolicyService.java](../../../main-service/src/main/java/io/edupilot/policy/PolicyService.java)의 `validateSignup`은 required 정책 목록이 비면 설정 검사 전에 no-consent selection을 반환한다. [PolicyServiceTest](../../../main-service/src/test/java/io/edupilot/policy/PolicyServiceTest.java)의 `mandatorySettingDoesNotBlockSignupWhenNoDocumentRequiresConsent`도 이 동작을 명시한다. `api-spec.md`의 “true일 때 문서가 하나 이상 게시돼 있어야 함” 문장과 차이가 있으나 테스트에 고정된 현재 동작이므로 여기서 결함으로 확정하거나 defaults를 변경하지 않는다.
 
 현재 FE 불일치는 BE를 완화해서 해결하지 않는다. FE 담당이 DOB·정책 입력 전달, 이메일 상태 보존, 공개 확인 route/수동 POST, 인증된 status/request, 403 공통 처리, 기존 이용 예외 및 탭/계정 전환 인수를 수행해야 한다. 연령/보호자 정책·전역 연결 미완료는 [기존 기반 문서](../../birthdate-guardian-foundation.md)의 후속 범위이며 이메일 성공으로 대신하지 않는다.
+
+## 2026-10-04 후속 계약 질의
+
+- [FE-FOLLOWUP.md](FE-FOLLOWUP.md)에 부모 전달용 짧은 답변, policy 0개·V58·DOB 예시 정정 확인, 실제 메일 담당/준비 및 유효 link origin, 현재 capability 부재와 미합의 제안을 정리했다. 외부 전송은 수행하지 않았다.
+- 읽은 후보 snapshot은 `dbd148352753e2b52f8f9cbf8599c5024c61dd8d`다. PR502와 부모의 공통 문서 정정 `2156757`이 포함됐다. 위 과거 발견 기록의 문서 차이 세 가지가 현재 공통 문서에 정정된 것을 확인했다. 최종 후보/배포/FE 활성화 합의를 완료했다고 표시하지 않는다.
+- 원격 재확인 FE develop은 `1b6987d8472a064a080a00bd43232993e9bd41eb`로 동일하다. 최신 읽기 전용 소스의 VITE_API_CAPABILITIES는 FE 빌드 설정이며 auth BE capability 응답이 아니다. 후속 구현 예정 메시지의 공개 커밋은 확인되지 않았다. 실제 서버/배포 FE build는 조회하지 않았다.
+- `FE_AUTH_SOURCE_ROOT` 지정 후 `node --disable-warning=ExperimentalWarning --test docs/qa/fe-auth-contract/contract.test.mjs docs/qa/fe-auth-contract/consumer.test.mjs docs/qa/fe-auth-contract/followup.test.mjs`: **29/29 통과, 실패0/skip0**. source/fixture/link12 + 기존 실제 FE 소비자17이며 KNOWN GAP5는 누락 재현으로 유지했다.
+- 이 후속 변경은 전용 경로의 문서·source 검사 5개 파일에만 한정한다. staged diff --check 통과, main-service tree 불변, FE tracked diff 없음. Java/Gradle·Docker/MySQL·실Google/메일/SMS·실계정/DEV DB·설정 변경·배포·FE 후속 화면 E2E는 실행하지 않았다.
+- 런타임 담당의 후속 검토가 필요한 것은 공개 auth capability/revision 신호의 계약·build revision 근거·구형 404 처리와 rollout 합의, 동의 대상이 한 종류일 때도 두 종류를 모두 요구하는 듯한 현재 POLICY_CONSENT_REQUIRED 안내 문구다. 실제 오류 문자열/fixtures·정책 defaults·runtime은 바꾸지 않았다.

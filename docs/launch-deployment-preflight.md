@@ -44,6 +44,34 @@ FE develop `1b6987d`의 소스 검토에서는 신규 가입 요청의 DOB 입�
 
 ## 4. 적용 순서와 관측
 
+### FE 기본 OFF와 현재 공개 계약 신호
+
+현재 인증 capability endpoint나 가입 계약의 활성 여부를 반환하는 공개 배포 flag는 없다. `/api/health`의 `data.status=UP`과 `/api/health/ready`의 DB/AI readiness는 가입·메일 준비 증거가 아니다. 공개 `/v3/api-docs`에는 SignupRequest의 필수 DOB와 이메일 확인 경로가 있지만 이는 schema 존재 증거이며 실제 수신·FE 준비·출시 승인 신호로 사용하지 않는다. 내부 AI `capabilities`는 인증 계약의 신호와 별개다.
+
+최소 지원 방안은 별도 API 증설 없이 FE가 기본 OFF인 배포 설정으로 검토된 BE 계약/FE build 조합을 명시하는 것이다. 실제 적용 책임자는 승인된 SHA와 활성 시점을 함께 관리한다. OFF일 때 기존 화면/서버 계약을 보존하고 새 화면을 숨기는 것은 FE 단계의 호환 방안이다. **새 BE의 DOB·이메일 gate는 조건부로 꺼지지 않으므로 FE OFF 상태로 후보 BE만 배포하는 것은 허용 경로가 아니다.** 기존 계정 로그인과 신규 가입의 전환을 분리하고, 새 가입 요청을 오류 응답으로 시험하면서 자동 활성화하지 않는다.
+
+| 배포 조합 | 의미 |
+| --- | --- |
+| 이전 BE + FE 새 흐름 OFF | 기존 계약을 유지하는 선반영 후보. 해당 FE build에서 기존 동선을 검증해야 한다. |
+| 후보 BE + FE 새 흐름 OFF | 신규 DOB/이메일 UI가 없어 400/409/403이 남는다. 후속 BE 배포 조건을 충족하지 않는다. |
+| 검토한 후보 BE + 대응 FE 흐름 ON | 승인된 동시 전환과 실제 메일 경로·합성 인수 조건이 필요하다. 연령/보호자 출시 완료를 뜻하지 않는다. |
+
+FE가 서버별 자동 계약 선택을 꼭 요구하면, 현재 입력 필수 여부와 **구현 지원**을 알리는 좁은 읽기 전용 신호의 필요성을 계약 담당과 먼저 확인한다. 이 문서에서는 endpoint/응답 필드·새 서버 flag를 만들지 않는다. 신호를 추가하더라도 실제 NEW_SIGNUP DOB/이메일 요구를 정확히 표현해야 하고, DB gate의 대체 조건이나 실메일 수신/guardian 승인으로 소비하면 안 된다. 네트워크 오류·404·알 수 없는 revision에서는 임의 새 기능 활성화 없이 기존 안전한 동선을 유지하며 후보 BE 전환은 보류한다.
+
+### 새 capability API 없는 수동 활성화안
+
+다음은 **FE/운영자가 합의해야 할 미실행 절차**다. 자동 서버 선택 대신 승인된 배포 manifest와 FE 빌드 설정으로 계약을 고정할 수 있다는 최소안이며, 새 API 구현을 필수로 만들지 않는다. 현재 FE head에는 예정 auth UI 구현이 없으므로 준비된 FE build·합의한 auth flag 이름/적용 방법을 먼저 받아야 한다. `VITE_API_CAPABILITIES`는 FE build 설정이고 BE 신호가 아니다.
+
+1. 최종 BE 후보 SHA·Main/AI 이미지 digest·V53–V59 결과·대응 FE build SHA·승인한 API/메일 origin·합의한 FE flag 상태를 하나의 검토 manifest에 고정한다. 담당자가 실제 배포 artifact를 read-back한다. status 응답이나 frontend에 수동으로 넣은 SHA를 artifact 증거로 대신하지 않는다.
+2. 승인된 전환 창에서 가입 관련 쓰기와 migration 중 User INSERT를 통제한다. 기존 FE 기본 OFF로 이전 BE를 유지하는 선반영과, 대응 FE 흐름 ON + 후보 BE로의 전환을 구분한다. 순차 컨테이너 교체 중에 신규 가입을 받지 않고 준비된 조합이 확인되기 전 공개 가입을 재개하지 않는다. 실제 트래픽 통제 방식/권한은 운영자가 확정해야 하며 새 서버 flag를 가정하지 않는다.
+3. 같은 창에서 승인된 BE/FE 조합을 적용하고 유효 메일 base가 FE `/verify-email` origin인지 확인한다. 동의 대상은 현재 policies에서 얻고 required 설정을 보존한다. 실메일 담당·합성 수신 시험의 승인과 수신 근거가 없으면 전환 조건을 충족하지 않는다.
+4. 별도 승인된 전용 합성 계정으로 인증된 `GET /api/auth/email-verification/status`와 `GET /api/users/me`의 세 이메일 필드/타입을 대조한다. 신규 PENDING은 required=true·verifiedAt=null 및 업무403, V58 기존 예외는 UNKNOWN/PENDING·required=false·증거불변과 기존 이용을 확인한다. false만으로 cohort를 추정하지 않고 전환 전후 합성 사례로 구분한다. 401/정지/권한/404/형식 오류를 지원 성공으로 처리하지 않는다.
+5. DOB/동의 전달, 202 접수, GET 비소비·명시적 POST 1회 확정·재발급/만료·다른 로그인 계정 상태 재조회, 실제 메일 경로와 FE 브라우저 동선을 인수한다. 예측한 응답이나 로컬 source/mock 결과를 이 실검증으로 대신하지 않는다. 검토 manifest와 인수가 일치한 뒤에만 해당 FE 흐름 활성 상태로 가입 쓰기를 재개한다. 실패하면 트래픽 통제를 유지하고 5절의 gate 보존 복구 조건을 따른다. FE flag OFF만으로 복구가 완료됐다고 판단하지 않는다.
+
+이 방식은 수동 릴리스 조율에 동의하고 통제된 전환/합성 인수가 가능한 경우의 제안이다. FE가 자동 revision 협상을 요구하면 별도 계약 합의가 필요하다. 어떤 방식도 메일 성공을 연령/보호자 이용 승인으로 바꾸거나 미완료 age/AI 동의 경계를 대신하지 않는다.
+
+가입 동의는 현재 `GET /api/policies/current`의 `requiresConsent=true` 대상과 실제 `EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED`를 따로 대조한다. 대상이 0개일 때의 현재 코드 동작과 UNKNOWN/LEGACY 응답은 [정합화한 API 명세](https://github.com/AutoAI-UTEUM/BE/blob/dbd148352753e2b52f8f9cbf8599c5024c61dd8d/docs/api-spec.md) 및 [중간 후보의 전달 계약](https://github.com/AutoAI-UTEUM/BE/blob/dbd148352753e2b52f8f9cbf8599c5024c61dd8d/docs/qa/fe-auth-contract/README.md)을 사용한다. 두 링크는 추가 FE 회신 이전 검토 시점에 고정돼 있으며 최종 통합의 최신 계약은 별도로 확인한다. 법무 준비 상태·기존 계정 예외·현재 동의 완료를 capability나 health로 추정하지 않는다.
+
 1. 실제 FE 지원 build와 실메일 확인 경로, 승인 대상 SHA·설정·CI·백업·복구 이미지 증거를 갖춘다. 기존 FE가 새 필드를 아직 보내지 않는 상태에서 BE만 먼저 적용하지 않는다. FE 선반영 가능 여부와 활성화 시점은 해당 팀이 검증해야 한다.
 2. 승인된 migration 창에서 쓰기 유입과 기존 프로세스의 종료 경계를 통제한다. V58 cohort 경계를 기록할 때 migration 중 가입/기타 User INSERT가 섞이지 않도록 한다. 연속된 migration의 checksum과 적용 결과를 기록한다.
 3. V53 신규 노트 멱등성 컬럼/고유키 → V54 암호화 outbox/메일 예약 → V55 이메일 증거/토큰 → V56 삭제 원장 → V57 DOB/접수 → V58 기존 cohort → V59 웹/SMS 접수 순서를 따른다. V53은 수정된 중복을 포함한 기존 노트를 보존하고 신규 쓰기에 멱등성을 적용한다. V54 과거 메일 시도 예산/QUEUED 실패 표시는 기존 데이터 영향을 가진다. 빈 DB에서의 성공만으로 실제 데이터 migration 안전을 판단하지 않는다.
@@ -79,3 +107,20 @@ cohort 집계만으로 migration 전 존재한 개별 계정과 migration 후 �
 ## 6. 결과 기록
 
 이슈 #479/통합 PR에는 승인 범위, upstream/후보/FE/실행 중 이미지 SHA·digest, 같은 SHA CI, 로컬 검사와 실제 운영 검사를 구분한 결과, migration·백업 무결성, 키 유지 여부, 합성 역할별 접근 결과, 미완료/실패/미실행 및 복구 담당자를 남긴다. 비밀·실학생·실메일 본문은 포함하지 않는다. 실DEV NOTE04 fixture는 별도 계획·승인 작업이며 로컬 103개 dry-run이 실제 DEV 쓰기 승인이 되지 않는다.
+
+## 7. AI 팀 보고와 Spring 계약의 연결
+
+2026-10-04 10:05:04 UTC의 AI 팀 전달 메시지는 #496/#497/#499/#500의 develop/DEV 반영, `ef8f0f7`의 Linux CI 1053개, 추가 무료 합성 110개(PDF 12/report 98) 통과·paid model 0회를 보고했다. 이 후보에 #500의 merge SHA `ef8f0f74a3d2d46a0adc9aabf1d9dad9577dd938`와 그 이전 변경이 포함된 것은 Git 이력으로 확인했다. **110개 실행·실행 중 이미지·health/readiness·로그 운영 상태는 AI 팀 보고이며 이 작업의 독립 실측이 아니다.** 두 서비스의 개별 CI나 무료 합성 수량을 Spring↔AI↔FE 전체 연동·부하·실모델 품질 인수로 합산하지 않는다.
+
+Spring 쪽 독립 증거는 #499 이후 후보 `b6f4f5f3155f8e1799698bcdea956fbd64f22d61`에서 실행한 아래 두 suite의 **57/57, 실패/오류/skip 0**이다. 이후 #500과 FE/fixture/preflight 변경은 Main tree `20a4c0c7c55b44d8b792ce282e622eddb4d573d9`를 바꾸지 않는다. 이전 실행을 최종 head의 로컬 재실행이라고 쓰지 않고, 최종 후보 head의 CI와 별도로 기록한다.
+
+| 경계 | 기존 Spring 증거 | 입증 범위와 남은 연결 |
+| --- | --- | --- |
+| 요청·오류·재시도 | [HttpAiClientContractTest](../main-service/src/test/java/io/edupilot/ai/HttpAiClientContractTest.java) 50개: internal/trace header, 요청 DTO, schema/auth 오류, remote retryable INTERNAL/TIMEOUT의 1회 재시도, transport timeout 무재시도, 안전한 구조 로그 | MockWebServer 응답과 Main client의 계약이다. 실제 AI 라우트·배포 토큰·provider 호출을 함께 실행한 증거가 아니다. |
+| PDF·외부 파일 | 같은 suite의 multipart/extract 페이지·upload ID 검증, delete 204 성공·route 404/provider 실패를 완료로 처리하지 않는 검사 | AI 팀 PDF 12개와 대조할 route/schema/hash/오류별 합성 case manifest가 필요하다. provider 삭제 완료·원본/렌더 운영 복구로 확대하지 않는다. |
+| report source·중복·권한 | [ReportSnapshotBuilderJpaTest](../main-service/src/test/java/io/edupilot/report/ReportSnapshotBuilderJpaTest.java) 7개: 7개 source 수집·대표 제출·중복 방지, 최신 graded 선택·실패 제외, 다른 학생/강의실·탈퇴 수강생 차단. HTTP suite는 report JSON/usage/전용 timeout 검사 | Main snapshot/H2와 mock HTTP의 증거다. AI 팀 report 98개의 sourceType·duplicate 판정과 같은 synthetic 입력/hash로 연결해야 한다. 실제 두 서비스 왕복·동시 report 생성 인수는 별도다. |
+| 시험 초안·timeout | HTTP suite의 `/internal/ai/exams/draft`와 questionType 계약, per-call turn/extract/report timeout. [ExamDraftApiContractTest](../main-service/src/test/java/io/edupilot/exam/ExamDraftApiContractTest.java)는 기존 draft/권한/응답 검증 경로다 | 단일 read timeout이나 AI 자체 timeout만으로 queue·내부 재시도·Spring HTTP·클라이언트까지 포함한 총예산을 입증하지 않는다. 기존 API를 다시 만들지 않는다. |
+
+추가로 유용한 비용 없는 검증은 (1) AI 팀의 비밀 없는 110-case manifest와 exact source/CI artifact를 위 case에 매핑하고, (2) 독립 합성 환경에서 실제 Main→로컬 AI 양쪽 라우트를 연결해 schema/오류/중복 판정을 확인하며, (3) 가짜 provider·제어된 지연으로 총 deadline·취소·포화/재시작의 종단 결과를 관찰하는 것이다. 현재 이 추가 연결 실행은 **NOT_RUN**이고 새 결함을 확정한 결과도 아니다. 실DEV 구성/이미지/로그 접근 조회는 승인된 운영 경로에서 별도 확인한다.
+
+#500의 [monetary reservation 설명](../ai-service/tests/benchmarks/MONETARY-RESERVATIONS.md)은 offline 평가 원장이지 기관/강의별 서비스 quota 구현이 아니다. reasoning을 포함한 신뢰할 비용 상한이 없다는 AI 팀 보류와 일치하며, paid 호출을 실행하지 않는다. 월 기관 예산은 미정이다. 회신의 로그 14일 보존·한승준 운영 담당은 타팀 보고/제안이고 이 문서가 사용자 승인이나 실제 접근 권한 설정을 확정하지 않는다. 로그 정책·권한·보존 설정은 변경하지 않았다.
