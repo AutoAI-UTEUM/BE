@@ -31,7 +31,11 @@ public class GuardianWebPersistence {
 		if (requests.countByUser_IdAndIssuedAtAfter(userId, now.minusSeconds(3600)) >= 3) {
 			throw new BusinessException(ErrorCode.RATE_LIMIT_EXCEEDED);
 		}
-		requests.findByUserIdForUpdate(userId).forEach(GuardianWebRequest::cancel);
+		// REQUIRES_NEW locks User before its first consistent read (the budget count above).
+		// Every request writer locks the same User, so this snapshot includes prior account work.
+		// A range FOR UPDATE here gap-locks an empty journal and deadlocks first issues across users.
+		// Owner-first lock/expire/completion paths still require their current locking reads.
+		requests.findByUser_IdOrderByIssuedAtDescIdDesc(userId).forEach(GuardianWebRequest::cancel);
 		String raw = secrets.token();
 		var row = GuardianWebRequest.issue(user, GuardianWebSecrets.hash(raw), policy, now);
 		requests.saveAndFlush(row);
