@@ -20,6 +20,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.*;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -61,7 +62,7 @@ class GuardianWebJpaTest {
 	@Autowired private GuardianWebService service;
 	@Autowired private GuardianWebPersistence persistence;
 	@Autowired private GuardianWebProperties policy;
-	@Autowired private GuardianWebSecrets secrets;
+	@MockitoSpyBean private GuardianWebSecrets secrets;
 	@Autowired private GuardianWebRequestRepository requests;
 	@Autowired private GuardianVerificationRequestRepository oldRequests;
 	@Autowired private UserRepository users;
@@ -411,6 +412,35 @@ class GuardianWebJpaTest {
 		assertThat(row(token).state()).isEqualTo(GuardianWebRequest.State.CANCELLED);
 		assertThat(row(token).providerReference()).isNull();
 		assertThat(jdbc.queryForObject("select phone_fingerprint from guardian_web_requests where id=?", String.class, id)).isNull();
+		verify(provider, never()).send(anyString(), anyString(), any());
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "GUARDIAN_WEB_MYSQL", matches = "true")
+	void mysqlDifferentNewUsersCanIssueFirstLinksWithoutGapDeadlock() throws Exception {
+		User first = user(), second = user();
+		assertThat(requests.count()).isZero();
+		var read = new CountDownLatch(2); var release = new CountDownLatch(1);
+		doAnswer(call -> {
+			// Production issue has acquired its User lock and completed the empty request lookup.
+			assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+			assertRepeatableRead(); read.countDown();
+			assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+			return call.callRealMethod();
+		}).when(secrets).token();
+		try (var pool = Executors.newFixedThreadPool(2)) {
+			var firstLink = pool.submit(() -> persistence.issue(first.getId()));
+			var secondLink = pool.submit(() -> persistence.issue(second.getId()));
+			assertThat(read.await(10, TimeUnit.SECONDS)).isTrue(); release.countDown();
+			var firstRow = row(firstLink.get(10, TimeUnit.SECONDS).url().split("#token=", 2)[1]);
+			var secondRow = row(secondLink.get(10, TimeUnit.SECONDS).url().split("#token=", 2)[1]);
+			assertThat(firstRow.userId()).isEqualTo(first.getId());
+			assertThat(secondRow.userId()).isEqualTo(second.getId());
+			assertThat(firstRow.id()).isNotEqualTo(secondRow.id());
+			assertThat(firstRow.state()).isEqualTo(GuardianWebRequest.State.AWAITING_CONSENT);
+			assertThat(secondRow.state()).isEqualTo(GuardianWebRequest.State.AWAITING_CONSENT);
+		} finally { release.countDown(); }
+		assertThat(requests.count()).isEqualTo(2);
 		verify(provider, never()).send(anyString(), anyString(), any());
 	}
 
