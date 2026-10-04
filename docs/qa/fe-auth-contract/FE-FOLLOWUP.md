@@ -10,7 +10,7 @@ PR502는 이미 후보에 병합됐다. 이 후속 단위는 `feature/471-fe-aut
 2. **기존 UNKNOWN:** V58에서 기존 계정은 LEGACY_EXEMPT로 이용을 유지한다. UNKNOWN/PENDING + `emailVerificationRequired=false`는 인증 성공 표시가 아니다. 신규 UNKNOWN/PENDING은 차단을 유지한다. 최신 후보에서 초기 “기존 UNKNOWN도 차단” 설명과 DOB 없는 LOCAL/신규 Google 예시는 공통 문서 담당이 정정한 것을 확인했다. 기존 Google subject 로그인은 DOB 재입력이 필요 없다.
 3. **실메일 담당:** 개인 담당은 현재 문서·#471 assignee에서 확정되지 않았다. 부모가 BE/인프라 운영 담당을 지정하고 실수신 시험의 별도 승인 범위를 마련해야 한다. FE 담당은 준비된 route·사용자 POST·상태 재조회 동선을 검수한다. 202·logging provider 수락은 실수신 증거가 아니다.
 4. **링크 origin:** `EDUPILOT_MAIL_BASE_URL`로 만든 `<유효 base>/verify-email?token=<token>`이다. application/base Compose 기본은 `https://dev.uteum.com`, prod override 기본은 `https://www.uteum.com`이다. DEV workflow도 prod override를 함께 쓰므로 실제 DEV 값은 `.env` 및 유효 설정 확인 전 단정할 수 없다. API base URL과 별개인 FE 확인 route origin을 맞춰야 한다.
-5. **capability:** 현재 BE에는 가입/DOB/이메일 확인의 명시적 capability·revision 응답이 없다. FE의 `VITE_API_CAPABILITIES`는 FE 빌드 설정이며 BE 신호가 아니다. 런타임 담당이 아래 공개 read-only 계약을 검토·구현하고, 최종 후보 SHA/FE build 및 메일 준비를 합의하기 전에는 활성화 완료로 표시할 수 없다. FE 기본 OFF는 새 BE의 DOB 필수/이메일 gate를 완화하지 않는다.
+5. **capability:** 현재 BE에는 가입/DOB/이메일 확인의 명시적 capability·revision 응답이 없다. FE의 `VITE_API_CAPABILITIES`는 FE 빌드 설정이며 BE 신호가 아니다. 새 API 없이도 승인된 BE/FE 배포 manifest·통제된 전환 창·인증된 합성 status/me 및 실제 메일/UI 인수로 수동 활성화하는 최소안을 검토할 수 있다. [preflight의 수동 활성화안](../../launch-deployment-preflight.md)을 먼저 합의하고, 자동 서버별 계약 선택이 반드시 필요할 때만 아래 미구현 공개 read-only 제안을 검토한다. 최종 후보 SHA/FE build·메일 준비 합의 전에는 활성화 완료로 표시하지 않는다. FE 기본 OFF는 새 BE의 DOB 필수/이메일 gate를 완화하지 않는다.
 
 ## 정책·오류·예시의 정확한 근거
 
@@ -36,7 +36,7 @@ PR502는 이미 후보에 병합됐다. 이 후속 단위는 `feature/471-fe-aut
 
 현재 [AuthController](../../../main-service/src/main/java/io/edupilot/auth/AuthController.java), [이메일 controller](../../../main-service/src/main/java/io/edupilot/auth/EmailVerificationController.java), [login DTO](../../../main-service/src/main/java/io/edupilot/auth/dto/LoginResponse.java)에 auth capability/revision 신호가 없다. [HealthController](../../../main-service/src/main/java/io/edupilot/global/config/HealthController.java)의 health는 `data:{status:"UP"}`이고 readiness는 DB·AI 확인이다. auth 지원·메일 수신·배포 SHA를 나타내지 않는다. BE의 다른 `capabilities` 검색 결과는 AI 턴/퀴즈의 요청 기능에 관한 것이다. FE [capabilities.ts](https://github.com/AutoAI-UTEUM/FE/blob/1b6987d8472a064a080a00bd43232993e9bd41eb/src/shared/config/capabilities.ts)는 `import.meta.env.VITE_API_CAPABILITIES`만 읽는다.
 
-로그인 전에 LOCAL 입력 계약을 선택해야 하므로 **제안**은 공개 read-only `GET /api/auth/capabilities`에서 공통 envelope와 `Cache-Control:no-store`로 다음 최소 정보를 제공하는 것이다. 아래 이름/경로/버전도 합의 전 초안이며 지금 호출할 endpoint가 아니다.
+FE가 수동 배포 계약 고정으로 충분하다고 합의하면 이 API를 추가할 필요가 없다. 로그인 전에 서버별 LOCAL 입력 계약을 **자동으로 선택해야 하는 요구가 확인되는 경우의 제안**은 공개 read-only `GET /api/auth/capabilities`에서 공통 envelope와 `Cache-Control:no-store`로 다음 최소 정보를 제공하는 것이다. 아래 이름/경로/버전도 합의 전 초안이며 지금 호출할 endpoint가 아니다.
 
 ```json
 {
@@ -53,7 +53,7 @@ PR502는 이미 후보에 병합됐다. 이 후속 단위는 `feature/471-fe-aut
 }
 ```
 
-런타임 담당에게 필요한 작업:
+자동 선택 요구를 수용할 경우 런타임 담당과 검토할 작업:
 
 - 경로·DTO/버전·구형 서버 404/필드 부재·오류 응답과 FE 기본 OFF 조건을 FE 담당과 합의한다. 신호는 가입 API 지원을 설명하며 이메일/연령 확인 증거나 전송 허가가 아니다.
 - backendRevision을 실제 실행 artifact의 build metadata에서 공급한다. UI 입력·요청 body·수동 추정 SHA로 성공을 꾸미지 않는다. release manifest의 exact SHA 및 runtime image digest와 대조할 책임을 둔다.
