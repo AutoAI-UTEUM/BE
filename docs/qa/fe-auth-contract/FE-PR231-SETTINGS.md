@@ -1,5 +1,7 @@
 # FE231 설정 소비자와 미합의 fragment 경계 (2026-10-04)
 
+**역사적 시점:** 아래 미지원·답변 대기 기록은 FE231 `21f4ad2d`의 검토 결과다. 후속 FE232 `5592042c`에서 fragment-only 구현과 회신을 확인했고 최신 source/소비자 결과는 [FE-PR232-FRAGMENT.md](FE-PR232-FRAGMENT.md)에 분리했다. 이 문서의 당시 결과와 metadata를 새 FE에 적용하지 않는다. BE/메일 전환·별도 활성화 인수는 여전히 별도다.
+
 12:41 UTC 작업 재개 지시에 따라 기존 가입·이메일 검사를 반복 확장하는 대신 설정의 실패 경계를 추가했다. 선택 BE base는 `e949fbecbe8f6cd414ee9f18605d1a15dca2fa6e`, main-service tree는 동일한 `20a4c0c7c55b44d8b792ce282e622eddb4d573d9`다. 읽기 전용 FE는 [PR231](https://github.com/AutoAI-UTEUM/FE/pull/231) merge/보고된 DEV head `21f4ad2d30f13bafd05bfcc289515c2caac98810`이며 PR head는 `3a9abe566d3926da69404192b35708a269c22ef6`다. 실제 DEV/API는 조회하지 않았다.
 
 이 단위는 `feature/479-fe231-settings-contract`에서 `docs/qa/fe-auth-contract/`만 변경한다. FE231의 기존 실패→재시도·중복 클릭·늦은 성공 GET/PATCH·unmount 테스트는 읽고 재사용하며 FE 전체 테스트를 다시 실행한 것으로 표시하지 않는다. 기존 [FE229 계약 검증](FE-PR229-REVIEW.md)과 [BE API 명세](../../api-spec.md)를 재사용한다.

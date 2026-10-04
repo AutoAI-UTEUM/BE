@@ -65,13 +65,14 @@ export function settingsSaveFrame(fe, repository = fe.settings, ready = true) {
 
 // Minimal window/document stand-ins run the actual token parser and optional early HTML script.
 // No real DOM, navigation, storage, server access or token is used.
-export function loadEmailLinkBoundary(feRoot, url, bootstrap) {
+export function loadEmailLinkBoundary(feRoot, url, bootstrap, beforeModule = () => {}) {
   let location = new URL(url), meta
   const historyWrites = [], events = {}, network = []
   const window = {
     get location() { return location },
     history: { replaceState: (state, _title, path) => { historyWrites.push({ state, path }); location = new URL(path, location) } },
-    addEventListener: (name, callback) => { events[name] = callback },
+    addEventListener: (name, callback, options) => { (events[name] ??= []).push({ callback, once: options?.once === true }) },
+    removeEventListener: (name, callback) => { events[name] = (events[name] ?? []).filter((entry) => entry.callback !== callback) },
   }
   const document = {
     querySelector: () => meta ?? null, createElement: () => ({ name: '', content: '' }),
@@ -84,8 +85,18 @@ export function loadEmailLinkBoundary(feRoot, url, bootstrap) {
     if (!script) throw new Error('Pinned early token script missing')
     compileFunction(script, [], { parsingContext: context, filename: 'FE index.html early script' })()
   }
-  const parser = compileFunction(`${js(readFileSync(resolve(feRoot, 'src/features/auth/emailLinkToken.ts'), 'utf8'))}\nreturn { readEmailLinkToken, clearEmailLinkToken };`, [], {
+  beforeModule({ url: location.href, historyWrites, network })
+  const parser = compileFunction(`${js(readFileSync(resolve(feRoot, 'src/features/auth/emailLinkToken.ts'), 'utf8'))}\nreturn { readEmailLinkToken, clearEmailLinkToken, ...(typeof readEmailLinkIssue === 'function' ? { readEmailLinkIssue } : {}) };`, [], {
     parsingContext: context, filename: 'FE emailLinkToken.ts',
   })()
-  return { ...parser, window, historyWrites, network, events, get location() { return location } }
+  return {
+    ...parser, window, historyWrites, network, events, get location() { return location },
+    navigate: (url) => { location = new URL(url, location) },
+    fire: (name, extra = {}) => {
+      for (const entry of [...(events[name] ?? [])]) {
+        if (entry.once) window.removeEventListener(name, entry.callback)
+        entry.callback({ type: name, ...extra })
+      }
+    },
+  }
 }

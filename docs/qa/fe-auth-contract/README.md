@@ -17,6 +17,8 @@ FE PR229 이후의 최신 읽기 확인은 [FE-PR229-REVIEW.md](FE-PR229-REVIEW.
 
 12:41 UTC 재개 이후 FE231 `21f4ad2d30f13bafd05bfcc289515c2caac98810`의 설정 실패·부분 저장·owner 보호 범위 및 **미합의 fragment** 검토는 [FE-PR231-SETTINGS.md](FE-PR231-SETTINGS.md)를 따른다. 기존 가입 검사를 다시 완료한 작업으로 합산하지 않고 새 빈 실패 경계를 추가했다. BE 선택 base는 `e949fbecbe8f6cd414ee9f18605d1a15dca2fa6e`이며 배포/활성화 승인이 아니다.
 
+후속 [FE232 fragment 재확인](FE-PR232-FRAGMENT.md)에서 `5592042cb7a25c2fc797e557a20643061b84e273`의 fragment-only 지원·구 query 거부를 확인했다. 위 FE231의 미지원/답변 대기는 당시 기록이다. 읽은 BE 후보는 아직 query 생성이므로 core의 runtime/outbox 전환 및 실제 활성화 인수와 분리한다.
+
 ## 기존 자료와 읽는 순서
 
 기능·DB 설명을 중복 작성하지 않는다. [API 명세](../../api-spec.md), [화면 매핑](../../screen-api-map.md), [이메일 확인](../../email-verification.md), [DOB 기반](../../birthdate-guardian-foundation.md), [기존 계정 정책](../../legacy-account-access.md), [메일 outbox](../../mail-outbox.md), [보호자 웹/SMS 기반](../../guardian-web-sms-intake.md)을 재사용한다. 이 문서는 DTO/controller/gate/migration과 기존 회귀 테스트를 읽어 FE가 구현해야 할 차이만 모은다.

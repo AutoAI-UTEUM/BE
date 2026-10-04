@@ -8,7 +8,7 @@ const sourceTest = (name, fn) => test(name, { skip: !feRoot && 'Set FE_AUTH_SETT
 const tokenA = 'A'.repeat(43), tokenB = 'B'.repeat(43)
 const base = 'https://contract.example.invalid/verify-email'
 
-test('fragment contract is pending; the reviewed BE still generates a query link', () => {
+test('FE231 historical snapshot: fragment agreement was pending and BE generated query links', () => {
   assert.equal(review.fragmentAgreement, 'pending')
   assert.equal(review.deploymentOrActivationApproved, false)
   assert.ok(readBe('main-service/src/main/java/io/edupilot/auth/EmailVerificationService.java').includes('"/verify-email?token=" + raw'))
@@ -16,7 +16,7 @@ test('fragment contract is pending; the reviewed BE still generates a query link
   for (const item of review.fragmentFailurePlan) assert.ok(item.decision.includes('pending'))
 })
 
-sourceTest('current boundary: fragment-only token is ignored and scrubbed on bootstrap and client navigation', () => {
+sourceTest('FE231 historical boundary: fragment-only token is ignored and scrubbed on bootstrap and client navigation', () => {
   for (const bootstrap of [false, true]) {
     const parser = loadEmailLinkBoundary(feRoot, `${base}#token=${tokenA}`, bootstrap)
     assert.equal(parser.readEmailLinkToken(), null)
@@ -26,7 +26,7 @@ sourceTest('current boundary: fragment-only token is ignored and scrubbed on boo
   }
 })
 
-sourceTest('current boundary: one query token wins over a conflicting fragment; this is not an agreed precedence', () => {
+sourceTest('FE231 historical boundary: one query token wins over a conflicting fragment; this was not an agreed precedence', () => {
   for (const bootstrap of [false, true]) {
     const parser = loadEmailLinkBoundary(feRoot, `${base}?token=${tokenA}#token=${tokenB}`, bootstrap)
     assert.equal(parser.readEmailLinkToken(), tokenA)
@@ -37,7 +37,7 @@ sourceTest('current boundary: one query token wins over a conflicting fragment; 
   }
 })
 
-sourceTest('current boundary: duplicate or malformed query tokens never fall back to a valid fragment', () => {
+sourceTest('FE231 historical boundary: duplicate or malformed query tokens never fall back to a valid fragment', () => {
   for (const suffix of [`?token=${tokenA}&token=${tokenB}#token=${tokenA}`, `?token=bad-format#token=${tokenA}`, `#token=${tokenA}&token=${tokenB}`]) {
     for (const bootstrap of [false, true]) {
       const parser = loadEmailLinkBoundary(feRoot, base + suffix, bootstrap)
@@ -47,7 +47,7 @@ sourceTest('current boundary: duplicate or malformed query tokens never fall bac
   }
 })
 
-sourceTest('current boundary: percent-encoded fragment forms also have no token support', () => {
+sourceTest('FE231 historical boundary: percent-encoded fragment forms also have no token support', () => {
   for (const fragment of [`#token%3D${tokenA}`, `#token=${tokenA}%20`, `#token=${tokenA}`]) {
     const parser = loadEmailLinkBoundary(feRoot, base + fragment, false)
     assert.equal(parser.readEmailLinkToken(), null)
