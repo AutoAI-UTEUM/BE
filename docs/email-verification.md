@@ -12,7 +12,7 @@
 | `GET /api/auth/email-verification/status` | Bearer | `emailVerification`, `emailVerificationRequired`, nullable `emailVerifiedAt` |
 | `POST /api/auth/email-verification/confirm` | 공개 | `{ "token": "..." }`, 성공 200. JWT·refresh·인증 세션 발급 없음 |
 
-성공 응답은 `Cache-Control: no-store`입니다. 링크의 FE 경로는 기존 템플릿의 `/verify-email?token=`입니다. GET 요청·메일 보안 스캐너의 링크 열기로 상태가 변경되지 않으며 확인 API의 GET은 405와 `Allow: POST`를 반환합니다. FE는 명시적 POST 성공 후 토큰을 URL에서 제거하고 로그인한 본인 상태를 재조회해야 합니다. 해당 FE 구현은 이 BE 브랜치에 포함되지 않습니다.
+성공 응답은 `Cache-Control: no-store`입니다. 새 메일의 FE 경로는 `/verify-email#token=`이며 텍스트와 HTML 링크에 같은 fragment를 사용합니다. GET 요청·메일 보안 스캐너의 링크 열기로 상태가 변경되지 않으며 확인 API의 GET은 405와 `Allow: POST`를 반환합니다. [FE PR232](https://github.com/AutoAI-UTEUM/FE/pull/232)는 초기 HTML·SPA 진입에서 토큰을 메모리로 옮기고 주소를 정리한 뒤, 명시적 버튼으로 기존 POST body를 보냅니다. 구 query 링크는 FE에서 재발급을 안내합니다. 이 변경은 기존 발송 대기 본문을 바꾸지 않으며 배포·readiness 활성화·실제 메일 검증은 별도입니다.
 
 ## 상태와 실패
 

@@ -83,7 +83,7 @@ public class EmailVerificationService {
 		byte[] entropy = new byte[32]; random.nextBytes(entropy);
 		String raw = Base64.getUrlEncoder().withoutPadding().encodeToString(entropy);
 		tokens.saveAndFlush(EmailVerificationToken.create(user, hash(raw), hash(user.getEmail()), now, expiry));
-		mail.sendAsync(templates.emailVerify("/verify-email?token=" + raw).to(user.getEmail()), expiry);
+		mail.sendAsync(templates.emailVerify("/verify-email#token=" + raw).to(user.getEmail()), expiry);
 	}
 	static String hash(String value) {
 		try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
