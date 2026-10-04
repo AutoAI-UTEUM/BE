@@ -27,6 +27,8 @@ import io.edupilot.user.dto.UpdatePreferencesRequest;
 import io.edupilot.user.dto.UserPreferencesResponse;
 import io.edupilot.user.dto.UserResponse;
 import io.edupilot.deletion.DeletionJournal;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 
 @Service
 public class UserService {
@@ -53,6 +55,7 @@ public class UserService {
 	private final EmailService emailService;
 	private final EmailTemplates emailTemplates;
 	private final DeletionJournal deletionJournal;
+	private final EntityManager entityManager;
 
 	public UserService(
 		UserRepository userRepository,
@@ -63,7 +66,8 @@ public class UserService {
 		PasswordChangeAttemptLimiter passwordChangeAttemptLimiter,
 		EmailService emailService,
 		EmailTemplates emailTemplates,
-		DeletionJournal deletionJournal
+		DeletionJournal deletionJournal,
+		EntityManager entityManager
 	) {
 		this.userRepository = userRepository;
 		this.passwordEncoder = passwordEncoder;
@@ -74,6 +78,7 @@ public class UserService {
 		this.emailService = emailService;
 		this.emailTemplates = emailTemplates;
 		this.deletionJournal = deletionJournal;
+		this.entityManager = entityManager;
 	}
 
 	@Transactional(readOnly = true)
@@ -87,7 +92,7 @@ public class UserService {
 		if (request.name() == null && request.affiliation() == null) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}
-		User user = activeUser(userId);
+		User user = activeUserForUpdate(userId);
 		String name = request.name() == null ? null : request.name().trim();
 		if (name != null && name.isEmpty()) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
@@ -105,7 +110,7 @@ public class UserService {
 		String currentPassword,
 		String newPassword
 	) {
-		User user = activeUser(userId);
+		User user = activeUserForUpdate(userId);
 		if (user.getAuthProvider() != AuthProvider.LOCAL) {
 			throw new BusinessException(ErrorCode.PASSWORD_NOT_SUPPORTED);
 		}
@@ -140,7 +145,7 @@ public class UserService {
 			&& request.aiAnswerStyle() == null) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}
-		User user = activeUser(userId);
+		User user = activeUserForUpdate(userId);
 		user.updatePreferences(
 			request.newMaterialNotification(),
 			request.studyReminder(),
@@ -160,7 +165,7 @@ public class UserService {
 		}
 
 		try {
-			User user = withdrawalUser(userId);
+			User user = activeUserForUpdate(userId);
 			String oldKey = user.getAvatarKey();
 			user.replaceAvatar(newKey);
 			userRepository.flush();
@@ -195,7 +200,7 @@ public class UserService {
 
 	@Transactional
 	public void deleteAvatar(Long userId) {
-		User user = withdrawalUser(userId);
+		User user = activeUserForUpdate(userId);
 		String avatarKey = user.getAvatarKey();
 		if (avatarKey == null) {
 			return;
@@ -207,7 +212,7 @@ public class UserService {
 
 	@Transactional
 	public void withdraw(Long userId, String password) {
-		User user = withdrawalUser(userId);
+		User user = activeUserForUpdate(userId);
 		if (user.getAuthProvider() != AuthProvider.LOCAL
 			|| !passwordEncoder.matches(password, user.getPasswordHash())) {
 			throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
@@ -217,7 +222,7 @@ public class UserService {
 
 	@Transactional
 	public void withdrawGoogle(Long userId, String verifiedGoogleSub) {
-		User user = withdrawalUser(userId);
+		User user = activeUserForUpdate(userId);
 		if (user.getAuthProvider() != AuthProvider.GOOGLE || verifiedGoogleSub == null
 			|| !verifiedGoogleSub.equals(user.getGoogleSub())) {
 			throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
@@ -225,9 +230,14 @@ public class UserService {
 		finishWithdrawal(user);
 	}
 
-	private User withdrawalUser(Long userId) {
-		User user = userRepository.findByIdForUpdate(userId)
+	private User activeUserForUpdate(Long userId) {
+		User user = userRepository.findById(userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+		if (entityManager.getLockMode(user) != LockModeType.PESSIMISTIC_WRITE) {
+			// Acquire the lock while reloading: a locking query followed by refresh can
+			// re-read an old MySQL snapshot. Reuse our lock for later unflushed mutations.
+			entityManager.refresh(user, LockModeType.PESSIMISTIC_WRITE);
+		}
 		if (!user.isActive()) {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}

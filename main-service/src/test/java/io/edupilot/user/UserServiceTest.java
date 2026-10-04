@@ -31,10 +31,13 @@ import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.storage.FileStorage;
 import io.edupilot.user.dto.UpdateProfileRequest;
 import io.edupilot.user.dto.UpdatePreferencesRequest;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
 	@Mock private io.edupilot.deletion.DeletionJournal deletionJournal;
+	@Mock private EntityManager entityManager;
 
 	@Mock
 	private UserRepository userRepository;
@@ -68,7 +71,8 @@ class UserServiceTest {
 			passwordChangeAttemptLimiter,
 			emailService,
 			new EmailTemplates(new MailProperties(true, "logging", "test@example.com", "", "https://dev.uteum.com", "ap-northeast-2")),
-			deletionJournal
+			deletionJournal,
+			entityManager
 		);
 		user = User.create(
 			"user@example.com",
@@ -77,7 +81,6 @@ class UserServiceTest {
 		);
 		ReflectionTestUtils.setField(user, "id", 1L);
 		lenient().when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-		lenient().when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
 	}
 
 	@Test
@@ -262,8 +265,9 @@ class UserServiceTest {
 		assertThat(user.getAvatarKey()).isNull();
 		assertThat(user.getPasswordHash()).isEqualTo("!withdrawn:1");
 		verify(deletionJournal).recordAvatar("avatars/avatar.png");
-		InOrder order = inOrder(userRepository, withdrawalHook, refreshTokenService);
-		order.verify(userRepository).findByIdForUpdate(1L);
+		InOrder order = inOrder(userRepository, entityManager, withdrawalHook, refreshTokenService);
+		order.verify(userRepository).findById(1L);
+		order.verify(entityManager).refresh(user, LockModeType.PESSIMISTIC_WRITE);
 		order.verify(userRepository).flush();
 		order.verify(withdrawalHook).onWithdraw(1L);
 		order.verify(refreshTokenService).revokeAll(1L);
@@ -283,7 +287,7 @@ class UserServiceTest {
 			);
 
 		assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
-		verify(userRepository).findByIdForUpdate(1L);
+		verify(entityManager).refresh(user, LockModeType.PESSIMISTIC_WRITE);
 		verify(emailService, never()).sendAsync(org.mockito.ArgumentMatchers.any());
 	}
 
@@ -292,7 +296,7 @@ class UserServiceTest {
 		User google = User.createGoogle("google@example.com", passwordEncoder.encode("password123"),
 			"Synthetic", UserRole.LEARNER, null, false, null, null, null, "actual-google-sub");
 		ReflectionTestUtils.setField(google, "id", 2L);
-		when(userRepository.findByIdForUpdate(2L)).thenReturn(Optional.of(google));
+		when(userRepository.findById(2L)).thenReturn(Optional.of(google));
 		assertBusinessError(() -> userService.withdraw(2L, "password123"), ErrorCode.INVALID_CREDENTIALS);
 		assertBusinessError(() -> userService.withdrawGoogle(1L, "actual-google-sub"), ErrorCode.INVALID_CREDENTIALS);
 		assertBusinessError(() -> userService.withdrawGoogle(2L, "other-google-sub"), ErrorCode.INVALID_CREDENTIALS);
