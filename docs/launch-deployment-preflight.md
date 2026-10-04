@@ -8,7 +8,7 @@
 
 2026-10-04 사전 점검 기준 upstream은 `ef8f0f74a3d2d46a0adc9aabf1d9dad9577dd938`이다. PR #500의 변경은 `ai-service/tests/` 아래 세 파일이며 서비스 런타임을 바꾸지 않는다. 통합 후보는 이 변경과 이미 merge된 #496/#497/#499를 보존한다. 최종 배포 검토에서는 최신 upstream, 실제 승인 대상 후보 SHA, 그 SHA의 필수 Main/AI CI, 실행 중인 Main/AI image tag와 RepoDigest, 실제 FE build SHA를 다시 기록한다. 소스 브랜치 SHA를 서버 배포 증거로 대신 쓰지 않는다.
 
-FE develop `1b6987d`의 소스 검토에서는 신규 가입 요청의 DOB 입력, `/verify-email` 화면 및 확인 API 연동, 사용자 응답의 이메일 확인 필드 보존이 없다. 해당 FE 소스와 이 BE 후보만으로 신규 가입·학습 동선이 완성되지 않는다. 이는 실제 배포된 FE build를 측정한 결과는 아니다. [가입·이메일 계약](email-verification.md), [DOB 기반](birthdate-guardian-foundation.md), [기존 계정 예외](legacy-account-access.md)를 FE 담당자와 대조하고 실제 지원 build 및 합성 검증 결과를 받아야 한다. BE는 누락 DOB를 허용하거나 신규 계정을 기존 예외로 지정해 이 차이를 우회하지 않는다.
+최초 FE develop `1b6987d`의 DOB 입력·verify route/API·이메일 필드 누락은 이전 source/mock baseline이다. 이후 FE229 merge `5e91b5789daa13b3a4923653285709d18f232c79`에서 이 지원을 source로 확인했고 해당 FE deploy workflow의 success metadata를 확인했다. 기본 OFF이므로 실제 신규 가입·메일 경로 인수로 계산하지 않는다. FE의 직접 `/verify-email` GET404 보고와 기존 BE Nginx 경로 누락, access log query/Referer 및 별도 error-log 경계는 [후속 검토](qa/fe-auth-contract/NGINX-FOLLOWUP.md)에서 구분한다. 실제 BE/FE artifact·유효 메일 origin·로그 보호·합성 인수/활성화 합의가 필요하다. [가입·이메일 계약](email-verification.md), [DOB 기반](birthdate-guardian-foundation.md), [기존 계정 예외](legacy-account-access.md)를 대조하며 BE gate나 신규 cohort를 바꾸어 우회하지 않는다.
 
 ## 2. 배포 전 조건
 
@@ -60,7 +60,7 @@ FE가 서버별 자동 계약 선택을 꼭 요구하면, 현재 입력 필수 �
 
 ### 새 capability API 없는 수동 활성화안
 
-다음은 **FE/운영자가 합의해야 할 미실행 절차**다. 자동 서버 선택 대신 승인된 배포 manifest와 FE 빌드 설정으로 계약을 고정할 수 있다는 최소안이며, 새 API 구현을 필수로 만들지 않는다. 현재 FE head에는 예정 auth UI 구현이 없으므로 준비된 FE build·합의한 auth flag 이름/적용 방법을 먼저 받아야 한다. `VITE_API_CAPABILITIES`는 FE build 설정이고 BE 신호가 아니다.
+다음은 **FE/운영자가 합의해야 할 미실행 절차**다. 자동 서버 선택 대신 승인된 배포 manifest와 FE 빌드 설정으로 계약을 고정할 수 있다는 최소안이며, 새 API 구현을 필수로 만들지 않는다. FE229의 실제 선택값은 `VITE_AUTH_CONTRACT_READINESS=be-auth-ee69e425-v1`이고 기본 OFF다. 승인한 후보 SHA/이미지/FE build와 이 계약값의 적용을 함께 확인한다. `VITE_API_CAPABILITIES`도 FE build 설정이며 두 값 모두 BE 신호가 아니다.
 
 1. 최종 BE 후보 SHA·Main/AI 이미지 digest·V53–V59 결과·대응 FE build SHA·승인한 API/메일 origin·합의한 FE flag 상태를 하나의 검토 manifest에 고정한다. 담당자가 실제 배포 artifact를 read-back한다. status 응답이나 frontend에 수동으로 넣은 SHA를 artifact 증거로 대신하지 않는다.
 2. 승인된 전환 창에서 가입 관련 쓰기와 migration 중 User INSERT를 통제한다. 기존 FE 기본 OFF로 이전 BE를 유지하는 선반영과, 대응 FE 흐름 ON + 후보 BE로의 전환을 구분한다. 순차 컨테이너 교체 중에 신규 가입을 받지 않고 준비된 조합이 확인되기 전 공개 가입을 재개하지 않는다. 실제 트래픽 통제 방식/권한은 운영자가 확정해야 하며 새 서버 flag를 가정하지 않는다.
@@ -124,3 +124,5 @@ Spring 쪽 독립 증거는 #499 이후 후보 `b6f4f5f3155f8e1799698bcdea956fbd
 추가로 유용한 비용 없는 검증은 (1) AI 팀의 비밀 없는 110-case manifest와 exact source/CI artifact를 위 case에 매핑하고, (2) 독립 합성 환경에서 실제 Main→로컬 AI 양쪽 라우트를 연결해 schema/오류/중복 판정을 확인하며, (3) 가짜 provider·제어된 지연으로 총 deadline·취소·포화/재시작의 종단 결과를 관찰하는 것이다. 현재 이 추가 연결 실행은 **NOT_RUN**이고 새 결함을 확정한 결과도 아니다. 실DEV 구성/이미지/로그 접근 조회는 승인된 운영 경로에서 별도 확인한다.
 
 #500의 [monetary reservation 설명](../ai-service/tests/benchmarks/MONETARY-RESERVATIONS.md)은 offline 평가 원장이지 기관/강의별 서비스 quota 구현이 아니다. reasoning을 포함한 신뢰할 비용 상한이 없다는 AI 팀 보류와 일치하며, paid 호출을 실행하지 않는다. 월 기관 예산은 미정이다. 회신의 로그 14일 보존·한승준 운영 담당은 타팀 보고/제안이고 이 문서가 사용자 승인이나 실제 접근 권한 설정을 확정하지 않는다. 로그 정책·권한·보존 설정은 변경하지 않았다.
+
+[FE230](https://github.com/AutoAI-UTEUM/FE/pull/230)의 report 소비자는 실패 코드 한국어 안내·기존 완료 report 보존·FAILED 점수 미표시·새 requestId 한 번 retry를 다룬다. 조회 시 원격은 source `49bc84a0abe608bc7434de95fc10b5b024ca0896`, merge `5843c8f6f85152126c5d4b4263916310ff3b95b6`였다. 실제 배포/실계정 인수는 이 작업에서 확인하지 않았다. AI의 422/502가 FE에 직접 전달되는 계약이 아니라, [ReportGenerationWorker](../main-service/src/main/java/io/edupilot/report/ReportGenerationWorker.java)가 실패를 저장하고 [공개 controller](../main-service/src/main/java/io/edupilot/report/ReportController.java)의 상세 GET이 HTTP200 `FAILED/failureCode/fallback`을 반환하는 경계다. [ReportFailedResponse](../main-service/src/main/java/io/edupilot/report/dto/ReportFailedResponse.java)의 fallback은 metrics/dataQuality이며 완료 점수가 아니다. 기존 [ReportApiContractTest](../main-service/src/test/java/io/edupilot/report/ReportApiContractTest.java)에 FAILED/timeout/fallback·criteria 부재와 null 부족 증거/실제0점 구분이 있다. 이 소스와 기존 exact4e Main CI를 연결하며 FE230 작성자 보고 테스트 숫자를 두 서비스 실연동 인수로 합산하지 않는다. FE 코드는 수정하지 않았다.
