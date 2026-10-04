@@ -50,6 +50,7 @@ public class SecurityConfig {
 				.accessDeniedHandler(accessDeniedHandler)
 			)
 			.authorizeHttpRequests(authorize -> authorize
+				.requestMatchers("/api/auth/guardian-verification/link").authenticated()
 				.requestMatchers("/api/auth/email-verification/request", "/api/auth/email-verification/status").authenticated()
 				.requestMatchers(HttpMethod.POST, "/api/auth/session/activity")
 				.authenticated()

@@ -243,3 +243,5 @@ FE는 `message` 문자열을 파싱하지 않고 `code`로 분기합니다.
 
 
 #478 foundation adds internal gate errors AGE_VERIFICATION_REQUIRED (403) and GUARDIAN_VERIFICATION_PENDING (403). Their existence does not imply global HTTP/SSE/worker binding. LOCAL DOB missing uses VALIDATION_FAILED (400); new Google signup details/DOB missing uses existing SIGNUP_REQUIRED (409). [Scope](birthdate-guardian-foundation.md).
+
+#491 adds GUARDIAN_VERIFICATION_UNAVAILABLE (503: disabled, incomplete notice/configuration or disconnected provider), GUARDIAN_LINK_INVALID (400: invalid/expired/revoked/inactive link), GUARDIAN_STATE_CONFLICT (409: consumed/in-flight/unsuitable state or legacy exemption), GUARDIAN_NOTICE_CHANGED (409: pinned notice changed, reissue required). Invalid self-declaration/phone/code uses VALIDATION_FAILED, throttling uses RATE_LIMIT_EXCEEDED. Exception reasons expose categories only, never provider response/phone/OTP. [Guardian contract](guardian-web-sms-intake.md).

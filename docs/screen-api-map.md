@@ -208,3 +208,5 @@ Withdrawal and material-delete completion must not be presented as physical-file
 New LOCAL/Google signup screens must provide dateOfBirth; existing Google login has no DOB reentry requirement. Saving DOB is not approval. Full age/access-state UI and global protection binding await policy. [Foundation](birthdate-guardian-foundation.md).
 
 Migration-defined legacy accounts retain access without DOB reentry. emailVerificationRequired=false can coexist with UNKNOWN/PENDING email evidence and must not be displayed as verified. New-account email requirements and all suspension/ownership checks remain. [Legacy access](legacy-account-access.md).
+
+Guardian consent page contract (#491): use the fragment token in POST bodies to view/consent/verify/dispute. Issuance requires login. PHONE_CONFIRMED is phone-control evidence, never signup/age/guardian approval. Show 503 as unavailable and REVIEW_REQUIRED as exception intake; no operator approval UI/API is defined yet. FE implementation and live SMS verification remain separate. [Contract](guardian-web-sms-intake.md).

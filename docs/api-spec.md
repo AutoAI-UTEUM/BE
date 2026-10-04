@@ -3321,3 +3321,7 @@ Existing withdrawal/material-delete response shapes are unchanged. Success means
 ### New-signup DOB input (#478 foundation)
 
 LOCAL signup requires ISO dateOfBirth; new Google signup also requires it but existing subject login omits it and never overwrites stored DOB. The field is input-only; it does not approve age/guardian status. Guardian intake and AgeEligibilityGate are internal services in this unit. No public approval endpoint or global HTTP/SSE/worker age gate binding is provided yet. [Foundation and pending policy](birthdate-guardian-foundation.md).
+
+### Guardian web consent and phone-control intake (#491)
+
+POST /api/auth/guardian-verification/link requires authentication. Public POST view/consent/verify/dispute accept the bearer token only in JSON bodies. All success responses use no-store/no-referrer; GET never records consent. The disabled default and disconnected provider return GUARDIAN_VERIFICATION_UNAVAILABLE. PHONE_CONFIRMED is phone-control evidence only, guardianRelationshipVerified remains false, and User eligibility is unchanged. [Request/response and activation boundary](guardian-web-sms-intake.md).
