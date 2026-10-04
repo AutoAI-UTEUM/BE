@@ -17,7 +17,7 @@
 
 배포 순서·설정·rollback 조건은 별도 [PR501](https://github.com/AutoAI-UTEUM/BE/pull/501)의 [배포 사전 점검 문서](https://github.com/AutoAI-UTEUM/BE/blob/fd12b01ecfef34b45629e2a8efe4068a4b5861c1/docs/launch-deployment-preflight.md)를 재사용한다. 해당 문서는 아직 이 base에 합쳐지지 않아 exact head 링크로 연결한다.
 
-**충돌 해석:** 초기 이메일 문서·#471 이슈의 “기존 UNKNOWN도 업무 차단” 문장은 V58 이전 설명이다. PR495에서는 [기존 계정 정책](../../legacy-account-access.md)과 V58이 우선하며, `UNKNOWN/PENDING + emailVerificationRequired=false`는 이용 예외다. 확인 성공 표시를 뜻하지 않는다. 기존 `api-spec.md`의 가입 JSON 예시에는 DOB가 없지만 하단 DOB 절과 실제 DTO는 필수로 요구한다. 동의 대상 문서가 하나도 없는 경우의 옛 명세와 현재 테스트 차이도 [증거 기록](EVIDENCE.md)에 남겼다. 기존 파일은 이 독립 작업에서 수정하지 않는다.
+초기 단위에서 발견한 문서 차이는 최종 통합의 공통 문서 정합성 작업으로 보완한다. LOCAL·새 Google 예시에 DOB를 넣고, 이메일·DOB·DB 문서의 V58 기존 이용 예외와 현재 동의 대상 없는 경우의 동작을 실제 코드/기존 테스트에 맞춘다. `UNKNOWN/PENDING + emailVerificationRequired=false`는 확인 성공 표시가 아니며 false만으로 cohort를 추정할 수도 없다. 발견 시점과 근거는 [증거 기록](EVIDENCE.md)에 보존한다. 이 원래 독립 단위의25개 검사는 runtime·FE 화면 인수 완료를 뜻하지 않는다.
 
 ## HTTP 입력·출력
 

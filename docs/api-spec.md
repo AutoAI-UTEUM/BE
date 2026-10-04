@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 계약 초안 |
-| 마지막 갱신 | 2026-09-21 |
+| 마지막 갱신 | 2026-10-04 |
 | 외부 호출자 | Frontend |
 | 내부 호출자 | Spring → FastAPI |
 
@@ -200,6 +200,7 @@
   "password": "password123",
   "name": "홍길동",
   "role": "LEARNER",
+  "dateOfBirth": "2000-01-01",
   "affiliation": "EduPilot University",
   "learningEmailOptIn": true,
   "consents": [
@@ -227,11 +228,13 @@
 
 `role`은 필수이며 공개 가입에서는 `LEARNER | INSTRUCTOR`만 허용합니다. `ADMIN`, 기존 `USER`, 알 수 없는 enum 값은 요청 오류로 거부합니다. `ADMIN` 계정은 운영상 필요한 경우에만 DB에서 수동 설정합니다(DEC-017, DEC-029 Accepted).
 
-`affiliation`은 선택이며 공백을 제거한 뒤 최대 100자입니다. `learningEmailOptIn`은 생략 시 `false`입니다. 가입 동의 필수 여부는 `edupilot.policy.signup-consent-required`(환경변수 `EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED`, 기본 `false`)로 제어합니다. `false`일 때 `consents` 생략·빈 배열은 가입을 허용하며 동의 이력을 만들지 않습니다. 배열을 보내면 `GET /api/policies/current` 중 `requiresConsent=true`인 현재 버전을 정확히 한 번씩 보내야 하며, 동의 버전·시각·IP·User-Agent를 가입 트랜잭션에서 저장합니다. `true`일 때는 해당 문서가 하나 이상 게시되어 있어야 하고 배열도 필수입니다. 누락·중복·버전 불일치는 `POLICY_CONSENT_REQUIRED`(400)입니다. `requiresConsent=false`인 공개 문서를 과도기 FE가 함께 보내면 가입 검증에서는 무시합니다. V48 시드 `0.9`는 **법무 검토 전 초안**이며 V49에서 동의 비대상으로 명시합니다.
+`dateOfBirth`는 신규 LOCAL 가입에 필수인 `YYYY-MM-DD` 날짜 문자열입니다. 누락/null은 `VALIDATION_FAILED`(400), 날짜 역직렬화 실패는 `MALFORMED_REQUEST`(400)입니다. DOB는 응답·AI DTO에 노출하지 않고 입력만으로 나이·보호자 확인을 승인하지 않습니다.
+
+`affiliation`은 선택이며 공백을 제거한 뒤 최대 100자입니다. `learningEmailOptIn`은 생략 시 `false`입니다. 가입 동의 필수 여부는 `edupilot.policy.signup-consent-required`(환경변수 `EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED`, 기본 `false`)로 제어합니다. 현재 `requiresConsent=true` 문서가 있으면 설정 `true`일 때 동의 배열이 필수이고, `false`일 때 생략·빈 배열은 가입을 허용하며 동의 이력을 만들지 않습니다. 배열을 보내면 동의 대상 현재 버전을 정확히 한 번씩 보내야 하며 동의 버전·시각·IP·User-Agent를 가입 트랜잭션에서 저장합니다. 대상이 있는 경우의 누락·중복·버전 불일치는 `POLICY_CONSENT_REQUIRED`(400)입니다. 현재 동의 대상 문서가 하나도 없으면 런타임과 `PolicyServiceTest`는 설정 `true`여도 동의 없는 가입을 허용합니다. 이는 출시 정책 게시 준비를 대신하지 않으며 기존 필수 설정을 끄거나 defaults를 바꾸는 변경은 아닙니다. `requiresConsent=false` 문서를 함께 보내면 가입 검증에서는 무시합니다. 위 버전 `0.9`는 과거 합성 예시이며 V48 시드의 **법무 검토 전 초안**은 V49에서 동의 비대상으로 명시했습니다. 실제 요청은 `GET /api/policies/current`의 현재 동의 대상 버전을 사용합니다.
 
 비밀번호 정책(확정): **8~64자, 영문·숫자 각 1자 이상 포함**(특수문자 허용). 위반 시 `VALIDATION_FAILED` + `details: [{ "field": "password", "reason": "..." }]`.
 
-주요 오류: `VALIDATION_FAILED`, `POLICY_CONSENT_REQUIRED`, `EMAIL_ALREADY_EXISTS`.
+주요 오류: `VALIDATION_FAILED`, `MALFORMED_REQUEST`, `POLICY_CONSENT_REQUIRED`, `EMAIL_ALREADY_EXISTS`. LOCAL 가입 성공은 계정 생성이며 access·refresh 쿠키·로그인 세션을 발급하지 않습니다.
 
 LOCAL·Google 신규 계정은 `PENDING`으로 생성하고 가입 트랜잭션에 이메일 확인 작업을 저장합니다. Google ID 토큰의 검증된 이메일도 이 변경에서는 별도의 BE 확인 링크를 사용하며 자동 `VERIFIED` 처리하지 않습니다. 기존 계정은 근거 없이 `VERIFIED`로 백필하지 않고 `UNKNOWN`으로 유지합니다. 로그인 응답의 `user` 및 `/api/users/me`에는 `emailVerification`, `emailVerificationRequired`, nullable `emailVerifiedAt`을 추가합니다. 신규 이메일 미확인 계정의 로그인·refresh·본인 계정 관리·정책 동의는 허용하지만 학습·자료·파일·SSE·노트·강의실 등 업무 API는 `EMAIL_VERIFICATION_REQUIRED`(403)으로 거부합니다. V58 이전 계정은 별도 `LEGACY_EXEMPT` cohort로 이용을 유지하고 `emailVerificationRequired=false`를 반환하며 확인 증거는 바꾸지 않습니다. 정지·탈퇴·역할·소유권 검사는 계속 적용합니다. 이메일 확인이나 기존 계정 예외는 연령·보호자 확인이나 외부 AI 동의를 대신하지 않습니다. [기존 계정 이용 정책](legacy-account-access.md).
 
@@ -251,7 +254,7 @@ LOCAL·Google 신규 계정은 `PENDING`으로 생성하고 가입 트랜잭션�
 
 확정 요청은 `{"token":"43-character-base64url-value"}` 형태입니다. 32바이트 난수의 Base64URL 원문이 실제 토큰이며 예시는 유효한 토큰이 아닙니다. 익명 확정은 JWT나 세션을 발급하지 않습니다. 만료·재사용·탈퇴·현재 이메일 불일치·유효하지 않은 링크는 같은 `EMAIL_VERIFICATION_TOKEN_INVALID`(400)로 처리하고, 형식 오류는 `VALIDATION_FAILED`(400)입니다. 확정 IP 한도는 10회/15분입니다. 동시 확정은 1회만 성공하며 GET 확정은 405 `METHOD_NOT_ALLOWED`이고 상태를 바꾸지 않습니다. 성공 응답은 `no-store`입니다.
 
-기존 계정 재확인·FE 링크 연동·배포 경계와 백그라운드 AI 검증은 [이메일 소유 확인](email-verification.md)을 따릅니다.
+기존 계정 예외·선택 재확인·FE 링크 연동·배포 경계와 백그라운드 AI 검증은 [이메일 소유 확인](email-verification.md)을 따릅니다. 요청·응답 합성 예시, 오류 우선순위, 재발급/다른 로그인 계정/탭 상태 처리와 현재 FE 누락 재현은 [FE 전달 계약](qa/fe-auth-contract/README.md)에 있습니다. 그 소비자 mock 검사는 Spring runtime·실제 FE 화면 인수 결과가 아닙니다.
 
 ### GET `/api/auth/email-availability?email={email}`
 
@@ -293,7 +296,10 @@ LOCAL·Google 신규 계정은 `PENDING`으로 생성하고 가입 트랜잭션�
     "role": "LEARNER",
     "affiliation": "EduPilot University",
     "avatarUrl": "/api/users/me/avatar",
-    "learningEmailOptIn": true
+    "learningEmailOptIn": true,
+    "emailVerification": "PENDING",
+    "emailVerificationRequired": true,
+    "emailVerifiedAt": null
   },
   "session": {
     "idleTimeoutSeconds": 7200,
@@ -359,17 +365,18 @@ FE는 `EMAIL_ALREADY_EXISTS`를 토큰 오류나 `SIGNUP_REQUIRED`로 취급하�
 {
   "idToken": "google-id-token",
   "role": "LEARNER",
+  "dateOfBirth": "2000-01-01",
   "consents": [{"type": "TERMS", "version": "1.0"}],
   "learningEmailOptIn": true,
   "affiliation": "EduPilot University"
 }
 ```
 
-- 신규 가입의 `role`은 `LEARNER | INSTRUCTOR`입니다. `consents` 필수 여부는 일반 가입과 같은 설정을 따르며 현재 `requiresConsent=true`인 버전만 보냅니다. 같은 `googleSub`의 기존 계정 로그인에는 재전송하지 않아도 되며, 응답의 `pendingConsents`가 재동의 필요 여부를 나타냅니다.
+- 신규 가입의 `role`은 `LEARNER | INSTRUCTOR`이고 `dateOfBirth`도 필수입니다. role·동의를 DOB보다 먼저 검사하므로 여러 누락의 오류 순서는 달라질 수 있습니다. DOB만 빠지고 앞선 검사를 통과하면 `SIGNUP_REQUIRED`(409)입니다. `consents`는 일반 가입과 같은 규칙의 현재 동의 대상 버전을 사용하며 위 `1.0`은 예시입니다. 같은 `googleSub`의 기존 로그인에는 DOB·role·가입 consents를 재전송하지 않아도 되고 보낸 DOB도 기존 값을 덮어쓰지 않습니다. 응답의 `pendingConsents`가 재동의 필요 여부를 나타냅니다.
 - Google ID 토큰은 서버가 Google tokeninfo 응답의 audience, issuer, 이메일 검증 여부를 확인합니다. 검증 실패·Google 통신 실패는 `TOKEN_INVALID`(401)로 통일합니다.
 - 서버에 Google Client ID가 설정되지 않은 경우 기동은 허용하지만 요청은 `VALIDATION_FAILED`(400)로 거부하고 설정 오류만 서버 로그에 기록합니다.
 - Google 최초 가입 계정의 비밀번호 sentinel은 일반 비밀번호 검증을 통과하지 않으므로 비밀번호 로그인은 `INVALID_CREDENTIALS`입니다.
-- 주요 오류: `EMAIL_ALREADY_EXISTS`, `SIGNUP_REQUIRED`, `TOKEN_INVALID`, `ACCOUNT_SUSPENDED`, `USER_INACTIVE`, `VALIDATION_FAILED`.
+- 주요 오류: `EMAIL_ALREADY_EXISTS`, `SIGNUP_REQUIRED`, `POLICY_CONSENT_REQUIRED`, `TOKEN_INVALID`, `ACCOUNT_SUSPENDED`, `USER_INACTIVE`, `VALIDATION_FAILED`, `MALFORMED_REQUEST`.
 - 이 차단은 신규 자동 연결 예방이며, 배포 전에 이미 연결된 계정·발급된 세션을 소급 복구하지 않습니다. 기존 연결 계정의 조사 기준과 잔여 접근 위험은 [DEC-042](decisions.md#dec-042--google-이메일-충돌-차단과-기존-연결-계정-복구)에 기록합니다.
 
 ### 정책 버전·동의 (#415)

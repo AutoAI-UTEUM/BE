@@ -43,6 +43,8 @@
 
 ## 부모/기존 구현 담당 전달 사항
 
+아래 차이는 원래 검토 head `d0047567c2864e999e1c5bac781a39ac43de8a3e`에서 발견한 기록이다. 최종 통합 담당의 `feature/479-auth-doc-alignment`는 기존 API/DOB/이메일/DB/화면 문서를 현재 DTO·V58·PolicyServiceTest에 맞춰 수정한다. runtime·정책 defaults·migration은 변경하지 않으며 원래25개 결과를 새 runtime 실행 증거로 바꾸지 않는다.
+
 이 작업의 검토 범위에서 새 runtime 결함을 확정한 것은 없다. 확인한 **기존 문서와 코드/테스트의 차이**는 다음과 같으며 공통 파일 수정은 기존 구현 담당에게 맡긴다.
 
 1. [api-spec.md](../../api-spec.md) LOCAL 가입 및 Google 추가 정보 JSON 예시가 DOB를 빠뜨린다. 실제 [SignupRequest](../../../main-service/src/main/java/io/edupilot/auth/dto/SignupRequest.java) 및 [GoogleAccountService](../../../main-service/src/main/java/io/edupilot/auth/GoogleAccountService.java)는 신규 DOB를 요구한다. 이 전달 문서는 corrected synthetic 예시를 제공한다.
