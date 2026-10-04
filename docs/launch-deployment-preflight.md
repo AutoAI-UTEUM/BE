@@ -58,7 +58,7 @@ FE develop `1b6987d`의 소스 검토에서는 신규 가입 요청의 DOB 입�
 
 FE가 서버별 자동 계약 선택을 꼭 요구하면, 현재 입력 필수 여부와 **구현 지원**을 알리는 좁은 읽기 전용 신호의 필요성을 계약 담당과 먼저 확인한다. 이 문서에서는 endpoint/응답 필드·새 서버 flag를 만들지 않는다. 신호를 추가하더라도 실제 NEW_SIGNUP DOB/이메일 요구를 정확히 표현해야 하고, DB gate의 대체 조건이나 실메일 수신/guardian 승인으로 소비하면 안 된다. 네트워크 오류·404·알 수 없는 revision에서는 임의 새 기능 활성화 없이 기존 안전한 동선을 유지하며 후보 BE 전환은 보류한다.
 
-가입 동의는 현재 `GET /api/policies/current`의 `requiresConsent=true` 대상과 실제 `EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED`를 따로 대조한다. 대상이 0개일 때의 현재 코드 동작과 UNKNOWN/LEGACY 응답은 [API 명세](api-spec.md) 및 [전달 계약](qa/fe-auth-contract/README.md)을 사용한다. 법무 준비 상태·기존 계정 예외·현재 동의 완료를 capability나 health로 추정하지 않는다.
+가입 동의는 현재 `GET /api/policies/current`의 `requiresConsent=true` 대상과 실제 `EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED`를 따로 대조한다. 대상이 0개일 때의 현재 코드 동작과 UNKNOWN/LEGACY 응답은 [정합화한 API 명세](https://github.com/AutoAI-UTEUM/BE/blob/dbd148352753e2b52f8f9cbf8599c5024c61dd8d/docs/api-spec.md) 및 [중간 후보의 전달 계약](https://github.com/AutoAI-UTEUM/BE/blob/dbd148352753e2b52f8f9cbf8599c5024c61dd8d/docs/qa/fe-auth-contract/README.md)을 사용한다. 두 링크는 추가 FE 회신 이전 검토 시점에 고정돼 있으며 최종 통합의 최신 계약은 별도로 확인한다. 법무 준비 상태·기존 계정 예외·현재 동의 완료를 capability나 health로 추정하지 않는다.
 
 1. 실제 FE 지원 build와 실메일 확인 경로, 승인 대상 SHA·설정·CI·백업·복구 이미지 증거를 갖춘다. 기존 FE가 새 필드를 아직 보내지 않는 상태에서 BE만 먼저 적용하지 않는다. FE 선반영 가능 여부와 활성화 시점은 해당 팀이 검증해야 한다.
 2. 승인된 migration 창에서 쓰기 유입과 기존 프로세스의 종료 경계를 통제한다. V58 cohort 경계를 기록할 때 migration 중 가입/기타 User INSERT가 섞이지 않도록 한다. 연속된 migration의 checksum과 적용 결과를 기록한다.
