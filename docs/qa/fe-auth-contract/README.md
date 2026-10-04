@@ -1,17 +1,19 @@
 # FE 가입·DOB·이메일 확인 전달 계약 (#471 / #478 / #479)
 
-이 문서는 **PR495 후보의 소비자 전달 자료**다. 현재 FE를 그대로 두고 이 후보의 BE만 배포하면 LOCAL 신규 가입은 DOB 누락 400, Google 신규 가입은 추가 정보 부족 409, 신규 미확인 계정의 업무 호출은 403으로 막힌다. 기존 계정은 V58의 `LEGACY_EXEMPT`로 이용을 유지한다. 새 계정의 gate를 우회하는 변경은 이 자료에 없다. FE 구현·배포 및 실제 메일 수신 검증은 별도 작업이다.
+이 문서는 **PR495 후보의 소비자 전달 자료**다. [FE PR229 재확인](FE-PR229-REVIEW.md)의 `5e91b578`에서 기존 누락 5개를 보완한 것을 source/소비자 mock으로 확인했다. 기본 OFF에서는 DOB/동의 전달·이메일 API가 비활성이라 BE만 먼저 배포하면 LOCAL 신규 가입 400·Google 신규 가입 409·신규 미확인 업무 403 문제가 남는다. 기존 계정은 V58의 `LEGACY_EXEMPT`로 이용을 유지한다. 새 계정의 gate를 우회하는 변경은 이 자료에 없다. 최종 SHA·활성화 합의 및 실제 메일 연동 인수는 완료되지 않았다.
 
 | 기준 | 정확한 head / 역할 |
 | --- | --- |
 | 원 독립 단위 base, [PR495](https://github.com/AutoAI-UTEUM/BE/pull/495) | `ee69e4259b1b80871fdc1805a7b42d8628ac57e9` / PR500 보존 후 가입·V58·이메일 gate 구현 후보 |
 | 확인한 BE upstream `develop` | `ef8f0f74a3d2d46a0adc9aabf1d9dad9577dd938` / PR500 merge, 최신 후보의 조상 |
-| 읽기 전용 FE `develop` | `1b6987d8472a064a080a00bd43232993e9bd41eb` |
+| 원 소비자 baseline FE `develop` | `1b6987d8472a064a080a00bd43232993e9bd41eb` / 과거 KNOWN GAP5 재현용 |
 | 독립 브랜치 | `feature/471-fe-auth-contract` — 가입·DOB·이메일 계약을 기존 문서에 연결하고 FE 소비자 누락을 오프라인 재현한다. |
 
 이 브랜치는 PR495 위에 문서·검증만 쌓는다. 최초 확인 후보 `b6f4f5f3155f8e1799698bcdea956fbd64f22d61`에서 최신 후보로 fast-forward했고 차이는 PR500의 AI 테스트 자료 3개뿐이다. `main-service` tree는 같아 계약 구현은 변하지 않았다. head가 바뀌면 이 표의 기준과 검증 결과를 다시 확인한다.
 
 2026-10-04 후속 질의의 답변·현재 BE capability 부재·메일 담당/링크 origin·공통 문서 정정 확인은 [FE-FOLLOWUP.md](FE-FOLLOWUP.md)를 따른다. 후속 검토 snapshot은 `dbd148352753e2b52f8f9cbf8599c5024c61dd8d`이며 최종 후보 SHA/FE 활성화 합의가 완료됐다는 뜻은 아니다.
+
+FE PR229 이후의 최신 읽기 확인은 [FE-PR229-REVIEW.md](FE-PR229-REVIEW.md)와 [pr229-review.json](pr229-review.json)에 분리한다. 선택 BE base는 `4e578c5f811d0084de0b80ee72b5ed7c72ba84c6`, FE merge head는 `5e91b5789daa13b3a4923653285709d18f232c79`다. 과거 검사와 최신 ON/OFF 검사를 서로 다른 FE checkout에 고정하며, 50개 전체 결과를 최신 FE의 50개 인수 결과로 부르지 않는다.
 
 ## 기존 자료와 읽는 순서
 

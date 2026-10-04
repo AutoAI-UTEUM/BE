@@ -61,3 +61,12 @@
 - `FE_AUTH_SOURCE_ROOT` 지정 후 `node --disable-warning=ExperimentalWarning --test docs/qa/fe-auth-contract/contract.test.mjs docs/qa/fe-auth-contract/consumer.test.mjs docs/qa/fe-auth-contract/followup.test.mjs`: **29/29 통과, 실패0/skip0**. source/fixture/link12 + 기존 실제 FE 소비자17이며 KNOWN GAP5는 누락 재현으로 유지했다.
 - 이 후속 변경은 전용 경로의 문서·source 검사 5개 파일에만 한정한다. staged diff --check 통과, main-service tree 불변, FE tracked diff 없음. Java/Gradle·Docker/MySQL·실Google/메일/SMS·실계정/DEV DB·설정 변경·배포·FE 후속 화면 E2E는 실행하지 않았다.
 - 런타임 담당의 후속 검토가 필요한 것은 공개 auth capability/revision 신호의 계약·build revision 근거·구형 404 처리와 rollout 합의, 동의 대상이 한 종류일 때도 두 종류를 모두 요구하는 듯한 현재 POLICY_CONSENT_REQUIRED 안내 문구다. 실제 오류 문자열/fixtures·정책 defaults·runtime은 바꾸지 않았다.
+
+## FE PR229 develop 반영 이후 재확인
+
+- [FE-PR229-REVIEW.md](FE-PR229-REVIEW.md)에 최신 소비자 결과를 분리했다. FE merge `5e91b5789daa13b3a4923653285709d18f232c79`, PR head `43467a8343053e41f48d9667469dc110ceb32018`, BE 선택 base `4e578c5f811d0084de0b80ee72b5ed7c72ba84c6`를 git 원격/GitHub PR로 확인했다. BE main-service tree는 동일한 `20a4c0c7c55b44d8b792ce282e622eddb4d573d9`다.
+- 초기 Git fetch의 자동 승인 검토 시간 초과와 일시 연결 실패 후 exec 연결 복구를 확인하고 읽기 fetch에 성공했다. 원 FE clone을 reset/편집하지 않고 별도 detached worktree `FE-pr229-readonly`에서 읽었다.
+- 기존 KNOWN GAP5는 최신 readiness ON 코드에서 보완됐다. 이메일 필드 보존은 OFF에서도 작동한다. default OFF의 DOB/consents 누락·이메일 HTTP 호출 전 거절은 별도 실행 재현했고 최종 후보/BE capability·활성화·실메일 합의는 미완료로 유지했다. 범위 내 ON method/path/body/envelope/error의 새 불일치는 발견하지 않았다.
+- 원 `consumer.test.mjs`/fixtures의 FE baseline SHA와 과거 발견 기록은 보존했다. helper에 실제 최신 module/env 공급을 추가하고 `consumer-pr229.test.mjs`·`pr229-review.json`에 독립 최신 검증을 고정했다. 실제 FE 소스 수정·의존성 설치·Nginx 중복 진단은 하지 않았다.
+- 위 재현 명령은 **50/50 passed, failure0/skip0**: BE source/fixture/link12 + 원 FE 소비자17 + 최신 FE ON/OFF source/소비자21. 최신 FE의 50개 인수라고 표시하지 않는다. React/브라우저 경쟁 상태·실HTTP/쿠키·실Google/메일/SMS·실계정/DEV DB·배포는 미실행이다. FE의 Vitest1003/E2E17은 FE PR 보고이며 이 세션 실행 결과가 아니다.
+- 기존 공통 API 검사도 최신 FE에서 양성 이름 필터로 **11/11 passed, failure0/skip0** 재실행했다. 원 head/KNOWN GAP 6개는 이 호출에서 선택하지 않았다. 첫 제외형 필터는 의도와 달리 원 baseline까지 실행해 head guard와 과거 누락 기대 4개가 실패했다(12pass/5fail). 최신 소스에 과거 기대를 적용한 검사 선택 오류였으며 아래 정확한 양성 필터로 수정했다. 최신21 검사와 공통 API11의 최종 실행은 모두 통과했고 숨긴 runtime/FE 변경은 없다.
