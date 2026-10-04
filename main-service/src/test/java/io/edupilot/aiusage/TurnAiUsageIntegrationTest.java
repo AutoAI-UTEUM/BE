@@ -117,6 +117,7 @@ class TurnAiUsageIntegrationTest {
 	private UserRepository userRepository;
 	@MockitoBean
 	private MaterialAccessService materialAccessService;
+	@MockitoBean private io.edupilot.session.SessionStreamAccessGuard accessGuard;
 	@MockitoBean
 	private MaterialExtractionPersistenceService extractionPersistenceService;
 	@MockitoBean
@@ -154,6 +155,7 @@ class TurnAiUsageIntegrationTest {
 			.thenReturn(Optional.empty());
 		when(persistenceService.persist(
 			eq(1L),
+			any(),
 			eq(100L),
 			eq("request-1"),
 			any(),

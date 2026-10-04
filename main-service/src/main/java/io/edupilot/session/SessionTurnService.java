@@ -84,6 +84,7 @@ public class SessionTurnService {
 	private final UserRepository userRepository;
 	private final LongSupplier nanoTime;
 	private final MaterialAccessService materialAccessService;
+	private final SessionStreamAccessGuard accessGuard;
 
 	@Autowired
 	public SessionTurnService(
@@ -99,7 +100,8 @@ public class SessionTurnService {
 		SessionStreamService streamService,
 		AiClientProperties aiClientProperties,
 		UserRepository userRepository,
-		MaterialAccessService materialAccessService
+		MaterialAccessService materialAccessService,
+		SessionStreamAccessGuard accessGuard
 	) {
 		this(
 			claimService,
@@ -115,6 +117,7 @@ public class SessionTurnService {
 			aiClientProperties,
 			userRepository,
 			materialAccessService,
+			accessGuard,
 			System::nanoTime
 		);
 	}
@@ -133,6 +136,7 @@ public class SessionTurnService {
 		AiClientProperties aiClientProperties,
 		UserRepository userRepository,
 		MaterialAccessService materialAccessService,
+		SessionStreamAccessGuard accessGuard,
 		LongSupplier nanoTime
 	) {
 		this.claimService = claimService;
@@ -148,6 +152,7 @@ public class SessionTurnService {
 		this.aiClientProperties = aiClientProperties;
 		this.userRepository = userRepository;
 		this.materialAccessService = materialAccessService;
+		this.accessGuard = accessGuard;
 		this.nanoTime = nanoTime;
 	}
 
@@ -166,6 +171,7 @@ public class SessionTurnService {
 		claimService.claim(userId, sessionId, request.requestId());
 		SessionStreamConnection streamConnection = null;
 		Long userMessageId = null;
+		boolean persistenceCompleted = false;
 		try {
 			PreparedTurn prepared;
 			try {
@@ -221,6 +227,7 @@ public class SessionTurnService {
 					);
 				persisted = persistenceService.persist(
 					userId,
+					role,
 					sessionId,
 					request.requestId(),
 					eventType,
@@ -243,6 +250,7 @@ public class SessionTurnService {
 				persisted = execution.cancelled()
 					? persistenceService.persistCancelled(
 						userId,
+						role,
 						sessionId,
 						request.requestId(),
 						execution.turnId(),
@@ -250,6 +258,7 @@ public class SessionTurnService {
 					)
 					: persistenceService.persist(
 						userId,
+						role,
 						sessionId,
 						request.requestId(),
 						eventType,
@@ -259,6 +268,8 @@ public class SessionTurnService {
 						execution.response()
 					);
 			}
+			persistenceCompleted = true;
+			accessGuard.assertAccessible(userId, sessionId, role);
 			promoteMemory(userId, persisted);
 			TurnResponse response = persisted.response();
 			if (streamConnection != null) {
@@ -269,13 +280,12 @@ public class SessionTurnService {
 					request.requestId()
 				);
 			}
+			accessGuard.assertAccessible(userId, sessionId, role);
 			return response;
 		} catch (RuntimeException exception) {
-			markFailedMessage(
-				userMessageId,
-				sessionId,
-				request.requestId()
-			);
+			if (!persistenceCompleted) {
+				markFailedMessage(userMessageId, sessionId, request.requestId());
+			}
 			if (streamConnection != null) {
 				streamService.fail(streamConnection, exception);
 			}
@@ -317,6 +327,13 @@ public class SessionTurnService {
 		try {
 			streamService.complete(streamConnection, requestId, response);
 		} catch (RuntimeException exception) {
+			if (exception.getCause() instanceof BusinessException failure) {
+				throw failure;
+			}
+			if (exception instanceof BusinessException failure
+				&& !(exception instanceof AiClientException)) {
+				throw failure;
+			}
 			log.atWarn()
 				.addKeyValue("sessionId", sessionId)
 				.addKeyValue("requestId", requestId)

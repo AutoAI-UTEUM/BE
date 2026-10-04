@@ -18,6 +18,7 @@ import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.memory.LearnerMemoryCandidate;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
 import io.edupilot.memory.MemoryEvidenceRef;
@@ -27,6 +28,11 @@ import io.edupilot.session.dto.MessageResponse;
 import io.edupilot.session.dto.NoteDraft;
 import io.edupilot.session.dto.TurnStateResponse;
 import io.edupilot.user.UserRepository;
+import io.edupilot.user.User;
+import io.edupilot.user.UserRole;
+import io.edupilot.user.UserStatus;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 
 @Service
 public class TurnPersistenceService {
@@ -50,6 +56,8 @@ public class TurnPersistenceService {
 	private final Clock clock;
 	private final QaQuizProposalProperties qaQuizProposalProperties;
 	private final QaQuizProposalSuppression qaQuizProposalSuppression;
+	private final MaterialAccessService materialAccessService;
+	private final EntityManager entityManager;
 
 	public TurnPersistenceService(
 		LearningSessionRepository sessionRepository,
@@ -67,7 +75,9 @@ public class TurnPersistenceService {
 		ConversationSummaryDispatcher summaryDispatcher,
 		Clock clock,
 		QaQuizProposalProperties qaQuizProposalProperties,
-		QaQuizProposalSuppression qaQuizProposalSuppression
+		QaQuizProposalSuppression qaQuizProposalSuppression,
+		MaterialAccessService materialAccessService,
+		EntityManager entityManager
 	) {
 		this.sessionRepository = sessionRepository;
 		this.pageRecordRepository = pageRecordRepository;
@@ -85,11 +95,14 @@ public class TurnPersistenceService {
 		this.clock = clock;
 		this.qaQuizProposalProperties = qaQuizProposalProperties;
 		this.qaQuizProposalSuppression = qaQuizProposalSuppression;
+		this.materialAccessService = materialAccessService;
+		this.entityManager = entityManager;
 	}
 
 	@Transactional
 	public PersistedTurn persist(
 		Long userId,
+		UserRole expectedRole,
 		Long sessionId,
 		String requestId,
 		TurnEventType eventType,
@@ -98,18 +111,7 @@ public class TurnPersistenceService {
 		boolean xaiFileAttached,
 		io.edupilot.ai.dto.TurnResponse aiResponse
 	) {
-		LearningSession session = sessionRepository.findOwnedForUpdate(
-				sessionId,
-				userId
-			)
-			.orElseThrow(() ->
-				new BusinessException(ErrorCode.SESSION_NOT_FOUND));
-		if (session.getStatus() != SessionStatus.ACTIVE) {
-			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
-		}
-		if (!requestId.equals(session.getActiveTurnRequestId())) {
-			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
-		}
+		LearningSession session = lockAccessibleSession(userId, expectedRole, sessionId, requestId);
 		// Persisted direct-note responses have no content delta by contract.
 		boolean directNote = aiResponse.isDirectNote(eventType.name(), 0);
 		if (eventType == TurnEventType.USER_QUESTION
@@ -270,23 +272,13 @@ public class TurnPersistenceService {
 	@Transactional
 	public PersistedTurn persistCancelled(
 		Long userId,
+		UserRole expectedRole,
 		Long sessionId,
 		String requestId,
 		String turnId,
 		String content
 	) {
-		LearningSession session = sessionRepository.findOwnedForUpdate(
-				sessionId,
-				userId
-			)
-			.orElseThrow(() ->
-				new BusinessException(ErrorCode.SESSION_NOT_FOUND));
-		if (session.getStatus() != SessionStatus.ACTIVE) {
-			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
-		}
-		if (!requestId.equals(session.getActiveTurnRequestId())) {
-			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
-		}
+		LearningSession session = lockAccessibleSession(userId, expectedRole, sessionId, requestId);
 
 		ChatMessage message = messageRepository.save(
 			ChatMessage.ai(session, content)
@@ -308,6 +300,32 @@ public class TurnPersistenceService {
 		);
 		summaryDispatcher.dispatchAfterCommit(sessionId);
 		return persisted;
+	}
+
+	private LearningSession lockAccessibleSession(
+		Long userId, UserRole expectedRole, Long sessionId, String requestId
+	) {
+		User user = userRepository.findById(userId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID));
+		// Refresh with a locking read even if this transaction already loaded an older account.
+		// A shared account lock precedes the session lock and orders suspension/role updates after commit.
+		entityManager.refresh(user, LockModeType.PESSIMISTIC_READ);
+		if (user.getStatus() == UserStatus.SUSPENDED) {
+			throw new BusinessException(ErrorCode.ACCOUNT_SUSPENDED);
+		}
+		if (!user.isActive() || user.getRole() != expectedRole) {
+			throw new BusinessException(ErrorCode.TOKEN_INVALID);
+		}
+		LearningSession session = sessionRepository.findOwnedForUpdate(sessionId, userId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
+		if (session.getStatus() != SessionStatus.ACTIVE) {
+			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
+		}
+		if (!requestId.equals(session.getActiveTurnRequestId())) {
+			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
+		}
+		materialAccessService.requireAccessibleForUpdate(userId, session.getMaterialId());
+		return session;
 	}
 
 	private List<UiAction> applyAllowedAiUiAction(

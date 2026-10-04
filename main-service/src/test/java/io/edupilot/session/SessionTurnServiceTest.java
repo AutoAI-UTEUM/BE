@@ -104,6 +104,7 @@ class SessionTurnServiceTest {
 	private UserRepository userRepository;
 	@Mock
 	private MaterialAccessService materialAccessService;
+	@Mock private SessionStreamAccessGuard accessGuard;
 
 	@BeforeEach
 	void configureTurnReadTimeout() {
@@ -184,6 +185,7 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -249,6 +251,7 @@ class SessionTurnServiceTest {
 		ArgumentCaptor<Boolean> xaiFileAttached =
 			ArgumentCaptor.forClass(Boolean.class);
 		verify(persistenceService).persist(
+			any(),
 			any(),
 			any(),
 			anyString(),
@@ -380,6 +383,7 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -475,6 +479,7 @@ class SessionTurnServiceTest {
 			return aiResponse(aiRequest.turnId());
 		});
 		when(persistenceService.persist(
+			any(),
 			any(),
 			any(),
 			anyString(),
@@ -669,6 +674,7 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -746,6 +752,7 @@ class SessionTurnServiceTest {
 			return aiResponse(aiRequest.turnId());
 		});
 		when(persistenceService.persist(
+			any(),
 			any(),
 			any(),
 			anyString(),
@@ -843,6 +850,7 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -866,6 +874,7 @@ class SessionTurnServiceTest {
 			ArgumentCaptor.forClass(Boolean.class);
 		var order = inOrder(persistenceService, streamService);
 		order.verify(persistenceService).persist(
+			any(),
 			any(),
 			any(),
 			anyString(),
@@ -914,6 +923,7 @@ class SessionTurnServiceTest {
 			});
 		when(persistenceService.persistCancelled(
 			eq(1L),
+			any(),
 			eq(100L),
 			eq("request-1"),
 			anyString(),
@@ -954,12 +964,14 @@ class SessionTurnServiceTest {
 			.isEqualTo("부분 답변");
 		verify(persistenceService).persistCancelled(
 			eq(1L),
+			any(),
 			eq(100L),
 			eq("request-1"),
 			anyString(),
 			eq("부분 답변")
 		);
 		verify(persistenceService, never()).persist(
+			any(),
 			any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()
 		);
 		verify(responseValidator, never()).validate(
@@ -1004,9 +1016,11 @@ class SessionTurnServiceTest {
 		);
 
 		verify(persistenceService, never()).persistCancelled(
+			any(),
 			any(), any(), anyString(), anyString(), anyString()
 		);
 		verify(persistenceService, never()).persist(
+			any(),
 			any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()
 		);
 		verify(preparationService).markFailed(501L);
@@ -1052,6 +1066,7 @@ class SessionTurnServiceTest {
 		)).isInstanceOf(AiClientException.class);
 
 		verify(persistenceService, never()).persistCancelled(
+			any(),
 			any(), any(), anyString(), anyString(), anyString()
 		);
 		verify(preparationService).markFailed(501L);
@@ -1065,7 +1080,7 @@ class SessionTurnServiceTest {
 	@Test
 	void quizPreviewCapabilityIsNeverSentOnNonStreamingJsonRequest() throws Exception {
 		stubQuizTurn(quizStreamSnapshot(true), new QuizGeneration.Coverage(3, 3));
-		when(persistenceService.persist(any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
+		when(persistenceService.persist(any(), any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
 			.thenReturn(persisted(publicResponse()));
 
 		service().execute(1L, 100L, quizRequest());
@@ -1095,12 +1110,12 @@ class SessionTurnServiceTest {
 					listener.accept(TurnStreamEvent.quizQuestion(QuizQuestionStreamFixtures.preview(index)));
 				}
 			}
-			verify(persistenceService, never()).persist(any(), any(), anyString(), any(), any(), any(), anyBoolean(), any());
+			verify(persistenceService, never()).persist(any(), any(), any(), anyString(), any(), any(), any(), anyBoolean(), any());
 			return quizAiResponse(request.turnId());
 		});
 		TurnResponse publicQuiz = new TurnResponse("turn-public", 100L, List.of(), List.of(),
 			new TurnStateResponse(3, PageStatus.QUIZ_READY, 50L));
-		when(persistenceService.persist(any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
+		when(persistenceService.persist(any(), any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
 			.thenReturn(persisted(publicQuiz));
 		Logger logger = (Logger) LoggerFactory.getLogger(SessionTurnService.class);
 		ListAppender<ILoggingEvent> appender = new ListAppender<>();
@@ -1117,7 +1132,7 @@ class SessionTurnServiceTest {
 			}
 			order.verify(responseValidator).validate(any(), anyString(), any(),
 				eq(TurnEventType.QUIZ_TYPE_SELECTED), eq("MCQ"), any());
-			order.verify(persistenceService).persist(eq(1L), eq(100L), eq("request-quiz"),
+			order.verify(persistenceService).persist(eq(1L), any(), eq(100L), eq("request-quiz"),
 				eq(TurnEventType.QUIZ_TYPE_SELECTED), any(), eq(501L), eq(false), any());
 			order.verify(streamService).complete(streamConnection, "request-quiz", publicQuiz);
 			verify(aiUsageService).record(eq(1L), eq(AiFeature.TURN), any(), eq(true),
@@ -1165,8 +1180,8 @@ class SessionTurnServiceTest {
 			.isInstanceOf(BusinessException.class);
 
 		verify(aiClient, times(1)).executeTurnStream(any(), any(), any(), any());
-		verify(persistenceService, never()).persist(any(), any(), anyString(), any(), any(), any(), anyBoolean(), any());
-		verify(persistenceService, never()).persistCancelled(any(), any(), anyString(), anyString(), anyString());
+		verify(persistenceService, never()).persist(any(), any(), any(), anyString(), any(), any(), any(), anyBoolean(), any());
+		verify(persistenceService, never()).persistCancelled(any(), any(), any(), anyString(), anyString(), anyString());
 		verify(streamService, never()).complete(any(), anyString(), any());
 		verify(claimService).release(100L, "request-quiz");
 		SessionService polling = new SessionService(repository, userRepository, new StateReducer(),
@@ -1238,6 +1253,7 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -1307,6 +1323,7 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -1350,6 +1367,7 @@ class SessionTurnServiceTest {
 			new TurnStateResponse(3, PageStatus.QUIZ_READY, 50L)
 		);
 		when(persistenceService.persist(
+			any(),
 			any(),
 			any(),
 			anyString(),
@@ -1462,6 +1480,7 @@ class SessionTurnServiceTest {
 		verify(persistenceService, never()).persist(
 			any(),
 			any(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -1503,6 +1522,7 @@ class SessionTurnServiceTest {
 				return aiResponse(aiRequest.turnId());
 			});
 		when(persistenceService.persist(
+			any(),
 			any(),
 			any(),
 			anyString(),
@@ -1570,6 +1590,7 @@ class SessionTurnServiceTest {
 		verify(persistenceService, never()).persist(
 			any(),
 			any(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -1618,6 +1639,7 @@ class SessionTurnServiceTest {
 
 		verify(preparationService).markFailed(501L);
 		verify(persistenceService, never()).persist(
+			any(),
 			any(),
 			any(),
 			anyString(),
@@ -1676,6 +1698,7 @@ class SessionTurnServiceTest {
 			aiClientProperties,
 			userRepository,
 			materialAccessService,
+			accessGuard,
 			nanoTime
 		);
 	}
@@ -1886,6 +1909,7 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -1897,6 +1921,7 @@ class SessionTurnServiceTest {
 		assertThat(service().execute(1L, 100L, userQuestion()))
 			.isEqualTo(response);
 		verify(persistenceService).persist(
+			any(),
 			any(),
 			any(),
 			anyString(),
@@ -1933,6 +1958,7 @@ class SessionTurnServiceTest {
 			});
 		TurnResponse response = publicResponse();
 		when(persistenceService.persist(
+			any(),
 			any(),
 			any(),
 			anyString(),
@@ -1974,6 +2000,7 @@ class SessionTurnServiceTest {
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.TURN_ALREADY_PROCESSED));
 		verify(aiClient, times(1)).executeTurnStream(any(), any(), any(), any());
 		verify(persistenceService, times(1)).persist(
+			any(),
 			any(), any(), anyString(), any(), any(), any(), anyBoolean(), any());
 		verify(preparationService, times(1)).prepare(1L, 100L, "request-1", "질문", null);
 		verify(preparationService, never()).markFailed(any());
@@ -2006,7 +2033,7 @@ class SessionTurnServiceTest {
 			events.accept(TurnStreamEvent.status("PLANNING"));
 			return aiResponse(invocation.getArgument(0, io.edupilot.ai.dto.TurnRequest.class).turnId());
 		});
-		when(persistenceService.persist(any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
+		when(persistenceService.persist(any(), any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
 			.thenReturn(persisted(publicResponse()));
 		try {
 			streams.connect(1L, 100L);
@@ -2020,6 +2047,7 @@ class SessionTurnServiceTest {
 			verify(preparationService, times(1)).markFailed(501L);
 			verify(claimService, times(2)).release(100L, "request-1");
 			verify(persistenceService, times(1)).persist(
+				any(),
 				any(), any(), anyString(), any(), any(), any(), anyBoolean(), any());
 		} finally {
 			streams.shutdown();
@@ -2047,7 +2075,7 @@ class SessionTurnServiceTest {
 			events.accept(TurnStreamEvent.contentDelta("private assistant answer"));
 			return aiResponse(invocation.getArgument(0, io.edupilot.ai.dto.TurnRequest.class).turnId());
 		});
-		when(persistenceService.persist(any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
+		when(persistenceService.persist(any(), any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
 			.thenReturn(persisted(publicResponse()));
 		Logger logger = (Logger)LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
 		ListAppender<ILoggingEvent> appender = new ListAppender<>();
@@ -2132,6 +2160,7 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -2168,6 +2197,7 @@ class SessionTurnServiceTest {
 		TurnResponse response = publicResponse();
 		MemoryWrite memoryWrite = new MemoryWrite(List.of(1L));
 		when(persistenceService.persist(
+			any(),
 			any(),
 			any(),
 			anyString(),

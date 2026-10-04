@@ -91,10 +91,14 @@ class TurnPersistenceTransactionTest {
 	private QaQuizProposalProperties qaQuizProposalProperties;
 	@MockitoBean
 	private QaQuizProposalSuppression qaQuizProposalSuppression;
+	@MockitoBean private io.edupilot.material.MaterialAccessService materialAccessService;
+	@MockitoBean private jakarta.persistence.EntityManager entityManager;
 
 	@BeforeEach
 	void clearRecords() {
 		jdbcTemplate.update("DELETE FROM session_page_records");
+		when(userRepository.findById(1L)).thenReturn(Optional.of(
+			io.edupilot.user.User.create("synthetic@example.test", "hash", "Synthetic user")));
 	}
 
 	@Test
@@ -122,6 +126,7 @@ class TurnPersistenceTransactionTest {
 
 		assertThatThrownBy(() -> persistenceService.persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.EXPLAIN_CURRENT_PAGE,

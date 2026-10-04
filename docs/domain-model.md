@@ -354,7 +354,7 @@ MVP는 세션 단일 `pageStatus`를 유지하고 페이지 이동 시 초기화
 9. AI 결과와 그 근거가 된 퀴즈/진단 기록을 연결해 재현 가능하게 보존합니다.
 10. 강의실 소유권 위반은 `CLASSROOM_NOT_FOUND`로 숨기고, 강사 전용 행위에 대한 역할 부족은 `ACCESS_DENIED`로 처리합니다.
 11. 강의실 진도율은 주차 상태와 관계없이 연결된 모든 고유 READY 자료의 사용자×자료 설명 완료 이력을 합산하며, 동일 자료가 여러 주차에 연결돼도 한 번만 계산합니다.
-12. 자료 연결 해제·강의실 멤버십 제거 후 다른 소유권·강의실 연결 접근 경로가 없으면 신규 접근·추가 학습 턴·새 퀴즈 채점과 보호된 제출 결과 재응답을 차단하고 기존 사용자 학습 기록은 보존합니다. 퀴즈 소유권만으로 현재 자료 이용 권한을 대신하지 않습니다. 제출 준비·채점 직전·저장·재응답과 평가/진단 후속 처리에 같은 정책을 적용하며, 접근 거절은 `MATERIAL_NOT_FOUND`(404)입니다. 저장 전에 회수가 먼저 커밋되면 결과·세션 진행·평가·메모리 후보·진단을 저장하지 않습니다. 저장이 먼저 커밋됐으면 기록은 보존하되 다음 권한 검사에서 후속 처리·응답을 차단합니다. 저장과 접근 근거 삭제의 순서 및 응답 승인 경계는 DEC-042를 따릅니다. 주차 상태 변경은 접근권에 영향을 주지 않습니다.
+12. 자료 연결 해제·강의실 멤버십 제거 후 다른 소유권·강의실 연결 접근 경로가 없으면 신규 접근·추가 학습 턴·새 퀴즈 채점과 보호된 제출 결과 재응답을 차단하고 기존 사용자 학습 기록은 보존합니다. 퀴즈 소유권만으로 현재 자료 이용 권한을 대신하지 않습니다. 제출 준비·채점 직전·저장·재응답과 평가/진단 후속 처리에 같은 정책을 적용하며, 접근 거절은 `MATERIAL_NOT_FOUND`(404)입니다. 저장 전에 회수가 먼저 커밋되면 결과·세션 진행·평가·메모리 후보·진단을 저장하지 않습니다. 저장이 먼저 커밋됐으면 기록은 보존하되 다음 권한 검사에서 후속 처리·응답을 차단합니다. 저장과 접근 근거 삭제의 순서 및 응답 승인 경계는 DEC-044를 따릅니다. 주차 상태 변경은 접근권에 영향을 주지 않습니다.
 13. 시험의 DRAFT 저장은 편집 중 불완전 상태를 허용하고 공개 시점에만 전체 불변식을 검증합니다.
 14. 시험의 재응시는 전부 보존하고 최신 시도를 대표값으로 사용하며, 같은 제출 재시도와 새 attempt는 requestId로 구분합니다.
 15. 시험 AI 채점 실패를 오답으로 기록하지 않습니다. 미채점 결과는 null로 유지하고 미응답만 결정적 0점으로 처리합니다.
@@ -386,6 +386,6 @@ New signup captures an input birthdate without calculating age. Legacy DOB stays
 
 ### Committed authorization revocation (#479)
 
-Authentication reads a role/status scalar from the User primary key on every request, so another instance's committed revocation applies to the next request. A new session SSE connection requires both owned ACTIVE session and current material access. This does not retroactively cancel in-flight AI streams. [Runtime regression evidence](release-runtime-regressions.md).
+Authentication reads a role/status scalar from the User primary key on every request, so another instance's committed revocation applies to the next request. Session SSE packets and heartbeats recheck current account/material access and cancel upstream when denied. Completed and user-cancelled turn persistence lock current account/material grants; final POST checks use a fresh transaction. Revocation after commit suppresses the protected response while retaining completed history and request deduplication. Already approved downstream work and HTTP serialization/transmission are separate boundaries. [API contract](api-spec.md), [DEC-044](decisions.md).
 
 Guardian web/SMS intake (#491) stores AWAITING_CONSENT -> SENDING -> PHONE_PENDING -> VERIFYING -> PHONE_CONFIRMED separately from User eligibility. Provider failures, code mismatch, dispute and uncertain interrupted calls become REVIEW_REQUIRED. User-row locks and attempt nonce checks fence late completions; withdrawal atomically cancels links and clears phone identifiers. Phone confirmation is not guardian relationship approval. [Lifecycle and scope](guardian-web-sms-intake.md).
