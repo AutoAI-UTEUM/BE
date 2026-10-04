@@ -8,7 +8,7 @@
 
 2026-10-04 사전 점검 기준 upstream은 `ef8f0f74a3d2d46a0adc9aabf1d9dad9577dd938`이다. PR #500의 변경은 `ai-service/tests/` 아래 세 파일이며 서비스 런타임을 바꾸지 않는다. 통합 후보는 이 변경과 이미 merge된 #496/#497/#499를 보존한다. 최종 배포 검토에서는 최신 upstream, 실제 승인 대상 후보 SHA, 그 SHA의 필수 Main/AI CI, 실행 중인 Main/AI image tag와 RepoDigest, 실제 FE build SHA를 다시 기록한다. 소스 브랜치 SHA를 서버 배포 증거로 대신 쓰지 않는다.
 
-최초 FE develop `1b6987d`의 DOB 입력·verify route/API·이메일 필드 누락은 이전 source/mock baseline이다. 이후 FE229 merge `5e91b5789daa13b3a4923653285709d18f232c79`에서 이 지원을 source로 확인했고 해당 FE deploy workflow의 success metadata를 확인했다. 기본 OFF이므로 실제 신규 가입·메일 경로 인수로 계산하지 않는다. FE의 직접 `/verify-email` GET404 보고와 기존 BE Nginx 경로 누락, access log query/Referer 및 별도 error-log 경계는 [후속 검토](qa/fe-auth-contract/NGINX-FOLLOWUP.md)에서 구분한다. 실제 BE/FE artifact·유효 메일 origin·로그 보호·합성 인수/활성화 합의가 필요하다. [가입·이메일 계약](email-verification.md), [DOB 기반](birthdate-guardian-foundation.md), [기존 계정 예외](legacy-account-access.md)를 대조하며 BE gate나 신규 cohort를 바꾸어 우회하지 않는다.
+최초 FE develop `1b6987d`의 DOB 입력·verify route/API·이메일 필드 누락은 이전 source/mock baseline이다. [PR507 최신 소비자 검증](qa/fe-auth-contract/FE-PR229-REVIEW.md)은 준비된 ON의 기존5개 해소와 OFF 제약을 별도로 확인한다. 이후 FE229 merge `5e91b5789daa13b3a4923653285709d18f232c79`에서 이 지원을 source로 확인했고 해당 FE deploy workflow의 success metadata를 확인했다. 기본 OFF이므로 실제 신규 가입·메일 경로 인수로 계산하지 않는다. FE의 직접 `/verify-email` GET404 보고와 기존 BE Nginx 경로 누락, access log query/Referer 및 별도 error-log 경계는 [후속 검토](qa/fe-auth-contract/NGINX-FOLLOWUP.md)에서 구분한다. 실제 BE/FE artifact·유효 메일 origin·로그 보호·합성 인수/활성화 합의가 필요하다. [가입·이메일 계약](email-verification.md), [DOB 기반](birthdate-guardian-foundation.md), [기존 계정 예외](legacy-account-access.md)를 대조하며 BE gate나 신규 cohort를 바꾸어 우회하지 않는다.
 
 ## 2. 배포 전 조건
 

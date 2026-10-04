@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { stripTypeScriptTypes } from 'node:module'
@@ -33,7 +33,7 @@ export function recordFields(path, name) {
 
 // Execute unchanged FE modules with their actual API/error/envelope logic.
 // Only module wiring, getApiBaseUrl and fetch are injected; no sockets are opened.
-export function loadFeConsumer(feRoot) {
+export function loadFeConsumer(feRoot, { readiness } = {}) {
   const readFe = (path) => readFileSync(resolve(feRoot, path), 'utf8')
   const requests = []
   let responseFactory = () => { throw new Error('No synthetic response configured') }
@@ -46,6 +46,8 @@ export function loadFeConsumer(feRoot) {
         method: init.method ?? 'GET',
         headers: Object.fromEntries(init.headers.entries()),
         credentials: init.credentials,
+        cache: init.cache,
+        referrerPolicy: init.referrerPolicy,
         body: init.body ? JSON.parse(init.body) : undefined,
       }
       requests.push(request)
@@ -54,12 +56,13 @@ export function loadFeConsumer(feRoot) {
   })
   function load(path, exports) {
     const js = stripTypeScriptTypes(readFe(path), { mode: 'transform' })
+      .replace(/\bimport\.meta\.env\b/g, '__env')
       .replace(/import\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"];?/g, (_, names) => `const {${names}} = __deps;`)
       .replace(/^export\s+/gm, '')
     if (/^\s*import\s/m.test(js)) throw new Error(`Unresolved import in ${path}`)
-    const result = compileFunction(`${js}\nreturn {${exports.join(',')}};`, ['__deps'], {
+    const result = compileFunction(`${js}\nreturn {${exports.join(',')}};`, ['__deps', '__env'], {
       parsingContext: context, filename: resolve(feRoot, path),
-    })(deps)
+    })(deps, Object.freeze({ VITE_AUTH_CONTRACT_READINESS: readiness }))
     Object.assign(deps, result)
     return result
   }
@@ -68,13 +71,23 @@ export function loadFeConsumer(feRoot) {
   load('src/shared/api/rateLimitError.ts', ['mapRateLimitError'])
   load('src/shared/api/apiClient.ts', ['apiRequest'])
   load('src/shared/api/rawApiClient.ts', ['rawApiRequest'])
+  if (existsSync(resolve(feRoot, 'src/features/auth/launchAuthContract.ts'))) {
+    load('src/features/auth/launchAuthContract.ts', [
+      'LAUNCH_AUTH_CONTRACT', 'isLaunchAuthReady', 'hasEmailVerificationSupport',
+      'requiresEmailVerification', 'isEmailVerificationError', 'isAccountManagementRequest', 'validateDateOfBirth',
+    ])
+    load('src/features/auth/emailVerificationRepository.ts', [
+      'getEmailVerificationStatus', 'requestEmailVerification', 'confirmEmailVerification',
+    ])
+    load('src/features/auth/authValidation.ts', ['validateSignupForm'])
+  }
   load('src/features/auth/authErrors.ts', ['AuthValidationError'])
   const { getAuthRepository } = load('src/features/auth/authRepository.ts', ['getAuthRepository'])
   return {
     ...deps, readFe, requests, repository: getAuthRepository(),
-    respond(name) {
-      const fixture = fixtures.responses[name]
-      if (!fixture) throw new Error(`Unknown response fixture: ${name}`)
+    respond(name, override = {}) {
+      const fixture = { ...fixtures.responses[name], ...override }
+      if (!fixtures.responses[name]) throw new Error(`Unknown response fixture: ${name}`)
       responseFactory = (request) => {
         if (request.path !== fixture.path || request.method !== fixture.method) {
           throw new Error(`Unexpected request ${request.method} ${request.path}`)
