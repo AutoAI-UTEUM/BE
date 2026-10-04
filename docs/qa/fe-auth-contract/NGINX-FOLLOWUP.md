@@ -59,3 +59,5 @@ node --test scripts/qa/nginx-email-link.test.mjs
 유효 `EDUPILOT_MAIL_BASE_URL`은 승인된 FE 확인 화면 origin과 맞아야 한다. base application/Compose는 dev, prod override는 www이며 DEV도 override를 사용한다. 이 작업에서 실제 값을 조회하거나 수정하지 않았다. 주소/키/토큰 원문 대신 승인 origin·exact artifacts·provider 활성 여부와 합성 수신 증거를 기록한다.
 
 승인된 동일 Linux image/digest의 `nginx -t`, live effective log destination/format과 상위 proxy, synthetic token의 성공/404/오류/redirect 로그 보호, 실제 `/verify-email` 직접200·entry/no-referrer, FE default OFF/ON 계약, 명시적 POST/본인 상태·GET 비소비/재발급·만료, 실제 메일 수신과 gate 보존 복구를 인수한 뒤 활성화를 판단한다. 현재 이 실환경 항목은 NOT_RUN이다. [수동 활성화·복구 계획](../../launch-deployment-preflight.md)을 함께 사용한다.
+
+14일의 저장소 근거는 Main/AI CloudWatch 설정 script/runbook이며 Nginx50m/3 회전과 다르다. 실제 적용·담당·권한은 [로그 보존/최소 조회 승인안](../log-retention-access-plan.md)에서 분리했다. 원문/token 로그 수집·권한/보존/보안 설정 변경은 실행하지 않는다.
