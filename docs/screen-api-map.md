@@ -64,7 +64,7 @@
 | 시험 결과 관리 | 실패 제출 재채점 | `POST /api/exams/{examId}/submissions/{submissionId}/regrade` | `GRADING_FAILED`에만 버튼 노출. 202/SUBMITTED 후 결과 조회로 전환하며 저장 답안을 재사용 | 비소유·부재 404, 상태 충돌 409. executor 포화는 202 후 scheduler 회수 |
 | 시험 응시 | 공개·마감 시험 목록과 상세 조회 | `GET /api/classrooms/{classroomId}/exams`, `GET /api/exams/{examId}` | PUBLISHED는 응시 UI, CLOSED는 읽기 전용 결과 UI. `dueAt`은 표시용이며 경과 자체로 응시를 막지 않음 | DRAFT는 `EXAM_NOT_FOUND`로 은닉 |
 | 시험 응시 | 응시 화면 진입 | `POST /api/exams/{examId}/attempts/start` | 화면 진입 시 1회 호출하고 반환된 `startedAt`을 표시 기준으로 사용. 새로고침·재진입도 같은 미소비 시각 반환 | 비멤버·강사·DRAFT/CLOSED·완료 강의실 |
-| 시험 응시 | 답안 임시저장·다른 기기 이어풀기 | `GET·PUT /api/exams/{examId}/attempts/draft` | 진입 시 GET(204면 sessionStorage 폴백), 응시 시작 후 답안 변경 2초 디바운스+30초 주기 PUT. 버전 409 시 `latestDraft`와 로컬 답안 선택 후 재시도. 제출 시 별도 삭제 불필요 | 승인 학습자·PUBLISHED·미소비 시작 기록 필수; `allowRetake=true` 재응시의 새 시작 기록은 허용, `allowRetake=false` 제출 완료 후 409; 256KB/분당 30회 상한 |
+| 시험 응시 | 답안 임시저장·다른 기기 이어풀기 | `GET·PUT /api/exams/{examId}/attempts/draft` | 진입 시 GET(204면 sessionStorage 폴백), 응시 시작 후 답안 변경 2초 디바운스+30초 주기 PUT. 버전 409 시 `latestDraft`와 로컬 답안 선택 후 재시도. 제출 시 별도 삭제 불필요. 설정된 origin의 PUT preflight 허용 | 승인 학습자·PUBLISHED·미소비 시작 기록 필수; `allowRetake=true` 재응시의 새 시작 기록은 허용, `allowRetake=false` 제출 완료 후 409; 256KB/분당 30회 상한 |
 | 시험 응시 | 답안 제출·통신 재시도·재응시 | `POST /api/exams/{examId}/submissions` | 응답 `status`로 분기. 같은 제출 재시도는 같은 `requestId`, 새 응시는 `allowRetake=true`에서만 새 `requestId`. 최종 미응답은 문항 생략, 명시한 null·공백은 400. 거절 시 draft·start 보존 | CLOSED, SUBMITTED 중복, 재응시 불가(실패 포함), `INVALID_EXAM_ANSWER` |
 | 시험 결과 | 내 최신 또는 지정 시도 조회 | `GET /api/exams/{examId}/submissions/me?attemptNo=` | PUBLISHED의 GRADING_FAILED는 이전 attempt도 점수·판정·피드백을 숨김. `reviewAvailable`로 정답·해설 영역을 토글하고 `durationSeconds=null`은 `-`로 표시. SUBMITTED는 2초 polling→30초 뒤 5초, terminal에서 중단. 31분부터 지연 안내, 최대 3개 채점 창을 반영해 91분 초과 시 마지막 조회 후 문의 안내 | 접근 권한, 시도 없음 |
 | 시험 결과 | 저장 답안 재채점 | `POST /api/exams/{examId}/submissions/me/regrade` | GRADING_FAILED에서 본문 없이 호출. 답안·attempt 고정, 202면 동일 제출 polling 재개, 이미 GRADED이면 멱등 200. `allowRetake=false`의 실패에서 답안 편집·새 제출 금지(`submittable=false`); 허용 시험의 새 응시 동선은 별개 | 승인 LEARNER 멤버·본인 최신 제출, DRAFT/부재 404, 비멤버 404, 역할 403. CLOSED·완료 강의실의 저장 답안 복구 허용 |
@@ -95,7 +95,7 @@
 | 학습 세션 | 채팅 이력 복원 | `GET /api/sessions/{sessionId}/messages` | 이전 메시지 표시 | 페이지네이션 오류 |
 | 학습 세션 | 대화 새로 시작 | `POST /api/sessions/{sessionId}/conversations` | 기존 화면 이력은 유지하고 이후 AI 대화 문맥만 새 경계로 시작 | 진행 중 턴·비활성 세션·소유권 |
 | 학습 세션 | 퀴즈 제안 "아니요" 선택 | `POST /api/sessions/{sessionId}/quiz-decline` | 응답 `uiActions`로 교체 렌더하고 복원 시 다음 학습 제안 유지 | 비활성 세션·소유권 |
-| 학습 세션 | 노트 작성 | `POST /api/sessions/{sessionId}/notes` | 현재 자료 노트 목록에 추가 | 세션 소유권, 내용·페이지·메시지 참조 오류 |
+| 학습 세션 | 노트 작성 | `POST /api/sessions/{sessionId}/notes` | 현재 자료 노트 목록에 추가; sourceMessageId가 같으면 기존 노트 재사용·수정내용 보존 | 세션 소유권, 내용·페이지·메시지 참조 오류 |
 | 학습 세션 | 자료 노트 진입·페이지 이동 | `GET /api/materials/{materialId}/notes?page&size` 또는 `GET /api/sessions/{sessionId}/notes?page&size` | 같은 자료 범위 노트를 최신순으로 표시 | 자료·세션 소유권, 페이지네이션 오류 |
 | 학습 세션 | 노트 내용 수정 | `PATCH /api/notes/{noteId}` | 수정된 내용·시각 반영 | `NOTE_NOT_FOUND`, 내용 길이 오류 |
 | 학습 세션 | 노트 삭제 | `DELETE /api/notes/{noteId}` | 목록에서 제거 | `NOTE_NOT_FOUND` |
@@ -113,7 +113,7 @@
 | 퀴즈 풀이 | 문항 표시/새로고침 복원 | `GET /api/quizzes/{quizId}` | 공개 문항 렌더링 | 퀴즈 없음/세션 권한 |
 | 퀴즈 풀이 | 제출 | `POST /api/quizzes/{quizId}/submit` | 동기 채점·평가 결과, 기준 미달이면 `DIAGNOSIS_QUESTION` 표시 | 신규·재시도 모두 현재 자료 접근권 필요. 회수 시 `MATERIAL_NOT_FOUND` 404로 결과 표시·자동 재제출 중단. 중복 제출/답안 오류/평가·진단 일일 AI 쿼터 429. 접근 거절·쿼터 초과 외 파이프라인 실패만 기본 이동 액션으로 격리 |
 | 퀴즈 결과 | 과거 제출 결과 진입 | `GET /api/quizzes/{quizId}/submission` | 제출 답안·문항별 판정·점수·피드백과 정답·해설 표시 | 미제출·비소유·없는 퀴즈는 `QUIZ_NOT_FOUND` 404. 마지막 자료 접근권 회수는 `MATERIAL_NOT_FOUND` 404로 결과 표시 중단 |
-| 학습 기록 | 퀴즈 탭 진입 | `GET /api/sessions/{sessionId}/quizzes` | 퀴즈/점수 요약 | 세션 권한 |
+| 학습 기록 | 퀴즈 탭 진입·더 보기 | `GET /api/sessions/{sessionId}/quizzes?page=0&size=100` | 기존 quizzes/점수 요약과 page·size·totalElements·totalPages·hasNext; 최신순, size 최대 100 | 세션 권한·삭제세션 404·잘못된 page/size 400 |
 | 학습 분석 | 메모리 화면 진입 | `GET /api/users/me/memory?materialId={materialId}` | 해당 자료의 공개 가능한 개인화 요약 | 데이터 없음 |
 | 학습 세션 | 종료 버튼 | `POST /api/sessions/{sessionId}/complete` | 완료 화면/목록 이동 | 이미 완료/상태 충돌 |
 

@@ -1,6 +1,7 @@
 package io.edupilot;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
@@ -496,6 +497,28 @@ class MainServiceApplicationTests {
 				HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS,
 				TraceIdFilter.TRACE_ID_HEADER
 			));
+	}
+
+	@Test
+	void configuredCorsOriginAllowsDraftPutPreflight() throws Exception {
+		mockMvc.perform(options("/api/exams/1/attempts/draft")
+				.header(HttpHeaders.ORIGIN, "http://localhost:5173")
+				.header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PUT")
+				.header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Authorization, Content-Type"))
+			.andExpect(status().isOk())
+			.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:5173"))
+			.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"))
+			.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, containsString("PUT")))
+			.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, containsString("Authorization")));
+	}
+
+	@Test
+	void unconfiguredCorsOriginCannotUseDraftPut() throws Exception {
+		mockMvc.perform(options("/api/exams/1/attempts/draft")
+				.header(HttpHeaders.ORIGIN, "https://untrusted.example")
+				.header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PUT"))
+			.andExpect(status().isForbidden())
+			.andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
 	}
 
 	@Test
