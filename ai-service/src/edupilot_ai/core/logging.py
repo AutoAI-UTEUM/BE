@@ -50,7 +50,6 @@ _OPTIONAL_FIELDS = (
     "examId",
     "questionCount",
     "pageContextCount",
-    "fileId",
     "sizeBytes",
     "cleanupTimeoutSeconds",
     "deltaChars",

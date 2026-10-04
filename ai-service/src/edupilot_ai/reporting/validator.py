@@ -125,7 +125,11 @@ def validate_generate_output(
     eligibility = {
         item.criterion_key: item.eligible for item in request.data_quality.criterion_eligibility
     }
+    evidence_sources = {item.evidence_id: item.source_type for item in request.evidence}
     for result in output.criterion_results:
+        allowed_sources = set(criteria[result.criterion_key].allowed_source_types)
+        if any(evidence_sources[item] not in allowed_sources for item in result.evidence_ids):
+            raise ReportValidationError("DISALLOWED_EVIDENCE_SOURCE")
         if (result.status == "ASSESSED") != (result.score is not None):
             raise ReportValidationError(_SCORE_STATUS_CONFLICT)
         if result.status == "ASSESSED" and not result.evidence_ids:
