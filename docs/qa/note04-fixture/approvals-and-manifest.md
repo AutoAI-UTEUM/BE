@@ -6,6 +6,8 @@
 이감재의 준비 요청이나 과거 PR486 배포 승인을 이번 fixture의 DEV 조회/쓰기 승인으로 사용하지 않는다.
 실환경 버전/설정·배포/복구 조건은 [PR501 문서](https://github.com/AutoAI-UTEUM/BE/blob/fd12b01ecfef34b45629e2a8efe4068a4b5861c1/docs/launch-deployment-preflight.md)를 기준으로 별도 담당이 확인한다.
 PR495의 미배포 후보와 현재 DEV schema/auth를 같은 환경으로 간주하지 않는다.
+전용 ID/허용 조회 열/권한과 실제 quiz INSERT·원자적 공유 원장의 선택안은 [실행계획](dev-execution-plan.md)에 있다.
+현재 숫자 IDs·권한·원장 존재는 미확인이고 운영 adapter/DDL은 제공하지 않는다.
 
 | 단계 | 필요한 명시적 범위 | 현재 상태 |
 | --- | --- | --- |
@@ -89,6 +91,9 @@ PDF upload나 학습 턴으로 AI를 호출하여 101개를 만들지 않는다.
   "snapshots": { "beforeScopedHash": null, "afterScopedHash": null, "outsideChangeAuditRef": null },
   "expected": { "learners": 2, "materials": 3, "sessions": 3, "quizzes": 103, "submissions": 0 },
   "a1CreatedAt": null,
+  "generationPath": "REUSE_APPROVED_ASSETS_INSERT_103_QUIZZES",
+  "readScope": { "userIds": [], "materialIds": [], "sessionIds": [], "approvedScopeSha256": null },
+  "runLedger": { "location": null, "schemaApprovalRef": null, "adapterApprovalRef": null, "ready": false },
   "rowImagesByExactId": {},
   "createdIdsByTable": {},
   "reusedProtectedIdsByTable": {},
@@ -114,8 +119,9 @@ PDF upload나 학습 턴으로 AI를 호출하여 101개를 만들지 않는다.
    이미 실행/진행/정리 기록에 있으면 재실행하지 않고 기존 manifest를 인계한다.
    로컬 중복 검사는 동일 메모리 DB 안에서만 작동한다. 프로세스 간 DEV 중복 방지를 입증한 것이 아니다.
 2. 실제 실행에는 공유된 승인 작업 원장과 run 단위의 단일 실행권/잠금을 먼저 확보해야 한다.
-   재시도 시 동일 run의 두 배치가 생성되지 않도록 원자적 원장/생성 묶음이 필요하다.
-   이것이 없는 상태에서 단순 파일 label 검사만으로 DEV seed하지 않는다. 이 작업은 원장 migration을 추가하지 않는다.
+   선택안은 같은 MySQL/InnoDB connection의 unique run 원장 + 103 quiz INSERT + manifest 관계 기록을 한 transaction에 commit하는 것이다.
+   중복/commit 응답 유실은 DB 원장의 기존 IDs를 읽어 처리하며 재생성하지 않는다.
+   원장 설치/adapter 승인·구현이 없으면 DEV seed하지 않는다. 이 작업은 원장 migration을 추가하지 않는다.
 3. transaction에서 대상 행 잠금과 소유/빈 세션/필수 상태를 다시 검사한다. 기존 A1/A2/B1 quiz 수는 0,
    submission/assessment/diagnosis/chat/note 및 그 밖의 seed/cleanup 관련 descendants는 없어야 한다.
    재사용 자산의 row image를 보존하고 외부 처리 작업이 시작되지 않아야 한다.

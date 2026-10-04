@@ -19,7 +19,7 @@ const TABLES = [
   'fixture_quizzes', 'fixture_submissions', 'fixture_dependents',
 ];
 const localConnections = new WeakSet();
-const FAULTS = ['after-users', 'after-materials', 'after-sessions', 'after-quizzes', 'outside-row'];
+const FAULTS = ['after-users', 'after-materials', 'after-sessions', 'after-quizzes', 'after-ledger-seal', 'outside-row'];
 
 export class FixtureError extends Error {
   constructor(code) {
@@ -119,7 +119,7 @@ export function openLocalDb(...args) {
 function insertQuiz(db, runLabel, sessionId, alias, index) {
   // Deterministic synthetic OX question/answer. Never include the answer in reports.
   const publicJson = JSON.stringify({ schemaVersion: '1.0', questions: [
-    { questionId: 'q1', questionText: 'Synthetic OX fixture', points: 10, options: null },
+    { questionId: 'q1', questionText: 'Synthetic OX fixture', points: 10, choices: null },
   ] });
   const privateJson = JSON.stringify({ schemaVersion: '1.0', questions: [
     { questionId: 'q1', answerValue: true, explanation: 'Synthetic-only explanation' },
@@ -272,6 +272,7 @@ export function seedFixture(db, { dryRun = true, injectFault = null } = {}) {
     const manifest = createManifest(db, beforeHash, outsideHash, !dryRun);
     db.prepare('UPDATE fixture_runs SET manifest_sha256 = ? WHERE run_label = ?')
       .run(fingerprint(manifest), RUN_LABEL);
+    failAt('after-ledger-seal');
     const mockResponses = acceptanceResponses(db, manifest);
     return { manifest, mockResponses };
   }, !dryRun);
