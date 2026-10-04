@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readBe } from './helpers.mjs'
+import { readBeAt } from './helpers.mjs'
 import { loadEmailLinkBoundary, settingsReview as review } from './settings-harness.mjs'
 
 const feRoot = process.env.FE_AUTH_SETTINGS_SOURCE_ROOT
@@ -11,7 +11,7 @@ const base = 'https://contract.example.invalid/verify-email'
 test('FE231 historical snapshot: fragment agreement was pending and BE generated query links', () => {
   assert.equal(review.fragmentAgreement, 'pending')
   assert.equal(review.deploymentOrActivationApproved, false)
-  assert.ok(readBe('main-service/src/main/java/io/edupilot/auth/EmailVerificationService.java').includes('"/verify-email?token=" + raw'))
+  assert.ok(readBeAt(review.beCandidateHead, 'main-service/src/main/java/io/edupilot/auth/EmailVerificationService.java').includes('"/verify-email?token=" + raw'))
   assert.equal(review.fragmentFailurePlan.length, 5)
   for (const item of review.fragmentFailurePlan) assert.ok(item.decision.includes('pending'))
 })

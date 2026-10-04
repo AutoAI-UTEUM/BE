@@ -32,7 +32,7 @@
 
 ## 이메일 fragment — 담당자 답변 전 제안
 
-`settings-fragment-review.json`의 fragmentAgreement는 **pending**이다. 공유된 안의 담당자 답변이 아직 없으며 전송 형식·전환/호환 기간·혼합 source 처리·최종 SHA와 FE 활성화는 합의되지 않았다. [현재 BE](../../../main-service/src/main/java/io/edupilot/auth/EmailVerificationService.java)는 `/verify-email?token=` 링크를 만든다. FE231의 [early script](https://github.com/AutoAI-UTEUM/FE/blob/21f4ad2d30f13bafd05bfcc289515c2caac98810/index.html)와 [client navigation parser](https://github.com/AutoAI-UTEUM/FE/blob/21f4ad2d30f13bafd05bfcc289515c2caac98810/src/features/auth/emailLinkToken.ts)는 **query만 읽고 hash는 지운다**. 따라서 BE 링크만 fragment로 바꾸는 작업은 현재 FE에서 token을 잃는다.
+`settings-fragment-review.json`의 fragmentAgreement는 당시 **pending**이었다. 공유된 안의 담당자 답변이 아직 없었으며 전송 형식·전환/호환 기간·혼합 source 처리·최종 SHA와 FE 활성화는 합의되지 않았다. [당시 BE e949](https://github.com/AutoAI-UTEUM/BE/blob/e949fbecbe8f6cd414ee9f18605d1a15dca2fa6e/main-service/src/main/java/io/edupilot/auth/EmailVerificationService.java)는 `/verify-email?token=` 링크를 만들었다. FE231의 [early script](https://github.com/AutoAI-UTEUM/FE/blob/21f4ad2d30f13bafd05bfcc289515c2caac98810/index.html)와 [client navigation parser](https://github.com/AutoAI-UTEUM/FE/blob/21f4ad2d30f13bafd05bfcc289515c2caac98810/src/features/auth/emailLinkToken.ts)는 **query만 읽고 hash는 지웠다**. 따라서 당시 BE 링크만 fragment로 바꾸면 FE231에서 token을 잃었다. 현재 BE/FE232 연결은 [후속 통합 기록](BE-FRAGMENT-INTEGRATION.md)과 구분한다.
 
 | 실패/경계 case | 현재 source를 실행한 결과 | 합의 후 채울 인수안 |
 | --- | --- | --- |

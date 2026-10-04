@@ -1,5 +1,7 @@
 # FE232 fragment 소비자 재확인 (2026-10-04)
 
+**후속 BE 통합:** 아래 query 발급 차이는 읽은 BE `e949fbec`에 대한 역사적 결과다. [PR512 발급 구현과 현재 통합 검증](BE-FRAGMENT-INTEGRATION.md)에서 새 fragment 발급을 별도로 확인한다. 배포·기능 활성화·실메일 인수는 별도다.
+
 [FE PR232](https://github.com/AutoAI-UTEUM/FE/pull/232)의 merge/보고된 DEV head `5592042cb7a25c2fc797e557a20643061b84e273`와 PR source `114f4cf4bd13ef531f7396747ef1abdb6e104804`를 읽기 확인했다. FE231/PR509 당시 [미지원·답변 대기 기록](FE-PR231-SETTINGS.md)은 그대로 역사적 snapshot으로 보존하며 최신 구현 결과와 구분한다. 당시 metadata의 pending은 현재 FE232의 fragment 지원 여부가 아니다.
 
 현재 작업은 원 독립 브랜치 `feature/479-fe231-settings-contract`와 draft PR509에 **추가**한다. BE 선택 base/검토 runtime은 `e949fbecbe8f6cd414ee9f18605d1a15dca2fa6e`이며 main-service tree `20a4c0c7c55b44d8b792ce282e622eddb4d573d9`를 수정하지 않았다. 최종 BE/FE artifact·capability·메일 전환·배포/기능 활성화 합의가 완료됐다는 뜻은 아니다.
@@ -29,9 +31,9 @@
 
 검토한 이 범위에서 새 FE 결함은 확정하지 않았다. FE 작성자의 기존 HTML/SPA29 및 E2E 결과를 다시 실행한 것으로 부르지 않는다. 이번14개는 BE 합성 envelope와 captured page action·parser의 조합이며 URL 단위 테스트만 복제한 결과가 아니다.
 
-## core에 전달할 현재 BE 호환 차이
+## core에 전달했던 BE e949 호환 차이
 
-읽은 [EmailVerificationService.java:86](../../../main-service/src/main/java/io/edupilot/auth/EmailVerificationService.java#L86)는 아직 `/verify-email?token=`을 생성한다. 최신 FE232는 이 형식을 거부한다. 합성으로 재요청202를 수신한 뒤 현재 생성 형태의 새 query 링크도 obsolete-query가 되는 것을 재현했다. 202는 접수이며 사용 가능한 새 fragment 링크의 증거가 아니다. 이는 현재 후보와 최신 FE의 계약 차이이고 BE core가 처리할 runtime 범위다.
+읽은 [e949 EmailVerificationService.java](https://github.com/AutoAI-UTEUM/BE/blob/e949fbecbe8f6cd414ee9f18605d1a15dca2fa6e/main-service/src/main/java/io/edupilot/auth/EmailVerificationService.java#L86)는 `/verify-email?token=`을 생성했다. FE232는 이 형식을 거부한다. 합성으로 재요청202를 수신한 뒤 당시 생성 형태의 새 query 링크도 obsolete-query가 되는 것을 재현했다. 202는 접수이며 사용 가능한 새 fragment 링크의 증거가 아니다. 당시 후보와 FE232의 계약 차이는 후속 BE PR512의 runtime 범위로 처리했다.
 
 [EmailOutboxStore](../../../main-service/src/main/java/io/edupilot/mail/EmailOutboxStore.java)는 완성된 message를 encrypt해 저장하고 claim 때 저장 payload를 decrypt한다. 새 생성 코드를 바꾸는 것만으로 이미 저장된 query 본문이 변환된다는 source 근거가 없다. 기존 대기/재시도/이미 보낸 query의 만료·폐기·재발급 방침과 실제 provider fragment 보존/클릭 추적은 core·운영이 결정/확인해야 한다. 실제 대기함·본문·계정·DB는 조회하지 않았다.
 

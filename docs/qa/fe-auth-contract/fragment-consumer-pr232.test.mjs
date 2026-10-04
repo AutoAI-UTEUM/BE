@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import test from 'node:test'
-import { fixtures, readBe } from './helpers.mjs'
+import { fixtures, readBe, readBeAt } from './helpers.mjs'
 import { loadEmailLinkBoundary, plain } from './settings-harness.mjs'
 import { emailPageFrame, fragmentReview as review } from './fragment-page-harness.mjs'
 
@@ -163,9 +163,9 @@ sourceTest('BE invalid-token/429 responses keep the token discarded and require 
   }
 })
 
-sourceTest('reviewed BE query issuance remains incompatible: an accepted resend cannot prove a usable fragment link', async () => {
+sourceTest('historical e949 BE query issuance was incompatible: an accepted resend did not prove a usable fragment link', async () => {
   assert.equal(review.beGeneratedLinkAtReviewedHead, 'query')
-  assert.ok(readBe('main-service/src/main/java/io/edupilot/auth/EmailVerificationService.java').includes('"/verify-email?token=" + raw'))
+  assert.ok(readBeAt(review.beReviewedCandidate, 'main-service/src/main/java/io/edupilot/auth/EmailVerificationService.java').includes('"/verify-email?token=" + raw'))
   const frame = emailPageFrame(feRoot, `${base}?token=${tokenA}`)
   frame.fe.respond('requestAccepted')
   await frame.act('resend')
@@ -175,6 +175,22 @@ sourceTest('reviewed BE query issuance remains incompatible: an accepted resend 
   const generatedAgain = loadEmailLinkBoundary(feRoot, `${base}?token=${tokenB}`, true)
   assert.equal(generatedAgain.readEmailLinkToken(), null)
   assert.equal(generatedAgain.readEmailLinkIssue(), 'obsolete-query')
+})
+
+sourceTest('current BE fragment issuer matches the pinned FE232 parser and explicit public confirmation body', async () => {
+  const issuer = readBe('main-service/src/main/java/io/edupilot/auth/EmailVerificationService.java')
+  const relativeLink = issuer.match(/"(\/verify-email[#?]token=)" \+ raw/)?.[1]
+  assert.equal(relativeLink, '/verify-email#token=')
+  assert.doesNotMatch(issuer, /"\/verify-email\?token=" \+ raw/)
+  const frame = emailPageFrame(feRoot, `https://contract.example.invalid${relativeLink}${tokenA}`)
+  assert.equal(frame.parser.location.href, base)
+  assert.equal(frame.state.hasToken, true)
+  assert.equal(frame.fe.requests.length, 0)
+  frame.fe.respond('confirmVerified')
+  await frame.act('confirm')
+  assert.equal(frame.fe.requests.length, 1)
+  assert.equal(frame.fe.requests[0].path, '/api/auth/email-verification/confirm')
+  assert.deepEqual(plain(frame.fe.requests[0].body), { token: tokenA })
 })
 
 test('outbox review boundary: the source encrypts complete messages and claims their stored payload', () => {

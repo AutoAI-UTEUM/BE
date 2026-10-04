@@ -1,12 +1,20 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { execFileSync } from 'node:child_process'
 import { stripTypeScriptTypes } from 'node:module'
 import { compileFunction, createContext } from 'node:vm'
 
 export const beRoot = fileURLToPath(new URL('../../../', import.meta.url))
 export const fixtures = JSON.parse(readFileSync(new URL('./fixtures.json', import.meta.url), 'utf8'))
 export const readBe = (path) => readFileSync(resolve(beRoot, path), 'utf8')
+// Historical expectations are bound to their reviewed immutable Git object.
+// Current contract tests continue to use readBe and fail if the checkout changes.
+export function readBeAt(commit, path) {
+  if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('Reviewed full commit SHA required')
+  return execFileSync('git', ['--no-optional-locks', '-c', `safe.directory=${beRoot.replaceAll('\\', '/')}`,
+    '-C', beRoot, 'show', '--no-ext-diff', '--no-textconv', `${commit}:${path}`], { encoding: 'utf8' })
+}
 
 // Read record component names, ignoring annotation arguments (which may contain commas).
 // This checks source shape only; it does not compile or execute Spring/Jackson.

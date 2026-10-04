@@ -9,7 +9,7 @@ PR502는 이미 후보에 병합됐다. 이 후속 단위는 `feature/471-fe-aut
 1. **필수 정책 0개:** `GET /api/policies/current`에서 현재 `requiresConsent=true` 대상이 0개면 `consents`는 생략 또는 `[]`로 보낸다. BE는 설정 true여도 이 경우를 허용하고 동의 이력을 만들지 않는다. 역직렬화 가능한 배열을 보내도 서비스에서 무시한다. 잘못된 JSON·알 수 없는 policy enum 등 요청 파싱 오류는 이 예외로 허용되지 않는다.
 2. **기존 UNKNOWN:** V58에서 기존 계정은 LEGACY_EXEMPT로 이용을 유지한다. UNKNOWN/PENDING + `emailVerificationRequired=false`는 인증 성공 표시가 아니다. 신규 UNKNOWN/PENDING은 차단을 유지한다. 최신 후보에서 초기 “기존 UNKNOWN도 차단” 설명과 DOB 없는 LOCAL/신규 Google 예시는 공통 문서 담당이 정정한 것을 확인했다. 기존 Google subject 로그인은 DOB 재입력이 필요 없다.
 3. **실메일 담당:** 개인 담당은 현재 문서·#471 assignee에서 확정되지 않았다. 부모가 BE/인프라 운영 담당을 지정하고 실수신 시험의 별도 승인 범위를 마련해야 한다. FE 담당은 준비된 route·사용자 POST·상태 재조회 동선을 검수한다. 202·logging provider 수락은 실수신 증거가 아니다.
-4. **링크 origin:** `EDUPILOT_MAIL_BASE_URL`로 만든 `<유효 base>/verify-email?token=<token>`이다. application/base Compose 기본은 `https://dev.uteum.com`, prod override 기본은 `https://www.uteum.com`이다. DEV workflow도 prod override를 함께 쓰므로 실제 DEV 값은 `.env` 및 유효 설정 확인 전 단정할 수 없다. API base URL과 별개인 FE 확인 route origin을 맞춰야 한다.
+4. **링크 origin:** 현재 검증 후보는 `EDUPILOT_MAIL_BASE_URL`로 `<유효 base>/verify-email#token=<token>`을 만든다. [BE fragment 통합](BE-FRAGMENT-INTEGRATION.md)을 참고한다. application/base Compose 기본은 `https://dev.uteum.com`, prod override 기본은 `https://www.uteum.com`이다. DEV workflow도 prod override를 함께 쓰므로 실제 DEV 값은 `.env` 및 유효 설정 확인 전 단정할 수 없다. API base URL과 별개인 FE 확인 route origin을 맞춰야 한다.
 5. **capability:** 현재 BE에는 가입/DOB/이메일 확인의 명시적 capability·revision 응답이 없다. FE의 `VITE_API_CAPABILITIES`는 FE 빌드 설정이며 BE 신호가 아니다. 새 API 없이도 승인된 BE/FE 배포 manifest·통제된 전환 창·인증된 합성 status/me 및 실제 메일/UI 인수로 수동 활성화하는 최소안을 검토할 수 있다. [preflight의 수동 활성화안](../../launch-deployment-preflight.md)을 먼저 합의하고, 자동 서버별 계약 선택이 반드시 필요할 때만 아래 미구현 공개 read-only 제안을 검토한다. 최종 후보 SHA/FE build·메일 준비 합의 전에는 활성화 완료로 표시하지 않는다. FE 기본 OFF는 새 BE의 DOB 필수/이메일 gate를 완화하지 않는다.
 
 ## 정책·오류·예시의 정확한 근거
@@ -26,7 +26,7 @@ PR502는 이미 후보에 병합됐다. 이 후속 단위는 `feature/471-fe-aut
 
 ## 메일 준비와 link base URL
 
-[EmailVerificationService](../../../main-service/src/main/java/io/edupilot/auth/EmailVerificationService.java)는 `/verify-email?token=` 상대 링크를 [EmailTemplates](../../../main-service/src/main/java/io/edupilot/mail/EmailTemplates.java)에 넘긴다. 템플릿은 base의 끝 slash와 상대 링크의 앞 slash를 제거해 연결한다. base에 `/api`를 넣으면 `/api/verify-email`이 되어 FE route와 어긋날 수 있다. 현재 코드의 단순 문자열 조합이 올바른 origin을 자동 보장하지는 않는다.
+[EmailVerificationService](../../../main-service/src/main/java/io/edupilot/auth/EmailVerificationService.java)는 `/verify-email#token=` 상대 링크를 [EmailTemplates](../../../main-service/src/main/java/io/edupilot/mail/EmailTemplates.java)에 넘긴다. 템플릿은 base의 끝 slash와 상대 링크의 앞 slash를 제거해 연결한다. base에 `/api`를 넣으면 `/api/verify-email`이 되어 FE route와 어긋날 수 있다. 현재 코드의 단순 문자열 조합이 올바른 origin을 자동 보장하지는 않는다.
 
 설정 근거는 [application.yml](../../../main-service/src/main/resources/application.yml), [base Compose](../../../docker-compose.yml), [prod override](../../../docker-compose.prod.yml), [DEV workflow](../../../.github/workflows/deploy-dev.yml)다. DEV는 두 Compose 파일과 `.env`를 사용한다. 현재 실제 값·배포 FE build·메일 수신은 조회/실행하지 않았다.
 

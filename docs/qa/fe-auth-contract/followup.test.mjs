@@ -25,7 +25,7 @@ test('current common signup examples include DOB and legacy email documentation 
 })
 
 test('mail link uses the FE route and DEV workflow applies the prod override base URL defaults', () => {
-  assert.ok(readBe('main-service/src/main/java/io/edupilot/auth/EmailVerificationService.java').includes('"/verify-email?token=" + raw'))
+  assert.ok(readBe('main-service/src/main/java/io/edupilot/auth/EmailVerificationService.java').includes('"/verify-email#token=" + raw'))
   const template = readBe('main-service/src/main/java/io/edupilot/mail/EmailTemplates.java')
   assert.ok(template.includes('properties.baseUrl().replaceAll("/+$", "")'))
   assert.ok(template.includes('link.replaceAll("^/+", "")'))

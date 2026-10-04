@@ -87,3 +87,15 @@
 - 새 source/소비자14와 공유 token harness 회귀인 역사적5를 **19/19 pass, failure0/skip0**로 실행했다. actual page action/layout/mount callback·parser·BE 합성 envelope를 결합해 초기 scrub/중복 클릭/공개POST·현재계정재조회/reload/pagehide·SPA교체/늦은성공/OFF/무효/429/구링크202 경계를 확인했다. 실제 React/브라우저/BFCache 실행은 아니다. FE232의1042/ON18/OFF8·dev37203882484는 작성자 보고로 구분한다.
 - 범위 내 새 FE 결함은 확정하지 않았다. core 전달 근거는 EmailVerificationService.java86의 query 발급과 FE232 거부의 호환 차이, EmailOutboxStore.java36–40/81의 완성 message encrypt/기존 payload decrypt에 따른 대기 본문 전환 검토 필요다. 실제 runtime을 수정하거나 실제 대기함/메일/계정/DB를 조회하지 않는다.
 - 문서 링크 검사 **1/1 pass, failure0/skip0**와 diff --check를 통과했다. 최신 FE232·역사적 FE231 worktree는 clean이고 BE main-service tree는 `20a4c0c7c55b44d8b792ce282e622eddb4d573d9` 그대로다. 이번 추가분은 전용 경로10개 파일, PR 누적은12개 파일이며 exact head와 그 원격 CI는 draft PR509에 따로 기록한다.
+
+## PR512 발급 구현 이후의 후보 통합
+
+- [BE fragment 통합](BE-FRAGMENT-INTEGRATION.md)은 `feature/479-launch-contract-alignment`의 문서·Node QA 단위다. PR503 `7274156b`, PR509 `0da5c483`와 런타임 PR510–513을 병합한 로컬 후보 `12fa30e78040e08980a58a478b74456b01a1a35c`를 기준으로 확인했다. 이 시점 main-service tree는 `23f1dcc7ea906d7adaac364d4b970cd13f0cba68`이며 이번 계약 정렬은 Java/runtime/migration/설정에 손대지 않는다.
+- 병합 직후 auth 계약 **84개 중80pass/4fail/skip0**을 먼저 확인했다. 네 실패는 현재 checkout에서 query 발급을 기대하던 검사다. 현재 계약 두 검사는 fragment로 갱신하고 역사적 FE231/e949·FE232/e949 두 검사는 정확한 Git object의 소스를 읽도록 고정했다. 역사적 metadata와 실패 기록은 유지했다.
+- 현재 발급 형태를 pinned FE232 parser/action과 연결하는 한 검사를 추가한 뒤 **85/85 pass, failure0/skip0**: 현재 BE source/fixture/link12, 역사적 FE 소비자17, FE229 소비자21, FE231 settings15/fragment5, FE232 fragment15. 실제 FE worktree SHA를 각각 확인했고 FE 파일을 수정하지 않았다. 아래 명령의 네 FE 경로는 각 문서의 고정 checkout을 사용한다.
+
+```powershell
+node --disable-warning=ExperimentalWarning --test --test-reporter=tap docs/qa/fe-auth-contract/contract.test.mjs docs/qa/fe-auth-contract/consumer.test.mjs docs/qa/fe-auth-contract/consumer-pr229.test.mjs docs/qa/fe-auth-contract/followup.test.mjs docs/qa/fe-auth-contract/settings-contract.test.mjs docs/qa/fe-auth-contract/fragment-boundary.test.mjs docs/qa/fe-auth-contract/fragment-consumer-pr232.test.mjs
+```
+
+- 공통 API/error/envelope 소비자는 `FE_AUTH_SOURCE_ROOT=FE-pr232-readonly`와 [양성 이름 필터](FE-PR229-REVIEW.md)의 명령으로 별도 **11/11 pass, failure0/skip0**였다. FE229와 FE232 결과를 같은 head의 전체 FE 테스트로 합산하지 않는다. 합성 Node 검사는 Java 실행·브라우저·실HTTP·실메일·Google·DEV 계정/DB·배포/활성화 인수가 아니다. 통합 런타임 Gradle/MySQL/원격 CI와 브랜치별 정확 SHA는 비공개 인계 자료에서 따로 기록한다.

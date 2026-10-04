@@ -162,8 +162,8 @@ LOCAL 요청 예시:
 - [ ] `authRepository`의 body builder와 `FORM_FIELDS`에 DOB를 연결한다. 상세 필드 배열이 비어 있는 오류, MALFORMED_REQUEST도 안내한다.
 - [ ] 현재 정책 조회/전문 열람·대상 consent 선택을 LOCAL/Google 신규 입력과 연결한다. 정책 버전/기본값을 FE가 임의 변경하지 않는다.
 - [ ] `AuthUser`, login/me DTO mapper에 이메일 상태 3필드를 보존한다. signup의 `userId`와 me/login의 `id`, signup의 확인시각 부재를 구별한다. 구형 BE 응답에 필드가 없으면 UNKNOWN/VERIFIED/legacy 상태를 임의로 만들지 않고 지원 여부를 명시한다.
-- [ ] 공개 `/verify-email?token=` route를 추가한다. 익명/로그인 사용자가 모두 열 수 있고 페이지 GET·mount·prefetch만으로 confirm을 실행하지 않는다. 명시적 확인 버튼으로 1회 POST하고 중복 제출을 막는다.
-- [ ] query token은 확인 동작에 필요한 메모리에만 유지한다. URL에서 빨리 제거하고 성공·실패 종료 후 메모리에서도 지운다. 브라우저 영속 저장·분석/오류 로그·return-target URL에 넣지 않는다. URL/history 제거와 외부 referrer 유출 방지 여부는 FE에서 검증한다.
+- [ ] 공개 `/verify-email#token=` 링크를 `/verify-email` route에서 처리한다. 익명/로그인 사용자가 모두 열 수 있고 페이지 GET·mount·prefetch만으로 confirm을 실행하지 않는다. 명시적 확인 버튼으로 1회 POST하고 중복 제출을 막는다. 현재 BE/FE232 연결은 [fragment 통합 기록](BE-FRAGMENT-INTEGRATION.md)을 참고한다.
+- [ ] fragment token은 확인 동작에 필요한 메모리에만 유지한다. 앱 module 실행 전에 URL/state에서 제거하고 성공·실패·pagehide 후 메모리에서도 지운다. 구 query·혼합·잘못된 fragment 입력을 거부한다. 브라우저 영속 저장·분석/오류 로그·return-target URL에 넣지 않는다. URL/history 제거와 외부 referrer 유출 방지 여부는 FE에서 검증한다.
 - [ ] request/status repository 함수를 Bearer 본인 호출로 추가한다. 로그인 전 재발급은 로그인 안내로 보낸다. 202/null, 메일 비활성/지연, 429와 헤더 부재를 처리한다.
 - [ ] confirm 성공 후 현재 로그인 계정 status/me를 재조회한다. 다른 계정 링크, 다른 탭 확인·로그아웃·계정 전환 및 늦게 도착한 응답을 처리한다. 익명 confirm으로 세션을 만들지 않는다.
 - [ ] LOCAL 가입 후 자동 로그인 또는 Google 로그인 성공 직후, 현재 사용자 응답의 `emailVerificationRequired=true`면 확인 안내를 보여 준다. 기존 `SignupPage`의 무조건 강의실 이동을 점검한다.

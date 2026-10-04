@@ -98,7 +98,7 @@ test('reviewed source retains strict expiry, single use, resend invalidation and
   assert.match(service, /Duration\.ofMinutes\(30\)/)
   assert.match(service, /tokens\.invalidateUnused\(user\.getId\(\), now\)/)
   assert.ok(service.includes('token.use(now);'))
-  assert.ok(service.includes('"/verify-email?token=" + raw'))
+  assert.ok(service.includes('"/verify-email#token=" + raw'))
   const limits = readBe(`${auth}PasswordResetRateLimiter.java`)
   assert.match(limits, /requestsByEmail\.increment\(email\) <= 3/)
   assert.match(limits, /requestsByIp\.increment\(ip\) <= 10/)
@@ -120,7 +120,7 @@ test('V58 cohort defaults and gate source preserve legacy exception without appr
 
 test('handoff local links resolve and examples remain synthetic', () => {
   const root = resolve(beRoot, 'docs/qa/fe-auth-contract')
-  for (const filename of ['README.md', 'EVIDENCE.md', 'FE-FOLLOWUP.md', 'FE-PR229-REVIEW.md', 'FE-PR231-SETTINGS.md', 'FE-PR232-FRAGMENT.md']) {
+  for (const filename of ['README.md', 'EVIDENCE.md', 'FE-FOLLOWUP.md', 'FE-PR229-REVIEW.md', 'FE-PR231-SETTINGS.md', 'FE-PR232-FRAGMENT.md', 'BE-FRAGMENT-INTEGRATION.md']) {
     const markdown = readBe(`docs/qa/fe-auth-contract/${filename}`)
     for (const match of markdown.matchAll(/\]\(([^)]+)\)/g)) {
       const target = match[1].split('#')[0]
