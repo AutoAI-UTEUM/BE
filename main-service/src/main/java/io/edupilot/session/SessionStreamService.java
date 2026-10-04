@@ -25,6 +25,7 @@ import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.MaterialAccessService;
 import io.edupilot.session.dto.TurnResponse;
+import io.edupilot.user.UserRole;
 import jakarta.annotation.PreDestroy;
 
 @Service
@@ -36,6 +37,7 @@ public class SessionStreamService {
 
 	private final LearningSessionRepository sessionRepository;
 	private final MaterialAccessService materialAccessService;
+	private final SessionStreamAccessGuard streamAccess;
 	private final Supplier<SseEmitter> emitterFactory;
 	private final Map<Long, SessionStreamConnection> connections =
 		new ConcurrentHashMap<>();
@@ -50,18 +52,21 @@ public class SessionStreamService {
 	@Autowired
 	public SessionStreamService(
 		LearningSessionRepository sessionRepository,
-		MaterialAccessService materialAccessService
+		MaterialAccessService materialAccessService,
+		SessionStreamAccessGuard streamAccess
 	) {
-		this(sessionRepository, materialAccessService, () -> new SseEmitter(0L));
+		this(sessionRepository, materialAccessService, streamAccess, () -> new SseEmitter(0L));
 	}
 
 	SessionStreamService(
 		LearningSessionRepository sessionRepository,
 		MaterialAccessService materialAccessService,
+		SessionStreamAccessGuard streamAccess,
 		Supplier<SseEmitter> emitterFactory
 	) {
 		this.sessionRepository = sessionRepository;
 		this.materialAccessService = materialAccessService;
+		this.streamAccess = streamAccess;
 		this.emitterFactory = emitterFactory;
 	}
 
@@ -76,11 +81,13 @@ public class SessionStreamService {
 			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
 		}
 		materialAccessService.assertAccessible(userId, session.getMaterialId());
+		UserRole connectedRole = streamAccess.captureRole(userId);
 
 		SessionStreamConnection[] holder = new SessionStreamConnection[1];
 		SessionStreamConnection connection = new SessionStreamConnection(
 			userId,
 			sessionId,
+			() -> streamAccess.assertAccessible(userId, sessionId, connectedRole),
 			() -> remove(sessionId, holder[0]),
 			emitterFactory.get()
 		);

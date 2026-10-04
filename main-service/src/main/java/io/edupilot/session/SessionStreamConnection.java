@@ -36,6 +36,7 @@ final class SessionStreamConnection {
 	private final Long userId;
 	private final Long sessionId;
 	private final SseEmitter emitter;
+	private final Runnable accessCheck;
 	private final Runnable cleanup;
 	private final LongSupplier nanoTime;
 	// Map transitions only take this short state lock, never the send monitor.
@@ -50,10 +51,11 @@ final class SessionStreamConnection {
 	private AiStreamCancellation cancellation;
 	private ScheduledFuture<?> heartbeatTask;
 
-	SessionStreamConnection(Long userId, Long sessionId, Runnable cleanup) {
+	SessionStreamConnection(Long userId, Long sessionId, Runnable accessCheck, Runnable cleanup) {
 		this(
 			userId,
 			sessionId,
+			accessCheck,
 			cleanup,
 			new SseEmitter(0L),
 			System::nanoTime
@@ -63,21 +65,24 @@ final class SessionStreamConnection {
 	SessionStreamConnection(
 		Long userId,
 		Long sessionId,
+		Runnable accessCheck,
 		Runnable cleanup,
 		SseEmitter emitter
 	) {
-		this(userId, sessionId, cleanup, emitter, System::nanoTime);
+		this(userId, sessionId, accessCheck, cleanup, emitter, System::nanoTime);
 	}
 
 	SessionStreamConnection(
 		Long userId,
 		Long sessionId,
+		Runnable accessCheck,
 		Runnable cleanup,
 		SseEmitter emitter,
 		LongSupplier nanoTime
 	) {
 		this.userId = userId;
 		this.sessionId = sessionId;
+		this.accessCheck = accessCheck;
 		this.cleanup = cleanup;
 		this.emitter = emitter;
 		this.nanoTime = nanoTime;
@@ -232,6 +237,7 @@ final class SessionStreamConnection {
 		String requestId,
 		TurnResponse response
 	) {
+		assertAccess();
 		CloseWork work = reserveClose(CloseReason.COMPLETED, false, null);
 		if (work == null) {
 			throw interrupted(null);
@@ -250,6 +256,12 @@ final class SessionStreamConnection {
 	}
 
 	synchronized void sendError(SessionStreamError error) {
+		if (closed) return;
+		try {
+			assertAccess();
+		} catch (AiClientException denied) {
+			return;
+		}
 		CloseWork work = reserveClose(CloseReason.APPLICATION_ERROR, false, null);
 		if (work == null) {
 			return;
@@ -311,19 +323,26 @@ final class SessionStreamConnection {
 	}
 
 	private void sendEvent(String name, Object data) {
-		if (closed) {
-			throw interrupted(null);
-		}
+		assertAccess();
 		sendRaw(name, SseEmitter.event()
 			.name(name)
 			.data(data, MediaType.APPLICATION_JSON));
 	}
 
 	private void sendHeartbeat() {
-		if (closed) {
-			throw interrupted(null);
-		}
+		assertAccess();
 		sendRaw("heartbeat", SseEmitter.event().comment("heartbeat"));
+	}
+
+	private void assertAccess() {
+		if (closed) throw interrupted(null);
+		try {
+			accessCheck.run();
+		} catch (RuntimeException denied) {
+			close(CloseReason.ACCESS_REVOKED, true, true, denied.getClass().getSimpleName());
+			throw new AiClientException(ErrorCode.AI_STREAM_INTERRUPTED, AiFailureCategory.INTERNAL, false, denied);
+		}
+		if (closed) throw interrupted(null);
 	}
 
 	private void sendRaw(String name, SseEmitter.SseEventBuilder event) {
@@ -445,7 +464,7 @@ final class SessionStreamConnection {
 		COMPLETED, APPLICATION_ERROR, IDLE_REPLACED, READY_SEND_FAILED,
 		STATUS_SEND_FAILED, CONTENT_SEND_FAILED, HEARTBEAT_SEND_FAILED,
 		EVENT_SEND_FAILED, EMITTER_TIMEOUT, EMITTER_ERROR, EMITTER_COMPLETION,
-		SERVICE_SHUTDOWN, REGISTRATION_REJECTED
+		SERVICE_SHUTDOWN, REGISTRATION_REJECTED, ACCESS_REVOKED
 	}
 
 	private record TurnContext(
