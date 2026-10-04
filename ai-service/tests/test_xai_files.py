@@ -46,7 +46,8 @@ async def test_xai_file_client_uploads_multipart_and_returns_file_id(
     assert private_filename.encode() in request.content
     assert private_content in request.content
     record = next(item for item in caplog.records if item.message == "xAI file upload finished")
-    assert record.__dict__["fileId"] == "file-contract"
+    assert "fileId" not in record.__dict__
+    assert "file-contract" not in caplog.text
     assert record.__dict__["sizeBytes"] == len(private_content)
     assert private_filename not in caplog.text
     assert private_content.decode() not in caplog.text
