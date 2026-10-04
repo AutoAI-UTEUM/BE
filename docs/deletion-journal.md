@@ -20,7 +20,7 @@ User → 소유 자료의 ID 순서 → 원장 mutex → intent 순서로 기록
 
 원본/아바타의 누락과 이미지 폴더 누락은 멱등 성공이다. 렌더 정리는 정확한 UUID 폴더의 숫자 `.jpg` 파일만 삭제하며, 예상 밖 파일·중첩 폴더·symlink는 실패로 남겨 보존한다. 실제 AI endpoint는 provider 파일 누락(404)을 멱등 성공 204로 반환한다. Spring은 AI 경계의 404(라우팅/배포 오류 가능)를 완료로 처리하지 않고 실패/재시도로 추적한다. `MaterialXaiFileLifecycleService.deleteAfterCommit` 이름은 기존 caller 호환을 유지하지만 이제 호출 트랜잭션에 원장을 저장하고 실제 삭제를 직접 실행하지 않는다.
 
-현재 AI provider(`ai-service/src/edupilot_ai/llm/files.py`)의 기존 삭제 로그에는 `fileId`가 남는다. 이 Spring 작업은 AI 소스를 수정하지 않았으며 AI 계층의 마스킹/관측성 조율은 #469 담당 경계에 남는다. Spring worker에서의 비노출 검증을 전체 계층의 로그 비노출 완료로 해석하지 않는다.
+최신 develop의 별도 AI PR496은 provider 파일 업로드/삭제의 `fileId` 출력과 구조화 로그 허용목록 항목을 제거했다. 이 통합 후보는 이미 merge된 해당 AI 변경을 포함하며 Spring 기능 단위가 AI 구현을 재작성하지 않는다. Spring worker/AI 단위 테스트의 비노출 증거는 운영 로그 전체의 수집·보존·만료 검증과 구분한다. 추가 AI 관측성 조율은 #469 담당 경계에 남는다.
 
 삭제 후 늦게 끝난 추출·backfill은 자료 상태와 원장 tombstone을 확인해 결과를 연결하지 않는다. 렌더 저장은 동일 자료 잠금과 tombstone 검사를 통과해야 한다. 탈퇴 후 자료 upload는 User 행 잠금으로 거절하고 아직 공개하지 않은 신규 임시 업로드만 롤백 정리한다. 소유 자료의 기존 논리삭제는 유지되므로 탈퇴 강사의 자료에 학생이 계속 접근할 수 있다고 보장하지 않는다.
 
