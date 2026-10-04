@@ -377,7 +377,7 @@ Created-at ordering and delivery IDs never reset this budget; abandoned reservat
 
 ### Deletion intent lifecycle (#477)
 
-Logical deletion and per-asset tombstones commit together. Unknown retention remains POLICY_PENDING; approved kinds use READY/LEASED/DONE, bounded RETRY/FAILED and active external-reference holds. Account tombstones retain identity fingerprints without raw email. Restore epochs invalidate old worker generations without shortening retention. See [deletion journal](deletion-journal.md).
+Logical deletion and per-asset tombstones commit together. Ordinary owner-requested original PDF/render deletion records the approved 30-day retainUntil while cleanup remains disabled/POLICY_PENDING; withdrawal and legal/consent exceptions keep their own unresolved periods. Explicitly enabled physical cleanup uses READY/LEASED/DONE, bounded RETRY/FAILED and active external-reference holds. Account tombstones retain identity fingerprints without raw email. Restore epochs invalidate old worker generations without shortening retention. See [deletion journal](deletion-journal.md), [ordinary 30-day scope](general-file-retention.md).
 
 
 ### Age input and pending intake (#478 foundation)

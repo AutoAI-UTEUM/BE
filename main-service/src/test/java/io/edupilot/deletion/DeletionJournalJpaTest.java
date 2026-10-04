@@ -49,6 +49,7 @@ class DeletionJournalJpaTest {
   registry.add("spring.datasource.password",()->""); registry.add("spring.datasource.driver-class-name",()->"com.mysql.cj.jdbc.Driver");
  }
  @Autowired DeletionJournal journal;
+ @Autowired GeneralFileRetentionProperties generalFiles;
  @Autowired DeletionIntentRepository intents;
  @Autowired DeletionJournalLockRepository locks;
  @Autowired DeletionTaskStore store;
@@ -93,6 +94,7 @@ class DeletionJournalJpaTest {
   tx(()->{var u=users.findByIdForUpdate(f.user()).orElseThrow(); u.replaceAvatar("avatars/synthetic.png");});
   userService.withdrawGoogle(f.user(),f.subject());
   assertThat(intents.findAll()).hasSize(5);
+  assertThat(intents.findAll()).allSatisfy(i->assertThat(i.getRetainUntil()).isNull());
   assertThat(intents.findAll().stream().filter(i->i.getKind()!=DeletionKind.ACCOUNT))
    .allSatisfy(i->assertThat(i.getStatus()).isEqualTo(DeletionStatus.POLICY_PENDING));
   worker().tick(); intents.findAll().forEach(i->worker().process(i.getId()));
@@ -146,6 +148,7 @@ class DeletionJournalJpaTest {
  }
  @Test void successfulKindsAreNotRepeatedWhenOneProviderFails() {
   var f=fixture("synthetic-retry"); materialService.delete(f.user(),f.material());
+  clock.advance(30*86400L); // Approved ordinary original/render retention precedes synthetic cleanup.
   permit(DeletionKind.ORIGINAL_PDF,0); permit(DeletionKind.RENDERED_PAGES,0); permit(DeletionKind.EXTERNAL_AI,0);
   doAnswer(i->{assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();return null;}).when(files).delete(any());
   doThrow(new IllegalStateException("synthetic failure")).doNothing().when(ai).deleteFile("synthetic-retry");
@@ -204,6 +207,7 @@ class DeletionJournalJpaTest {
  }
  @Test void restoreEpochReopensCompletedCleanupExactlyOnceAndReappliesLogicalDeletion() {
   var f=fixture(null);materialService.delete(f.user(),f.material());permit(DeletionKind.ORIGINAL_PDF,0);
+  clock.advance(30*86400L);
   var id=intent(DeletionKind.ORIGINAL_PDF).getId();worker().process(id);var exported=journal.exportPage(0,100).entries();
   jdbc.update("update learning_materials set status='ACTIVE' where id=?",f.material());
   assertThat(restore.restoreBatch(exported,"synthetic_restore_1")).contains(DeletionReplay.Result.APPLIED);
@@ -278,6 +282,47 @@ class DeletionJournalJpaTest {
   var first=journal.exportPage(0,1);assertThat(first.hasNext()).isTrue();assertThat(journal.exportPage(first.nextId(),1).entries()).hasSize(1);
   assertThatThrownBy(()->journal.importForRestore(first.entries(),"../invalid")).isInstanceOf(IllegalArgumentException.class);
   assertThat(intents.findAll()).allSatisfy(i->assertThat(i.getGeneration()).isZero());
+ }
+ @Test void ordinaryDeletionRecordsThirtyDaysWhilePhysicalWorkerRemainsDisabled() {
+  var f=fixture("synthetic-ordinary-external");
+  Instant requested=clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+  materialService.delete(f.user(),f.material());
+  assertThat(generalFiles.retentionDays()).isEqualTo(30);
+  for(var kind:List.of(DeletionKind.ORIGINAL_PDF,DeletionKind.RENDERED_PAGES)) {
+   assertThat(intent(kind).getRetainUntil()).isEqualTo(requested.plus(Duration.ofDays(30)));
+   assertThat(intent(kind).getStatus()).isEqualTo(DeletionStatus.POLICY_PENDING);
+  }
+  assertThat(intent(DeletionKind.EXTERNAL_AI).getRetainUntil()).isNull();
+  clock.advance(31*86400L);worker().tick();
+  intents.findAll().forEach(i->worker().process(i.getId()));
+  assertThat(store.candidates()).isEmpty();verifyNoInteractions(files,ai);
+ }
+ @Test void shorterSyntheticPolicyCannotDeleteOrdinaryFilesUntilThirtyDayBoundary() {
+  var f=fixture(null);materialService.delete(f.user(),f.material());
+  permit(DeletionKind.ORIGINAL_PDF,0);permit(DeletionKind.RENDERED_PAGES,0);
+  clock.advance(30*86400L-1);
+  intents.findAll().forEach(i->worker().process(i.getId()));
+  verifyNoInteractions(files,ai);
+  clock.advance(1);store.candidates().forEach(i->worker().process(i));
+  assertThat(intents.findAll()).allSatisfy(i->assertThat(i.getStatus()).isEqualTo(DeletionStatus.DONE));
+  verify(files,times(1)).delete(f.key());verify(files,times(1)).deleteMaterialRenders(f.key());
+ }
+ @Test void ordinaryDeletionRollbackPreservesMaterialAndDoesNotCommitRetention() {
+  var f=fixture(null);
+  new TransactionTemplate(transactions).executeWithoutResult(tx->{materialService.delete(f.user(),f.material());tx.setRollbackOnly();});
+  assertThat(materials.findById(f.material()).orElseThrow().isActive()).isTrue();
+  assertThat(intents.count()).isZero();verifyNoInteractions(files,ai);
+ }
+ @Test void emptyJournalRestoreKeepsOrdinaryThirtyDayDeadline() {
+  var f=fixture(null);materialService.delete(f.user(),f.material());
+  Instant deadline=intent(DeletionKind.ORIGINAL_PDF).getRetainUntil();
+  var exported=journal.exportPage(0,100).entries();intents.deleteAll();
+  clock.advance(8*86400L);permit(DeletionKind.ORIGINAL_PDF,0);permit(DeletionKind.RENDERED_PAGES,0);
+  restore.restoreBatch(exported,"synthetic_general_restore");
+  assertThat(intents.findAll()).allSatisfy(i->assertThat(i.getRetainUntil()).isEqualTo(deadline));
+  intents.findAll().forEach(i->worker().process(i.getId()));
+  assertThat(intents.findAll()).noneSatisfy(i->assertThat(i.getStatus()).isEqualTo(DeletionStatus.DONE));
+  verifyNoInteractions(files,ai);
  }
  DeletionIntent intent(DeletionKind kind) { return intents.findAll().stream().filter(i->i.getKind()==kind).findFirst().orElseThrow(); }
  void permit(DeletionKind kind,int retention) {enabled=true;days.put(kind,retention);}

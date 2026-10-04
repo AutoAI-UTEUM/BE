@@ -45,7 +45,10 @@ springdoc:
 edupilot:
   deletion:
     enabled: ${EDUPILOT_DELETION_ENABLED:false}
-    # Retention days and policy version are intentionally unset until explicitly approved.
+    general-files:
+      # Approved owner-requested ordinary original PDF/render retention; never enables the worker.
+      retention-days: 30
+    # Physical cleanup selection and exception periods remain unset; ordinary retention is above.
     policy-version: ${EDUPILOT_DELETION_POLICY_VERSION:}
     original-retention-days: ${EDUPILOT_DELETION_ORIGINAL_RETENTION_DAYS:}
     render-retention-days: ${EDUPILOT_DELETION_RENDER_RETENTION_DAYS:}
