@@ -24,6 +24,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
 	long countByStatus(UserStatus status);
 
+	@Transactional(readOnly = true)
+	@Query("select new io.edupilot.user.UserAccessState(account.role, account.status) from User account where account.id = :userId")
+	Optional<UserAccessState> findAccessStateById(@Param("userId") Long userId);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select account from User account where account.email = :email")
 	Optional<User> findByEmailForUpdate(@Param("email") String email);

@@ -15,7 +15,6 @@ import io.edupilot.admin.dto.AdminUserDetailResponse;
 import io.edupilot.admin.dto.AdminUserListResponse;
 import io.edupilot.admin.dto.AdminUserResponse;
 import io.edupilot.auth.RefreshTokenService;
-import io.edupilot.auth.UserAccessGuard;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.user.AuthProvider;
@@ -32,7 +31,6 @@ public class AdminUserService {
 	private final PasswordEncoder passwordEncoder;
 	private final RefreshTokenService refreshTokenService;
 	private final TemporaryPasswordGenerator temporaryPasswordGenerator;
-	private final UserAccessGuard userAccessGuard;
 	private final Clock clock;
 
 	public AdminUserService(
@@ -40,14 +38,12 @@ public class AdminUserService {
 		PasswordEncoder passwordEncoder,
 		RefreshTokenService refreshTokenService,
 		TemporaryPasswordGenerator temporaryPasswordGenerator,
-		UserAccessGuard userAccessGuard,
 		Clock clock
 	) {
 		this.userRepository = userRepository;
 		this.passwordEncoder = passwordEncoder;
 		this.refreshTokenService = refreshTokenService;
 		this.temporaryPasswordGenerator = temporaryPasswordGenerator;
-		this.userAccessGuard = userAccessGuard;
 		this.clock = clock;
 	}
 
@@ -125,7 +121,6 @@ public class AdminUserService {
 		protectLastAdmin(target, activeAdmins.size());
 		target.suspend(reason.trim(), actorUserId, clock.instant());
 		refreshTokenService.revokeAll(targetUserId);
-		userAccessGuard.invalidateAfterCommit(targetUserId);
 		return AdminUserDetailResponse.from(target);
 	}
 
@@ -136,7 +131,6 @@ public class AdminUserService {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}
 		target.reinstate();
-		userAccessGuard.invalidateAfterCommit(targetUserId);
 		return AdminUserDetailResponse.from(target);
 	}
 
@@ -159,7 +153,6 @@ public class AdminUserService {
 		}
 		target.changeRole(role);
 		refreshTokenService.revokeAll(targetUserId);
-		userAccessGuard.invalidateAfterCommit(targetUserId);
 		return new RoleChangeResult(before, AdminUserDetailResponse.from(target));
 	}
 

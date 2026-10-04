@@ -22,7 +22,6 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.edupilot.auth.RefreshTokenService;
-import io.edupilot.auth.UserAccessGuard;
 import io.edupilot.mail.EmailService;
 import io.edupilot.mail.EmailMessage;
 import io.edupilot.mail.EmailTemplates;
@@ -52,7 +51,6 @@ class UserServiceTest {
 	@Mock
 	private PasswordChangeAttemptLimiter passwordChangeAttemptLimiter;
 	@Mock private EmailService emailService;
-	@Mock private UserAccessGuard userAccessGuard;
 
 	private BCryptPasswordEncoder passwordEncoder;
 	private UserService userService;
@@ -70,7 +68,6 @@ class UserServiceTest {
 			passwordChangeAttemptLimiter,
 			emailService,
 			new EmailTemplates(new MailProperties(true, "logging", "test@example.com", "", "https://dev.uteum.com", "ap-northeast-2")),
-			userAccessGuard,
 			deletionJournal
 		);
 		user = User.create(
@@ -270,7 +267,6 @@ class UserServiceTest {
 		order.verify(userRepository).flush();
 		order.verify(withdrawalHook).onWithdraw(1L);
 		order.verify(refreshTokenService).revokeAll(1L);
-		verify(userAccessGuard).invalidateAfterCommit(1L);
 		var message = org.mockito.ArgumentCaptor.forClass(EmailMessage.class);
 		verify(emailService).sendAsync(message.capture());
 		assertThat(message.getValue().to()).isEqualTo("user@example.com");
@@ -304,7 +300,6 @@ class UserServiceTest {
 		userService.withdrawGoogle(2L, "actual-google-sub");
 		assertThat(google.isActive()).isFalse();
 		verify(refreshTokenService).revokeAll(2L);
-		verify(userAccessGuard).invalidateAfterCommit(2L);
 	}
 
 	private byte[] pngBytes() {

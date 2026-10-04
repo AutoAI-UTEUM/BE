@@ -6,7 +6,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import io.edupilot.auth.RefreshTokenService;
-import io.edupilot.auth.UserAccessGuard;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserWithdrawalHook;
@@ -18,11 +17,10 @@ public class DeletionReplay {
 	private final LearningMaterialRepository materials;
 	private final List<UserWithdrawalHook> hooks;
 	private final RefreshTokenService tokens;
-	private final UserAccessGuard access;
 	private final DeletionJournal journal;
 	public DeletionReplay(DeletionIntentRepository intents,UserRepository users,LearningMaterialRepository materials,
-		List<UserWithdrawalHook> hooks,RefreshTokenService tokens,UserAccessGuard access,DeletionJournal journal) {
-		this.intents=intents;this.users=users;this.materials=materials;this.hooks=hooks;this.tokens=tokens;this.access=access;
+		List<UserWithdrawalHook> hooks,RefreshTokenService tokens,DeletionJournal journal) {
+		this.intents=intents;this.users=users;this.materials=materials;this.hooks=hooks;this.tokens=tokens;
 		this.journal=journal;
 	}
 	@Transactional(propagation=Propagation.REQUIRES_NEW)
@@ -37,7 +35,7 @@ public class DeletionReplay {
 			String restoredAvatar=user.getAvatarKey();
 			user.withdraw(); users.flush(); hooks.forEach(hook->hook.onWithdraw(user.getId()));
 			if(restoredAvatar!=null) { journal.recordAvatar(restoredAvatar); }
-			tokens.revokeAll(user.getId()); access.invalidateAfterCommit(user.getId());
+			tokens.revokeAll(user.getId());
 			return Result.APPLIED;
 		}
 		if(intent.getKind()==DeletionKind.ORIGINAL_PDF) {

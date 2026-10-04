@@ -14,7 +14,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import io.edupilot.auth.RefreshTokenService;
-import io.edupilot.auth.UserAccessGuard;
 import io.edupilot.mail.EmailService;
 import io.edupilot.mail.EmailTemplates;
 import io.edupilot.global.error.BusinessException;
@@ -53,7 +52,6 @@ public class UserService {
 	private final PasswordChangeAttemptLimiter passwordChangeAttemptLimiter;
 	private final EmailService emailService;
 	private final EmailTemplates emailTemplates;
-	private final UserAccessGuard userAccessGuard;
 	private final DeletionJournal deletionJournal;
 
 	public UserService(
@@ -65,7 +63,6 @@ public class UserService {
 		PasswordChangeAttemptLimiter passwordChangeAttemptLimiter,
 		EmailService emailService,
 		EmailTemplates emailTemplates,
-		UserAccessGuard userAccessGuard,
 		DeletionJournal deletionJournal
 	) {
 		this.userRepository = userRepository;
@@ -76,7 +73,6 @@ public class UserService {
 		this.passwordChangeAttemptLimiter = passwordChangeAttemptLimiter;
 		this.emailService = emailService;
 		this.emailTemplates = emailTemplates;
-		this.userAccessGuard = userAccessGuard;
 		this.deletionJournal = deletionJournal;
 	}
 
@@ -251,7 +247,6 @@ public class UserService {
 		deletionJournal.recordAccount(userId,accountCreatedAt,recipient);
 		if (avatarKey != null) { deletionJournal.recordAvatar(avatarKey); }
 		refreshTokenService.revokeAll(userId);
-		userAccessGuard.invalidateAfterCommit(userId);
 		emailService.sendAsync(emailTemplates.withdrawal().to(recipient));
 	}
 
