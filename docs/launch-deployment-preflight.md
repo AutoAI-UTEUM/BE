@@ -44,6 +44,22 @@ FE develop `1b6987d`의 소스 검토에서는 신규 가입 요청의 DOB 입�
 
 ## 4. 적용 순서와 관측
 
+### FE 기본 OFF와 현재 공개 계약 신호
+
+현재 인증 capability endpoint나 가입 계약의 활성 여부를 반환하는 공개 배포 flag는 없다. `/api/health`의 `data.status=UP`과 `/api/health/ready`의 DB/AI readiness는 가입·메일 준비 증거가 아니다. 공개 `/v3/api-docs`에는 SignupRequest의 필수 DOB와 이메일 확인 경로가 있지만 이는 schema 존재 증거이며 실제 수신·FE 준비·출시 승인 신호로 사용하지 않는다. 내부 AI `capabilities`는 인증 계약의 신호와 별개다.
+
+최소 지원 방안은 별도 API 증설 없이 FE가 기본 OFF인 배포 설정으로 검토된 BE 계약/FE build 조합을 명시하는 것이다. 실제 적용 책임자는 승인된 SHA와 활성 시점을 함께 관리한다. OFF일 때 기존 화면/서버 계약을 보존하고 새 화면을 숨기는 것은 FE 단계의 호환 방안이다. **새 BE의 DOB·이메일 gate는 조건부로 꺼지지 않으므로 FE OFF 상태로 후보 BE만 배포하는 것은 허용 경로가 아니다.** 기존 계정 로그인과 신규 가입의 전환을 분리하고, 새 가입 요청을 오류 응답으로 시험하면서 자동 활성화하지 않는다.
+
+| 배포 조합 | 의미 |
+| --- | --- |
+| 이전 BE + FE 새 흐름 OFF | 기존 계약을 유지하는 선반영 후보. 해당 FE build에서 기존 동선을 검증해야 한다. |
+| 후보 BE + FE 새 흐름 OFF | 신규 DOB/이메일 UI가 없어 400/409/403이 남는다. 후속 BE 배포 조건을 충족하지 않는다. |
+| 검토한 후보 BE + 대응 FE 흐름 ON | 승인된 동시 전환과 실제 메일 경로·합성 인수 조건이 필요하다. 연령/보호자 출시 완료를 뜻하지 않는다. |
+
+FE가 서버별 자동 계약 선택을 꼭 요구하면, 현재 입력 필수 여부와 **구현 지원**을 알리는 좁은 읽기 전용 신호의 필요성을 계약 담당과 먼저 확인한다. 이 문서에서는 endpoint/응답 필드·새 서버 flag를 만들지 않는다. 신호를 추가하더라도 실제 NEW_SIGNUP DOB/이메일 요구를 정확히 표현해야 하고, DB gate의 대체 조건이나 실메일 수신/guardian 승인으로 소비하면 안 된다. 네트워크 오류·404·알 수 없는 revision에서는 임의 새 기능 활성화 없이 기존 안전한 동선을 유지하며 후보 BE 전환은 보류한다.
+
+가입 동의는 현재 `GET /api/policies/current`의 `requiresConsent=true` 대상과 실제 `EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED`를 따로 대조한다. 대상이 0개일 때의 현재 코드 동작과 UNKNOWN/LEGACY 응답은 [API 명세](api-spec.md) 및 [전달 계약](qa/fe-auth-contract/README.md)을 사용한다. 법무 준비 상태·기존 계정 예외·현재 동의 완료를 capability나 health로 추정하지 않는다.
+
 1. 실제 FE 지원 build와 실메일 확인 경로, 승인 대상 SHA·설정·CI·백업·복구 이미지 증거를 갖춘다. 기존 FE가 새 필드를 아직 보내지 않는 상태에서 BE만 먼저 적용하지 않는다. FE 선반영 가능 여부와 활성화 시점은 해당 팀이 검증해야 한다.
 2. 승인된 migration 창에서 쓰기 유입과 기존 프로세스의 종료 경계를 통제한다. V58 cohort 경계를 기록할 때 migration 중 가입/기타 User INSERT가 섞이지 않도록 한다. 연속된 migration의 checksum과 적용 결과를 기록한다.
 3. V53 신규 노트 멱등성 컬럼/고유키 → V54 암호화 outbox/메일 예약 → V55 이메일 증거/토큰 → V56 삭제 원장 → V57 DOB/접수 → V58 기존 cohort → V59 웹/SMS 접수 순서를 따른다. V53은 수정된 중복을 포함한 기존 노트를 보존하고 신규 쓰기에 멱등성을 적용한다. V54 과거 메일 시도 예산/QUEUED 실패 표시는 기존 데이터 영향을 가진다. 빈 DB에서의 성공만으로 실제 데이터 migration 안전을 판단하지 않는다.
