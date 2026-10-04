@@ -305,7 +305,7 @@ The migration creates `email_verification_tokens` with SHA-256 token/current-ema
 
 ### Durable deletion journal (#477)
 
-V56 adds deletion_intents and a seeded deletion_journal_lock singleton. Unique SHA-256 identity, typed status/binding/lease checks and a polling index support idempotent recording and restart recovery. No cascading FK removes tombstones. V53, V54 and V55 must precede V56. Physical retention days and policy version stay unset; deletion is disabled by default. See [deletion journal](deletion-journal.md) for the restore boundary and unimplemented operational export storage.
+V56 adds deletion_intents and a seeded deletion_journal_lock singleton. Unique SHA-256 identity, typed status/binding/lease checks and a polling index support idempotent recording and restart recovery. No cascading FK removes tombstones. V53, V54 and V55 must precede V56. Ordinary owner-requested original PDF/render deletion now records the approved 30-day deadline in the existing retain_until column; no new schema/backfill is required. Exception periods and physical execution selection stay unset; deletion is disabled by default. See [deletion journal](deletion-journal.md), [ordinary 30-day scope](general-file-retention.md) for the restore boundary and unimplemented operational export storage.
 
 
 ### Birthdate and guardian pending foundation (#478)

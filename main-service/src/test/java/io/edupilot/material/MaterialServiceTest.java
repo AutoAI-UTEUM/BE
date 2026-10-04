@@ -294,7 +294,7 @@ class MaterialServiceTest {
 		InOrder order = inOrder(materialRepository, deletionGuard);
 		order.verify(materialRepository).findByIdForUpdate(10L);
 		order.verify(deletionGuard).assertDeletable(10L);
-		verify(deletionJournal).recordMaterial(material);
+		verify(deletionJournal).recordRecoverableMaterial(material);
 	}
 
 	@Test
@@ -310,7 +310,7 @@ class MaterialServiceTest {
 		materialService.delete(1L, 10L);
 
 		assertThat(material.getStatus()).isEqualTo(MaterialStatus.DELETED);
-		verify(deletionJournal).recordMaterial(material);
+		verify(deletionJournal).recordRecoverableMaterial(material);
 	}
 
 	@Test

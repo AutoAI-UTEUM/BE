@@ -221,7 +221,7 @@ public class MaterialService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
 		deletionGuard.assertDeletable(materialId);
 		material.delete();
-		deletionJournal.recordMaterial(material);
+		deletionJournal.recordRecoverableMaterial(material);
 	}
 
 	private void validateFile(MultipartFile file) {

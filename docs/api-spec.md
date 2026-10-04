@@ -3319,7 +3319,7 @@ See [mail outbox](mail-outbox.md) for encryption, restart recovery, migration an
 
 ### Deletion completion boundary (#477)
 
-Existing withdrawal/material-delete response shapes are unchanged. Success means committed logical deletion with a durable cleanup intent, not completed physical PDF/render/provider deletion. Cleanup is POLICY_PENDING while retention is undecided. Restore import and failure retry are internal maintenance services, not public HTTP endpoints. [Deletion journal](deletion-journal.md).
+Existing withdrawal/material-delete response shapes are unchanged. Success means committed logical deletion with a durable cleanup intent. Owner-requested ordinary material deletion records the approved 30-day original PDF/render deadline while physical cleanup remains disabled/POLICY_PENDING. Withdrawal, legal/consent exceptions, account/avatar and external-AI periods are not inferred from that policy. Restore import and failure retry are internal maintenance services, not public HTTP endpoints. [Deletion journal](deletion-journal.md), [ordinary 30-day scope](general-file-retention.md).
 
 
 ### New-signup DOB input (#478 foundation)

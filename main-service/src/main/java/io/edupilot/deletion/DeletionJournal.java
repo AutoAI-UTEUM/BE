@@ -18,16 +18,27 @@ public class DeletionJournal {
 	private final DeletionIntentRepository intents;
 	private final DeletionJournalLockRepository locks;
 	private final Clock clock;
-	public DeletionJournal(DeletionIntentRepository intents, DeletionJournalLockRepository locks, Clock clock) {
-		this.intents=intents; this.locks=locks; this.clock=clock;
+	private final GeneralFileRetentionProperties generalFiles;
+	public DeletionJournal(DeletionIntentRepository intents, DeletionJournalLockRepository locks, Clock clock,
+		GeneralFileRetentionProperties generalFiles) {
+		this.intents=intents; this.locks=locks; this.clock=clock; this.generalFiles=generalFiles;
 	}
 	@Transactional(propagation = Propagation.MANDATORY)
 	public void recordMaterial(LearningMaterial material) {
+		recordMaterial(material, false);
+	}
+	/** Owner-requested ordinary deletion only; withdrawal and legal/consent exceptions use no guessed period. */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public void recordRecoverableMaterial(LearningMaterial material) {
+		recordMaterial(material, true);
+	}
+	private void recordMaterial(LearningMaterial material, boolean generalRecoverable) {
 		lock();
 		Instant now=clock.instant().truncatedTo(ChronoUnit.MICROS);
+		Instant deadline=generalRecoverable ? generalFiles.deadline(now) : null;
 		String key=material.getStorageKey();
-		put(new DeletionSnapshot(DeletionKind.ORIGINAL_PDF,key,key,null,null,null,now,null),null);
-		put(new DeletionSnapshot(DeletionKind.RENDERED_PAGES,key,key,null,null,null,now,null),null);
+		put(new DeletionSnapshot(DeletionKind.ORIGINAL_PDF,key,key,null,null,null,now,deadline),null);
+		put(new DeletionSnapshot(DeletionKind.RENDERED_PAGES,key,key,null,null,null,now,deadline),null);
 		if(material.getXaiFileId()!=null&&!material.getXaiFileId().isBlank()) {
 			put(new DeletionSnapshot(DeletionKind.EXTERNAL_AI,material.getXaiFileId(),key,null,null,null,now,null),null);
 		}
