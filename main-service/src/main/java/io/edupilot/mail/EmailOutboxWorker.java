@@ -35,7 +35,13 @@ public class EmailOutboxWorker {
 		try {
 			// Expired payloads and leases must make progress even when sending is disabled.
 			for (Long id : outbox.cleanupIds()) {
-				outbox.recover(id);
+				try {
+					outbox.recover(id);
+				} catch (RuntimeException error) {
+					log.atWarn().addKeyValue("deliveryId", id)
+						.addKeyValue("errorType", error.getClass().getSimpleName())
+						.log("Mail outbox row recovery unavailable; durable work remains pending");
+				}
 			}
 			if (properties.enabled()) {
 				for (Long id : outbox.dispatchableIds()) {
