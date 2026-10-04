@@ -80,7 +80,7 @@ class EmailVerificationApiIntegrationTest {
 		settings.add("spring.datasource.password",()->"");settings.add("spring.datasource.driver-class-name",()->"com.mysql.cj.jdbc.Driver");
 	}
 	private static final AtomicInteger IPS = new AtomicInteger();
-	private static final Pattern TOKEN = Pattern.compile("/verify-email\\?token=([A-Za-z0-9_-]{43})");
+	private static final Pattern TOKEN = Pattern.compile("/verify-email#token=([A-Za-z0-9_-]{43})");
 	@Autowired private WebApplicationContext context;
 	@Autowired private TraceIdFilter traces;
 	@Autowired private UserRepository users;
