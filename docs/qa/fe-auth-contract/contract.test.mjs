@@ -120,7 +120,7 @@ test('V58 cohort defaults and gate source preserve legacy exception without appr
 
 test('handoff local links resolve and examples remain synthetic', () => {
   const root = resolve(beRoot, 'docs/qa/fe-auth-contract')
-  for (const filename of ['README.md', 'EVIDENCE.md', 'FE-FOLLOWUP.md', 'FE-PR229-REVIEW.md']) {
+  for (const filename of ['README.md', 'EVIDENCE.md', 'FE-FOLLOWUP.md', 'FE-PR229-REVIEW.md', 'FE-PR231-SETTINGS.md']) {
     const markdown = readBe(`docs/qa/fe-auth-contract/${filename}`)
     for (const match of markdown.matchAll(/\]\(([^)]+)\)/g)) {
       const target = match[1].split('#')[0]
