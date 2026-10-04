@@ -382,3 +382,7 @@ Logical deletion and per-asset tombstones commit together. Unknown retention rem
 ### Age input and pending intake (#478 foundation)
 
 New signup captures an input birthdate without calculating age. Legacy DOB stays null/UNKNOWN. Manual intake persists PENDING and cannot produce an approved state. User-row locking serializes request/withdrawal; withdrawal clears DOB and cancels pending intake. AgeEligibilityGate rejects new-account UNKNOWN/PENDING as an internal building block, but full endpoint/AI binding is not yet implemented. V58 LEGACY_EXEMPT is a separate access exception after active-status checks; it never grants verification evidence. [Foundation](birthdate-guardian-foundation.md), [legacy access](legacy-account-access.md).
+
+### Committed authorization revocation (#479)
+
+Authentication reads a role/status scalar from the User primary key on every request, so another instance's committed revocation applies to the next request. A new session SSE connection requires both owned ACTIVE session and current material access. This does not retroactively cancel in-flight AI streams. [Runtime regression evidence](release-runtime-regressions.md).

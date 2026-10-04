@@ -23,6 +23,7 @@ import io.edupilot.ai.AiStreamCancellation;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.session.dto.TurnResponse;
 import jakarta.annotation.PreDestroy;
 
@@ -34,6 +35,7 @@ public class SessionStreamService {
 	static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(10);
 
 	private final LearningSessionRepository sessionRepository;
+	private final MaterialAccessService materialAccessService;
 	private final Supplier<SseEmitter> emitterFactory;
 	private final Map<Long, SessionStreamConnection> connections =
 		new ConcurrentHashMap<>();
@@ -47,16 +49,19 @@ public class SessionStreamService {
 
 	@Autowired
 	public SessionStreamService(
-		LearningSessionRepository sessionRepository
+		LearningSessionRepository sessionRepository,
+		MaterialAccessService materialAccessService
 	) {
-		this(sessionRepository, () -> new SseEmitter(0L));
+		this(sessionRepository, materialAccessService, () -> new SseEmitter(0L));
 	}
 
 	SessionStreamService(
 		LearningSessionRepository sessionRepository,
+		MaterialAccessService materialAccessService,
 		Supplier<SseEmitter> emitterFactory
 	) {
 		this.sessionRepository = sessionRepository;
+		this.materialAccessService = materialAccessService;
 		this.emitterFactory = emitterFactory;
 	}
 
@@ -70,6 +75,7 @@ public class SessionStreamService {
 		if (session.getStatus() != SessionStatus.ACTIVE) {
 			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
 		}
+		materialAccessService.assertAccessible(userId, session.getMaterialId());
 
 		SessionStreamConnection[] holder = new SessionStreamConnection[1];
 		SessionStreamConnection connection = new SessionStreamConnection(

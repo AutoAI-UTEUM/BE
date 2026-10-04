@@ -1991,7 +1991,7 @@ class SessionTurnServiceTest {
 		ControllableSseEmitter failing = new ControllableSseEmitter();
 		failing.failingEvent = "status";
 		AtomicInteger connections = new AtomicInteger();
-		SessionStreamService streams = new SessionStreamService(repository,
+		SessionStreamService streams = new SessionStreamService(repository, materialAccessService,
 			() -> connections.getAndIncrement() == 0 ? failing : new ControllableSseEmitter());
 		SessionTurnService turns = service();
 		ReflectionTestUtils.setField(turns, "streamService", streams);
@@ -2034,7 +2034,7 @@ class SessionTurnServiceTest {
 		when(active.getStatus()).thenReturn(SessionStatus.ACTIVE);
 		when(repository.findByIdAndUser_Id(100L, 1L)).thenReturn(Optional.of(active));
 		ControllableSseEmitter emitter = new ControllableSseEmitter();
-		SessionStreamService streams = new SessionStreamService(repository, () -> emitter);
+		SessionStreamService streams = new SessionStreamService(repository, materialAccessService, () -> emitter);
 		SessionTurnService turns = service();
 		ReflectionTestUtils.setField(turns, "streamService", streams);
 		AtomicInteger attempts = new AtomicInteger();

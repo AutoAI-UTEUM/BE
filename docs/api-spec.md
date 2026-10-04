@@ -517,7 +517,7 @@ LOCAL 계정은 위의 `password`를, Google 계정은 아래의 `googleIdToken`
 {"googleIdToken":"<Google가 발급한 ID 토큰>"}
 ```
 
-회원 탈퇴(DEC-028). 재확인 후 사용자 행을 잠가 `status=DELETED` 전환과 동시에 개인 식별 정보를 익명화합니다(email → `deleted_{id}`, name → 고정 문구, password_hash 무효화 — 재가입 허용). 인증 세션과 refresh token은 전부 폐기하고 현재 서버의 사용자 접근 캐시를 커밋 후 무효화합니다. 소유 자료·학습 세션은 함께 논리 삭제하고, 퀴즈 제출·평가·메모리 레코드는 익명 상태로 보존합니다. 커밋 후 기존 원본 이메일로 탈퇴 완료 메일을 요청하며 롤백 시 발송하지 않습니다. 메일은 계정 사용 종료만 안내하고 물리 파일 정리 완료를 의미하지 않습니다. 복구는 지원하지 않으므로 FE는 확인 모달을 거쳐 호출합니다.
+회원 탈퇴(DEC-028). 재확인 후 사용자 행을 잠가 `status=DELETED` 전환과 동시에 개인 식별 정보를 익명화합니다(email → `deleted_{id}`, name → 고정 문구, password_hash 무효화 — 재가입 허용). 인증 세션과 refresh token은 전부 폐기하고 이후 인증 요청마다 현재 DB 역할·상태를 다시 확인합니다. 소유 자료·학습 세션은 함께 논리 삭제하고, 퀴즈 제출·평가·메모리 레코드는 익명 상태로 보존합니다. 커밋 후 기존 원본 이메일로 탈퇴 완료 메일을 요청하며 롤백 시 발송하지 않습니다. 메일은 계정 사용 종료만 안내하고 물리 파일 정리 완료를 의미하지 않습니다. 복구는 지원하지 않으므로 FE는 확인 모달을 거쳐 호출합니다.
 
 탈퇴 성공 시 현재 소유한 `ACTIVE` 강의실을 같은 DB 트랜잭션에서 `COMPLETED`로 종료합니다. 현재 계정 역할과 무관하게 실제 소유 관계를 기준으로 처리합니다. 이전에 종료한 강의실, 다른 강사의 강의실, 기존 소유자·학생 멤버·평가 이력은 유지하고 소유권을 이전하지 않습니다. 강의실 생성도 소유자 사용자 행을 잠가 탈퇴와 직렬화하므로 생성이 먼저 커밋한 새 강의실은 종료 대상에 포함되며, 탈퇴가 먼저 커밋한 계정은 생성할 수 없습니다. 사용자 삭제가 롤백되면 강의실 종료도 함께 롤백됩니다. 종료 후 관리 쓰기·신규 참여·강의실 시험 제출 차단은 기존 완료 강의실 규칙을 따릅니다. 기존 멤버의 본인 통합학습은 기존 규칙대로 유지합니다.
 
@@ -3321,3 +3321,7 @@ Existing withdrawal/material-delete response shapes are unchanged. Success means
 ### New-signup DOB input (#478 foundation)
 
 LOCAL signup requires ISO dateOfBirth; new Google signup also requires it but existing subject login omits it and never overwrites stored DOB. The field is input-only; it does not approve age/guardian status. Guardian intake and AgeEligibilityGate are internal services in this unit. No public approval endpoint or global HTTP/SSE/worker age gate binding is provided yet. [Foundation and pending policy](birthdate-guardian-foundation.md).
+
+### Current authorization and SSE reconnect (#479)
+
+Every authenticated request reads current DB role/status without a process-local positive cache. Committed suspension returns ACCOUNT_SUSPENDED(401), while deleted/missing accounts and JWT role mismatch return TOKEN_INVALID(401). New SSE connections also require current material access after the existing owner/ACTIVE checks; removed membership, unlinked or withdrawn-owner material returns MATERIAL_NOT_FOUND(404) before emitter registration. Existing request/response fields are unchanged. [Runtime regression evidence and limits](release-runtime-regressions.md).

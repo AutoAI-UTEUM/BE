@@ -69,7 +69,8 @@ public class SessionController {
 	@Operation(
 		summary = "인증된 학습 turn SSE 연결",
 		description = "기본 턴 이벤트와 opt-in quiz_question 공개 문항 미리보기를 중계합니다. "
-			+ "미리보기는 제출할 수 없으며 completed의 activeQuizId로 정본 퀴즈를 조회합니다."
+			+ "미리보기는 제출할 수 없으며 completed의 activeQuizId로 정본 퀴즈를 조회합니다. "
+			+ "새 연결 전에 현재 세션 소유권·상태와 자료 접근을 재검사하며 회수된 자료 권한은 404로 거부합니다."
 	)
 	public ResponseEntity<SseEmitter> stream(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
