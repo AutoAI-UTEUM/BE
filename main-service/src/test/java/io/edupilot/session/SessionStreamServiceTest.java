@@ -36,11 +36,13 @@ import io.edupilot.material.MaterialAccessService;
 
 class SessionStreamServiceTest {
 
+	private final SessionStreamAccessGuard streamAccess = mock(SessionStreamAccessGuard.class);
+
 	private final LearningSessionRepository repository =
 		mock(LearningSessionRepository.class);
 	private final MaterialAccessService materialAccess = mock(MaterialAccessService.class);
 	private final SessionStreamService service =
-		new SessionStreamService(repository, materialAccess);
+		new SessionStreamService(repository, materialAccess, streamAccess);
 
 	@AfterEach
 	void tearDown() {
@@ -173,7 +175,7 @@ class SessionStreamServiceTest {
 		ControllableSseEmitter secondEmitter = new ControllableSseEmitter();
 		AtomicInteger creations = new AtomicInteger();
 		SessionStreamService controlled = new SessionStreamService(
-			repository, materialAccess, () -> creations.getAndIncrement() == 0 ? firstEmitter : secondEmitter
+			repository, materialAccess, streamAccess, () -> creations.getAndIncrement() == 0 ? firstEmitter : secondEmitter
 		);
 		try {
 			controlled.connect(1L, 100L);
@@ -206,7 +208,7 @@ class SessionStreamServiceTest {
 		stubActiveSession(100L);
 		ControllableSseEmitter firstEmitter = new ControllableSseEmitter();
 		AtomicInteger creations = new AtomicInteger();
-		SessionStreamService controlled = new SessionStreamService(repository, materialAccess,
+		SessionStreamService controlled = new SessionStreamService(repository, materialAccess, streamAccess,
 			() -> creations.getAndIncrement() == 0 ? firstEmitter : new ControllableSseEmitter());
 		CountDownLatch cleanupEntered = new CountDownLatch(1);
 		CountDownLatch newTurnStarted = new CountDownLatch(1);
@@ -252,7 +254,7 @@ class SessionStreamServiceTest {
 		ControllableSseEmitter preparing = new ControllableSseEmitter();
 		preparing.blockedEvent = "ready";
 		AtomicInteger creations = new AtomicInteger();
-		SessionStreamService controlled = new SessionStreamService(repository, materialAccess,
+		SessionStreamService controlled = new SessionStreamService(repository, materialAccess, streamAccess,
 			() -> creations.getAndIncrement() == 0 ? preparing : new ControllableSseEmitter());
 		try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
 			Future<?> pending = executor.submit(() -> assertThatThrownBy(
@@ -287,7 +289,7 @@ class SessionStreamServiceTest {
 		ControllableSseEmitter failing = new ControllableSseEmitter();
 		failing.failingEvent = "ready";
 		AtomicInteger creations = new AtomicInteger();
-		SessionStreamService controlled = new SessionStreamService(repository, materialAccess,
+		SessionStreamService controlled = new SessionStreamService(repository, materialAccess, streamAccess,
 			() -> creations.getAndIncrement() == 0 ? failing : new ControllableSseEmitter());
 		try {
 			assertThatThrownBy(() -> controlled.connect(1L, 100L))

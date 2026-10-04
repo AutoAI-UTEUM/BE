@@ -50,13 +50,15 @@ import ch.qos.logback.core.read.ListAppender;
 
 class SessionStreamConnectionTest {
 
+	private final Runnable accessCheck = mock(Runnable.class);
+
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	@ParameterizedTest
 	@ValueSource(strings = {"MCQ", "OX", "SHORT", "ESSAY"})
 	void privateFieldsAtEveryDepthNeverReachSerializedSsePayload(String quizType) throws Exception {
 		CapturingSseEmitter emitter = new CapturingSseEmitter();
-		SessionStreamConnection connection = new SessionStreamConnection(1L, 100L, () -> {}, emitter);
+		SessionStreamConnection connection = new SessionStreamConnection(1L, 100L, accessCheck, () -> {}, emitter);
 		AiStreamCancellation cancellation = new AiStreamCancellation();
 		connection.begin(cancellation);
 		ObjectNode preview = (ObjectNode) objectMapper.valueToTree(
@@ -114,7 +116,7 @@ class SessionStreamConnectionTest {
 	@Test
 	void fiveQuestionStreamEndsWithPublicCompletedOnlyAndSavedQuizId() throws Exception {
 		CapturingSseEmitter emitter = new CapturingSseEmitter();
-		SessionStreamConnection connection = new SessionStreamConnection(1L, 100L, () -> {}, emitter);
+		SessionStreamConnection connection = new SessionStreamConnection(1L, 100L, accessCheck, () -> {}, emitter);
 		AiStreamCancellation cancellation = new AiStreamCancellation();
 		connection.begin(cancellation);
 		String previews = java.util.stream.IntStream.rangeClosed(1, 5)
@@ -147,7 +149,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			emitter
 		);
@@ -192,7 +194,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			emitter,
 			clock::get
@@ -226,7 +228,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			cleanupCount::incrementAndGet,
+			accessCheck, cleanupCount::incrementAndGet,
 			failingEmitter
 		);
 
@@ -249,7 +251,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			emitter
 		);
@@ -274,7 +276,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			emitter
 		);
@@ -305,7 +307,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			emitter
 		);
@@ -331,7 +333,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			failingEmitter
 		);
@@ -357,7 +359,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			}
 		);
 		AiStreamCancellation cancellation = new AiStreamCancellation();
@@ -376,7 +378,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			emitter,
 			clock::get
@@ -404,7 +406,7 @@ class SessionStreamConnectionTest {
 		ControllableSseEmitter emitter = new ControllableSseEmitter();
 		AtomicInteger cleanup = new AtomicInteger();
 		SessionStreamConnection connection = new SessionStreamConnection(
-			1L, 100L, cleanup::incrementAndGet, emitter
+			1L, 100L, accessCheck, cleanup::incrementAndGet, emitter
 		);
 		Object stateLock = ReflectionTestUtils.getField(connection, "lifecycleLock");
 		AiStreamCancellation cancellation = new AiStreamCancellation();
@@ -431,7 +433,7 @@ class SessionStreamConnectionTest {
 		ControllableSseEmitter emitter = new ControllableSseEmitter();
 		AtomicInteger cleanup = new AtomicInteger();
 		SessionStreamConnection connection = new SessionStreamConnection(
-			1L, 100L, cleanup::incrementAndGet, emitter
+			1L, 100L, accessCheck, cleanup::incrementAndGet, emitter
 		);
 		Object stateLock = ReflectionTestUtils.getField(connection, "lifecycleLock");
 		AiStreamCancellation cancellation = new AiStreamCancellation();
@@ -465,7 +467,7 @@ class SessionStreamConnectionTest {
 		emitter.failingEvent = event;
 		AtomicInteger cleanup = new AtomicInteger();
 		SessionStreamConnection connection = new SessionStreamConnection(
-			1L, 100L, cleanup::incrementAndGet, emitter
+			1L, 100L, accessCheck, cleanup::incrementAndGet, emitter
 		);
 		ScheduledFuture<?> heartbeat = mock(ScheduledFuture.class);
 		connection.heartbeatTask(heartbeat);
@@ -502,7 +504,7 @@ class SessionStreamConnectionTest {
 		ControllableSseEmitter emitter = new ControllableSseEmitter();
 		AtomicInteger cleanup = new AtomicInteger();
 		SessionStreamConnection connection = new SessionStreamConnection(
-			1L, 100L, cleanup::incrementAndGet, emitter
+			1L, 100L, accessCheck, cleanup::incrementAndGet, emitter
 		);
 		AiStreamCancellation cancellation = new AiStreamCancellation();
 		connection.begin(cancellation);
@@ -523,7 +525,7 @@ class SessionStreamConnectionTest {
 		ControllableSseEmitter emitter = new ControllableSseEmitter();
 		AtomicInteger cleanup = new AtomicInteger();
 		SessionStreamConnection connection = new SessionStreamConnection(
-			1L, 100L, cleanup::incrementAndGet, emitter
+			1L, 100L, accessCheck, cleanup::incrementAndGet, emitter
 		);
 		AiStreamCancellation cancellation = new AiStreamCancellation();
 		connection.begin(cancellation);
@@ -548,7 +550,7 @@ class SessionStreamConnectionTest {
 		emitter.failingEvent = "completed";
 		AtomicInteger cleanup = new AtomicInteger();
 		SessionStreamConnection connection = new SessionStreamConnection(
-			1L, 100L, cleanup::incrementAndGet, emitter
+			1L, 100L, accessCheck, cleanup::incrementAndGet, emitter
 		);
 		AiStreamCancellation cancellation = new AiStreamCancellation();
 		connection.begin(cancellation, "request-terminal", "turn-trace");
@@ -587,7 +589,7 @@ class SessionStreamConnectionTest {
 		try {
 			MDC.put(TraceIdFilter.TRACE_ID_MDC_KEY, "connect-trace");
 			ControllableSseEmitter emitter = new ControllableSseEmitter();
-			SessionStreamConnection connection = new SessionStreamConnection(1L, 100L, () -> {}, emitter);
+			SessionStreamConnection connection = new SessionStreamConnection(1L, 100L, accessCheck, () -> {}, emitter);
 			connection.sendReady(Instant.now());
 			connection.begin(new AiStreamCancellation(), "request-log", "turn-trace");
 			connection.aiAttempt("attempt-turn", 2);
@@ -625,7 +627,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			emitter
 		);

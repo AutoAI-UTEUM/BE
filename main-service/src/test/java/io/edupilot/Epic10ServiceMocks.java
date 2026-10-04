@@ -111,6 +111,7 @@ import io.edupilot.usernote.WrongAnswerNoteService;
 	PolicyConsentRepository.class,
 	PolicyDocumentRepository.class,
 	LearningProgressService.class,
+	io.edupilot.session.SessionStreamAccessGuard.class,
 	QuizProposalPolicy.class,
 	ClassroomWeekMaterialRepository.class,
 	ClassroomNoticeService.class,
