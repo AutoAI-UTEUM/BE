@@ -103,6 +103,9 @@
 - `classroom_join_requests`는 사용자×강의실당 한 행입니다. `REJECTED` 재요청은 같은 행을 `PENDING`으로 갱신하고 `requested_at`을 새로 기록하며 `processed_at=NULL`로 되돌립니다.
 - 강의실 자료 업로드 시 `learning_materials` 행과 `classroom_week_materials` 연결은 한 DB 트랜잭션으로 저장합니다. 파일 storage는 DB 트랜잭션에 참여하지 않으므로 DB 실패 시 저장 파일을 보상 삭제합니다.
 - `notes`는 사용자와 자료에 귀속하며 세션·페이지·원본 채팅 메시지는 nullable 참조입니다. 목록은 사용자×ACTIVE 자료 범위로 조회하므로 자료가 논리 삭제되면 노트 행은 보존하되 API 목록에서는 제외합니다. 최신순은 `(created_at DESC, id DESC)`로 고정합니다.
+- V53의 nullable `dedup_source_message_id`와 `UK(user_id,dedup_source_message_id)`는 새 메시지 참조 노트를 사용자별 1행으로 제한합니다. 노트 생성 트랜잭션만 `READ_COMMITTED`를 사용하여 없는 노트의 인덱스 gap 잠금을 피하고, 원본 메시지와 기존 노트의 행 잠금으로 같은 원본의 요청을 직렬화합니다. 서버/다른 트랜잭션의 기본 격리 수준은 변경하지 않습니다. 기존 행은 NULL로 유지하고 중복 내용을 삭제/병합하지 않습니다. `IDX(user_id,source_message_id,id)`로 기존 행도 가장 작은 id를 재사용합니다.
+
+  실제 MySQL 회귀는 `NoteMysqlIntegrationTest`에서 같은 원본의 동시 요청, 다른 원본·동일/다른 사용자의 빈 인덱스 구간 동시 삽입, V53의 기존 중복 보존 및 제약을 확인합니다. `NOTE_MYSQL_URL=jdbc:mysql://127.0.0.1:33316/note_synthetic?allowPublicKeyRetrieval=true&useSSL=false`로 명시 활성화하며, 이 URL은 임시 합성 DB 전용입니다. 테스트가 해당 DB를 create/drop하므로 공유 DB를 사용하지 않습니다. CI 기본 실행에서는 이 opt-in 테스트를 건너뜁니다.
 - `user_notes`는 기존 AI 초안 확정용 `notes`와 별도로 수동 노트를 저장합니다. 선택 자료·페이지와 nullable clientId를 가지며 `(user_id, client_id)` 유일 제약으로 이관 재시도를 멱등화합니다. 자료 물리 삭제 시 연결만 NULL로 바뀌고 노트는 남습니다. `deleted_at`으로 소프트 삭제하며 목록은 `(updated_at DESC, id DESC)`입니다.
 - `wrong_answer_notes`는 통합학습 `quiz_submissions.id:questionId`를 문자열 `quiz_result_ref`로 저장합니다. `(user_id, quiz_result_ref)`·`(user_id, client_id)` 유일 제약을 두고 원본 문항·정답·내 답을 서버 생성 JSON snapshot으로 보관해 원본 삭제 후에도 내용을 유지합니다. 시험(exam) 답안은 포함하지 않습니다.
 - `feedbacks`는 인증 사용자를 작성자로 기록하고 `BUG | FEATURE_REQUEST | GENERAL` category와 최대 2,000자의 message를 저장합니다. 운영자 조회 API 없이 DB에서 직접 확인합니다.

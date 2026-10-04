@@ -6,8 +6,10 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import jakarta.persistence.LockModeType;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
 
@@ -16,6 +18,7 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
 		String requestId
 	);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	Optional<ChatMessage> findByIdAndSession_Id(Long id, Long sessionId);
 
 	List<ChatMessage> findBySession_IdOrderByCreatedAtDescIdDesc(

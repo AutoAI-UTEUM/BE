@@ -79,6 +79,21 @@ class NoteServiceTest {
 	}
 
 	@Test
+	void replayReturnsExistingEditedNoteWithoutOverwritingOrCreatingAnother() {
+		ChatMessage message = ChatMessage.ai(session, "AI note draft");
+		ReflectionTestUtils.setField(message, "id", 501L);
+		Note existing = persisted(Note.create(user, material, session, 3, message, "사용자 수정 내용"), 1000L);
+		stubSessionAndAccessibleMaterial();
+		when(messageRepository.findByIdAndSession_Id(501L, 100L)).thenReturn(Optional.of(message));
+		when(noteRepository.findFirstByUser_IdAndSourceMessage_IdOrderByIdAsc(1L, 501L))
+			.thenReturn(Optional.of(existing));
+		var replay = noteService.create(1L, 100L, new CreateNoteRequest("재전송된 AI 원문", 3, 501L));
+		assertThat(replay.noteId()).isEqualTo(1000L);
+		assertThat(replay.content()).isEqualTo("사용자 수정 내용");
+		verify(noteRepository, org.mockito.Mockito.never()).saveAndFlush(any());
+	}
+
+	@Test
 	void createsNotesWithAndWithoutOptionalReferences() {
 		ChatMessage message = ChatMessage.user(session, "질문", "request-1");
 		ReflectionTestUtils.setField(message, "id", 501L);

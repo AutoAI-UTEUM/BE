@@ -1008,6 +1008,8 @@ Query:
 
 퀴즈 제목, 유형, 범위, 제출 상태, 점수 요약을 반환합니다. 정답/루브릭은 포함하지 않습니다.
 
+`page`는 0부터 시작하며 기본값 0, `size`는 1~100이며 기본값 100입니다. `createdAt DESC, quizId DESC` 정렬로 페이지를 조회합니다. 기존 `data.quizzes` 배열을 유지하고 `page`, `size`, `totalElements`, `totalPages`, `hasNext`를 함께 반환합니다. 예를 들어 101건이 있으면 첫 응답은 100건과 `hasNext=true`, `page=1&size=100`은 남은 1건과 `hasNext=false`를 반환합니다. 마지막 이후 페이지는 빈 배열입니다. 잘못된 페이지/크기는 `VALIDATION_FAILED`(400), 타인 또는 삭제 세션은 `SESSION_NOT_FOUND`(404)입니다. 조회 사이 신규 생성이 생길 수 있으므로 여러 페이지를 하나의 고정 스냅샷으로 간주하지 않습니다.
+
 ### POST `/api/sessions/{sessionId}/complete`
 
 활성 세션을 완료 처리하고 최종 상태를 반환합니다. `COMPLETED → ACTIVE` 재개는 MVP에서 지원하지 않으며, 재학습은 새 세션 생성으로 처리합니다(DEC-024 부가 확정).
@@ -1042,6 +1044,8 @@ Query:
 ```
 
 `content`는 비공백·10,000자 이하입니다. `pageNumber`는 해당 자료의 페이지 범위여야 하고, `sourceMessageId`는 요청 경로의 세션에 속한 채팅 메시지여야 합니다. `pageNumber`와 `sourceMessageId`는 생략할 수 있습니다. 다른 사용자의 세션 또는 삭제된 세션은 `SESSION_NOT_FOUND`, 삭제된 자료는 `MATERIAL_NOT_FOUND`로 처리합니다.
+
+`sourceMessageId`가 있으면 동일 사용자·원본 메시지의 저장은 멱등입니다. 재요청·동시 요청은 같은 노트를 반환하고 이미 수정한 내용을 덮어쓰지 않습니다. 접근권과 페이지 범위 검증은 재요청에도 적용합니다. 기존 중복 행은 보존하며 재요청 시 가장 먼저 생성된 행을 반환합니다. 메시지 참조 없는 수동 생성은 매번 별도 노트를 생성합니다.
 
 ### GET `/api/materials/{materialId}/notes?page=0&size=50`
 
@@ -1468,7 +1472,7 @@ AI 응답의 `usage`는 서버 비용 기록에만 사용하며 외부 API 응�
 
 승인 LEARNER 멤버와 PUBLISHED 시험만 사용할 수 있습니다. DRAFT는 `EXAM_NOT_FOUND`(404), CLOSED는 `EXAM_NOT_PUBLISHED`(409)입니다. PUT에는 해당 시험·학습자의 미소비 `attempts/start` 기록이 필요하며, 없으면 `EXAM_ALREADY_SUBMITTED`(409)로 거부합니다. 기존 제출이 있어도 `allowRetake=true`이고 새 응시 시작 기록이 있으면 재응시 draft를 저장할 수 있지만, `allowRetake=false`인 시험의 제출 완료 후 PUT은 실패 상태도 포함해 409로 차단합니다. 제출 성공 시 같은 트랜잭션에서 임시 답안을 삭제하고, 제출 본문의 답안만 사용합니다. 복원한 임시 답안도 최종 제출 검증을 받으며, 검증 거절 시 임시 답안과 응시 시작 기록을 보존합니다. 미응답을 최종 제출하려면 해당 문항을 배열에서 생략해야 합니다. `dueAt` 경과 자체는 저장이나 제출을 막지 않습니다. 30일 이상 갱신되지 않은 임시 답안은 매일 03:30 KST 정리합니다.
 
-FE는 응시 화면 진입 시 GET하고 204이면 `sessionStorage` 답안을 폴백으로 사용합니다. 답안 변경 후 2초 디바운스와 30초 주기 저장을 권장합니다. 제출 시 draft 삭제 API를 별도로 호출할 필요가 없습니다.
+FE는 응시 화면 진입 시 GET하고 204이면 `sessionStorage` 답안을 폴백으로 사용합니다. 답안 변경 후 2초 디바운스와 30초 주기 저장을 권장합니다. 제출 시 draft 삭제 API를 별도로 호출할 필요가 없습니다. 설정된 CORS origin의 `PUT` preflight는 `Authorization`·`Content-Type` 헤더와 credentials를 허용하며, 설정되지 않은 origin은 거부합니다.
 
 제출 요청:
 

@@ -232,7 +232,7 @@ class QuizApiContractTest {
 			List.of(QuizQuestionResponse.from(question)),
 			false
 		));
-		when(quizService.list(1L, 100L)).thenReturn(new QuizListResponse(
+		when(quizService.list(1L, 100L, 0, 100)).thenReturn(new QuizListResponse(
 			List.of(new QuizSummaryResponse(
 				50L,
 				"퀴즈",
@@ -246,7 +246,7 @@ class QuizApiContractTest {
 				new BigDecimal("100.00"),
 				true,
 				NOW
-			))
+			)), 0, 100, 1, 1, false
 		));
 
 		mockMvc.perform(get("/api/quizzes/50")
@@ -264,8 +264,28 @@ class QuizApiContractTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.quizzes[0].score").value(80.5))
+			.andExpect(jsonPath("$.data.page").value(0))
+			.andExpect(jsonPath("$.data.size").value(100))
+			.andExpect(jsonPath("$.data.totalElements").value(1))
+			.andExpect(jsonPath("$.data.hasNext").value(false))
 			.andExpect(content().string(not(containsString("correctOptionId"))))
 			.andExpect(content().string(not(containsString("rubric"))));
+	}
+
+	@Test
+	void quizListAcceptsLaterPagesAndRejectsInvalidBounds() throws Exception {
+		when(quizService.list(1L, 100L, 1, 20)).thenReturn(
+			new QuizListResponse(List.of(), 1, 20, 20, 1, false));
+		mockMvc.perform(get("/api/sessions/100/quizzes?page=1&size=20")
+				.header(HttpHeaders.AUTHORIZATION, bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.page").value(1))
+			.andExpect(jsonPath("$.data.quizzes").isEmpty());
+		for (String query : List.of("page=-1", "size=0", "size=101")) {
+			mockMvc.perform(get("/api/sessions/100/quizzes?" + query)
+					.header(HttpHeaders.AUTHORIZATION, bearer()))
+				.andExpect(status().isBadRequest());
+		}
 	}
 
 	@Test
