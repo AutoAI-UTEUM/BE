@@ -5,6 +5,8 @@
 현재 상태는 **로컬 합성 검증 완료 / 실제 DEV 미실행 / 생성 승인 대기**다.
 이 디렉터리는 기존 NOTE04/#479 준비계획을 구체화한다. 실제 계정·동의·자료·세션·퀴즈를 만들거나
 DEV를 조회하지 않았고, 서버·SSH·실AI·메일·SMS·영구삭제를 실행하지 않았다.
+10/4 FE 후속 요청에 따라 현행 FE224의 자동 전체 조회·세션 단위 결과·실패 세션 page0 재시작에 맞춰 인수 문구를 정정했다.
+전용 ID/최소 메타와 실제 생성 방법·공유 DB 원장도 [실행계획](dev-execution-plan.md)에 구체화했다.
 
 ## 기준과 재사용한 자료
 
@@ -48,6 +50,8 @@ DEV를 조회하지 않았고, 서버·SSH·실AI·메일·SMS·영구삭제를 
 각 퀴즈에는 결정적인 합성 OX 문항 1개를 둔다. A1의 101개는 정확히 같은 `created_at`이고
 모두 미제출이다. sentinel도 미제출로 동결한다. 공개 목록의 PDF `page`는 7로 설정하여 목록 페이지 0/1과 구별한다.
 로컬 고정 시각은 `2026-10-04T00:00:00.000Z`; 실제 생성 시각 확정은 승인된 실행 manifest에서 한다.
+FE는 더 보기 없이 자동 조회하며, A 계정의 완료 목록은 A1 101개+A2 1개=102개, B는 B1 1개다.
+실패한 A1의 부분 100개를 표시/보존하는 것을 기대하지 않는다. 다른 성공 세션은 보존하고 실패 세션만 page0부터 다시 조회한다.
 
 이 로컬 DB에는 범위 보존 검사용 합성 observer 행도 있다. observer는 위 2/3/3/103에 포함하지 않으며
 실제 사용자/자료를 흉내 낸 기존 DEV 행이 아니다. 대상 외 행의 snapshot hash를 비교한다.
@@ -63,6 +67,17 @@ node scripts/qa/note04-fixture/fixture.mjs --mode local-rehearsal
 node scripts/qa/note04-fixture/fixture.mjs --include-mock-responses
 node --test scripts/qa/note04-fixture/fixture.test.mjs
 ```
+
+FE source와 소비자 mock을 함께 확인하려면 본인의 읽기 전용 FE checkout을 지정한다.
+고정 FE source head는 `1b6987d8472a064a080a00bd43232993e9bd41eb`; 테스트는 clone/read만 하고 FE 파일을 쓰지 않는다.
+
+```powershell
+$env:NOTE04_FE_SOURCE_ROOT = 'C:\path\to\FE-readonly'
+node --disable-warning=ExperimentalWarning --test scripts/qa/note04-fixture/fixture.test.mjs scripts/qa/note04-fixture/fe-consumer.test.mjs
+```
+
+fixture 31개 + 실제 FE repository/추출 effect/helper mock 9개를 검증한다. React/브라우저·실HTTP·인증 테스트가 아니다.
+FE source 변경/미지정 시 소비자 검사를 실패시키며 자동 fetch/설치하지 않는다.
 
 - 기본 `dry-run`: 메모리 DB의 단일 transaction에서 생성/검사/응답 투영 후 **ROLLBACK**한다.
 - `local-rehearsal`: 합성 메모리 DB에서만 seed를 commit하고, 정리 DELETE를 모의 실행한 뒤 rollback한다.
@@ -80,8 +95,9 @@ SQLite experimental 경고는 Node 런타임 안내다. 이 작업의 실제 실
 ## 다음 단계
 
 1. [승인·manifest·invariants·최소권한](approvals-and-manifest.md)을 검토한다.
-2. [비밀값 없는 FE handoff와 인수 시나리오](fe-handoff.md)를 별도 auth 계약 문서 작업과 연결한다.
-3. [로컬 검증 기록](local-validation.md)을 실제 DEV 실응답 증거와 별도로 보관한다.
+2. [전용 ID·메타 조회·103개 생성·원자적 DB 원장 계획](dev-execution-plan.md)을 검토한다. 실제 IDs/권한/원장 schema/adapter는 미확정·미구현이다.
+3. [비밀값 없는 FE handoff와 현행 인수 시나리오](fe-handoff.md)를 별도 auth 계약 문서 작업과 연결한다.
+4. [로컬 검증 기록](local-validation.md)을 실제 DEV 실응답 증거와 별도로 보관한다.
 
 실DEV 재사용 메타조회·쓰기·계정 생성·인증 전달·동의·영구삭제 승인은 아직 없다.
 런타임/공통 코드/migration/최종 통합은 기존 구현 세션 담당이다. 이 전용 실행기를 MySQL용 seed로 확장하지 않는다.

@@ -123,7 +123,7 @@ test('seed dry-run rolls back all scoped rows and preserves synthetic observer r
   expectCode(() => cleanupFixture(db, manifest), 'LOCAL_MANIFEST_REQUIRED');
 }));
 
-for (const stage of ['after-users', 'after-materials', 'after-sessions', 'after-quizzes']) {
+for (const stage of ['after-users', 'after-materials', 'after-sessions', 'after-quizzes', 'after-ledger-seal']) {
   test(`injected ${stage} seed failure rolls back the entire transaction`, () => withDb(db => {
     const before = snapshot(db);
     expectCode(() => seedFixture(db, { dryRun: false, injectFault: stage }), 'INJECTED_LOCAL_FAILURE');
