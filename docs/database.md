@@ -308,3 +308,5 @@ V56 adds deletion_intents and a seeded deletion_journal_lock singleton. Unique S
 ### Birthdate and guardian pending foundation (#478)
 
 V57 adds nullable users.date_of_birth and age_verification_state default UNKNOWN, restricted to UNKNOWN/MANUAL_PENDING. Existing rows are not approved/backfilled. guardian_verification_requests stores per-user PENDING/CANCELLED intake metadata with unique user binding and FK. No proof/contact or approval evidence is stored; retention and approval schema remain pending. V53 through V56 precede V57. [Foundation](birthdate-guardian-foundation.md).
+
+V58 adds users.access_cohort with LEGACY_EXEMPT for rows present at migration and NEW_SIGNUP for later rows and the database/JPA default. A CHECK restricts values. It does not update birthdate, age/guardian state or email evidence. [Legacy access policy](legacy-account-access.md).

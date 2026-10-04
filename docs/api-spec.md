@@ -233,7 +233,7 @@
 
 주요 오류: `VALIDATION_FAILED`, `POLICY_CONSENT_REQUIRED`, `EMAIL_ALREADY_EXISTS`.
 
-LOCAL·Google 신규 계정은 `PENDING`으로 생성하고 가입 트랜잭션에 이메일 확인 작업을 저장합니다. Google ID 토큰의 검증된 이메일도 이 변경에서는 별도의 BE 확인 링크를 사용하며 자동 `VERIFIED` 처리하지 않습니다. 기존 계정은 근거 없이 `VERIFIED`로 백필하지 않고 `UNKNOWN`으로 유지합니다. 로그인 응답의 `user` 및 `/api/users/me`에는 `emailVerification`, `emailVerificationRequired`, nullable `emailVerifiedAt`을 추가합니다. 이메일 미확인 계정의 로그인·refresh·본인 계정 관리·정책 동의는 허용하지만 학습·자료·파일·SSE·노트·강의실 등 업무 API는 `EMAIL_VERIFICATION_REQUIRED`(403)으로 거부합니다. 이메일 확인은 연령·보호자 확인이나 외부 AI 동의를 대신하지 않습니다.
+LOCAL·Google 신규 계정은 `PENDING`으로 생성하고 가입 트랜잭션에 이메일 확인 작업을 저장합니다. Google ID 토큰의 검증된 이메일도 이 변경에서는 별도의 BE 확인 링크를 사용하며 자동 `VERIFIED` 처리하지 않습니다. 기존 계정은 근거 없이 `VERIFIED`로 백필하지 않고 `UNKNOWN`으로 유지합니다. 로그인 응답의 `user` 및 `/api/users/me`에는 `emailVerification`, `emailVerificationRequired`, nullable `emailVerifiedAt`을 추가합니다. 신규 이메일 미확인 계정의 로그인·refresh·본인 계정 관리·정책 동의는 허용하지만 학습·자료·파일·SSE·노트·강의실 등 업무 API는 `EMAIL_VERIFICATION_REQUIRED`(403)으로 거부합니다. V58 이전 계정은 별도 `LEGACY_EXEMPT` cohort로 이용을 유지하고 `emailVerificationRequired=false`를 반환하며 확인 증거는 바꾸지 않습니다. 정지·탈퇴·역할·소유권 검사는 계속 적용합니다. 이메일 확인이나 기존 계정 예외는 연령·보호자 확인이나 외부 AI 동의를 대신하지 않습니다. [기존 계정 이용 정책](legacy-account-access.md).
 
 ### 이메일 소유 확인 API (#471)
 

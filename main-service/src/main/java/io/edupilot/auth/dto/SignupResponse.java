@@ -13,6 +13,7 @@ public record SignupResponse(
 	String avatarUrl,
 	boolean learningEmailOptIn,
 	EmailVerificationState emailVerification,
+	@io.swagger.v3.oas.annotations.media.Schema(description = "New signups require email verification; the migration-defined legacy cohort retains its separate access exception")
 	boolean emailVerificationRequired
 ) {
 	public static SignupResponse from(User user) {
@@ -25,7 +26,7 @@ public record SignupResponse(
 			user.getAvatarUrl(),
 			user.isLearningEmailOptIn(),
 			user.getEmailVerificationState(),
-			!user.isEmailVerified()
+			user.isEmailVerificationRequired()
 		);
 	}
 }

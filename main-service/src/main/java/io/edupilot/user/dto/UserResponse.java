@@ -14,6 +14,7 @@ public record UserResponse(
 	String avatarUrl,
 	boolean learningEmailOptIn,
 	EmailVerificationState emailVerification,
+	@io.swagger.v3.oas.annotations.media.Schema(description = "Whether email verification is required for access; false for the migration-defined legacy cohort without changing verification evidence")
 	boolean emailVerificationRequired,
 	Instant emailVerifiedAt
 ) {
@@ -27,7 +28,7 @@ public record UserResponse(
 			user.getAvatarUrl(),
 			user.isLearningEmailOptIn(),
 			user.getEmailVerificationState(),
-			!user.isEmailVerified(),
+			user.isEmailVerificationRequired(),
 			user.getEmailVerifiedAt()
 		);
 	}

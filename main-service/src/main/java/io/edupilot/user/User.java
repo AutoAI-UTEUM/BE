@@ -102,6 +102,10 @@ public class User {
 	@Column(name = "age_verification_state",nullable = false,length = 30,columnDefinition = "varchar(30) default 'UNKNOWN'")
 	private io.edupilot.guardian.AgeVerificationState ageVerificationState = io.edupilot.guardian.AgeVerificationState.UNKNOWN;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "access_cohort", nullable = false, length = 24, columnDefinition = "varchar(24) default 'NEW_SIGNUP'")
+	private AccountAccessCohort accessCohort = AccountAccessCohort.NEW_SIGNUP;
+
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
@@ -225,6 +229,9 @@ public class User {
 	}
 	public java.time.LocalDate getDateOfBirth() { return dateOfBirth; }
 	public io.edupilot.guardian.AgeVerificationState getAgeVerificationState() { return ageVerificationState; }
+	public AccountAccessCohort getAccessCohort() { return accessCohort; }
+	public boolean isLegacyAccessExempt() { return accessCohort == AccountAccessCohort.LEGACY_EXEMPT; }
+	public boolean isEmailVerificationRequired() { return !isEmailVerified() && !isLegacyAccessExempt(); }
 
 	public void beginEmailVerification() {
 		if (!isEmailVerified()) {

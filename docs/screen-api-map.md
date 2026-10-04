@@ -206,3 +206,5 @@ Withdrawal and material-delete completion must not be presented as physical-file
 
 
 New LOCAL/Google signup screens must provide dateOfBirth; existing Google login has no DOB reentry requirement. Saving DOB is not approval. Full age/access-state UI and global protection binding await policy. [Foundation](birthdate-guardian-foundation.md).
+
+Migration-defined legacy accounts retain access without DOB reentry. emailVerificationRequired=false can coexist with UNKNOWN/PENDING email evidence and must not be displayed as verified. New-account email requirements and all suspension/ownership checks remain. [Legacy access](legacy-account-access.md).

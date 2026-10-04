@@ -45,7 +45,7 @@ public class EmailVerificationGate {
 		if (!user.isActive()) {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}
-		if (!user.isEmailVerified()) {
+		if (user.isEmailVerificationRequired()) {
 			throw new BusinessException(ErrorCode.EMAIL_VERIFICATION_REQUIRED);
 		}
 	}
