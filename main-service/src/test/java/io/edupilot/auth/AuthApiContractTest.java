@@ -1083,6 +1083,7 @@ class AuthApiContractTest {
 		User google = User.createGoogle("google-withdraw@example.com", "!google", "Synthetic",
 			UserRole.LEARNER, null, false, null, null, null, "withdraw-google-sub");
 		ReflectionTestUtils.setField(google, "id", 2L);
+		when(userRepository.findById(2L)).thenReturn(Optional.of(google));
 		when(userRepository.findByIdForUpdate(2L)).thenReturn(Optional.of(google));
 		when(googleIdTokenVerifier.verify("withdraw-id-token")).thenReturn(
 			new GoogleProfile("withdraw-google-sub", "different-email@example.com", "Synthetic"));
