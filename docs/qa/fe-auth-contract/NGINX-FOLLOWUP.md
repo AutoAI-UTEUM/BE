@@ -12,15 +12,16 @@ Base는 검토 후보 `4e578c5f811d0084de0b80ee72b5ed7c72ba84c6`이다. **저장
 | --- | --- |
 | LOCAL DOB/정책 미전달 | readiness ON에서 `dateOfBirth`/`consents` 전달 및 입력 검증·현재 정책 조회. OFF 요청에는 새 필드를 추가하지 않음 |
 | 신규 Google DOB/정책 미전달 | ON+role 추가 가입 요청에서 전달; 기존 subject 로그인은 추가 DOB 요구와 구분 |
-| 이메일3필드 유실 | login/me mapper가 optional 상태·required·verifiedAt을 보존하고 없는 증거를 성공으로 만들지 않음 |
-| verify route/API 부재 | 공개 `/verify-email`, 명시적 confirm POST(credentials omit), Bearer status/request와 본인 상태 재조회 구현 |
-| 신규 403 안내/세션 유지 부족 | `EMAIL_VERIFICATION_REQUIRED` 403은 refresh/logout 없이 보존하고 후속 업무 요청·업무 route를 보류; 계정 관리 경로 유지 |
+| login 이메일3필드 유실 | optional 상태·required·verifiedAt을 보존하고 없는 증거를 성공으로 만들지 않음 |
+| me/Google 이메일 상태 유실 | optional 상태 및 기존 UNKNOWN/PENDING·required=false를 보존; false는 확인 성공 증거가 아님 |
+| 이메일 API/type/UI·공개 route 부재 | 공개 `/verify-email`, 명시적 confirm POST(credentials omit), Bearer status/request와 본인 상태 재조회 구현 |
 
 `VITE_AUTH_CONTRACT_READINESS=be-auth-ee69e425-v1`과 정확히 일치해야 새 입력/API가 ON이다. 기본 OFF이다. 이는 FE build의 계약 선택값이며 BE capability·실메일·연령 승인 신호가 아니다. ee69/4e578c5의 Main tree가 같아도 실제 승인 manifest의 BE SHA/이미지/FE build/readiness 적용은 별도로 대조한다.
 
 [FE DEV workflow37194565734](https://github.com/AutoAI-UTEUM/FE/actions/runs/37194565734)의 exact5e91 completed/success metadata는 확인했다. Vitest1003/합성 E2E17 및 직접 `/verify-email` GET404는 FE 작성자 보고다. 실제 FE 실행 이미지/메일 수신·가입·브라우저 인수를 이 작업에서 독립 재현하지 않았다.
 
 FE는 index HTML 선행 no-referrer 및 token history 제거/메모리 보관을 구현했다. 이는 브라우저 후속 Referer/history 노출을 줄이지만 첫 HTTP 요청의 query가 Nginx에 도착하는 것을 제거하지 않는다.
+별도로 `EMAIL_VERIFICATION_REQUIRED` 403에서 refresh/logout 없이 세션을 보존하고 후속 업무 요청·route를 보류하는 코드도 읽었다. 계정 관리 경로는 유지된다. 최신 소비자 양성 검증은 별도 [BE PR507](https://github.com/AutoAI-UTEUM/BE/pull/507)에 있다.
 
 ## 현재 BE 저장소 설정의 근거와 최소 수정
 
