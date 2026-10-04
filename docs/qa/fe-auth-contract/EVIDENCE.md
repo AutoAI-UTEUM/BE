@@ -70,3 +70,20 @@
 - 원 `consumer.test.mjs`/fixtures의 FE baseline SHA와 과거 발견 기록은 보존했다. helper에 실제 최신 module/env 공급을 추가하고 `consumer-pr229.test.mjs`·`pr229-review.json`에 독립 최신 검증을 고정했다. 실제 FE 소스 수정·의존성 설치·Nginx 중복 진단은 하지 않았다.
 - 위 재현 명령은 **50/50 passed, failure0/skip0**: BE source/fixture/link12 + 원 FE 소비자17 + 최신 FE ON/OFF source/소비자21. 최신 FE의 50개 인수라고 표시하지 않는다. React/브라우저 경쟁 상태·실HTTP/쿠키·실Google/메일/SMS·실계정/DEV DB·배포는 미실행이다. FE의 Vitest1003/E2E17은 FE PR 보고이며 이 세션 실행 결과가 아니다.
 - 기존 공통 API 검사도 최신 FE에서 양성 이름 필터로 **11/11 passed, failure0/skip0** 재실행했다. 원 head/KNOWN GAP 6개는 이 호출에서 선택하지 않았다. 첫 제외형 필터는 의도와 달리 원 baseline까지 실행해 head guard와 과거 누락 기대 4개가 실패했다(12pass/5fail). 최신 소스에 과거 기대를 적용한 검사 선택 오류였으며 아래 정확한 양성 필터로 수정했다. 최신21 검사와 공통 API11의 최종 실행은 모두 통과했고 숨긴 runtime/FE 변경은 없다.
+
+## 12:41 UTC 재개: FE231 설정과 fragment 경계
+
+- [FE-PR231-SETTINGS.md](FE-PR231-SETTINGS.md)에 현재 settings wire 계약·새 실패 검사·보호 범위와 미합의 fragment 실패안을 정리했다. 선택 BE base `e949fbecbe8f6cd414ee9f18605d1a15dca2fa6e`, main-service tree `20a4c0c7c55b44d8b792ce282e622eddb4d573d9`, 별도 읽기 FE worktree HEAD `21f4ad2d30f13bafd05bfcc289515c2caac98810`을 확인했다. FE PR231 source head는 `3a9abe566d3926da69404192b35708a269c22ef6`다.
+- 기존 FE231 성공/계정 전환/unmount 테스트는 읽고 새로 빠져 있던 저장 실패 후 재저장·서버 응답 snapshot·늦은 실패/same-owner generation·응답 불확실성·보호 범위 검사를 추가했다. 정상 BE settings 계약은 nullable 부분 PATCH/전체 GET·PATCH 응답이다. current FE 전체3필드 전송은 호환되지만 취소/화면 rollback은 DB rollback을 증명하지 않는다.
+- 새 Node **20/20 passed, failure0/skip0**: settings15 + fragment5. repository/API client와 실제 저장 closure body/early script/parser를 합성 환경에서 실행했다. 첫 실행의19pass/1fail은 VM realm 객체의 deepStrictEqual 비교 문제였고 plain JSON 정규화로 수정했다. FE/BE runtime 수정으로 해결한 실패가 아니다.
+- fragmentAgreement=pending을 유지한다. 현재 FE의 fragment-only 미지원·query/fragment 혼합의 query 우선·중복/형식 실패 fallback 부재를 bootstrap/client navigation 양쪽에서 재현했고 미래 fragment 지원을 통과로 표시하지 않았다. 운영자의 답변/활성화·형식 전환·실제 서버 로그/메일 인수는 미완료다.
+- 추가 검토 경계는 profile save가 preference owner guard 밖인 callback 관찰, malformed2xx preference data의 repository 검증 부재, 응답 유실 뒤 옛 전체 payload 재사용이다. 정상 BE가 잘못된 data를 반환하거나 다른 계정 DB를 썼다는 결과로 확대하지 않는다. FE 담당 검토 대상으로 전달하고 실제 FE 파일은 수정하지 않는다.
+- 변경은 전용 docs/qa/fe-auth-contract 경로의8개 파일이며 기존 공통 문서/runtime/tests/migration/defaults/Nginx/workflows를 보존했다. 실제 API/학생/Google/메일/SMS/유료AI·DEV DB·Java/MySQL/FE 전체 quality/브라우저/배포·공개 상세 댓글·Discord는 미실행이다. 이전90/50 검사나 FE231 작성자의1013 테스트 보고와 합산하지 않는다.
+
+## FE232 회신 이후: 지원 구현과 BE 전환의 구분
+
+- [FE-PR232-FRAGMENT.md](FE-PR232-FRAGMENT.md)에 최신 FE source와 소비자 결과를 추가했다. FE merge/보고된 DEV `5592042cb7a25c2fc797e557a20643061b84e273`, PR head `114f4cf4bd13ef531f7396747ef1abdb6e104804`를 별도 읽기 worktree로 확인했다. 선택 BE base/runtime은 `e949fbecbe8f6cd414ee9f18605d1a15dca2fa6e` 그대로다.
+- PR509의 FE231 기록·settings-fragment-review.json/pending/기존5개 기대는 유지하고 역사적 검사 제목·최신 안내 링크만 보완했다. FE232는 canonical fragment-only를 구현하고 구 query/혼합을 거부한다. 현재 지원을 이전 미지원으로 부르지 않으며 BE 공동 전환·실메일·활성화는 완료로 표시하지 않는다.
+- 새 source/소비자14와 공유 token harness 회귀인 역사적5를 **19/19 pass, failure0/skip0**로 실행했다. actual page action/layout/mount callback·parser·BE 합성 envelope를 결합해 초기 scrub/중복 클릭/공개POST·현재계정재조회/reload/pagehide·SPA교체/늦은성공/OFF/무효/429/구링크202 경계를 확인했다. 실제 React/브라우저/BFCache 실행은 아니다. FE232의1042/ON18/OFF8·dev37203882484는 작성자 보고로 구분한다.
+- 범위 내 새 FE 결함은 확정하지 않았다. core 전달 근거는 EmailVerificationService.java86의 query 발급과 FE232 거부의 호환 차이, EmailOutboxStore.java36–40/81의 완성 message encrypt/기존 payload decrypt에 따른 대기 본문 전환 검토 필요다. 실제 runtime을 수정하거나 실제 대기함/메일/계정/DB를 조회하지 않는다.
+- 문서 링크 검사 **1/1 pass, failure0/skip0**와 diff --check를 통과했다. 최신 FE232·역사적 FE231 worktree는 clean이고 BE main-service tree는 `20a4c0c7c55b44d8b792ce282e622eddb4d573d9` 그대로다. 이번 추가분은 전용 경로10개 파일, PR 누적은12개 파일이며 exact head와 그 원격 CI는 draft PR509에 따로 기록한다.
