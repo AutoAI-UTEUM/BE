@@ -13,6 +13,7 @@ import java.util.concurrent.*;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -344,6 +345,95 @@ class GuardianWebJpaTest {
 		when(clock.instant()).thenReturn(baseline.plusSeconds(1801)); new GuardianWebRecoveryScheduler(persistence).recover();
 		assertThat(row(awaiting).state()).isEqualTo(GuardianWebRequest.State.CANCELLED);
 		verifyNoInteractions(provider);
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "GUARDIAN_WEB_MYSQL", matches = "true")
+	void mysqlSnapshotBeforeUserLockCannotReactivateReissuedLink() throws Exception {
+		User user = user(); String old = issue(user);
+		var prepared = new CountDownLatch(1); var snapshot = new CountDownLatch(1); var release = new CountDownLatch(1);
+		try (var pool = Executors.newFixedThreadPool(2)) {
+			var reissue = pool.submit(() -> repeatableRead().execute(tx -> {
+				var link = target().issue(user.getId()); pauseBeforeCommit(prepared, release); return link;
+			})); assertThat(prepared.await(10, TimeUnit.SECONDS)).isTrue();
+			var staleConsent = pool.submit(() -> repeatableRead().execute(tx -> {
+				captureTokenSnapshot(old, snapshot); return target().consent(GuardianWebSecrets.hash(old), "synthetic-v1", "a".repeat(64));
+			})); assertThat(snapshot.await(10, TimeUnit.SECONDS)).isTrue();
+			assertThatThrownBy(() -> staleConsent.get(200, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+			release.countDown(); reissue.get(10, TimeUnit.SECONDS);
+			assertThatThrownBy(() -> staleConsent.get(10, TimeUnit.SECONDS)).isInstanceOf(ExecutionException.class)
+				.hasCauseInstanceOf(BusinessException.class);
+		} finally { release.countDown(); }
+		assertThat(row(old).state()).isEqualTo(GuardianWebRequest.State.CANCELLED);
+		verify(provider, never()).send(anyString(), anyString(), any());
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "GUARDIAN_WEB_MYSQL", matches = "true")
+	void mysqlSnapshotBeforeUserLockCannotPrepareTwoSmsSends() throws Exception {
+		String token = issue(user());
+		var prepared = new CountDownLatch(1); var snapshot = new CountDownLatch(1); var release = new CountDownLatch(1);
+		try (var pool = Executors.newFixedThreadPool(2)) {
+			var first = pool.submit(() -> repeatableRead().execute(tx -> {
+				var attempt = target().consent(GuardianWebSecrets.hash(token), "synthetic-v1", "a".repeat(64));
+				pauseBeforeCommit(prepared, release); return attempt;
+			})); assertThat(prepared.await(10, TimeUnit.SECONDS)).isTrue();
+			var second = pool.submit(() -> repeatableRead().execute(tx -> {
+				captureTokenSnapshot(token, snapshot); return target().consent(GuardianWebSecrets.hash(token), "synthetic-v1", "a".repeat(64));
+			})); assertThat(snapshot.await(10, TimeUnit.SECONDS)).isTrue();
+			assertThatThrownBy(() -> second.get(200, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+			release.countDown();
+			assertThat(first.get(10, TimeUnit.SECONDS).nonce()).isNotBlank();
+			assertThatThrownBy(() -> second.get(10, TimeUnit.SECONDS)).isInstanceOf(ExecutionException.class)
+				.hasCauseInstanceOf(BusinessException.class);
+		} finally { release.countDown(); }
+		assertThat(row(token).state()).isEqualTo(GuardianWebRequest.State.SENDING);
+		// Only persistence prepare is under test; no external send is executed by this race fixture.
+		verify(provider, never()).send(anyString(), anyString(), any());
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "GUARDIAN_WEB_MYSQL", matches = "true")
+	void mysqlSnapshotBeforeRecoveryLockCannotRestoreCancelledPhoneIdentifiers() throws Exception {
+		User user = user(); String token = issue(user); consent(token); String id = row(token).id();
+		when(clock.instant()).thenReturn(baseline.plusSeconds(301)); clearInvocations(provider);
+		var prepared = new CountDownLatch(1); var snapshot = new CountDownLatch(1); var release = new CountDownLatch(1);
+		try (var pool = Executors.newFixedThreadPool(2)) {
+			var reissue = pool.submit(() -> repeatableRead().execute(tx -> {
+				var link = target().issue(user.getId()); pauseBeforeCommit(prepared, release); return link;
+			})); assertThat(prepared.await(10, TimeUnit.SECONDS)).isTrue();
+			var recovery = pool.submit(() -> repeatableRead().executeWithoutResult(tx -> {
+				requests.ownerOfId(id); assertRepeatableRead(); snapshot.countDown(); target().expire(id);
+			})); assertThat(snapshot.await(10, TimeUnit.SECONDS)).isTrue();
+			assertThatThrownBy(() -> recovery.get(200, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+			release.countDown(); reissue.get(10, TimeUnit.SECONDS); recovery.get(10, TimeUnit.SECONDS);
+		} finally { release.countDown(); }
+		assertThat(row(token).state()).isEqualTo(GuardianWebRequest.State.CANCELLED);
+		assertThat(row(token).providerReference()).isNull();
+		assertThat(jdbc.queryForObject("select phone_fingerprint from guardian_web_requests where id=?", String.class, id)).isNull();
+		verify(provider, never()).send(anyString(), anyString(), any());
+	}
+
+	private GuardianWebPersistence target() {
+		return org.springframework.test.util.AopTestUtils.getUltimateTargetObject(persistence);
+	}
+	private TransactionTemplate repeatableRead() {
+		var template = new TransactionTemplate(transactions);
+		template.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		template.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_REPEATABLE_READ);
+		return template;
+	}
+	private void pauseBeforeCommit(CountDownLatch prepared, CountDownLatch release) {
+		prepared.countDown();
+		try { assertThat(release.await(10, TimeUnit.SECONDS)).isTrue(); }
+		catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new IllegalStateException("Synthetic barrier interrupted"); }
+	}
+	private void captureTokenSnapshot(String token, CountDownLatch snapshot) {
+		// The production owner projection is a consistent read before User lock acquisition.
+		requests.ownerOfToken(GuardianWebSecrets.hash(token)); assertRepeatableRead(); snapshot.countDown();
+	}
+	private void assertRepeatableRead() {
+		assertThat(jdbc.queryForObject("select @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
 	}
 
 	private User user() {
