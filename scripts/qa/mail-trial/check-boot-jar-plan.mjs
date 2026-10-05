@@ -16,7 +16,7 @@ const fields = {
   artifactSha256: artifactHash, containerId: 'c'.repeat(64), imageId: 'sha256:' + 'd'.repeat(64),
   composeProject: 'uteum-dev', awsAccountId: '', awsIdentityEvidenceRef: '',
   from: 'no-reply@uteum.com', recipient: 'owner@example.com', recipientAlias: 'APPROVED_INBOX_1',
-  region: 'ap-northeast-2', maxMessages: '1', stateDirectory: '/var/lib/uteum-mail-trial',
+  region: 'ap-northeast-2', maxMessages: '0', approvedOperation: 'NONE', stateDirectory: '/var/lib/uteum-mail-trial',
   authorizationRef: '', observedProvider: 'logging', observedEnabled: 'true'
 };
 const manifest = values => Object.entries({ ...fields, ...values }).map(([key, value]) => `${key}=${value}\n`).join('');
@@ -50,12 +50,13 @@ try {
   for (const args of [[], ['--plan']]) {
     const result = await run(args, manifest({}));
     assert.equal(result.code, 0, result.stderr + result.stdout);
-    assert.equal(result.stdout, 'SES_TRIAL PLAN_NO_SEND alias=APPROVED_INBOX_1 maxMessages=1\n');
+    assert.equal(result.stdout, 'SES_TRIAL PLAN_NO_SEND operation=NONE maxMessages=0\n');
     assert.ok(!result.stderr.includes('owner@example.com'));
     passed++;
   }
   for (const [args, input, changes] of [
     [['--execute', '--manifest-sha256', 'e'.repeat(64)], manifest({}), {}],
+    [['--identity', '--manifest-sha256', 'e'.repeat(64)], manifest({}), {}],
     [['--plan'], manifest({ artifactSha256: 'f'.repeat(64) }), {}],
     [['--plan'], manifest({}), { EDUPILOT_MAIL_PROVIDER: 'ses' }]
   ]) {

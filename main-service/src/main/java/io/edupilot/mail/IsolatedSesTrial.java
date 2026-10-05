@@ -12,6 +12,9 @@ import java.util.Map;
 import java.util.Set;
 
 import software.amazon.awssdk.services.sesv2.SesV2Client;
+import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.model.GetCallerIdentityRequest;
+import software.amazon.awssdk.services.sts.model.GetCallerIdentityResponse;
 
 /** Standalone TEST-only command. It never starts Spring, the outbox, or an HTTP server. */
 public final class IsolatedSesTrial {
@@ -20,7 +23,7 @@ public final class IsolatedSesTrial {
 	private static final Set<String> KEYS = Set.of("schema", "trialId", "environment", "sourceSha",
 		"artifactSha256", "containerId", "imageId", "composeProject", "awsAccountId",
 		"awsIdentityEvidenceRef", "from", "recipient", "recipientAlias", "region", "maxMessages",
-		"stateDirectory", "authorizationRef", "observedProvider", "observedEnabled");
+		"stateDirectory", "authorizationRef", "observedProvider", "observedEnabled", "approvedOperation");
 
 	private IsolatedSesTrial() {}
 
@@ -32,6 +35,7 @@ public final class IsolatedSesTrial {
 			String artifactHash = hashFile(Path.of(System.getProperty("java.class.path")));
 			result = run(manifest, args, System.getenv(), artifactHash,
 				properties -> new MailConfig().sesV2Client(properties),
+				properties -> new MailConfig().identityClient(properties),
 				Path.of(System.getProperty("java.io.tmpdir")), System.out);
 		} catch (Exception invalidInput) {
 			// Exceptions may contain paths, addresses, credentials, or provider response bodies.
@@ -42,18 +46,21 @@ public final class IsolatedSesTrial {
 	}
 
 	static int run(byte[] input, String[] args, Map<String, String> environment, String artifactHash,
-		ClientFactory factory, Path claimRoot, PrintStream output) {
+		ClientFactory factory, IdentityClientFactory identityFactory, Path claimRoot, PrintStream output) {
 		Manifest manifest;
 		boolean execute;
+		boolean identity;
 		try {
 			manifest = Manifest.parse(input);
+			identity = args.length == 3 && args[0].equals("--identity")
+				&& args[1].equals("--manifest-sha256");
 			execute = args.length == 3 && args[0].equals("--execute")
 				&& args[1].equals("--manifest-sha256");
-			if (!execute && !(args.length == 0 || (args.length == 1 && args[0].equals("--plan")))) {
+			if (!execute && !identity && !(args.length == 0 || (args.length == 1 && args[0].equals("--plan")))) {
 				throw new IllegalArgumentException();
 			}
-			manifest.validate(environment, artifactHash, execute);
-			if (execute && (!hash(input).equals(args[2])
+			manifest.validate(environment, artifactHash, execute, identity);
+			if ((execute || identity) && (!hash(input).equals(args[2])
 				|| !hash(input).equals(environment.get("EDUPILOT_SES_TRIAL_HOST_CLAIM")))) {
 				throw new IllegalArgumentException();
 			}
@@ -61,15 +68,17 @@ public final class IsolatedSesTrial {
 			output.println("SES_TRIAL BLOCKED_INPUT");
 			return 2;
 		}
-		if (!execute) {
-			output.println("SES_TRIAL PLAN_NO_SEND alias=APPROVED_INBOX_1 maxMessages=1");
+		if (!execute && !identity) {
+			output.println("SES_TRIAL PLAN_NO_SEND operation=" + manifest.get("approvedOperation")
+				+ " maxMessages=" + manifest.get("maxMessages"));
 			return 0;
 		}
 
 		try {
 			// A second process in this container also fails closed, before credential resolution.
 			// The wrapper's persistent HOST claim additionally survives container replacement.
-			Files.createFile(claimRoot.resolve("uteum-ses-trial-" + manifest.get("trialId") + ".claim"));
+			Files.createFile(claimRoot.resolve("uteum-ses-trial-" + manifest.get("trialId")
+				+ (identity ? ".identity.claim" : ".claim")));
 		} catch (Exception unavailableClaim) {
 			output.println("SES_TRIAL BLOCKED_CLAIM");
 			return 2;
@@ -77,6 +86,7 @@ public final class IsolatedSesTrial {
 
 		MailProperties properties = new MailProperties(true, "ses", manifest.get("from"), "",
 			"https://dev.uteum.com", manifest.get("region"));
+		if (identity) return readIdentity(properties, manifest, identityFactory, output);
 		try (SesV2Client client = factory.create(properties)) {
 			// Exactly one invocation; MailConfig also disables SDK retries (maxAttempts=1).
 			EmailDeliveryResult receipt = new SesEmailSender(client, properties).send(new EmailMessage(
@@ -100,6 +110,25 @@ public final class IsolatedSesTrial {
 		return 0;
 	}
 
+	private static int readIdentity(MailProperties properties, Manifest manifest,
+		IdentityClientFactory factory, PrintStream output) {
+		GetCallerIdentityResponse response;
+		try (StsClient client = factory.create(properties)) {
+			response = client.getCallerIdentity(GetCallerIdentityRequest.builder().build());
+			if (response == null || response.account() == null || !response.account().matches("[0-9]{12}")
+				|| response.arn() == null
+				|| !response.arn().matches("arn:aws:(iam|sts)::" + response.account() + ":[A-Za-z0-9+=,.@_:/-]+")) {
+				throw new IllegalStateException();
+			}
+		} catch (Exception failedRead) {
+			output.println("SES_TRIAL IDENTITY_READ_FAILED_NO_RETRY");
+			return 4;
+		}
+		// Only identity metadata; never credentials, UserId, tokens, request/response debug bodies.
+		output.println("{\"Account\":\"" + response.account() + "\",\"Arn\":\"" + response.arn() + "\"}");
+		return response.account().equals(manifest.get("awsAccountId")) ? 0 : 2;
+	}
+
 	static String hash(byte[] value) throws Exception {
 		return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value));
 	}
@@ -115,6 +144,11 @@ public final class IsolatedSesTrial {
 	@FunctionalInterface
 	interface ClientFactory {
 		SesV2Client create(MailProperties properties);
+	}
+
+	@FunctionalInterface
+	interface IdentityClientFactory {
+		StsClient create(MailProperties properties);
 	}
 
 	static final class Manifest {
@@ -140,13 +174,14 @@ public final class IsolatedSesTrial {
 			return new Manifest(values);
 		}
 
-		void validate(Map<String, String> environment, String artifactHash, boolean execute) {
+		void validate(Map<String, String> environment, String artifactHash, boolean execute, boolean identity) {
 			require("schema", "1");
 			require("environment", "dev");
 			require("from", "no-reply@uteum.com");
 			require("region", "ap-northeast-2");
 			require("recipientAlias", "APPROVED_INBOX_1");
-			require("maxMessages", "1");
+			matches("approvedOperation", "NONE|IDENTITY|SEND");
+			require("maxMessages", get("approvedOperation").equals("SEND") ? "1" : "0");
 			require("observedProvider", "logging");
 			require("observedEnabled", "true");
 			matches("trialId", "[a-z0-9][a-z0-9-]{0,63}");
@@ -162,8 +197,12 @@ public final class IsolatedSesTrial {
 				throw new IllegalArgumentException();
 			}
 			if (execute) {
-				matches("awsAccountId", "[0-9]{12}");
+				require("approvedOperation", "SEND");
 				matches("awsIdentityEvidenceRef", "[a-zA-Z0-9:_/.-]{1,200}");
+			}
+			if (identity) require("approvedOperation", "IDENTITY");
+			if (execute || identity) {
+				matches("awsAccountId", "[0-9]{12}");
 				matches("authorizationRef", "[a-zA-Z0-9:_/.-]{1,200}");
 			}
 			equal(environment.get("SPRING_PROFILES_ACTIVE"), "dev");

@@ -12,7 +12,7 @@ elif [[ $# == 3 || $# == 4 ]]; then
 else
   blocked BLOCKED_ARGUMENTS
 fi
-[[ $mode == plan || $mode == execute ]] || blocked BLOCKED_MODE
+[[ $mode == plan || $mode == identity || $mode == execute ]] || blocked BLOCKED_MODE
 [[ $mode != plan || $# != 4 ]] || blocked BLOCKED_ARGUMENTS
 [[ -f $manifest && -f $artifact ]] || blocked BLOCKED_FILES
 [[ $(wc -c < "$manifest") -le 16384 ]] || blocked BLOCKED_MANIFEST_SIZE
@@ -24,16 +24,21 @@ while IFS= read -r line || [[ -n $line ]]; do
   [[ $line == *=* && $line != *[!\ -\~]* ]] || blocked BLOCKED_MANIFEST_SYNTAX
   key=${line%%=*}; value=${line#*=}
   case "$key" in
-    schema|trialId|environment|sourceSha|artifactSha256|containerId|imageId|composeProject|awsAccountId|awsIdentityEvidenceRef|from|recipient|recipientAlias|region|maxMessages|stateDirectory|authorizationRef|observedProvider|observedEnabled) ;;
+    schema|trialId|environment|sourceSha|artifactSha256|containerId|imageId|composeProject|awsAccountId|awsIdentityEvidenceRef|from|recipient|recipientAlias|region|maxMessages|stateDirectory|authorizationRef|observedProvider|observedEnabled|approvedOperation) ;;
     *) blocked BLOCKED_MANIFEST_KEY ;;
   esac
   [[ ! -v fields[$key] ]] || blocked BLOCKED_DUPLICATE_KEY
   fields[$key]=$value
 done < "$manifest"
-[[ ${#fields[@]} == 19 ]] || blocked BLOCKED_MISSING_KEY
+[[ ${#fields[@]} == 20 ]] || blocked BLOCKED_MISSING_KEY
 [[ ${fields[schema]} == 1 && ${fields[environment]} == dev ]] || blocked BLOCKED_SCOPE
 [[ ${fields[from]} == no-reply@uteum.com && ${fields[region]} == ap-northeast-2 ]] || blocked BLOCKED_SCOPE
-[[ ${fields[recipientAlias]} == APPROVED_INBOX_1 && ${fields[maxMessages]} == 1 ]] || blocked BLOCKED_BUDGET
+[[ ${fields[recipientAlias]} == APPROVED_INBOX_1 ]] || blocked BLOCKED_BUDGET
+case "${fields[approvedOperation]}" in
+  NONE|IDENTITY) [[ ${fields[maxMessages]} == 0 ]] || blocked BLOCKED_BUDGET ;;
+  SEND) [[ ${fields[maxMessages]} == 1 ]] || blocked BLOCKED_BUDGET ;;
+  *) blocked BLOCKED_OPERATION ;;
+esac
 [[ ${fields[observedProvider]} == logging && ${fields[observedEnabled]} == true ]] || blocked BLOCKED_PROVIDER
 [[ ${fields[trialId]} =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || blocked BLOCKED_TRIAL_ID
 [[ ${fields[sourceSha]} =~ ^[a-f0-9]{40}$ ]] || blocked BLOCKED_SOURCE_SHA
@@ -47,10 +52,15 @@ done < "$manifest"
 hash_file() { local result; result=$(sha256sum -- "$1"); printf '%s' "${result%% *}"; }
 manifest_hash=$(hash_file "$manifest")
 [[ $(hash_file "$artifact") == "${fields[artifactSha256]}" ]] || blocked BLOCKED_ARTIFACT_MISMATCH
-if [[ $mode == execute ]]; then
+if [[ $mode != plan ]]; then
   [[ $approved_hash =~ ^[a-f0-9]{64}$ && $approved_hash == "$manifest_hash" ]] || blocked BLOCKED_APPROVED_HASH
   [[ ${fields[awsAccountId]} =~ ^[0-9]{12}$ ]] || blocked BLOCKED_ACCOUNT_ATTESTATION
-  [[ ${fields[awsIdentityEvidenceRef]} =~ ^[a-zA-Z0-9:_/.-]{1,200}$ && ${fields[authorizationRef]} =~ ^[a-zA-Z0-9:_/.-]{1,200}$ ]] || blocked BLOCKED_AUTHORIZATION
+  [[ ${fields[authorizationRef]} =~ ^[a-zA-Z0-9:_/.-]{1,200}$ ]] || blocked BLOCKED_AUTHORIZATION
+  if [[ $mode == identity ]]; then
+    [[ ${fields[approvedOperation]} == IDENTITY ]] || blocked BLOCKED_OPERATION
+  else
+    [[ ${fields[approvedOperation]} == SEND && ${fields[awsIdentityEvidenceRef]} =~ ^[a-zA-Z0-9:_/.-]{1,200}$ ]] || blocked BLOCKED_AUTHORIZATION
+  fi
 fi
 
 # Inspect selected metadata only. Never dump Config.Env, whole inspect, or credentials.
@@ -68,7 +78,10 @@ state_dir=${fields[stateDirectory]}
 [[ -d $state_dir && ! -L $state_dir && -w $state_dir ]] || blocked BLOCKED_STATE_DIRECTORY
 canonical=$(cd -- "$state_dir" && pwd -P)
 [[ $canonical == "$state_dir" ]] || blocked BLOCKED_STATE_CANONICAL_PATH
-claim="$state_dir/${fields[trialId]}.consumed"
+claim_suffix=consumed
+command_mode=--execute
+if [[ $mode == identity ]]; then claim_suffix=identity-read; command_mode=--identity; fi
+claim="$state_dir/${fields[trialId]}.$claim_suffix"
 mkdir -- "$claim" 2>/dev/null || blocked BLOCKED_CONSUMED_BUDGET
 printf 'manifestSha256=%s\nsourceSha=%s\ncontainerId=%s\nstatus=CONSUMED_BEFORE_SDK\n' \
   "$manifest_hash" "${fields[sourceSha]}" "${fields[containerId]}" > "$claim/scope.txt"
@@ -94,9 +107,11 @@ docker exec -i \
   -e 'LOADER_ARGS= ' -e LOADER_DEBUG=false -e JAVA_TOOL_OPTIONS= -e JDK_JAVA_OPTIONS= -e _JAVA_OPTIONS= \
   "${fields[containerId]}" java -XX:-UsePerfData -Djava.io.tmpdir=/tmp -cp "$staged" \
   org.springframework.boot.loader.launch.PropertiesLauncher \
-  --execute --manifest-sha256 "$manifest_hash" < "$manifest"
+  "$command_mode" --manifest-sha256 "$manifest_hash" < "$manifest"
 result=$?
 set -e
 printf 'commandExitCode=%s\n' "$result" >> "$claim/scope.txt"
-printf 'SES_TRIAL_WRAPPER BUDGET_CONSUMED commandExitCode=%s\n' "$result"
+if [[ $mode != identity ]]; then
+  printf 'SES_TRIAL_WRAPPER BUDGET_CONSUMED commandExitCode=%s\n' "$result"
+fi
 exit "$result"

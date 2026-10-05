@@ -34,7 +34,7 @@ async function fixture(t, overrides = {}) {
     artifactSha256: sha(await fs.readFile(artifact)), containerId: 'c'.repeat(64), imageId: 'sha256:' + 'd'.repeat(64),
     composeProject: 'uteum-dev', awsAccountId: '123456789012', awsIdentityEvidenceRef: 'test-only:identity',
     from: 'no-reply@uteum.com', recipient: 'owner@example.com', recipientAlias: 'APPROVED_INBOX_1',
-    region: 'ap-northeast-2', maxMessages: '1', stateDirectory: posix(state),
+    region: 'ap-northeast-2', maxMessages: '1', approvedOperation: 'SEND', stateDirectory: posix(state),
     authorizationRef: 'test-only:authorization', observedProvider: 'logging', observedEnabled: 'true', ...overrides
   };
   const contents = Object.entries(fields).map(([key, value]) => `${key}=${value}\n`).join('');
@@ -71,7 +71,7 @@ esac
 
 function run(f, mode = 'default', env = {}, hash = f.hash) {
   const args = mode === 'default' ? [posix(f.manifest), posix(f.artifact)]
-    : mode === 'execute' ? [mode, posix(f.manifest), posix(f.artifact), hash]
+    : (mode === 'execute' || mode === 'identity') ? [mode, posix(f.manifest), posix(f.artifact), hash]
     : [mode, posix(f.manifest), posix(f.artifact)];
   return new Promise((resolve, reject) => {
     const child = spawn(bash, [posix(script), ...args], { env: { ...f.env, ...env }, windowsHide: true });
@@ -175,4 +175,21 @@ test('duplicate keys, extra keys and non-ASCII values are rejected without Docke
     assert.equal((await run(f, 'plan')).code, 2);
     assert.deepEqual(await f.calls(), []);
   }
+});
+
+test('identity approval stages only one read and cannot authorize a send or consume send budget', async t => {
+  const f = await fixture(t, { approvedOperation: 'IDENTITY', maxMessages: '0', awsIdentityEvidenceRef: '' });
+  assert.equal((await run(f, 'execute')).code, 2);
+  const identity = await run(f, 'identity');
+  assert.equal(identity.code, 0);
+  assert.equal(identity.stdout, 'TEST_FAKE_EXECUTION_ONLY\n');
+  assert.equal((await run(f, 'identity')).code, 2);
+  assert.equal((await f.calls()).filter(call => call === 'exec').length, 1);
+  assert.deepEqual(await fs.readdir(f.state), [f.fields.trialId + '.identity-read']);
+});
+
+test('send approval cannot run the identity command', async t => {
+  const f = await fixture(t);
+  assert.equal((await run(f, 'identity')).code, 2);
+  assert.deepEqual(await f.calls(), []);
 });

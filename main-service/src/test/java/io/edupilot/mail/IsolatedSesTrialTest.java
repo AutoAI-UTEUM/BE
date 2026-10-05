@@ -31,12 +31,17 @@ import software.amazon.awssdk.services.sesv2.SesV2Client;
 import software.amazon.awssdk.services.sesv2.model.SendEmailRequest;
 import software.amazon.awssdk.services.sesv2.model.SendEmailResponse;
 import software.amazon.awssdk.services.sesv2.model.SesV2Exception;
+import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.model.GetCallerIdentityRequest;
+import software.amazon.awssdk.services.sts.model.GetCallerIdentityResponse;
 
 class IsolatedSesTrialTest {
 	private static final String ARTIFACT = "b".repeat(64);
 	@TempDir Path claims;
 	private final SesV2Client client = mock(SesV2Client.class);
 	private final AtomicInteger factories = new AtomicInteger();
+	private final StsClient identityClient = mock(StsClient.class);
+	private final AtomicInteger identityFactories = new AtomicInteger();
 
 	@Test
 	void defaultAndExplicitPlanNeverCreateClientOrClaim() throws Exception {
@@ -174,7 +179,9 @@ class IsolatedSesTrialTest {
 		byte[] input = manifest(Map.of());
 		var out = new ByteArrayOutputStream();
 		assertThat(IsolatedSesTrial.run(input, executionArgs(input), environment(input), ARTIFACT,
-			properties -> { throw new IllegalStateException("secret-token"); }, claims, new PrintStream(out))).isEqualTo(4);
+			properties -> { throw new IllegalStateException("secret-token"); },
+			properties -> { throw new AssertionError("Identity client must not be created"); },
+			claims, new PrintStream(out))).isEqualTo(4);
 		assertThat(execute(input).text()).contains("BLOCKED_CLAIM");
 		assertThat(factories).hasValue(0);
 		verify(client, never()).sendEmail(any(SendEmailRequest.class));
@@ -221,7 +228,8 @@ class IsolatedSesTrialTest {
 	private Result run(byte[] input, String[] args, Map<String, String> env) {
 		var output = new ByteArrayOutputStream();
 		int code = IsolatedSesTrial.run(input, args, env, ARTIFACT,
-			properties -> { factories.incrementAndGet(); return client; }, claims,
+			properties -> { factories.incrementAndGet(); return client; },
+			properties -> { identityFactories.incrementAndGet(); return identityClient; }, claims,
 			new PrintStream(output, true, StandardCharsets.UTF_8));
 		return new Result(code, output.toString(StandardCharsets.UTF_8).replace("\r\n", "\n"));
 	}
@@ -252,6 +260,7 @@ class IsolatedSesTrialTest {
 		fields.put("recipientAlias", "APPROVED_INBOX_1");
 		fields.put("region", "ap-northeast-2");
 		fields.put("maxMessages", "1");
+		fields.put("approvedOperation", "SEND");
 		fields.put("stateDirectory", "/var/lib/uteum-mail-trial");
 		fields.put("authorizationRef", "test-only:authorization");
 		fields.put("observedProvider", "logging");
@@ -262,4 +271,103 @@ class IsolatedSesTrialTest {
 		return content.toString().getBytes(StandardCharsets.UTF_8);
 	}
 	private record Result(int code, String text) {}
+
+	@Test
+	void identityReadUsesStsOnlyAndOutputsOnlyAccountAndArn() throws Exception {
+		byte[] input = identityManifest();
+		String arn = "arn:aws:sts::123456789012:assumed-role/FixtureRole/i-fixture";
+		when(identityClient.getCallerIdentity(any(GetCallerIdentityRequest.class)))
+			.thenReturn(GetCallerIdentityResponse.builder().account("123456789012").arn(arn)
+				.userId("must-not-print-secret-token").build());
+		Result result = readIdentity(input);
+		assertThat(result.code()).isZero();
+		assertThat(result.text()).isEqualTo("{\"Account\":\"123456789012\",\"Arn\":\"" + arn + "\"}\n");
+		assertThat(factories).hasValue(0);
+		assertThat(identityFactories).hasValue(1);
+		verify(client, never()).sendEmail(any(SendEmailRequest.class));
+		verify(identityClient, times(1)).getCallerIdentity(any(GetCallerIdentityRequest.class));
+		assertThat(claims.resolve("uteum-ses-trial-ses-component-20261005.identity.claim")).exists();
+		assertThat(claims.resolve("uteum-ses-trial-ses-component-20261005.claim")).doesNotExist();
+		assertThat(readIdentity(input).text()).contains("BLOCKED_CLAIM");
+	}
+
+	@Test
+	void identityApprovalCannotAuthorizeMailAndSendApprovalCannotAuthorizeIdentityRead() throws Exception {
+		byte[] identityInput = identityManifest();
+		assertThat(execute(identityInput).code()).isEqualTo(2);
+		assertThat(readIdentity(manifest(Map.of())).code()).isEqualTo(2);
+		assertThat(factories).hasValue(0);
+		assertThat(identityFactories).hasValue(0);
+		assertThat(claims.toFile().list()).isEmpty();
+	}
+
+	@Test
+	void identityPlanWithNoApprovalNeverCreatesAnyClientOrClaim() throws Exception {
+		byte[] input = manifest(Map.of("approvedOperation", "IDENTITY", "maxMessages", "0",
+			"authorizationRef", "", "awsIdentityEvidenceRef", ""));
+		assertThat(run(input, new String[]{"--plan"}, environment(input)).code()).isZero();
+		assertThat(factories).hasValue(0);
+		assertThat(identityFactories).hasValue(0);
+		assertThat(claims.toFile().list()).isEmpty();
+	}
+
+	@Test
+	void identityFailureDoesNotPrintExceptionOrRetryAndCannotSpendMailBudget() throws Exception {
+		byte[] input = identityManifest();
+		when(identityClient.getCallerIdentity(any(GetCallerIdentityRequest.class)))
+			.thenThrow(new IllegalStateException("raw-body secret-token owner@example.com"));
+		Result result = readIdentity(input);
+		assertThat(result.code()).isEqualTo(4);
+		assertThat(result.text()).isEqualTo("SES_TRIAL IDENTITY_READ_FAILED_NO_RETRY\n");
+		assertThat(readIdentity(input).text()).contains("BLOCKED_CLAIM");
+		verify(identityClient, times(1)).getCallerIdentity(any(GetCallerIdentityRequest.class));
+		verify(client, never()).sendEmail(any(SendEmailRequest.class));
+		assertThat(claims.resolve("uteum-ses-trial-ses-component-20261005.claim")).doesNotExist();
+	}
+
+	@Test
+	void differentAccountIsReturnedAsMetadataWithFailureExitAndNoMail() throws Exception {
+		when(identityClient.getCallerIdentity(any(GetCallerIdentityRequest.class)))
+			.thenReturn(GetCallerIdentityResponse.builder().account("987654321098")
+				.arn("arn:aws:sts::987654321098:assumed-role/OtherRole/i-fixture").build());
+		Result result = readIdentity(identityManifest());
+		assertThat(result.code()).isEqualTo(2);
+		assertThat(result.text()).contains("987654321098", "OtherRole");
+		verify(client, never()).sendEmail(any(SendEmailRequest.class));
+	}
+
+	@Test
+	void malformedIdentityResponseCannotInjectOutput() throws Exception {
+		when(identityClient.getCallerIdentity(any(GetCallerIdentityRequest.class)))
+			.thenReturn(GetCallerIdentityResponse.builder().account("123456789012")
+				.arn("arn:aws:sts::123456789012:assumed-role/FixtureRole\nsecret-token").build());
+		assertThat(readIdentity(identityManifest()).text()).isEqualTo("SES_TRIAL IDENTITY_READ_FAILED_NO_RETRY\n");
+		verify(client, never()).sendEmail(any(SendEmailRequest.class));
+	}
+
+	@Test
+	void sesAndIdentityClientUseSameDefaultCredentialProviderAndSingleCallConfiguration() {
+		MailConfig config = new MailConfig();
+		MailProperties properties = new MailProperties(true, "ses", "no-reply@uteum.com", "",
+			"https://dev.uteum.com", "ap-northeast-2");
+		try (SesV2Client ses = config.sesV2Client(properties); StsClient sts = config.identityClient(properties)) {
+			var sesConfig = ses.serviceClientConfiguration();
+			var stsConfig = sts.serviceClientConfiguration();
+			assertThat(stsConfig.credentialsProvider()).isSameAs(sesConfig.credentialsProvider());
+			assertThat(stsConfig.region()).isEqualTo(sesConfig.region());
+			assertThat(stsConfig.overrideConfiguration().apiCallTimeout())
+				.contains(java.time.Duration.ofSeconds(10));
+			assertThat(sesConfig.overrideConfiguration().apiCallTimeout())
+				.isEqualTo(stsConfig.overrideConfiguration().apiCallTimeout());
+			assertThat(stsConfig.overrideConfiguration().retryStrategy().orElseThrow().maxAttempts()).isEqualTo(1);
+			assertThat(sesConfig.overrideConfiguration().retryStrategy().orElseThrow().maxAttempts()).isEqualTo(1);
+		}
+	}
+
+	private byte[] identityManifest() {
+		return manifest(Map.of("approvedOperation", "IDENTITY", "maxMessages", "0", "awsIdentityEvidenceRef", ""));
+	}
+	private Result readIdentity(byte[] input) throws Exception {
+		return run(input, new String[]{"--identity", "--manifest-sha256", IsolatedSesTrial.hash(input)}, environment(input));
+	}
 }
