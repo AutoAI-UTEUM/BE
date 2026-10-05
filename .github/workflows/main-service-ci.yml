@@ -36,7 +36,7 @@ jobs:
           if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
             echo "service=true" >> "$GITHUB_OUTPUT"
           elif git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- \
-            main-service .github/workflows/main-service-ci.yml; then
+            main-service scripts/qa/mail-trial .github/workflows/main-service-ci.yml; then
             echo "service=false" >> "$GITHUB_OUTPUT"
           else
             echo "service=true" >> "$GITHUB_OUTPUT"
@@ -57,6 +57,19 @@ jobs:
         if: steps.changes.outputs.service == 'true'
         working-directory: main-service
         run: ./gradlew build --no-daemon
+
+      - name: Set up Node for isolated SES trial guards
+        if: steps.changes.outputs.service == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Validate isolated SES trial guards without sending
+        if: steps.changes.outputs.service == 'true'
+        run: |
+          bash -n scripts/qa/mail-trial/run-once.sh
+          node --test scripts/qa/mail-trial/run-once.test.mjs
+          node scripts/qa/mail-trial/check-boot-jar-plan.mjs
 
       - name: Upload main-service test reports
         if: always() && steps.changes.outputs.service == 'true'

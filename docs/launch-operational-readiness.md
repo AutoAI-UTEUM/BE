@@ -30,6 +30,12 @@ FE 담당자에게 제안하는 최소 작업은 승인된 KST 안내·오류 �
 
 ## 2. SES 확인 근거와 최소 조회
 
+### 2026-10-05 10:58 UTC 증거 갱신
+
+부모가 현재 DEV enabled=true/provider=logging, From=no-reply@uteum.com, 서울(ap-northeast-2)을 확인했다. 사용자 콘솔에서 서울 계정 정상·quota 50,000/day/14/sec·uteum.com verified/DKIM success enabled를 직접 확인했고, 사용자 본인이 위 From→APPROVED_INBOX_1 콘솔 1건 발송 후 10:58 UTC 수신을 보고했다. EC2 역할의 GetAccount/GetEmailIdentity는 AccessDenied여서 권한을 바꾸지 않았다. **콘솔 수신 1건은 앱 역할 SendEmail·가입 fragment·명시 confirm 인수가 아니다. 앱 실제 발송은 0건이다.**
+
+이 갱신은 아래 초기 준비표의 region/from/identity 미확인을 좁히며, 기존 예제 manifest는 초기 작성 값이라 null을 현재 관찰 증거와 혼동하지 않는다. 전역 provider를 바꾸면 기존 READY/RETRY와 다른 producer에 영향을 준다. 현재 설정을 유지하고 기존 SES 컴포넌트만 별도 child로 시험하는 [TEST 1건 경로·영속 사용 기록](ses-component-trial.md)을 준비했다. 실제 권한/설정 전환·추가 발송은 승인되지 않았다. [DEV 로그 보존 metadata 계획](dev-log-metadata-plan.md)은 독립 read-only 경계이며 현재 보존 14일·prod 상태를 확정하지 않는다.
+
 | 구분 | 현재 확인 가능한 사실 |
 | --- | --- |
 | 저장소 기본값 | application/base Compose는 `AWS_REGION=ap-northeast-2`, From `no-reply@uteum.com`, base URL `https://dev.uteum.com`, provider `logging`이다. DEV workflow도 함께 읽는 `docker-compose.prod.yml` override는 미설정 provider/base URL을 `ses`/`https://www.uteum.com`으로 바꾸므로 실제 DEV의 명시 설정을 반드시 확인한다. 어느 기본값도 실제 runtime/SES 인증 완료 증거가 아니다. |

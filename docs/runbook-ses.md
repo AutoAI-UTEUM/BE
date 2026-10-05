@@ -1,6 +1,6 @@
 # SES 시스템 메일 운영 런북 (#410, #471, #473)
 
-2026-10-05 출시 후보 BE521 기준이다. 이전 V43 기반의 공통 메일 골격 이후 가입 확인·reset·탈퇴 완료 호출과 V54 durable outbox가 구현됐다. 현재 운영 확인과 최소 조회·수신 인수·기존 대기 작업 처리의 상세 기준은 [FE·메일·V60 운영 준비](launch-operational-readiness.md#2-ses-확인-근거와-최소-조회)다. source 준비를 실제 SES 설정·발송·수신 완료로 해석하지 않는다.
+2026-10-05 출시 후보 BE521 기준이다. 이전 V43 기반의 공통 메일 골격 이후 가입 확인·reset·탈퇴 완료 호출과 V54 durable outbox가 구현됐다. 현재 운영 확인과 최소 조회·수신 인수·기존 대기 작업 처리의 상세 기준은 [FE·메일·V60 운영 준비](launch-operational-readiness.md#2-ses-확인-근거와-최소-조회)다. 10:58 UTC 콘솔 1건 수신과 현재 앱 logging 설정의 갱신 증거, provider 전환 없는 **별도 TEST 1건 준비**는 [격리된 SES 시험](ses-component-trial.md)에 기록했다. source 준비를 실제 앱 발송·수신 완료로 해석하지 않는다.
 
 ## 현재 source 경계
 
@@ -15,7 +15,7 @@
 
 [allowlist env 조회와 SES GET 2개](launch-operational-readiness.md#2-ses-확인-근거와-최소-조회)로 provider/enabled/region/from/base URL, SendingEnabled·sandbox/quota·identity/DKIM을 확인한다. 앱 실행 역할의 SendEmail 권한과 container credential 접근도 비밀값 없는 운영 증거가 필요하다. operator CLI의 성공을 앱 권한으로 대체하지 않는다. AccessDenied/미설정은 미확인으로 남기고 이번 준비 작업에서 권한을 늘리지 않는다.
 
-사용자 확정 수신 주소는 **1개**이며 원문은 비공개 인계 자료만 사용한다. 주소 선택은 실제 발송 승인이 아니다. 실제 수신 인수는 별도 승인된 inbox/건수/비용/fixture 범위로 진행한다. 최소 가입 확인 1건 또는 재발급 포함 2건을 제안하며 password-reset/탈퇴 연결 전체는 4건, 추가 Google 신규 확인까지는 5건이다. 현재 실행은 0건이다. TEST/simulator는 inbox/confirm 인수를 대신하지 않는다.
+사용자 확정 수신 주소는 **1개**이며 원문은 비공개 인계 자료만 사용한다. 주소 선택은 실제 앱 발송 승인이 아니다. 실제 수신 인수는 별도 승인된 inbox/건수/비용/fixture 범위로 진행한다. 최소 가입 확인 1건 또는 재발급 포함 2건을 제안하며 password-reset/탈퇴 연결 전체는 4건, 추가 Google 신규 확인까지는 5건이다. 사용자 콘솔 시험 1건은 수신 확인됐고 **앱 경로 실제 발송은 0건**이다. 별도 TEST는 앱 SES 컴포넌트의 전달만 확인하며 signup/outbox/confirm 인수를 대신하지 않는다.
 
 가격·현재 요금제·추가 기능 여부는 [공식 SES 가격](https://aws.amazon.com/ses/pricing/)과 운영자 확인을 대조한다. 기존 서울 sandbox 한도나 무료 구간을 고정 값으로 가정하지 않는다.
 
