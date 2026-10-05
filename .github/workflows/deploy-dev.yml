@@ -103,6 +103,12 @@ jobs:
           script: |
             set -eu
             cd "$DEV_DEPLOY_PATH"
+            # A host marker survives config copies and Nginx restart/recreation.
+            if [ -f .dev-signup-paused ]; then
+              export EDUPILOT_SIGNUP_PAUSED=true
+            else
+              export EDUPILOT_SIGNUP_PAUSED=false
+            fi
             # Do not overwrite the server's Docker credentials or retain the job token.
             registry_auth_dir="$(mktemp -d /tmp/edupilot-dev-ghcr.XXXXXX)"
             trap 'rm -f -- "$registry_auth_dir/config.json"; rmdir -- "$registry_auth_dir"' EXIT
