@@ -49,10 +49,10 @@ class ExamJpaContextTest {
 
 	@Test
 	void persistsFourTableAggregateWithoutJpaCascade() {
-		User instructor = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User instructor = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"exam-instructor@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
 		)));
-		User learner = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User learner = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"exam-learner@example.com", "hash", "Learner", UserRole.LEARNER
 		)));
 		Classroom classroom = classroomRepository.save(Classroom.create(

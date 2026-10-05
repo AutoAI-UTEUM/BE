@@ -79,10 +79,10 @@ class StudentExamJpaTest {
 
 	@BeforeEach
 	void setUp() {
-		User instructor = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User instructor = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"student-exam-instructor@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
 		)));
-		learner = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		learner = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"student-exam-learner@example.com", "hash", "Learner", UserRole.LEARNER
 		)));
 		classroom = classroomRepository.save(Classroom.create(

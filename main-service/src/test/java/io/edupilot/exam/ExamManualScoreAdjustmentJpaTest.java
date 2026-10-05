@@ -81,13 +81,13 @@ class ExamManualScoreAdjustmentJpaTest {
 	void setUp() {
 		when(clock.instant()).thenReturn(ADJUSTED_AT);
 		String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
-		instructor = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		instructor = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"manual-instructor-" + suffix + "@example.com",
 			"hash",
 			"Instructor",
 			UserRole.INSTRUCTOR
 		)));
-		learner = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		learner = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"manual-learner-" + suffix + "@example.com",
 			"hash",
 			"Learner",

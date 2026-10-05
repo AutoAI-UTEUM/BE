@@ -186,7 +186,7 @@ class AdminApiIntegrationTest {
 	@Test
 	void adminPasswordResetReturnsPasswordOnceRevokesTokensAndAuditsWithoutSecret()
 		throws Exception {
-		User target = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User target = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"reset-target@example.com",
 			passwordEncoder.encode("oldPassword123"),
 			"초기화 대상",
@@ -288,7 +288,7 @@ class AdminApiIntegrationTest {
 
 	@Test
 	void suspendAndReinstateRevokesSessionsAndBlocksExistingAccessToken() throws Exception {
-		User target = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User target = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"suspend-target@example.com",
 			passwordEncoder.encode("password123"),
 			"정지 대상",
@@ -390,7 +390,7 @@ class AdminApiIntegrationTest {
 	@Test
 	void loginAndRefreshRateLimitsExposeRetryAfterWithoutLeakingAccountExistence()
 		throws Exception {
-		User target = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User target = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"limited@example.com", passwordEncoder.encode("password123"), "제한 대상"
 		)));
 		String loginBody = "{\"email\":\"limited@example.com\",\"password\":\"wrong123\"}";
@@ -465,7 +465,7 @@ class AdminApiIntegrationTest {
 
 	@Test
 	void adminPasswordResetRejectsGoogleDeletedAndSelfTargets() throws Exception {
-		User googleTarget = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.createGoogle(
+		User googleTarget = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.createGoogle(
 			"google-target@example.com",
 			"!google-account",
 			"구글 대상",
@@ -534,7 +534,7 @@ class AdminApiIntegrationTest {
 
 	@Test
 	void listsSearchesAndFiltersUsersIncludingDeletedAccounts() throws Exception {
-		User googleUser = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.createGoogle(
+		User googleUser = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.createGoogle(
 			"case.match@example.com",
 			"password-hash",
 			"Search Person",
@@ -590,7 +590,7 @@ class AdminApiIntegrationTest {
 
 	@Test
 	void userResponsesCannotSerializeCredentialFields() throws Exception {
-		User googleUser = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.createGoogle(
+		User googleUser = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.createGoogle(
 			"secret@example.com",
 			"private-password-hash",
 			"민감정보 검증",
@@ -813,7 +813,7 @@ class AdminApiIntegrationTest {
 	}
 
 	private User saveUser(String email, String name, UserRole role) {
-		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
+		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			email,
 			"password-hash",
 			name,

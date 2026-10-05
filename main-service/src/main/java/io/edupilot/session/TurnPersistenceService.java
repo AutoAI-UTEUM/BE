@@ -29,6 +29,7 @@ import io.edupilot.session.dto.NoteDraft;
 import io.edupilot.session.dto.TurnStateResponse;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.User;
+import io.edupilot.user.UserBusinessAccessState;
 import io.edupilot.user.UserRole;
 import io.edupilot.user.UserStatus;
 import jakarta.persistence.EntityManager;
@@ -316,6 +317,9 @@ public class TurnPersistenceService {
 		if (!user.isActive() || user.getRole() != expectedRole) {
 			throw new BusinessException(ErrorCode.TOKEN_INVALID);
 		}
+		// Apply eligibility under the same current-read account lock, before any AI result writes.
+		ErrorCode eligibilityFailure = UserBusinessAccessState.from(user).eligibilityFailure();
+		if (eligibilityFailure != null) throw new BusinessException(eligibilityFailure);
 		LearningSession session = sessionRepository.findOwnedForUpdate(sessionId, userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
 		if (session.getStatus() != SessionStatus.ACTIVE) {

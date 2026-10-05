@@ -50,7 +50,7 @@ class ClassroomWeekReorderConcurrencyTest {
 
 	@Test
 	void concurrentReordersAlwaysCommitOneCompletePermutation() throws Exception {
-		User instructor = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User instructor = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"reorder@example.com",
 			"hash",
 			"Instructor",

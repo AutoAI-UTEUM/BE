@@ -154,6 +154,9 @@ class TurnCompletionAccessJpaTest {
 		material = materials.saveAndFlush(material);
 		link = links.saveAndFlush(ClassroomWeekMaterial.create(week, material, Instant.now()));
 		session = sessions.saveAndFlush(LearningSession.create(learner, material));
+		// This JDBC-only table is outside Hibernate create-drop. MySQL can reuse a prior run's session ID.
+		// Remove only stale synthetic records for this freshly created fixture before asserting zero writes.
+		jdbc.update("delete from session_page_records where session_id=?", session.getId());
 		emitter = new RecordingEmitter();
 		streams = new SessionStreamService(sessions, materialAccess, access, () -> emitter);
 		when(snapshots.build(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean())).thenReturn(new TurnSnapshot(
@@ -483,6 +486,8 @@ class TurnCompletionAccessJpaTest {
 			case MEMBERSHIP_REMOVED, LINK_REMOVED -> ErrorCode.MATERIAL_NOT_FOUND;
 			case ACCOUNT_SUSPENDED -> ErrorCode.ACCOUNT_SUSPENDED;
 			case ROLE_CHANGED -> ErrorCode.TOKEN_INVALID;
+			case AGE_UNKNOWN -> ErrorCode.AGE_VERIFICATION_REQUIRED;
+			case GUARDIAN_PENDING -> ErrorCode.GUARDIAN_VERIFICATION_PENDING;
 		};
 	}
 
@@ -511,7 +516,7 @@ class TurnCompletionAccessJpaTest {
 	}
 
 	private User user(UserRole role) {
-		return users.saveAndFlush(VerifiedTestUsers.verified(User.create(
+		return users.saveAndFlush(VerifiedTestUsers.legacyVerified(User.create(
 			"synthetic-" + UUID.randomUUID() + "@example.test", "!synthetic", "Synthetic user", role)));
 	}
 
@@ -521,6 +526,9 @@ class TurnCompletionAccessJpaTest {
 			case LINK_REMOVED -> { links.deleteById(link.getId()); links.flush(); }
 			case ACCOUNT_SUSPENDED -> jdbc.update("update users set status='SUSPENDED' where id=?", learner.getId());
 			case ROLE_CHANGED -> jdbc.update("update users set role='INSTRUCTOR' where id=?", learner.getId());
+			// Test-only state changes exercise late-result and locking boundaries, never approval.
+			case AGE_UNKNOWN -> jdbc.update("update users set access_cohort='NEW_SIGNUP', age_verification_state='UNKNOWN' where id=?", learner.getId());
+			case GUARDIAN_PENDING -> jdbc.update("update users set access_cohort='NEW_SIGNUP', age_verification_state='MANUAL_PENDING' where id=?", learner.getId());
 		}
 	}
 
@@ -530,10 +538,11 @@ class TurnCompletionAccessJpaTest {
 			case LINK_REMOVED -> links.saveAndFlush(ClassroomWeekMaterial.create(link.getWeek(), material, Instant.now()));
 			case ACCOUNT_SUSPENDED -> jdbc.update("update users set status='ACTIVE' where id=?", learner.getId());
 			case ROLE_CHANGED -> jdbc.update("update users set role='LEARNER' where id=?", learner.getId());
+			case AGE_UNKNOWN, GUARDIAN_PENDING -> jdbc.update("update users set access_cohort='LEGACY_EXEMPT', age_verification_state='UNKNOWN' where id=?", learner.getId());
 		}
 	}
 
-	private enum Revocation { MEMBERSHIP_REMOVED, LINK_REMOVED, ACCOUNT_SUSPENDED, ROLE_CHANGED }
+	private enum Revocation { MEMBERSHIP_REMOVED, LINK_REMOVED, ACCOUNT_SUSPENDED, ROLE_CHANGED, AGE_UNKNOWN, GUARDIAN_PENDING }
 	private static final class RecordingEmitter extends SseEmitter {
 		private final AtomicInteger deliveries = new AtomicInteger();
 		@Override public void send(SseEventBuilder event) throws IOException { deliveries.incrementAndGet(); }

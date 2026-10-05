@@ -70,9 +70,9 @@ class PolicyApiIntegrationTest {
 			"약관 초안", null, false, now.minusSeconds(60), 0L, now.minusSeconds(60)));
 		documents.saveAndFlush(PolicyDocument.create(PolicyType.PRIVACY, "0.9", "처리방침",
 			"개인정보 초안", null, false, now.minusSeconds(60), 0L, now.minusSeconds(60)));
-		admin = users.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create("admin@example.com",
+		admin = users.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create("admin@example.com",
 			passwordEncoder.encode("password123"), "관리자", UserRole.ADMIN)));
-		learner = users.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create("learner@example.com",
+		learner = users.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create("learner@example.com",
 			passwordEncoder.encode("password123"), "학습자", UserRole.LEARNER)));
 		mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity())
 			.addFilters(traceIdFilter).build();

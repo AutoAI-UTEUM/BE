@@ -183,7 +183,7 @@ class SessionStreamRevocationJpaTest {
 	}
 
 	private User user(UserRole role) {
-		return users.saveAndFlush(VerifiedTestUsers.verified(User.create(
+		return users.saveAndFlush(VerifiedTestUsers.legacyVerified(User.create(
 			"synthetic-" + UUID.randomUUID() + "@example.test", "!synthetic", "Synthetic user", role)));
 	}
 

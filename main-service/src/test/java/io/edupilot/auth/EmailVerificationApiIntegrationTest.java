@@ -156,7 +156,7 @@ class EmailVerificationApiIntegrationTest {
 		verifyNoInteractions(ai);
 	}
 
-	@Test void unknownAccountCanRequestAndConfirmThenUseTheSameJwtWithoutReplayingTheToken() throws Exception {
+	@Test void unknownAccountCanConfirmEmailButStillNeedsAgeEligibilityWithoutReplayingTheToken() throws Exception {
 		User user = unknown("existing-verify@example.com");
 		String bearer = bearer(user);
 		mvc.perform(get("/api/auth/email-verification/status").header("Authorization", bearer))
@@ -165,7 +165,9 @@ class EmailVerificationApiIntegrationTest {
 		String raw = token(user.getEmail());
 		confirm(raw).andExpect(status().isOk()).andExpect(jsonPath("$.data.emailVerification").value("VERIFIED"))
 			.andExpect(jsonPath("$.data.emailVerificationRequired").value(false)).andExpect(header().string("Cache-Control", "no-store"));
-		mvc.perform(get("/api/materials").header("Authorization", bearer)).andExpect(status().isOk());
+		mvc.perform(get("/api/materials").header("Authorization", bearer)).andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.error.code").value("AGE_VERIFICATION_REQUIRED"));
+		mvc.perform(get("/api/users/me").header("Authorization", bearer)).andExpect(status().isOk());
 		confirm(raw).andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("EMAIL_VERIFICATION_TOKEN_INVALID"));
 		assertThat(users.findById(user.getId()).orElseThrow().isEmailVerified()).isTrue();
 	}
@@ -261,9 +263,11 @@ class EmailVerificationApiIntegrationTest {
 	@Test void currentCommittedStateBlocksEvenWhenTheJwtAndCallerEntityWerePreviouslyVerified() throws Exception {
 		User user=unknown("live-state-verify@example.com");request(user).andExpect(status().isAccepted());
 		confirm(token(user.getEmail())).andExpect(status().isOk());String bearer=bearer(user);
-		mvc.perform(get("/api/materials").header("Authorization",bearer)).andExpect(status().isOk());
+		mvc.perform(get("/api/materials").header("Authorization",bearer)).andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.error.code").value("AGE_VERIFICATION_REQUIRED"));
 		jdbc.update("update users set email_verification_state='PENDING', email_verified_at=null where id=?",user.getId());
-		mvc.perform(get("/api/materials").header("Authorization",bearer)).andExpect(status().isForbidden());
+		mvc.perform(get("/api/materials").header("Authorization",bearer)).andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.error.code").value("EMAIL_VERIFICATION_REQUIRED"));
 		new TransactionTemplate(transactions).executeWithoutResult(transaction->{
 			User uncommitted=users.findById(user.getId()).orElseThrow();uncommitted.verifyEmail(clock.instant());users.flush();
 			org.assertj.core.api.Assertions.assertThatThrownBy(()->gate.requireVerified(user.getId()))
@@ -338,7 +342,8 @@ class EmailVerificationApiIntegrationTest {
 		}
 		assertThat(tokens.findAll()).singleElement().satisfies(token -> assertThat(token.getUsedAt()).isNotNull());
 		confirm(raw).andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("EMAIL_VERIFICATION_TOKEN_INVALID"));
-		mvc.perform(get("/api/materials").header("Authorization", access)).andExpect(status().isOk());
+		mvc.perform(get("/api/materials").header("Authorization", access)).andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.error.code").value("AGE_VERIFICATION_REQUIRED"));
 	}
 
 	@Test

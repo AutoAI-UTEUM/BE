@@ -98,7 +98,7 @@ class TurnPersistenceTransactionTest {
 	void clearRecords() {
 		jdbcTemplate.update("DELETE FROM session_page_records");
 		when(userRepository.findById(1L)).thenReturn(Optional.of(
-			io.edupilot.user.User.create("synthetic@example.test", "hash", "Synthetic user")));
+			io.edupilot.VerifiedTestUsers.legacyVerified(io.edupilot.user.User.create("synthetic@example.test", "hash", "Synthetic user"))));
 	}
 
 	@Test

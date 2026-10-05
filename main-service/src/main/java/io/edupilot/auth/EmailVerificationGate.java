@@ -9,10 +9,11 @@ import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.User;
+import io.edupilot.user.UserBusinessAccessState;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserStatus;
 
-/** Checks current committed state; a JWT or cached account status is not ownership evidence. */
+/** Checks committed email and age/guardian eligibility at protected API and AI boundaries. */
 @Service
 public class EmailVerificationGate {
 	private final UserRepository users;
@@ -45,8 +46,7 @@ public class EmailVerificationGate {
 		if (!user.isActive()) {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}
-		if (user.isEmailVerificationRequired()) {
-			throw new BusinessException(ErrorCode.EMAIL_VERIFICATION_REQUIRED);
-		}
+		ErrorCode failure = UserBusinessAccessState.from(user).eligibilityFailure();
+		if (failure != null) throw new BusinessException(failure);
 	}
 }

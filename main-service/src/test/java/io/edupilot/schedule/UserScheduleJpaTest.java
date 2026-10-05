@@ -48,10 +48,10 @@ class UserScheduleJpaTest {
 
 	@Test
 	void rangeQueryReturnsOnlyOwnedSchedulesAndRoundTripsAllDayValues() {
-		User owner = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User owner = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"owner@example.com", "hash", "Owner"
 		)));
-		User other = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User other = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"other@example.com", "hash", "Other"
 		)));
 		UserSchedule owned = scheduleRepository.saveAndFlush(UserSchedule.create(

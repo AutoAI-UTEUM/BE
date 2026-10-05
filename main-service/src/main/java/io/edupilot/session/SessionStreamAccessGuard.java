@@ -41,7 +41,7 @@ public class SessionStreamAccessGuard {
 	}
 
 	private void assertAccount(Long userId, UserRole role) {
-		ErrorCode failure = accounts.check(new AuthenticatedUser(userId, role));
+		ErrorCode failure = accounts.checkBusiness(new AuthenticatedUser(userId, role));
 		if (failure != null) throw new BusinessException(failure);
 	}
 }

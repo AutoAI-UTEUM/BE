@@ -251,7 +251,7 @@ class ExamAttemptTimingJpaTest {
 	}
 
 	private User user(String prefix, UserRole role) {
-		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
+		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			prefix + "@example.com", "hash", prefix, role
 		)));
 	}

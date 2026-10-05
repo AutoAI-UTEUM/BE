@@ -206,7 +206,7 @@ class SessionAccessRevocationJpaTest {
 		return guard;
 	}
 	private User user(UserRole role) {
-		return users.saveAndFlush(VerifiedTestUsers.verified(User.create(
+		return users.saveAndFlush(VerifiedTestUsers.legacyVerified(User.create(
 			"synthetic-" + UUID.randomUUID() + "@example.com", "hash", "Synthetic " + role, role)));
 	}
 	private String bearer(User user) { return "Bearer " + tokens.createAccessToken(user); }

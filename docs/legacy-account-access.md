@@ -4,7 +4,7 @@
 
 이 표시는 연령·이메일·보호자 확인 증거가 아니다. 기존 계정의 DOB NULL, age UNKNOWN, email UNKNOWN과 nullable 확인 시각을 유지한다. 보호자 접수 PENDING도 승인 상태로 바꾸지 않는다. 기존 계정에는 DOB 재입력을 요구하지 않고 이메일·연령 gate의 기존 계정 예외로 이용을 유지한다.
 
-`EmailVerificationGate`와 `AgeEligibilityGate`는 현재 DB의 정지·탈퇴 상태를 먼저 거부한 후 예외를 적용한다. 기존 소유권, 역할, 강의실 멤버십, 탈퇴 및 정책 동의 검사는 그대로 적용한다. 예외는 타인의 자료·세션·리포트 접근 권한을 주지 않는다. 신규 계정의 이메일 확인은 계속 필요하다. 신규 연령 UNKNOWN/PENDING은 내부 age gate에서 계속 거부되며, 생년 기준 및 보호자 확인 절차 확정 전 전체 API/AI 경계 연결은 완료되지 않았다.
+`EmailVerificationGate`와 `AgeEligibilityGate`는 현재 DB의 정지·탈퇴 상태를 먼저 거부한 후 예외를 적용한다. 기존 소유권, 역할, 강의실 멤버십, 탈퇴 및 정책 동의 검사는 그대로 적용한다. 예외는 타인의 자료·세션·리포트 접근 권한을 주지 않는다. 신규 계정은 이메일 확인 후에도 연령 UNKNOWN/MANUAL_PENDING이면 보호 업무 API·파일·SSE·기존 AI 전송 경계에서 거부된다. SSE 및 턴 완료 경계는 현재 committed account/role/eligibility projection으로 같은 예외를 적용한다. [업무 차단 경계](business-eligibility-gate.md). 생년 판정 기준과 실제 보호자 승인 절차는 미정이며 승인 상태를 만들지 않았다.
 
 로그인 및 `/api/users/me`, 이메일 상태 응답의 `emailVerificationRequired`는 기존 예외 계정에 `false`를 반환한다. 이때 `emailVerification`은 `UNKNOWN` 또는 `PENDING`일 수 있으므로 UI는 이를 이메일 확인 성공으로 표시하지 않는다. 새로운 응답 필드·승인 endpoint·가입 제한 해제 flag는 추가하지 않는다.
 

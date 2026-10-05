@@ -99,13 +99,13 @@ class ReportJpaTest {
 			assertThat(jdbcTemplate.queryForObject("select @@port", Integer.class)).isEqualTo(33316);
 			assertThat(jdbcTemplate.queryForObject("select database()", String.class)).isEqualTo("runtime_report_synthetic");
 		}
-		instructor = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		instructor = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"report-instructor@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
 		)));
-		student = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		student = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"report-student@example.com", "hash", "Student", UserRole.LEARNER
 		)));
-		otherStudent = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		otherStudent = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"report-other@example.com", "hash", "Other", UserRole.LEARNER
 		)));
 		classroom = classroomRepository.save(Classroom.create(

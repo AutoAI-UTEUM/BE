@@ -86,7 +86,7 @@ class TurnPersistenceServiceTest {
 	@BeforeEach
 	void authorizeAccount() {
 		org.mockito.Mockito.lenient().when(userRepository.findById(1L)).thenReturn(Optional.of(
-			io.edupilot.user.User.create("synthetic@example.test", "hash", "Synthetic user")));
+			io.edupilot.VerifiedTestUsers.legacyVerified(io.edupilot.user.User.create("synthetic@example.test", "hash", "Synthetic user"))));
 	}
 
 	@Test

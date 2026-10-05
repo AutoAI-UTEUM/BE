@@ -133,7 +133,7 @@ class AdminMaterialOverviewIntegrationTest {
 	}
 
 	private User user(UserRole role) {
-		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
+		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"overview-" + role + "-" + System.nanoTime() + "@example.com",
 			"hash", role.name(), role
 		)));

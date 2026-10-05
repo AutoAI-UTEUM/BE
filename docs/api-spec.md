@@ -3335,7 +3335,7 @@ Existing withdrawal/material-delete response shapes are unchanged. Success means
 
 ### New-signup DOB input (#478 foundation)
 
-LOCAL signup requires ISO dateOfBirth; new Google signup also requires it but existing subject login omits it and never overwrites stored DOB. The field is input-only; it does not approve age/guardian status. Guardian intake and AgeEligibilityGate are internal services in this unit. No public approval endpoint or global HTTP/SSE/worker age gate binding is provided yet. [Foundation and pending policy](birthdate-guardian-foundation.md).
+LOCAL signup requires ISO dateOfBirth; new Google signup also requires it but existing subject login omits it and never overwrites stored DOB. The field is input-only; it does not approve age/guardian status. Protected business APIs, files, SSE, and existing AI pre-transmission gates now reject NEW_SIGNUP UNKNOWN with AGE_VERIFICATION_REQUIRED(403) and MANUAL_PENDING with GUARDIAN_VERIFICATION_PENDING(403), after email evidence checks. Email confirmation does not unlock these accounts. Authentication/self-management exceptions and V58 LEGACY_EXEMPT access remain. No age classification, successful guardian transition, or approval endpoint is added. [Business boundary](business-eligibility-gate.md), [foundation and pending policy](birthdate-guardian-foundation.md).
 
 ### Current authorization and SSE reconnect (#479)
 

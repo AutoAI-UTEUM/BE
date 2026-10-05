@@ -353,7 +353,7 @@ class PasswordResetApiIntegrationTest {
 
 	@Test
 	void googleAccountIsNotGivenLocalResetLink() throws Exception {
-		User google = users.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.createGoogle(
+		User google = users.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.createGoogle(
 			"google-reset@example.com", "!google", "학습자", UserRole.LEARNER,
 			null, false, null, null, null, "google-reset-subject"
 		)));
@@ -390,7 +390,7 @@ class PasswordResetApiIntegrationTest {
 	}
 
 	private User saveUser(String email) {
-		return users.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
+		return users.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			email, passwordEncoder.encode("password123"), "학습자"
 		)));
 	}

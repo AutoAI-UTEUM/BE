@@ -92,13 +92,13 @@ class ClassroomJpaContextTest {
 	@Test
 	void persistsJoinApprovalAndQueriesOwnedAndMemberScopes() {
 		assertThat(classroomRepository).isNotNull();
-		User instructor = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User instructor = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"instructor@example.com", "hash", "홍강사", UserRole.INSTRUCTOR
 		)));
-		User learner = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User learner = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"learner@example.com", "hash", "김학습", UserRole.LEARNER
 		)));
-		User otherInstructor = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User otherInstructor = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"other-instructor@example.com",
 			"hash",
 			"Other instructor",
@@ -323,7 +323,7 @@ class ClassroomJpaContextTest {
 		).items()).extracting(item -> item.type())
 			.contains(ScheduleType.WEEK_RELEASE, ScheduleType.NOTICE_PUBLISH);
 
-		User outsider = userRepository.save(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User outsider = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"outsider@example.com", "hash", "Outsider", UserRole.LEARNER
 		)));
 		assertThatThrownBy(() -> noticeService.list(

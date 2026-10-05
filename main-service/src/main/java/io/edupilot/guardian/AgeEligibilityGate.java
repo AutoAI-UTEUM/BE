@@ -16,9 +16,7 @@ public class AgeEligibilityGate {
   User user=users.findById(userId).orElseThrow(()->new BusinessException(ErrorCode.USER_INACTIVE));
   if(user.getStatus()==UserStatus.SUSPENDED)throw new BusinessException(ErrorCode.ACCOUNT_SUSPENDED);
   if(!user.isActive())throw new BusinessException(ErrorCode.USER_INACTIVE);
-  if(user.isLegacyAccessExempt())return;
-  // DOB and a recorded intake are not evidence. No successful transition exists before the policy is approved.
-  throw new BusinessException(user.getAgeVerificationState()==AgeVerificationState.MANUAL_PENDING
-   ?ErrorCode.GUARDIAN_VERIFICATION_PENDING:ErrorCode.AGE_VERIFICATION_REQUIRED);
+  ErrorCode failure=UserBusinessAccessState.ageFailure(user.getAccessCohort(),user.getAgeVerificationState());
+  if(failure!=null)throw new BusinessException(failure);
  }
 }

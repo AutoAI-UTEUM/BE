@@ -333,7 +333,7 @@ class AdminXaiIntegrationTest {
 	}
 
 	private User saveUser(String email, UserRole role) {
-		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
+		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			email,
 			"password-hash",
 			role.name(),

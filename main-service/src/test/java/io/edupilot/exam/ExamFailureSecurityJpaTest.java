@@ -123,10 +123,10 @@ class ExamFailureSecurityJpaTest {
 			assertThat(jdbcTemplate.queryForObject("select database()", String.class)).isEqualTo("runtime_exam_failure_synthetic");
 		}
 		String suffix = UUID.randomUUID().toString().substring(0, 8);
-		instructor = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
+		instructor = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"security-instructor-" + suffix + "@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
 		)));
-		learner = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
+		learner = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"security-learner-" + suffix + "@example.com", "hash", "Learner", UserRole.LEARNER
 		)));
 		Classroom classroom = classroomRepository.saveAndFlush(Classroom.create(

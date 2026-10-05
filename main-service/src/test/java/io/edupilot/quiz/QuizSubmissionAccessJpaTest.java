@@ -381,8 +381,8 @@ class QuizSubmissionAccessJpaTest {
 	private Fixture fixture(QuizType type, boolean materialOwner) {
 		return new TransactionTemplate(transactionManager).execute(status -> {
 			String suffix = UUID.randomUUID().toString();
-			User instructor = users.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(suffix + "-teacher@example.com", "hash", "Teacher", UserRole.INSTRUCTOR)));
-			User learner = users.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(suffix + "-student@example.com", "hash", "Student", UserRole.LEARNER)));
+			User instructor = users.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(suffix + "-teacher@example.com", "hash", "Teacher", UserRole.INSTRUCTOR)));
+			User learner = users.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(suffix + "-student@example.com", "hash", "Student", UserRole.LEARNER)));
 			LearningMaterial material = LearningMaterial.create(materialOwner ? learner : instructor, "Fixture", "materials/" + suffix + ".pdf");
 			material.markReady(2);
 			materials.saveAndFlush(material);

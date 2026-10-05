@@ -187,7 +187,7 @@ class AdminSecurityIntegrationTest {
 	}
 
 	private User saveUser(UserRole role) {
-		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
+		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			role.name().toLowerCase() + "@example.com",
 			"password-hash",
 			role.name(),

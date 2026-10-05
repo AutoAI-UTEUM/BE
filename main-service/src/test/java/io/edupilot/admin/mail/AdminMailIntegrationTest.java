@@ -195,7 +195,7 @@ class AdminMailIntegrationTest {
 	}
 
 	private User saveUser(UserRole role) {
-		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
+		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			role.name().toLowerCase() + "-mail@example.com",
 			"password-hash", role.name(), role
 		)));

@@ -658,19 +658,19 @@ class MaterialOverviewJpaTest {
 	}
 
 	private Fixture fixture() {
-		User owner = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User owner = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"overview-owner-" + System.nanoTime() + "@example.com",
 			"hash",
 			"owner",
 			UserRole.INSTRUCTOR
 		)));
-		User member = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User member = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"overview-member-" + System.nanoTime() + "@example.com",
 			"hash",
 			"member",
 			UserRole.LEARNER
 		)));
-		User outsider = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.verified(User.create(
+		User outsider = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"overview-outsider-" + System.nanoTime() + "@example.com",
 			"hash",
 			"outsider",

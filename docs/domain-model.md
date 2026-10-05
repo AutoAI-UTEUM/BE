@@ -382,7 +382,7 @@ Logical deletion and per-asset tombstones commit together. Ordinary owner-reques
 
 ### Age input and pending intake (#478 foundation)
 
-New signup captures an input birthdate without calculating age. Legacy DOB stays null/UNKNOWN. Manual intake persists PENDING and cannot produce an approved state. User-row locking serializes request/withdrawal; withdrawal clears DOB and cancels pending intake. AgeEligibilityGate rejects new-account UNKNOWN/PENDING as an internal building block, but full endpoint/AI binding is not yet implemented. V58 LEGACY_EXEMPT is a separate access exception after active-status checks; it never grants verification evidence. [Foundation](birthdate-guardian-foundation.md), [legacy access](legacy-account-access.md).
+New signup captures an input birthdate without calculating age. Legacy DOB stays null/UNKNOWN. Manual intake persists PENDING and cannot produce an approved state. User-row locking serializes request/withdrawal; withdrawal clears DOB and cancels pending intake. The shared age rule now rejects NEW_SIGNUP UNKNOWN/MANUAL_PENDING at protected business API/file/SSE and existing AI pre-transmission gates. Stream/completion/response checks use a fresh scalar projection; normal and cancelled-partial turn persistence applies the same rule under the existing account current-read lock before any AI result writes. V58 LEGACY_EXEMPT is a separate access exception after account/role checks; it never grants verification evidence. No approved state, age classification, or production cohort mutation is added. [Business boundary](business-eligibility-gate.md), [foundation](birthdate-guardian-foundation.md), [legacy access](legacy-account-access.md).
 
 ### Committed authorization revocation (#479)
 
