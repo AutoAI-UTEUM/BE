@@ -1,0 +1,127 @@
+{
+  "version": "launch-ops-v1",
+  "environment": "dev",
+  "status": "PREPARATION_ONLY",
+  "be": {
+    "reviewedBaselineSha": "0a8f7bd99db13d20ddcf392766b2bd69ab4754a3",
+    "sourceSha": "0a8f7bd99db13d20ddcf392766b2bd69ab4754a3",
+    "containsReviewedBaseline": true,
+    "sourceFileHashes": [
+      {
+        "path": "docker-compose.yml",
+        "sha256": "4a8ee4b5dc7059d3c64dac90be2c50534b51494ea0919721e909083e6537182f"
+      },
+      {
+        "path": "docker-compose.prod.yml",
+        "sha256": "e825d3a7d197d0b2aefd6a9faf5c998226bba65d62fb29c8d55561211e0b3169"
+      },
+      {
+        "path": "infra/nginx/edupilot.conf",
+        "sha256": "0b931f16de93a797668992f1afe400b88c83d5f571eb11bd2f2b0c370a9ec158"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V53__note_source_idempotency.sql",
+        "sha256": "f368f28ecd8fe3b482104a886f1ed25f1f0b2863c7d0465f8047e0c42c6ecdf8"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V54__durable_email_outbox.sql",
+        "sha256": "ade730ad4c0a0a49220c4d2e9ff927f5e65875f5e99393ffa80ede586d04f209"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V55__email_ownership_verification.sql",
+        "sha256": "8da4dd6eb70dfd8ced3a9b1cefceba71feb69390e077e3015fcbd18749ad13c5"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V56__durable_deletion_journal.sql",
+        "sha256": "027f2449411dbf22aab1ce4e46be43d544389677f10e7ac8aac21e4466f74f5b"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V57__birthdate_and_guardian_pending_foundation.sql",
+        "sha256": "2526fa5388294101c2f5d21d6b7f25aa0c6e0a0e3e1c73828cc450b07c4f002b"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V58__legacy_account_access_cohort.sql",
+        "sha256": "f64c9e4486f5cda7cfe18a00dcd63686f44db71d309b083ac793b4ad29fda7d1"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V59__guardian_web_consent_phone_intake.sql",
+        "sha256": "5aad867932e89e2c9a33efcae40d5c54948504b07055614ac6c1e7c084a84be4"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V60__birthdate_correction_intake.sql",
+        "sha256": "4f567c84ed1bf7cb5dd973d6225ac6432f2a2b7cb3de9debdb102e9826d3de71"
+      }
+    ],
+    "ci": {
+      "main": {
+        "headSha": "0a8f7bd99db13d20ddcf392766b2bd69ab4754a3",
+        "conclusion": "success",
+        "url": "https://github.com/AutoAI-UTEUM/BE/actions/runs/37283320129"
+      },
+      "ai": {
+        "headSha": "0a8f7bd99db13d20ddcf392766b2bd69ab4754a3",
+        "conclusion": "success",
+        "url": "https://github.com/AutoAI-UTEUM/BE/actions/runs/37283320041"
+      }
+    },
+    "runningImages": {
+      "main": null,
+      "ai": null
+    },
+    "flyway": null
+  },
+  "fe": {
+    "readOnlyReferenceSha": "f1ad9d924b4768f798dc438066a311a2aac955f0",
+    "sourceSha": null,
+    "contractReviewComplete": false,
+    "ci": null,
+    "reviewedReadinessValue": "be-auth-ee69e425-v1",
+    "settings": {
+      "apiBaseUrl": "/api",
+      "capabilities": "reports,password-reset,exam-attempt-drafts,exam-learner-regrade,policy-consent",
+      "authReadiness": "be-auth-ee69e425-v1",
+      "googleClientIdHandle": "existing VITE_GOOGLE_CLIENT_ID secret unchanged; value excluded",
+      "injectionEvidence": null
+    },
+    "artifact": null,
+    "served": null
+  },
+  "mail": {
+    "selectedInboxHandle": "APPROVED_INBOX_1",
+    "selectedRecipientCount": 1,
+    "actualSent": 0,
+    "observed": null,
+    "ses": null,
+    "keyContinuityEvidence": null,
+    "outboxDecisionEvidence": null,
+    "otherProducerIsolationConfirmed": false,
+    "approvalRef": null,
+    "approvedInboxHandle": null,
+    "plannedMessages": 2,
+    "incrementalBudgetApproval": null,
+    "receiptEvidence": null,
+    "explicitConfirmAndStatusEvidence": null
+  },
+  "recovery": {
+    "strategy": "roll-forward-preserve-gates-and-v60-hook",
+    "hookPreserved": false,
+    "syntheticEvidence": null,
+    "beforeMigrationCancelPlan": null,
+    "backupPlan": null,
+    "deletedUserDobLeakCount": null,
+    "privateFreshBackupRef": null,
+    "backupIntegrityChecked": false,
+    "currentDeletionJournalRef": null
+  },
+  "window": {
+    "owner": null,
+    "feOwner": null,
+    "mailOwner": null,
+    "approvalRef": null,
+    "pauseScopeAndBudget": null,
+    "cancelOwner": null,
+    "reopenCriteria": null,
+    "roleSmokePassed": false,
+    "smokeEvidence": null
+  }
+}

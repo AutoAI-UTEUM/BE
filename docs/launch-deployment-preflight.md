@@ -1,5 +1,7 @@
 # 출시 BE 후보의 배포 사전 점검과 복구 (#479)
 
+**2026-10-05 후속 기준:** [FE·메일·V60 운영 준비](launch-operational-readiness.md)는 BE521 `0a8f7bd`와 최신 FE `f1ad9d9`의 source/settings/artifact manifest, 승인된 KST 정책, SES 실제 검증·수신 1주소 범위와 V60 정리 hook 복구를 구체화한다. 아래 이전 후보/FE229/V53–V59 기록은 당시 근거로 보존한다. 현재 검토 대상은 V60을 포함하며 이전 Main 자동 rollback/실메일 활성화의 실행 근거로 이 문서를 사용하지 않는다.
+
 브랜치 한 줄: `feature/479-deployment-preflight` — 신규 가입 제한과 기존 계정 이용을 보존하는 배포 순서·설정 점검·복구 조건을 정리한다.
 
 이 문서는 후속 DEV 배포를 준비하는 검토 자료다. 서버 조회·설정 변경·배포·실메일 수신·운영 백업 복원을 실행했다는 기록이 아니다. develop push를 승인받더라도 `.github/workflows/deploy-dev.yml`이 두 서비스 이미지 빌드/push, DEV 컨테이너 교체, nginx 재시작과 Main 시작 시 Flyway를 실행하므로 해당 후보의 배포 영향까지 승인 범위에 들어가야 한다. main/prod 반영은 이 작업의 범위 밖이다.

@@ -89,6 +89,8 @@ class BirthdateCorrectionJpaTest {
 	@Autowired private PlatformTransactionManager transactions;
 	@Autowired private AccessLogFilter accessLog;
 	@Autowired private io.edupilot.deletion.DeletionJournalLockRepository deletionLocks;
+	@Autowired private io.edupilot.deletion.DeletionJournal deletionJournal;
+	@Autowired private io.edupilot.deletion.DeletionReplay deletionReplay;
 	@MockitoBean private Clock clock;
 	@MockitoBean private AiClient ai;
 	@MockitoBean private EmailService mail;
@@ -281,6 +283,62 @@ class BirthdateCorrectionJpaTest {
 		requests.findByUser_Id(user.getId()).ifPresent(row -> {
 			assertThat(row.getRequestedDateOfBirth()).isNull(); assertThat(row.getState()).isEqualTo(BirthdateCorrectionRequest.State.WITHDRAWN);
 		});
+	}
+
+	@Test void trustedRestoreReplayErasesRestoredCorrectionDobAndRepeatedReplayIsSafe() {
+		User user = actor(UserRole.LEARNER, true, false);
+		var request = service.submit(user.getId(), REQUESTED);
+		Long intentId = restoredAccountIntent(user, user.getCreatedAt());
+		assertThat(deletionReplay.reapply(intentId)).isEqualTo(io.edupilot.deletion.DeletionReplay.Result.APPLIED);
+		var row = requests.findById(request.id()).orElseThrow();
+		assertThat(row.getRequestedDateOfBirth()).isNull();
+		assertThat(row.getState()).isEqualTo(BirthdateCorrectionRequest.State.WITHDRAWN);
+		var withdrawn = users.findById(user.getId()).orElseThrow();
+		assertThat(withdrawn.getStatus()).isEqualTo(UserStatus.DELETED);
+		assertThat(withdrawn.getDateOfBirth()).isNull();
+		assertThat(deletionReplay.reapply(intentId)).isEqualTo(io.edupilot.deletion.DeletionReplay.Result.ALREADY_APPLIED);
+		assertThat(requests.findById(request.id()).orElseThrow().getRequestedDateOfBirth()).isNull();
+		verifyNoInteractions(ai, mail);
+	}
+
+	@Test void restoreIdentityMismatchDoesNotEraseAnotherAccountsCorrectionRequest() {
+		User user = actor(UserRole.LEARNER, true, false);
+		var request = service.submit(user.getId(), REQUESTED);
+		Long intentId = restoredAccountIntent(user, user.getCreatedAt().minusSeconds(1));
+		assertThat(deletionReplay.reapply(intentId)).isEqualTo(io.edupilot.deletion.DeletionReplay.Result.IDENTITY_MISMATCH);
+		assertThat(users.findById(user.getId()).orElseThrow().isActive()).isTrue();
+		assertThat(requests.findById(request.id()).orElseThrow().getRequestedDateOfBirth()).isEqualTo(REQUESTED);
+		verifyNoInteractions(ai, mail);
+	}
+
+	@Test void restoreHookFailureRollsBackUserAndCorrectionDobTogether() {
+		User user = actor(UserRole.LEARNER, true, false);
+		var request = service.submit(user.getId(), REQUESTED);
+		Long intentId = restoredAccountIntent(user, user.getCreatedAt());
+		// A synthetic failing hook runs after the real V60 hook inside the same replay transaction.
+		var replayWithFailure = new io.edupilot.deletion.DeletionReplay(
+			context.getBean(io.edupilot.deletion.DeletionIntentRepository.class), users,
+			context.getBean(io.edupilot.material.LearningMaterialRepository.class),
+			java.util.List.of(context.getBean(BirthdateCorrectionWithdrawalHook.class),
+				id -> { throw new IllegalStateException("Synthetic restore hook failure"); }),
+			context.getBean(io.edupilot.auth.RefreshTokenService.class), deletionJournal);
+		assertThatThrownBy(() -> new TransactionTemplate(transactions).executeWithoutResult(
+			ignored -> replayWithFailure.reapply(intentId)))
+			.isInstanceOf(IllegalStateException.class).hasMessage("Synthetic restore hook failure");
+		assertThat(users.findById(user.getId()).orElseThrow().isActive()).isTrue();
+		assertThat(requests.findById(request.id()).orElseThrow().getRequestedDateOfBirth()).isEqualTo(REQUESTED);
+		assertThat(requests.findById(request.id()).orElseThrow().getState()).isEqualTo(BirthdateCorrectionRequest.State.PENDING);
+		verifyNoInteractions(ai, mail);
+	}
+
+	private Long restoredAccountIntent(User user, Instant createdAt) {
+		// Represents an operator-preserved trusted ACCOUNT tombstone beside an older synthetic backup.
+		String emailHash = io.edupilot.deletion.DeletionJournal.hash(user.getEmail());
+		String resourceKey = io.edupilot.deletion.DeletionJournal.hash(user.getId() + "\n"
+			+ createdAt.truncatedTo(java.time.temporal.ChronoUnit.MICROS) + "\n" + emailHash);
+		var snapshot = new io.edupilot.deletion.DeletionSnapshot(io.edupilot.deletion.DeletionKind.ACCOUNT,
+			resourceKey, null, user.getId(), createdAt, emailHash, clock.instant(), null);
+		return deletionJournal.importForRestore(java.util.List.of(snapshot), "synthetic_v60_restore").getFirst();
 	}
 
 	private User actor(UserRole role, boolean google, boolean legacy) {
