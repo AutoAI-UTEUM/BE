@@ -24,7 +24,7 @@ class EmailVerificationGateTest {
 	@Test void pendingAccountCannotReachFileLoadingOrAiThroughABackgroundWorker() {
 		UserRepository users=mock(UserRepository.class);
 		when(users.findById(1L)).thenReturn(Optional.of(User.create("synthetic@example.com","hash","Synthetic",UserRole.LEARNER)));
-		EmailVerificationGate gate=new EmailVerificationGate(users,mock(LearningMaterialRepository.class),mock(LearningSessionRepository.class));
+		EmailVerificationGate gate=new EmailVerificationGate(users,mock(LearningMaterialRepository.class),mock(LearningSessionRepository.class), Clock.systemUTC());
 		var persistence=mock(MaterialExtractionPersistenceService.class);
 		when(persistence.snapshot(10L)).thenReturn(Optional.of(new MaterialExtractionPersistenceService.ExtractionSnapshot(10L,1L,"synthetic/key.pdf")));
 		FileStorage storage=mock(FileStorage.class); AiClient ai=mock(AiClient.class);
@@ -37,7 +37,7 @@ class EmailVerificationGateTest {
 		for (UserRole role : new UserRole[]{UserRole.LEARNER,UserRole.ADMIN}) {
 			UserRepository users=mock(UserRepository.class);
 			when(users.findById(1L)).thenReturn(Optional.of(User.create("synthetic@example.com","hash","Synthetic",role)));
-			var gate=new EmailVerificationGate(users,mock(LearningMaterialRepository.class),mock(LearningSessionRepository.class));
+			var gate=new EmailVerificationGate(users,mock(LearningMaterialRepository.class),mock(LearningSessionRepository.class), Clock.systemUTC());
 			var usage=mock(AiUsageLogRepository.class);
 			var quota=new AiQuotaService(usage,new AiQuotaProperties(false,200,500),Clock.systemUTC(),gate);
 			assertThatThrownBy(()->quota.checkQuota(1L,role)).isInstanceOfSatisfying(BusinessException.class,
@@ -49,7 +49,7 @@ class EmailVerificationGateTest {
 		User user=User.create("synthetic@example.com","hash","Synthetic",UserRole.LEARNER);
 		org.springframework.test.util.ReflectionTestUtils.setField(user,"emailVerificationState",EmailVerificationState.VERIFIED);
 		UserRepository users=mock(UserRepository.class); when(users.findById(1L)).thenReturn(Optional.of(user));
-		var gate=new EmailVerificationGate(users,mock(LearningMaterialRepository.class),mock(LearningSessionRepository.class));
+		var gate=new EmailVerificationGate(users,mock(LearningMaterialRepository.class),mock(LearningSessionRepository.class), Clock.systemUTC());
 		assertThatThrownBy(()->gate.requireVerified(1L)).isInstanceOf(BusinessException.class);
 	}
 }

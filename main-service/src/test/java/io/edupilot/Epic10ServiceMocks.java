@@ -77,6 +77,7 @@ import io.edupilot.usernote.WrongAnswerNoteService;
 	io.edupilot.guardian.GuardianVerificationRequestRepository.class,
 	io.edupilot.guardian.GuardianWithdrawalHook.class,
 	io.edupilot.guardian.GuardianWebRequestRepository.class,
+	io.edupilot.user.birthdate.BirthdateCorrectionRepository.class,
 	io.edupilot.guardian.GuardianWebPersistence.class,
 	io.edupilot.guardian.GuardianWebService.class,
 	io.edupilot.guardian.GuardianWebWithdrawalHook.class,

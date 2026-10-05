@@ -1,5 +1,7 @@
 package io.edupilot.auth;
 
+import java.time.Clock;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,10 +21,12 @@ public class EmailVerificationGate {
 	private final UserRepository users;
 	private final LearningMaterialRepository materials;
 	private final LearningSessionRepository sessions;
-	public EmailVerificationGate(UserRepository users, LearningMaterialRepository materials, LearningSessionRepository sessions) {
+	private final Clock clock;
+	public EmailVerificationGate(UserRepository users, LearningMaterialRepository materials, LearningSessionRepository sessions, Clock clock) {
 		this.users = users;
 		this.materials = materials;
 		this.sessions = sessions;
+		this.clock = clock;
 	}
 	@Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
 	public void requireVerified(Long userId) {
@@ -46,7 +50,7 @@ public class EmailVerificationGate {
 		if (!user.isActive()) {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}
-		ErrorCode failure = UserBusinessAccessState.from(user).eligibilityFailure();
+		ErrorCode failure = UserBusinessAccessState.from(user).eligibilityFailure(clock);
 		if (failure != null) throw new BusinessException(failure);
 	}
 }

@@ -23,6 +23,7 @@ import io.edupilot.auth.dto.SignupRequest;
 import io.edupilot.auth.dto.SignupResponse;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.guardian.BirthdatePolicy;
 import io.edupilot.policy.PolicyService;
 import io.edupilot.policy.PolicyService.SignupSelection;
 import io.edupilot.user.User;
@@ -78,6 +79,7 @@ public class AuthService {
 
 	@Transactional
 	public SignupResponse signup(SignupRequest request, String ip, String userAgent) {
+		BirthdatePolicy.validate(request.dateOfBirth(), clock);
 		String email = normalizeEmail(request.email());
 		if (!isEmailAvailable(email)) {
 			throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);
@@ -96,7 +98,6 @@ public class AuthService {
 			consent.agreedAt()
 		);
 		User savedUser;
-		if(request.dateOfBirth()==null) { throw new BusinessException(ErrorCode.VALIDATION_FAILED); }
 		user.recordSignupDateOfBirth(request.dateOfBirth());
 		try {
 			savedUser = userRepository.saveAndFlush(user);

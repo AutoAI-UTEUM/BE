@@ -40,7 +40,7 @@ public record SignupRequest(
 
 	@NotNull(message = "신규 가입에는 생년월일이 필요합니다.")
 	@Schema(accessMode = Schema.AccessMode.WRITE_ONLY, type = "string", format = "date",
-		description = "신규 가입의 사용자 입력 생년월일. 입력만으로 연령 또는 보호자 확인이 완료되지 않습니다.")
+		description = "신규 가입의 사용자 입력 생년월일. Asia/Seoul 오늘 이후는 VALIDATION_FAILED(400). 한국 현재 연도−출생 연도 ≤14는 보호자 대상, ≥15는 보호자 불필요이며 입력은 보호자 확인 증거가 아닙니다.")
 	java.time.LocalDate dateOfBirth
 ) {
 }

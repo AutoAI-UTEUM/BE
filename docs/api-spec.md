@@ -228,7 +228,7 @@
 
 `role`은 필수이며 공개 가입에서는 `LEARNER | INSTRUCTOR`만 허용합니다. `ADMIN`, 기존 `USER`, 알 수 없는 enum 값은 요청 오류로 거부합니다. `ADMIN` 계정은 운영상 필요한 경우에만 DB에서 수동 설정합니다(DEC-017, DEC-029 Accepted).
 
-`dateOfBirth`는 신규 LOCAL 가입에 필수인 `YYYY-MM-DD` 날짜 문자열입니다. 누락/null은 `VALIDATION_FAILED`(400), 날짜 역직렬화 실패는 `MALFORMED_REQUEST`(400)입니다. DOB는 응답·AI DTO에 노출하지 않고 입력만으로 나이·보호자 확인을 승인하지 않습니다.
+`dateOfBirth`는 신규 LOCAL 가입에 필수인 `YYYY-MM-DD` 날짜 문자열입니다. 누락/null·Asia/Seoul 오늘 이후는 `VALIDATION_FAILED`(400), 날짜 역직렬화 실패는 `MALFORMED_REQUEST`(400)입니다. 한국 현재 연도−출생 연도 ≤14는 보호자 대상, ≥15는 보호자 불필요입니다. DOB는 User/Signup 응답·AI DTO에 노출하지 않고 보호자 확인 증거를 만들지 않습니다. [승인 기준과 수정 요청](birthdate-policy-and-correction.md).
 
 `affiliation`은 선택이며 공백을 제거한 뒤 최대 100자입니다. `learningEmailOptIn`은 생략 시 `false`입니다. 가입 동의 필수 여부는 `edupilot.policy.signup-consent-required`(환경변수 `EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED`, 기본 `false`)로 제어합니다. 현재 `requiresConsent=true` 문서가 있으면 설정 `true`일 때 동의 배열이 필수이고, `false`일 때 생략·빈 배열은 가입을 허용하며 동의 이력을 만들지 않습니다. 배열을 보내면 동의 대상 현재 버전을 정확히 한 번씩 보내야 하며 동의 버전·시각·IP·User-Agent를 가입 트랜잭션에서 저장합니다. 대상이 있는 경우의 누락·중복·버전 불일치는 `POLICY_CONSENT_REQUIRED`(400)입니다. 현재 동의 대상 문서가 하나도 없으면 런타임과 `PolicyServiceTest`는 설정 `true`여도 동의 없는 가입을 허용합니다. 이는 출시 정책 게시 준비를 대신하지 않으며 기존 필수 설정을 끄거나 defaults를 바꾸는 변경은 아닙니다. `requiresConsent=false` 문서를 함께 보내면 가입 검증에서는 무시합니다. 위 버전 `0.9`는 과거 합성 예시이며 V48 시드의 **법무 검토 전 초안**은 V49에서 동의 비대상으로 명시했습니다. 실제 요청은 `GET /api/policies/current`의 현재 동의 대상 버전을 사용합니다.
 
@@ -3335,7 +3335,18 @@ Existing withdrawal/material-delete response shapes are unchanged. Success means
 
 ### New-signup DOB input (#478 foundation)
 
-LOCAL signup requires ISO dateOfBirth; new Google signup also requires it but existing subject login omits it and never overwrites stored DOB. The field is input-only; it does not approve age/guardian status. Protected business APIs, files, SSE, and existing AI pre-transmission gates now reject NEW_SIGNUP UNKNOWN with AGE_VERIFICATION_REQUIRED(403) and MANUAL_PENDING with GUARDIAN_VERIFICATION_PENDING(403), after email evidence checks. Email confirmation does not unlock these accounts. Authentication/self-management exceptions and V58 LEGACY_EXEMPT access remain. No age classification, successful guardian transition, or approval endpoint is added. [Business boundary](business-eligibility-gate.md), [foundation and pending policy](birthdate-guardian-foundation.md).
+LOCAL and new Google signup require ISO dateOfBirth and reject dates after today in Asia/Seoul. Existing Google login ignores submitted DOB and never overwrites it. The approved KST current-year minus birth-year rule includes difference ≤14 in the guardian cohort; difference ≥15 requires no guardian when other conditions hold. Protected business APIs/files/SSE/AI and locked turn persistence still require email evidence first for NEW_SIGNUP; guardian-cohort or missing-DOB UNKNOWN returns AGE_VERIFICATION_REQUIRED(403), MANUAL_PENDING returns GUARDIAN_VERIFICATION_PENDING(403). Classification does not change guardian evidence states. Authentication/self-management exceptions, mandatory signup consents and V58 LEGACY_EXEMPT remain. [Policy and correction intake](birthdate-policy-and-correction.md), [business boundary](business-eligibility-gate.md).
+
+### 생년월일 관리자 수정 요청 (#519)
+
+| Method·경로 | 계약 |
+| --- | --- |
+| `POST /api/users/me/birthdate-correction-requests` | 활성 본인 로그인; `{ "requestedDateOfBirth": "2011-12-31" }`, 이메일/보호자 대기 중에도 접수 가능 |
+| `GET /api/users/me/birthdate-correction-requests` | 본인 요청만 반환; 없으면 `data: null` |
+| `GET /api/admin/birthdate-correction-requests?page=0&size=20` | 현재 DB ADMIN; PENDING만 요청시각/ID 오름차순; size 1~100 |
+| `GET /api/admin/birthdate-correction-requests/{id}` | 현재 DB ADMIN; 없으면 `BIRTHDATE_CORRECTION_NOT_FOUND`(404) |
+
+접수/상세 data는 `{id,userId,requestedDateOfBirth,state,requestedAt}`, 목록 data는 `{requests,page,size,totalElements,totalPages}`다. 모든 성공 응답은 no-store다. 동일 날짜의 재접수는 최초 ID/시각을 반환하며, 다른 날짜의 대기 요청은 `BIRTHDATE_CORRECTION_PENDING`(409), 현재 DOB와 같은 요청·미래 날짜·누락은 `VALIDATION_FAILED`(400)이다. 타인 ID로 조회/접수하는 본인 경로는 없다. 접수는 User DOB와 업무 자격을 변경하지 않는다. 승인·수정 쓰기 API는 없고 탈퇴는 요청 DOB를 제거하고 WITHDRAWN으로 기록한다. [완료 경계와 남은 절차](birthdate-policy-and-correction.md).
 
 ### Current authorization and SSE reconnect (#479)
 

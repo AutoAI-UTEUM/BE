@@ -34,7 +34,7 @@ public class EmailVerificationController {
 		return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(ApiResponse.success(service.status(user.userId())));
 	}
 	@PostMapping("/confirm")
-	@Operation(summary = "이메일 소유 확인 확정", description = "30분 유효·1회 사용. 링크 열기(GET)는 상태를 변경하지 않습니다. 이메일 확정은 연령·보호자 이용 승인과 별개이며, 신규 UNKNOWN/MANUAL_PENDING 계정은 업무 API·AI 이용이 계속 제한됩니다.")
+	@Operation(summary = "이메일 소유 확인 확정", description = "30분 유효·1회 사용. 링크 열기(GET)는 상태를 변경하지 않습니다. 이메일 확정은 보호자 확인 증거와 별개입니다. 신규 계정의 KST 연도차 ≤14 또는 DOB 미확인은 계속 차단하며 ≥15는 다른 이용 조건 충족 시 보호자가 불필요합니다.")
 	public ResponseEntity<ApiResponse<EmailVerificationResponse>> confirm(@Valid @RequestBody EmailVerificationConfirmRequest body,
 		HttpServletRequest request) {
 		return ResponseEntity.ok().cacheControl(CacheControl.noStore())

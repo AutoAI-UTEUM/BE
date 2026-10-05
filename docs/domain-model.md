@@ -8,9 +8,11 @@
 
 ## 1. 도메인 경계
 
+#519의 DOB 정책은 `Asia/Seoul` 오늘 이하 입력과 현재 연도−출생 연도를 사용한다. 연도차 ≤14·DOB 미확인은 보호자 대상, ≥15는 다른 조건 충족 시 보호자 불필요다. 이 분류는 `UNKNOWN`/`MANUAL_PENDING` 증거 상태나 V58 cohort를 변경하지 않는다. `BirthdateCorrectionRequest`는 user당 하나의 `PENDING` 접수만 보관하며 User DOB를 변경하지 않는다. 탈퇴는 요청 DOB를 제거하고 `WITHDRAWN`으로 바꾼다. [승인 기준·정정 접수와 남은 절차](birthdate-policy-and-correction.md).
+
 | 도메인 | 주요 모델 | 책임 |
 | --- | --- | --- |
-| Identity | User, AuthSession, RefreshToken | 인증 주체, 역할, 계정 상태, 브라우저·기기별 인증 수명 |
+| Identity | User, AuthSession, RefreshToken, BirthdateCorrectionRequest | 인증 주체, 역할, 계정 상태, 인증 수명, 관리자 DOB 정정 요청 접수 |
 | Material | LearningMaterial, MaterialPage, MaterialOverview | PDF 메타데이터, 페이지 문맥과 자료 개요 |
 | Classroom | Classroom, ClassroomMember, ClassroomJoinRequest, ClassroomWeek, ClassroomWeekMaterial, ClassroomNotice, ClassroomResource | 강의실 소유권, 참여, 주차 학습 자료, 일반 파일·링크 자료, 즉시·예약 공지 |
 | Notification | Notification | 사용자 귀속 인앱 알림, 읽음·보관 수명 |
@@ -382,7 +384,7 @@ Logical deletion and per-asset tombstones commit together. Ordinary owner-reques
 
 ### Age input and pending intake (#478 foundation)
 
-New signup captures an input birthdate without calculating age. Legacy DOB stays null/UNKNOWN. Manual intake persists PENDING and cannot produce an approved state. User-row locking serializes request/withdrawal; withdrawal clears DOB and cancels pending intake. The shared age rule now rejects NEW_SIGNUP UNKNOWN/MANUAL_PENDING at protected business API/file/SSE and existing AI pre-transmission gates. Stream/completion/response checks use a fresh scalar projection; normal and cancelled-partial turn persistence applies the same rule under the existing account current-read lock before any AI result writes. V58 LEGACY_EXEMPT is a separate access exception after account/role checks; it never grants verification evidence. No approved state, age classification, or production cohort mutation is added. [Business boundary](business-eligibility-gate.md), [foundation](birthdate-guardian-foundation.md), [legacy access](legacy-account-access.md).
+Signup captures DOB after KST future-date validation. Legacy DOB stays null/UNKNOWN. The approved KST year difference ≥15 requires no guardian; ≤14 or missing DOB remains blocked by UNKNOWN/MANUAL_PENDING after email checks. Classification does not change stored verification evidence. Stream/completion/response checks use a fresh scalar projection; normal and cancelled-partial turn persistence applies the same rule under the existing account current-read lock before AI result writes. V58 LEGACY_EXEMPT is a separate access exception, not verification evidence. BirthdateCorrectionRequest stores one pending intake per user; submission cannot mutate User DOB, and withdrawal erases requested DOB. No guardian approval or production cohort mutation is added. [Current policy and correction intake](birthdate-policy-and-correction.md), [business boundary](business-eligibility-gate.md).
 
 ### Committed authorization revocation (#479)
 

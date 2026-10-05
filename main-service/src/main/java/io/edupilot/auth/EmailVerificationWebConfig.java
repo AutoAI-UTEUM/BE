@@ -12,6 +12,6 @@ public class EmailVerificationWebConfig implements WebMvcConfigurer {
 		registry.addInterceptor(interceptor).order(100).addPathPatterns("/api/**")
 			.excludePathPatterns("/api/auth/**", "/api/health", "/api/health/**", "/api/policies/**",
 				"/api/users/me", "/api/users/me/password", "/api/users/me/preferences",
-				"/api/users/me/avatar", "/api/users/me/consents");
+				"/api/users/me/avatar", "/api/users/me/consents", "/api/users/me/birthdate-correction-requests");
 	}
 }

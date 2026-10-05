@@ -1,5 +1,7 @@
 package io.edupilot.auth;
 
+import java.time.Clock;
+
 import org.springframework.stereotype.Component;
 
 import io.edupilot.global.error.ErrorCode;
@@ -11,9 +13,11 @@ import io.edupilot.user.UserStatus;
 @Component
 public class UserAccessGuard {
 	private final UserRepository users;
+	private final Clock clock;
 
-	public UserAccessGuard(UserRepository users) {
+	public UserAccessGuard(UserRepository users, Clock clock) {
 		this.users = users;
+		this.clock = clock;
 	}
 
 	public ErrorCode check(AuthenticatedUser principal) {
@@ -28,7 +32,7 @@ public class UserAccessGuard {
 		var state = users.findBusinessAccessStateById(principal.userId()).orElse(null);
 		if (state == null) return ErrorCode.TOKEN_INVALID;
 		ErrorCode failure = authorizationFailure(principal, state.role(), state.status());
-		return failure == null ? state.eligibilityFailure() : failure;
+		return failure == null ? state.eligibilityFailure(clock) : failure;
 	}
 
 	private ErrorCode authorizationFailure(AuthenticatedUser principal, UserRole role, UserStatus status) {

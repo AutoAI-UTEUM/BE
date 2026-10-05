@@ -214,10 +214,10 @@ public class User {
 		this.passwordHash = passwordHash;
 	}
 
-	/** Input capture only, restricted to creation. No age, timezone or guardian approval is inferred. */
+	/** Creation-only capture. The signup service validates the approved KST calendar policy. */
 	public void recordSignupDateOfBirth(java.time.LocalDate date) {
 		if(id!=null || date==null) { throw new IllegalStateException("Birth date can only be captured during signup"); }
-		// SQL DATE storage capacity only; no current-date/timezone/age policy is selected here.
+		// Storage bounds also protect internal fixture/import callers. No guardian evidence is inferred.
 		if(date.getYear()<1 || date.getYear()>9999) {
 			throw new io.edupilot.global.error.BusinessException(io.edupilot.global.error.ErrorCode.VALIDATION_FAILED);
 		}

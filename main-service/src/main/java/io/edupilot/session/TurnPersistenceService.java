@@ -318,7 +318,7 @@ public class TurnPersistenceService {
 			throw new BusinessException(ErrorCode.TOKEN_INVALID);
 		}
 		// Apply eligibility under the same current-read account lock, before any AI result writes.
-		ErrorCode eligibilityFailure = UserBusinessAccessState.from(user).eligibilityFailure();
+		ErrorCode eligibilityFailure = UserBusinessAccessState.from(user).eligibilityFailure(clock);
 		if (eligibilityFailure != null) throw new BusinessException(eligibilityFailure);
 		LearningSession session = sessionRepository.findOwnedForUpdate(sessionId, userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));

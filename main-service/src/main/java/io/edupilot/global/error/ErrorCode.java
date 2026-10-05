@@ -3,6 +3,8 @@ package io.edupilot.global.error;
 import org.springframework.http.HttpStatus;
 
 public enum ErrorCode {
+	BIRTHDATE_CORRECTION_PENDING("BIRTHDATE_CORRECTION_PENDING", HttpStatus.CONFLICT, "이미 대기 중인 생년월일 수정 요청이 있습니다."),
+	BIRTHDATE_CORRECTION_NOT_FOUND("BIRTHDATE_CORRECTION_NOT_FOUND", HttpStatus.NOT_FOUND, "생년월일 수정 요청을 찾을 수 없습니다."),
 	GUARDIAN_VERIFICATION_UNAVAILABLE("GUARDIAN_VERIFICATION_UNAVAILABLE", HttpStatus.SERVICE_UNAVAILABLE,
 		"보호자 문자 확인이 준비되지 않았습니다."),
 	GUARDIAN_LINK_INVALID("GUARDIAN_LINK_INVALID", HttpStatus.BAD_REQUEST, "유효하지 않거나 만료된 보호자 확인 링크입니다."),

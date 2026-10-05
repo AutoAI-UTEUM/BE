@@ -87,6 +87,7 @@ class GuardianBusinessGateJpaTest {
 	@Autowired private MaterialAccessService materialAccess;
 	@Autowired private MaterialExtractionService extraction;
 	@Autowired private PlatformTransactionManager transactions;
+	@Autowired private Clock clock;
 	@MockitoBean private MaterialExtractionPersistenceService extractionState;
 	@MockitoBean private AiClient ai;
 	@MockitoBean private FileStorage files;
@@ -248,8 +249,11 @@ class GuardianBusinessGateJpaTest {
 	}
 
 	private Fixture fixture(UserRole role, AgeVerificationState state, boolean legacy) {
+		return fixture(role, state, legacy, LocalDate.of(io.edupilot.guardian.BirthdatePolicy.today(clock).getYear() - 14, 12, 31));
+	}
+	private Fixture fixture(UserRole role, AgeVerificationState state, boolean legacy, LocalDate date) {
 		User user = User.create("synthetic-guardian-" + UUID.randomUUID() + "@example.com", "synthetic-hash", "Synthetic guardian actor", role);
-		user.recordSignupDateOfBirth(LocalDate.of(2000, 1, 1));
+		user.recordSignupDateOfBirth(date);
 		user.verifyEmail(Instant.parse("2020-01-01T00:00:00Z"));
 		if (state == AgeVerificationState.MANUAL_PENDING) user.beginGuardianVerification();
 		user = users.saveAndFlush(user);
@@ -263,6 +267,16 @@ class GuardianBusinessGateJpaTest {
 		material = materials.saveAndFlush(material);
 		LearningSession session = sessions.saveAndFlush(LearningSession.create(user, material));
 		return new Fixture(user, material, session);
+	}
+	@ParameterizedTest @MethodSource("statesAndRoles")
+	void newAccountsOutsideTheGuardianYearCohortCanUseProtectedFilesAndStreamGuardsWithoutApprovalState(UserRole role, AgeVerificationState state) throws Exception {
+		Fixture fixture=fixture(role,state,false,LocalDate.of(io.edupilot.guardian.BirthdatePolicy.today(clock).getYear()-15,12,31));
+		mvc.perform(get("/api/materials/"+fixture.material.getId()+"/file").header("Authorization",bearer(fixture.user))).andExpect(status().isOk());
+		eligibility.requireVerified(fixture.user.getId());eligibility.requireMaterialOwnerVerified(fixture.material.getId());eligibility.requireSessionOwnerVerified(fixture.session.getId());
+		assertThat(streamAccess.captureRole(fixture.user.getId())).isEqualTo(role);
+		streamAccess.assertAccessible(fixture.user.getId(),fixture.session.getId(),role);
+		assertThat(users.findById(fixture.user.getId()).orElseThrow().getAgeVerificationState()).isEqualTo(state);
+		verifyNoInteractions(ai);
 	}
 	private String bearer(User user) { return "Bearer " + tokens.createAccessToken(user); }
 	private static ErrorCode error(AgeVerificationState state) {

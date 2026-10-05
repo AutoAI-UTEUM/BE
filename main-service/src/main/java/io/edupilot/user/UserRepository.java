@@ -32,7 +32,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 	@Query("""
 		select new io.edupilot.user.UserBusinessAccessState(
 			account.role, account.status, account.emailVerificationState, account.emailVerifiedAt,
-			account.accessCohort, account.ageVerificationState)
+			account.accessCohort, account.ageVerificationState, account.dateOfBirth)
 		from User account where account.id = :userId
 		""")
 	Optional<UserBusinessAccessState> findBusinessAccessStateById(@Param("userId") Long userId);

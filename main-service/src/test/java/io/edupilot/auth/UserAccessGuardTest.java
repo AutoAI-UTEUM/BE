@@ -25,7 +25,7 @@ class UserAccessGuardTest {
 	@Test
 	void everyRequestReadsCurrentDatabaseStateWithoutAnInvalidationNotification() {
 		UserRepository repository = mock(UserRepository.class);
-		UserAccessGuard guard = new UserAccessGuard(repository);
+		UserAccessGuard guard = new UserAccessGuard(repository, java.time.Clock.systemUTC());
 		when(repository.findAccessStateById(1L)).thenReturn(
 			Optional.of(new UserAccessState(UserRole.LEARNER, UserStatus.ACTIVE)),
 			Optional.of(new UserAccessState(UserRole.LEARNER, UserStatus.SUSPENDED)));
@@ -39,7 +39,7 @@ class UserAccessGuardTest {
 	@Test
 	void changedRoleInvalidatesOldJwtAuthority() {
 		UserRepository repository = mock(UserRepository.class);
-		UserAccessGuard guard = new UserAccessGuard(repository);
+		UserAccessGuard guard = new UserAccessGuard(repository, java.time.Clock.systemUTC());
 		when(repository.findAccessStateById(1L))
 			.thenReturn(Optional.of(new UserAccessState(UserRole.ADMIN, UserStatus.ACTIVE)));
 		assertThat(guard.check(new AuthenticatedUser(1L, UserRole.LEARNER)))
@@ -49,7 +49,7 @@ class UserAccessGuardTest {
 	@Test
 	void deletedAndAbsentUsersCannotAuthenticate() {
 		UserRepository repository = mock(UserRepository.class);
-		UserAccessGuard guard = new UserAccessGuard(repository);
+		UserAccessGuard guard = new UserAccessGuard(repository, java.time.Clock.systemUTC());
 		when(repository.findAccessStateById(1L)).thenReturn(
 			Optional.of(new UserAccessState(UserRole.LEARNER, UserStatus.DELETED)), Optional.empty());
 		AuthenticatedUser principal = new AuthenticatedUser(1L, UserRole.LEARNER);
@@ -63,8 +63,8 @@ class UserAccessGuardTest {
 		when(repository.findAccessStateById(1L)).thenReturn(Optional.of(new UserAccessState(UserRole.LEARNER, UserStatus.ACTIVE)));
 		when(repository.findBusinessAccessStateById(1L)).thenReturn(Optional.of(new UserBusinessAccessState(
 			UserRole.LEARNER, UserStatus.ACTIVE, EmailVerificationState.VERIFIED, Instant.EPOCH,
-			AccountAccessCohort.NEW_SIGNUP, AgeVerificationState.UNKNOWN)));
-		UserAccessGuard guard = new UserAccessGuard(repository);
+			AccountAccessCohort.NEW_SIGNUP, AgeVerificationState.UNKNOWN, null)));
+		UserAccessGuard guard = new UserAccessGuard(repository, java.time.Clock.systemUTC());
 		AuthenticatedUser principal = new AuthenticatedUser(1L, UserRole.LEARNER);
 		assertThat(guard.check(principal)).isNull();
 		assertThat(guard.checkBusiness(principal)).isEqualTo(ErrorCode.AGE_VERIFICATION_REQUIRED);
@@ -75,12 +75,12 @@ class UserAccessGuardTest {
 		UserRepository repository = mock(UserRepository.class);
 		when(repository.findBusinessAccessStateById(1L)).thenReturn(
 			Optional.of(new UserBusinessAccessState(UserRole.ADMIN, UserStatus.ACTIVE,
-				EmailVerificationState.UNKNOWN, null, AccountAccessCohort.LEGACY_EXEMPT, AgeVerificationState.UNKNOWN)),
+				EmailVerificationState.UNKNOWN, null, AccountAccessCohort.LEGACY_EXEMPT, AgeVerificationState.UNKNOWN, null)),
 			Optional.of(new UserBusinessAccessState(UserRole.ADMIN, UserStatus.ACTIVE,
-				EmailVerificationState.VERIFIED, Instant.EPOCH, AccountAccessCohort.NEW_SIGNUP, AgeVerificationState.MANUAL_PENDING)),
+				EmailVerificationState.VERIFIED, Instant.EPOCH, AccountAccessCohort.NEW_SIGNUP, AgeVerificationState.MANUAL_PENDING, null)),
 			Optional.of(new UserBusinessAccessState(UserRole.ADMIN, UserStatus.ACTIVE,
-				EmailVerificationState.VERIFIED, null, AccountAccessCohort.NEW_SIGNUP, AgeVerificationState.MANUAL_PENDING)));
-		UserAccessGuard guard = new UserAccessGuard(repository);
+				EmailVerificationState.VERIFIED, null, AccountAccessCohort.NEW_SIGNUP, AgeVerificationState.MANUAL_PENDING, null)));
+		UserAccessGuard guard = new UserAccessGuard(repository, java.time.Clock.systemUTC());
 		AuthenticatedUser principal = new AuthenticatedUser(1L, UserRole.ADMIN);
 		assertThat(guard.checkBusiness(principal)).isNull();
 		assertThat(guard.checkBusiness(principal)).isEqualTo(ErrorCode.GUARDIAN_VERIFICATION_PENDING);
@@ -93,12 +93,12 @@ class UserAccessGuardTest {
 		UserRepository repository = mock(UserRepository.class);
 		when(repository.findBusinessAccessStateById(1L)).thenReturn(
 			Optional.of(new UserBusinessAccessState(UserRole.LEARNER, UserStatus.SUSPENDED,
-				EmailVerificationState.UNKNOWN, null, AccountAccessCohort.NEW_SIGNUP, AgeVerificationState.UNKNOWN)),
+				EmailVerificationState.UNKNOWN, null, AccountAccessCohort.NEW_SIGNUP, AgeVerificationState.UNKNOWN, null)),
 			Optional.of(new UserBusinessAccessState(UserRole.LEARNER, UserStatus.DELETED,
-				EmailVerificationState.UNKNOWN, null, AccountAccessCohort.NEW_SIGNUP, AgeVerificationState.UNKNOWN)),
+				EmailVerificationState.UNKNOWN, null, AccountAccessCohort.NEW_SIGNUP, AgeVerificationState.UNKNOWN, null)),
 			Optional.of(new UserBusinessAccessState(UserRole.ADMIN, UserStatus.ACTIVE,
-				EmailVerificationState.UNKNOWN, null, AccountAccessCohort.LEGACY_EXEMPT, AgeVerificationState.UNKNOWN)), Optional.empty());
-		UserAccessGuard guard = new UserAccessGuard(repository);
+				EmailVerificationState.UNKNOWN, null, AccountAccessCohort.LEGACY_EXEMPT, AgeVerificationState.UNKNOWN, null)), Optional.empty());
+		UserAccessGuard guard = new UserAccessGuard(repository, java.time.Clock.systemUTC());
 		AuthenticatedUser principal = new AuthenticatedUser(1L, UserRole.LEARNER);
 		assertThat(guard.checkBusiness(principal)).isEqualTo(ErrorCode.ACCOUNT_SUSPENDED);
 		assertThat(guard.checkBusiness(principal)).isEqualTo(ErrorCode.TOKEN_INVALID);

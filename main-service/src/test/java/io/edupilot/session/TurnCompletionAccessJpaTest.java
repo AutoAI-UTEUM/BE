@@ -102,6 +102,7 @@ class TurnCompletionAccessJpaTest {
 	@Autowired private TurnPreparationService preparation;
 	@Autowired private TurnPersistenceService persistence;
 	@Autowired private PlatformTransactionManager transactions;
+	@Autowired private java.time.Clock clock;
 	@Autowired private LearnerMemoryCandidateRepository candidates;
 	@MockitoBean private AiClient ai;
 	@MockitoBean private AiUsageService usage;
@@ -425,6 +426,19 @@ class TurnCompletionAccessJpaTest {
 		session = sessions.saveAndFlush(LearningSession.create(learner, material));
 		persist(prepare());
 		assertThat(aiMessageCount()).isEqualTo(1);
+		claims.release(session.getId(), REQUEST_ID);
+	}
+
+	@Test
+	void newAccountOutsideGuardianYearCohortCanPersistWithoutLegacyOrGuardianApproval() {
+		int birthYear=io.edupilot.guardian.BirthdatePolicy.today(clock).getYear()-15;
+		jdbc.update("update users set access_cohort='NEW_SIGNUP',date_of_birth=?,age_verification_state='UNKNOWN' where id=?",
+			java.sql.Date.valueOf(LocalDate.of(birthYear,12,31)),learner.getId());
+		persist(prepare());
+		assertThat(aiMessageCount()).isEqualTo(1);
+		User current=users.findById(learner.getId()).orElseThrow();
+		assertThat(current.getAccessCohort()).isEqualTo(io.edupilot.user.AccountAccessCohort.NEW_SIGNUP);
+		assertThat(current.getAgeVerificationState()).isEqualTo(io.edupilot.guardian.AgeVerificationState.UNKNOWN);
 		claims.release(session.getId(), REQUEST_ID);
 	}
 

@@ -11,9 +11,12 @@
 
 ## 1. 테이블 목록
 
+V60은 DOB 관리자 수정 요청 접수 테이블만 생성하며 기존 users DOB/cohort/이메일·연령 증거를 backfill하지 않는다. 요청과 탈퇴는 User 행을 먼저 잠그고 탈퇴 트랜잭션에서 요청 DOB 제거를 함께 반영한다. metadata 보존기간·관리자 정정 실행은 미정이다. KST 현재 연도 기준은 읽을 때 계산하며 DB 인증 상태를 변경하지 않는다. [정책·검증 경계](birthdate-policy-and-correction.md).
+
 | 테이블 | 핵심 컬럼 | 주요 제약/인덱스 |
 | --- | --- | --- |
 | `users` | id, email, password_hash, auth_provider, google_sub(nullable), name, affiliation, avatar_key, learning_email_opt_in, 약관 버전·동의 시각, notification preferences, ai_answer_style, role, status, last_active_at(nullable), suspended_at/reason/by(nullable), timestamps | `UK(email)`, `UK(google_sub)`, `IDX(status)`, `IDX(last_active_at)`, role·status·ai_answer_style CHECK |
+| `birthdate_correction_requests` (V60) | id, user_id, requested_date_of_birth(nullable on withdrawal), state, requested_at(UTC DATETIME(6)) | `UK(user_id)`, `FK(users)`, PENDING/DOB 필수·WITHDRAWN/DOB NULL CHECK, `IDX(state,requested_at,id)`; 승인 상태 없음 |
 | `auth_sessions` | id, user_id, last_activity_at, idle_expires_at, absolute_expires_at, revoked_at(nullable), timestamps | `FK(user_id)`, `IDX(user_id,revoked_at)`, 만료 순서 CHECK |
 | `refresh_tokens` | id, user_id, session_id(nullable), token_hash, expires_at, revoked_at, created_at | `FK(user_id)`, `FK(session_id)`, `UK(token_hash)`, `IDX(user_id)`, `IDX(session_id,revoked_at)` |
 | `password_reset_tokens` | id, user_id, token_hash(SHA-256 hex), expires_at, used_at(nullable), requested_ip, created_at | `FK(user_id)`, `UK(token_hash)`, `IDX(user_id,created_at)`; 원문 미저장 |

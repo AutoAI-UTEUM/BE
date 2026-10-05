@@ -27,7 +27,7 @@ public record GoogleLoginRequest(
 	String affiliation,
 
 	@Schema(accessMode = Schema.AccessMode.WRITE_ONLY, type = "string", format = "date",
-		description = "새 Google 계정 생성에만 필수. 기존 Google 로그인에는 재입력하지 않으며 기존 값을 변경하지 않습니다.")
+		description = "새 Google 계정 생성에만 필수. Asia/Seoul 오늘 이후는 VALIDATION_FAILED(400). 기존 Google 로그인은 제출한 날짜를 검증·반영하지 않고 기존 DOB를 변경하지 않습니다. 보호자 대상 연도 기준은 LOCAL과 같습니다.")
 	java.time.LocalDate dateOfBirth
 ) {
 }

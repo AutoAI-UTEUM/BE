@@ -201,7 +201,7 @@ class SessionAccessRevocationJpaTest {
 	}
 
 	private UserAccessGuard warmedOtherInstance(User user) {
-		UserAccessGuard guard = new UserAccessGuard(users);
+		UserAccessGuard guard = new UserAccessGuard(users, java.time.Clock.systemUTC());
 		assertThat(guard.check(new AuthenticatedUser(user.getId(), user.getRole()))).isNull();
 		return guard;
 	}
