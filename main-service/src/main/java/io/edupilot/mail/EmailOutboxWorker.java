@@ -55,7 +55,7 @@ public class EmailOutboxWorker {
 	}
 
 	public void kick(Long id) {
-		if (!properties.enabled() || !queuedIds.add(id)) {
+		if (!properties.enabled() || outbox.dispatchBlocked(id) || !queuedIds.add(id)) {
 			return;
 		}
 		try {

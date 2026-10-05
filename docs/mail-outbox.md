@@ -45,6 +45,41 @@ lease 2분, 확정된 429 재시도 간격 30초, 최대 provider 호출 3회다
 본문 DB 삽입 실패는 호출자 트랜잭션 실패로 전파된다. provider 실패는 비동기로 이력에 기록한다.
 커밋 직후 dispatch 전에 종료되거나 실행기가 포화되면 READY 작업이 남아 다음 회수에서 처리된다.
 
+## 일시정지와 지정 작업 시험
+
+`feature/473-scoped-outbox-dispatch`는 `EDUPILOT_MAIL_OUTBOX_DISPATCH_MODE`를 추가한다.
+기본 `NORMAL`은 기존 회수·발송 동작을 유지한다. `PAUSED`는 신규 payload를 정상적으로
+outbox에 보존하면서 자동 회수 발송과 커밋 후/direct kick 발송을 모두 막는다.
+`EDUPILOT_MAIL_ENABLED=false`와 달리 새 요청을 DISABLED로 종결하지 않는다.
+어느 모드에서도 만료 본문·lease 정리는 계속되며 이미 시작된 provider 호출은 취소할 수 없다.
+
+`ISOLATED_TRIAL`은 `EDUPILOT_MAIL_OUTBOX_DISPATCH_DELIVERY_IDS`의 양수 ID 1~3개와
+`EDUPILOT_MAIL_OUTBOX_DISPATCH_RECIPIENT`의 정확한 수신자 한 명을 함께 요구한다.
+잘못된 모드·빈 승인·4개 이상 ID·여러 수신자는 기동 실패다. NORMAL/PAUSED에 시험 승인 값을
+남기는 설정도 기동 실패로 처리하여 제한이 빠진 상태로 자동 전환하지 않는다.
+선택한 ID의 이력과 복호화한 payload 수신자가 모두 일치해야 한다. 다른 READY/RETRY 작업은
+발송·quota 예약 없이 보존한다. 선택 조회를 별도로 사용하여 앞쪽의 비시험 대기가 시험 작업을
+가리지 않으며 direct kick과 SENDING 직전에도 같은 제한을 확인한다.
+
+각 승인 ID는 provider 시도를 최대 한 번 한다. DB 잠금 아래 SENDING/attempt_count를 먼저
+커밋하며 outbox와 delivery 이력의 시도 수가 모두 0인 작업만 허용한다. 같은 DB와 고정된 승인
+목록을 사용하는 여러 worker·재시작이 횟수를 초기화하지 않는다. 확정된 429도 한 번을 사용하므로
+RETRY를 추가 발송하지 않고 만료 시 정리한다. 불확실 결과 UNKNOWN을 재전송하지 않는다.
+이 제한은 SES SDK 내부 재시도 1회 설정을 유지하는 경계에서 provider 요청 최대 1~3개를 뜻한다.
+본문 크기·요금제·부가 요금을 포함한 금액 상한이나 inbox 도착 보장은 아니다.
+
+이 모드는 기존 DB 복원·행 삭제/시도 수 변경·승인 목록 변경을 넘어서는 외부 영속 예산이 아니다.
+시험 동안 대상 DB/ID/수신자·설정을 고정하고 동일 설정을 모든 발송 인스턴스에 적용해야 한다.
+기존 NORMAL worker/진행 중 호출을 먼저 중지·정리하지 않은 채 한 인스턴스만 바꾸면 전체 발송
+격리를 보장할 수 없다. 실제 환경의 provider 전환·추가 발송·백업 복원은 별도 승인 경계다.
+기존 standalone SES 시험의 사용 기록이나 budget은 이 모드로 재사용하지 않는다.
+
+승인된 향후 서비스 시험은 PAUSED 상태에서 합성 계정의 필요한 메일을 큐에 넣고 검토한 ID만
+ISOLATED_TRIAL 설정에 고정하는 경로로 준비할 수 있다. 1건 가입, 2건 재발급, 3종 각각 한 건은
+각각 1/2/3개 ID로 나누어 검토한다. 4건 이상 시나리오는 한 번의 시험으로 허용하지 않는다.
+실제 주소·token·본문·키를 공개 저장소/로그에 쓰지 않는다. 현재 변경은 코드·합성 테스트 범위이며
+운영 설정을 전환하거나 실제 메일을 추가 발송하지 않는다.
+
 ## 키와 로그
 
 AES-256-GCM은 매번 무작위 nonce를 만들고 delivery ID를 인증된 추가 데이터에 묶는다.

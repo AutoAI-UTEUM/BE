@@ -81,7 +81,7 @@ domain 인증이 성공하면 그 domain의 From 주소가 포함될 수 있어 
 
 2026-10-05 [공식 가격](https://aws.amazon.com/ses/pricing/) 기준 à-la-carte는 $0.10/1,000 recipient, Essentials/Pro/Enterprise 첫 구간은 각각 $0.16/$0.22/$0.23/1,000이다. 따라서 **기본 outbound 1~5건의 추가분은 $0.00010~$0.00115**, 권장 2건은 $0.00020~$0.00046로 계산된다. 첨부 없는 현재 SDK 요청을 전제한다. 무료 혜택·환율/세금·EC2 전송·현재 요금제/VDM/validation/고정 구독료는 미확인으로 이 범위에 넣지 않는다. 새 요금제/전용 IP/추가 기능을 켜지 않는다. simulator도 일반 outbound 요금 대상이다.
 
-이 건수는 **시험 제안이지 runtime hard cap이 아니다**. 현재 코드에는 receiver allowlist나 시험별 1/2건 hard cap이 없고 수신자당 5회/시간·전체 KST 500회/일 예약만 있다. signup pause도 reset/notification 등 다른 mail producer를 멈추지 않는다. shared DEV에서 provider만 바꾸면 비용/수신 범위를 보장할 수 없다. 운영자는 기존 대기·다른 producer 영향과 격리된 합성 sender 실행 경계를 먼저 결정해야 한다. 확인 전 전역 SES 전환/메일 발송을 하지 않는다.
+이 건수는 **시험 제안이며 실제 환경의 발송 제한 적용 증거가 아니다**. 후속 `feature/473-scoped-outbox-dispatch`의 [메일 dispatch 모드](mail-outbox.md#일시정지와-지정-작업-시험)는 PAUSED에서 새 메일을 보존하고 ISOLATED_TRIAL에서 검토한 ID 1~3개·정확한 수신자 한 명·ID당 한 번의 provider 시도만 허용한다. 같은 DB와 고정 승인 목록, 모든 worker의 동일 설정을 전제하며 운영 적용은 미확인이다. 기존 수신자당 5회/시간·전체 KST 500회/일 quota도 유지한다. signup pause는 reset/notification producer를 멈추지 않지만 이 dispatch 제한은 그 producer의 비시험 작업도 보존한다. 비용 전체를 보장하는 외부 영속 예산은 아니며 NORMAL worker나 이미 진행 중인 요청이 함께 있으면 격리를 보장하지 못한다. 기존 대기 처리·운영자·후보 배포 및 provider 전환·추가 발송 승인 전에는 실제 환경을 변경하지 않는다.
 
 ### 기존 outbox 영향
 

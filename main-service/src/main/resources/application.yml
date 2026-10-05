@@ -71,6 +71,10 @@ edupilot:
       max-attempts: 3
       batch-size: 50
       recovery-delay-ms: 30000
+      dispatch:
+        mode: ${EDUPILOT_MAIL_OUTBOX_DISPATCH_MODE:NORMAL}
+        delivery-ids: ${EDUPILOT_MAIL_OUTBOX_DISPATCH_DELIVERY_IDS:}
+        recipient: ${EDUPILOT_MAIL_OUTBOX_DISPATCH_RECIPIENT:}
   admin:
     infra:
       enabled: ${EDUPILOT_ADMIN_INFRA_ENABLED:false}

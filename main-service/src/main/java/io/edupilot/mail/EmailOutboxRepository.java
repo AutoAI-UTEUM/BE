@@ -33,4 +33,15 @@ public interface EmailOutboxRepository extends JpaRepository<EmailOutbox, Long> 
 		order by job.nextAttemptAt, job.id
 		""")
 	List<Long> findDispatchableIds(@Param("now") Instant now, Pageable pageable);
+
+	@Query("""
+		select job.id from EmailOutbox job join job.delivery delivery where
+		job.id in :ids and delivery.recipient = :recipient
+		and job.attemptCount = 0 and delivery.attemptCount = 0
+		and job.status in (io.edupilot.mail.EmailOutboxStatus.READY, io.edupilot.mail.EmailOutboxStatus.RETRY)
+		and job.nextAttemptAt <= :now and job.expiresAt > :now
+		order by job.nextAttemptAt, job.id
+		""")
+	List<Long> findTrialDispatchableIds(@Param("now") Instant now, @Param("ids") java.util.Set<Long> ids,
+		@Param("recipient") String recipient, Pageable pageable);
 }

@@ -18,15 +18,18 @@ public class EmailOutboxStore {
 	private final EmailDeliveryRepository deliveries;
 	private final EmailPayloadCipher cipher;
 	private final EmailOutboxProperties properties;
+	private final EmailDispatchProperties dispatch;
 	private final Clock clock;
 	private final EntityManager entities;
 
 	public EmailOutboxStore(EmailOutboxRepository jobs, EmailDeliveryRepository deliveries,
-		EmailPayloadCipher cipher, EmailOutboxProperties properties, Clock clock, EntityManager entities) {
+		EmailPayloadCipher cipher, EmailOutboxProperties properties, EmailDispatchProperties dispatch,
+		Clock clock, EntityManager entities) {
 		this.jobs = jobs;
 		this.deliveries = deliveries;
 		this.cipher = cipher;
 		this.properties = properties;
+		this.dispatch = dispatch;
 		this.clock = clock;
 		this.entities = entities;
 	}
@@ -48,8 +51,17 @@ public class EmailOutboxStore {
 
 	@Transactional(readOnly = true)
 	public List<Long> dispatchableIds() {
+		if (dispatch.mode() == EmailDispatchProperties.Mode.PAUSED) {
+			return List.of();
+		}
+		if (dispatch.mode() == EmailDispatchProperties.Mode.ISOLATED_TRIAL) {
+			return jobs.findTrialDispatchableIds(clock.instant(), dispatch.deliveryIds(), dispatch.recipient(),
+				PageRequest.of(0, properties.batchSize()));
+		}
 		return jobs.findDispatchableIds(clock.instant(), PageRequest.of(0, properties.batchSize()));
 	}
+
+	public boolean dispatchBlocked(Long id) { return dispatch.blocks(id); }
 
 	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public void recover(Long id) {
@@ -61,9 +73,12 @@ public class EmailOutboxStore {
 
 	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public Claim claim(Long id) {
+		if (dispatch.blocks(id)) {
+			return null;
+		}
 		EmailOutbox job = jobs.findForUpdate(id).orElse(null);
 		Instant now = clock.instant();
-		if (job == null) {
+		if (job == null || !dispatch.permits(job)) {
 			return null;
 		}
 		recover(job, now);
@@ -84,15 +99,22 @@ public class EmailOutboxStore {
 			return null;
 		}
 		String token = UUID.randomUUID().toString();
+		Claim claim = new Claim(id, token, message);
+		if (!dispatch.permits(claim)) {
+			return null;
+		}
 		job.claim(token, now.plus(properties.leaseDuration()));
-		return new Claim(id, token, message);
+		return claim;
 	}
 
 	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public boolean beginSending(Claim claim) {
+		if (!dispatch.permits(claim)) {
+			return false;
+		}
 		EmailOutbox job = jobs.findForUpdate(claim.id()).orElseThrow();
 		Instant now = clock.instant();
-		if (!job.ownedBy(claim.token()) || job.getStatus() != EmailOutboxStatus.CLAIMED
+		if (!dispatch.permits(job) || !job.ownedBy(claim.token()) || job.getStatus() != EmailOutboxStatus.CLAIMED
 			|| !job.leaseUntil().isAfter(now)) {
 			return false;
 		}
