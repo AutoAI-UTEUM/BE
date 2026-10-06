@@ -309,7 +309,11 @@ public class HttpAiClient implements AiClient {
 				.body(request)
 				.retrieve()
 				.body(TurnResponse.class);
-			validateTurnResponse(response, request);
+			try {
+				validateTurnResponse(response, request);
+			} catch (AiClientException exception) {
+				throw exception.withUsage(response == null ? null : response.usage());
+			}
 			return response;
 			}
 		);
@@ -405,10 +409,10 @@ public class HttpAiClient implements AiClient {
 			body
 		);
 		resetIdleTimeout(scheduler, idleTask, timeout, body);
+		TurnResponse completed = null;
 		try (BufferedReader reader = new BufferedReader(
 			new InputStreamReader(body, StandardCharsets.UTF_8)
 		)) {
-			TurnResponse completed = null;
 			AiClientException terminalError = null;
 			StringBuilder deltas = new StringBuilder();
 			int contentDeltaCount = 0;
@@ -532,17 +536,19 @@ public class HttpAiClient implements AiClient {
 					.log("Quiz preview count mismatch; completed takes precedence");
 			}
 			return completed;
+		} catch (AiClientException exception) {
+			throw exception.withUsage(completed == null ? null : completed.usage());
 		} catch (IOException exception) {
 			if (hasCause(exception, SocketTimeoutException.class)) {
-				throw streamTimeout(exception);
+				throw streamTimeout(exception).withUsage(completed == null ? null : completed.usage());
 			}
 			if (timeout.get() != null) {
-				throw streamTimeout(exception);
+				throw streamTimeout(exception).withUsage(completed == null ? null : completed.usage());
 			}
 			if (cancellation.isCancelled()) {
-				throw streamInterrupted(exception);
+				throw streamInterrupted(exception).withUsage(completed == null ? null : completed.usage());
 			}
-			throw streamInterrupted(exception);
+			throw streamInterrupted(exception).withUsage(completed == null ? null : completed.usage());
 		} finally {
 			ScheduledFuture<?> currentIdle = idleTask.getAndSet(null);
 			if (currentIdle != null) {
