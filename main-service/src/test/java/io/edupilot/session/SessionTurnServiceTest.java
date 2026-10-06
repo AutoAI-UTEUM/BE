@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
@@ -272,7 +273,7 @@ class SessionTurnServiceTest {
 			eq(AiFeature.TURN),
 			any(),
 			eq(true),
-			eq("request-1"),
+			eq(requests.getAllValues().get(1).turnId()),
 			eq(QuizDecisionSource.PLAN)
 		);
 		verify(claimService).claim(1L, 100L, "request-1");
@@ -1149,7 +1150,7 @@ class SessionTurnServiceTest {
 				eq(TurnEventType.QUIZ_TYPE_SELECTED), any(), eq(501L), eq(false), any());
 			order.verify(streamService).complete(streamConnection, "request-quiz", publicQuiz);
 			verify(aiUsageService).record(eq(1L), eq(AiFeature.TURN), any(), eq(true),
-				eq("request-quiz"), eq(QuizDecisionSource.PLANNER));
+				argThat(id -> id.startsWith("turn-") && id.length() == 41), eq(QuizDecisionSource.PLANNER));
 			var metrics = logFields(appender, "AI quiz question stream finished");
 			if (enabled) {
 				assertThat(metrics).hasSize(1);

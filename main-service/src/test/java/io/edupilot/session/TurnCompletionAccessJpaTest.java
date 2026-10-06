@@ -201,7 +201,8 @@ class TurnCompletionAccessJpaTest {
 		assertNotPersisted();
 		assertThat(emitter.deliveries.get()).isEqualTo(2); // ready and the authorized final delta
 		assertThat(upstream.get().isCancelled()).isTrue();
-		verify(usage).record(any(), any(), any(), org.mockito.ArgumentMatchers.eq(true), any(), any());
+		// The post-AI access fence rejects the attempt before response validation can succeed.
+		verify(usage).record(any(), any(), any(), org.mockito.ArgumentMatchers.eq(false), any(), any());
 	}
 
 	@ParameterizedTest

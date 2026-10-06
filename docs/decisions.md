@@ -244,6 +244,17 @@ DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC
 - **S3 전환 계획**: AWS 전개(DEC-019 확정) 시 어댑터 구현체를 S3로 교체한다. 이때 FE 다운로드는 Spring이 권한 확인 후 발급하는 **presigned URL**(유효기간 있는 서명 링크, 예: 10분)로 변경해 파일 바이트가 Spring을 거치지 않게 한다. `storage_key` 체계는 전환 시에도 유지한다.
 - 후속 변경 문서: api-spec §4 자료 상세, database.md §2, backend-plan §11
 
+### DEC-046 — PDF 추출 실행·접수·종료 예산 (#527)
+
+- 상태: 2026-10-06 사용자 구현 지시의 기본안 적용. 운영 용량 승인과 배포는 별도 확인한다.
+- 최신 develop의 #470 요청별 subprocess 구현을 보존하고 접수 수명을 파일 스테이징·선택적 업로드까지 확장한다. 앱 프로세스당 실행 2개·추가 접수 2개, 실행 대기 10초·추출 120초·정리 확인 5초·handler 전체 190초가 기본값이다. 환경 변수로 조정하며 전체 replica 동시성은 합산한다.
+- 기한 초과·취소·HTTP 연결 종료·앱 종료 시 해당 실행을 실제로 종료·회수한다. 종료 확인이 지연되면 늦게 시작하는 process/reaper·임시 파일을 계속 소유하고 새 접수를 막는다. 정상 회수가 확인되면 재개하고 정리 실패는 안전한 운영 코드로 기록한다.
+- Linux의 기존 512MiB 주소 공간·CPU 제한과 8,000,000자 출력 제한을 유지한다. Windows는 최소 SYSTEMROOT만 전달하고 venv launcher 자식까지 해당 PID 트리만 종료한다. Windows 로컬 검증을 Linux 자원 강제나 운영 RSS 상한으로 표현하지 않는다.
+- worker JSON은 로케일 대신 UTF-8 바이트로 전송한다. 실제 한글·이모지 CMap 합성 PDF의 원문 round-trip을 검증한다. Linux 합성 4문서(1/20/1/20페이지, 동시 worker 2개)의 별도 검증에서 총 3,454.7ms, worker HWM 63,928~64,432KiB, 전체 부모 테스트 프로세스 HWM 82,316KiB를 관측했다. 입력·모듈·테스트 버퍼를 포함한 이 관측은 대표 운영 문서의 최악치나 컨테이너 상한을 증명하지 않는다.
+- 내부 EXTRACTION_BUSY(503/INTERNAL)·EXTRACTION_TIMEOUT(504/TIMEOUT)·예상하지 못한 EXTRACTION_FAILED(500/INTERNAL)는 retryable=false다. 알려진 parser 자원 오류의 기존 400과 파일·페이지 오류는 유지한다. Spring 외부 자료 상태·failureReason은 유지하며 자동 재추출하지 않는다.
+- 텍스트 추출 후 파일 업로드는 기존 60초와 남은 전체 예산 중 작은 값만 사용한다. 업로드만 실패·만료하면 페이지를 보존하고 HTTP 200/FILE_UPLOAD_FAILED 경고를 반환한다. 읽기 thread 정리 전에 해당 임시 파일을 삭제하지 않는다.
+- 운영 TBD: 실제 Spring 추출 read timeout(기본 200초), multipart 전송·직렬화 여유, 컨테이너/replica별 부모·자식 CPU·메모리, 대표 사용자 PDF의 처리 시간·품질을 배포 전에 확인한다. handler 이전 multipart spooling은 이 접수 제한의 보호 범위 밖이다.
+
 ### DEC-006 — PDF 텍스트 추출 책임
 
 - 상태: Accepted
@@ -609,6 +620,16 @@ DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC
 - 이유: 기존 회전 시점 `now+14일` 방식은 계속 사용하는 계정을 무기한 유지했고 사용자 단위 `lastActiveAt`은 여러 기기를 구분하지 못했습니다. 세션별 idle과 absolute를 분리하면 활동 중 UX를 유지하면서 방치 세션과 장기 세션을 서버 정본으로 종료할 수 있습니다.
 - 대안과 trade-off: 모든 API마다 session을 조회·갱신하면 즉시 폐기는 강하지만 DB 쓰기와 stateless JWT 장점을 잃습니다. 15분 access TTL과 명시적 activity API를 택해 일반 요청 경로를 유지하며, session 종료 뒤 이미 발급된 access가 최대 15분 남을 수 있음을 수용합니다. FE는 실제 활동·선제 refresh·401 fallback을 탭 전체 single-flight로 조정해야 합니다.
 - 후속 변경 문서: [API 명세](api-spec.md) §3, [화면-API 매핑](screen-api-map.md), [DB 명세](database.md), [도메인 모델](domain-model.md), [에러 코드](error-code.md).
+
+### DEC-047 — 학습 턴 시도별 사용량 기록 (#528)
+
+- 상태: 2026-10-06 사용자 구현 지시. 클라이언트 requestId는 기존 세션·메시지·claim의 멱등 키로 유지한다.
+- TURN 집계는 Spring이 AI Service에 시작한 요청 시도 하나다. JSON·SSE 모두 시도 직전 서버가 발급한 turnId를 기존 ai_usage_log.request_id에 기록한다. 실제 재시도는 새 ID·새 행, 동일 실행의 기록 재저장만 UNIQUE로 중복 제거한다. 스키마·기존 migration·과거 로그를 변경하지 않는다.
+- 응답 검증까지 성공한 경우 success=true이며, 검증 거부·AI 실패·호출 중 취소는 해당 시도 실패 1행이다. 호출 전 거부·quota 초과·취소에는 새 사용량을 만들지 않는다. 완료 뒤 업무 저장이나 FE 전송 실패가 추가 호출 행을 만들지 않는다.
+- HttpAiClient가 이미 파싱한 usage는 내부 검증 예외에 보존하여 실패 기록에 전달한다. 파싱되지 않았거나 미확인인 값은 null이다. 토큰·비용을 0으로 추정하거나 부분 업무 결과를 성공으로 수용하지 않는다.
+- 트랜잭션 저장 경계에서 AI_POLICY_REJECTED/AI_RESPONSE_INVALID가 확인되면 해당 사용자·TURN·서버 실행 ID의 기존 행을 실패로 정정한다. 행 추가·비용·createdAt·quota 수는 바꾸지 않는다. 정상 저장 이후 메모리 승격·FE 전송 오류에는 이 정정을 적용하지 않는다. 정정 DB 장애는 기존 기록 실패 정책처럼 로그만 남기는 후속 보장 한계다.
+- REQUIRES_NEW와 기존 기록 실패 격리, KST·역할·ADMIN·quota OFF 정책을 유지한다. 한 요청 안의 개별 provider 호출 수와 Spring의 시도 수를 혼동하지 않는다.
+- 후속 범위: COUNT 검사와 호출 사이의 원자적 예약, DB 장애 중 엄격한 기록 보장, 프로세스 중단 뒤 복구는 구현하지 않는다. 모든 상황의 한도 초과 0 또는 정확한 provider 과금 원장을 보장한다고 보고하지 않는다. 모든 Main Service 인스턴스의 수정 적용과 새 집계·관리자 비용 대조를 배포 시 확인한다.
 
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 

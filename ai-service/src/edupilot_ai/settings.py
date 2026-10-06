@@ -95,6 +95,19 @@ class Settings(BaseSettings):
         default=120,
         validation_alias="EXTRACT_TIMEOUT_SECONDS",
     )
+    extract_max_concurrent: PositiveInt = Field(
+        default=2, validation_alias="EXTRACT_MAX_CONCURRENT"
+    )
+    extract_max_waiting: int = Field(default=2, ge=0, validation_alias="EXTRACT_MAX_WAITING")
+    extract_queue_timeout_seconds: PositiveInt = Field(
+        default=10, validation_alias="EXTRACT_QUEUE_TIMEOUT_SECONDS"
+    )
+    extract_cleanup_timeout_seconds: PositiveInt = Field(
+        default=5, validation_alias="EXTRACT_CLEANUP_TIMEOUT_SECONDS"
+    )
+    extract_total_timeout_seconds: PositiveInt = Field(
+        default=190, validation_alias="EXTRACT_TOTAL_TIMEOUT_SECONDS"
+    )
     edupilot_xai_file_upload_timeout_seconds: PositiveInt = Field(
         default=60,
         validation_alias="EDUPILOT_XAI_FILE_UPLOAD_TIMEOUT_SECONDS",

@@ -27,6 +27,7 @@ import io.edupilot.ai.AiClientProperties;
 import io.edupilot.ai.AiFailureCategory;
 import io.edupilot.ai.AiStreamCancellation;
 import io.edupilot.ai.TurnStreamEvent;
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.aiusage.AiFeature;
 import io.edupilot.aiusage.AiQuotaService;
 import io.edupilot.aiusage.AiUsageService;
@@ -174,6 +175,7 @@ public class SessionTurnService {
 		SessionStreamConnection streamConnection = null;
 		Long userMessageId = null;
 		boolean persistenceCompleted = false;
+		String persistingExecutionId = null;
 		try {
 			PreparedTurn prepared;
 			try {
@@ -227,6 +229,7 @@ public class SessionTurnService {
 						payload.aiPayload(),
 						snapshot
 					);
+				persistingExecutionId = aiResponse.turnId();
 				persisted = persistenceService.persist(
 					userId,
 					role,
@@ -250,6 +253,7 @@ public class SessionTurnService {
 						streamConnection,
 						cancellation
 					);
+				persistingExecutionId = execution.turnId();
 				persisted = execution.cancelled()
 					? persistenceService.persistCancelled(
 						userId,
@@ -274,6 +278,7 @@ public class SessionTurnService {
 					);
 			}
 			persistenceCompleted = true;
+			persistingExecutionId = null;
 			accessGuard.assertAccessible(userId, sessionId, access);
 			promoteMemory(userId, persisted, access.guardianConsentEpoch());
 			TurnResponse response = persisted.response();
@@ -288,6 +293,13 @@ public class SessionTurnService {
 			accessGuard.assertAccessible(userId, sessionId, access);
 			return response;
 		} catch (RuntimeException exception) {
+			if (!persistenceCompleted && persistingExecutionId != null
+				&& exception instanceof BusinessException business
+				&& (business.errorCode() == ErrorCode.AI_POLICY_REJECTED
+					|| business.errorCode() == ErrorCode.AI_RESPONSE_INVALID)) {
+				// Refine the same execution row after transactional policy rejection, never insert again.
+				aiUsageService.markTurnPolicyRejected(userId, persistingExecutionId);
+			}
 			if (!persistenceCompleted) {
 				markFailedMessage(userMessageId, sessionId, request.requestId());
 			}
@@ -377,6 +389,8 @@ public class SessionTurnService {
 				true
 			);
 			boolean aiCallStarted = false;
+			boolean aiCallSucceeded = false;
+			AiUsage usage = null;
 			long attemptStartedNanos = nanoTime.getAsLong();
 			AtomicInteger quizQuestionCount = new AtomicInteger();
 			AtomicLong quizQuestionFirstMs = new AtomicLong(-1);
@@ -432,14 +446,7 @@ public class SessionTurnService {
 						cancellation,
 						Duration.ofNanos(remainingNanos)
 					);
-				aiUsageService.record(
-					userId,
-					AiFeature.TURN,
-					response == null ? null : response.usage(),
-					true,
-					request.requestId(),
-					quizDecisionSource
-				);
+				usage = response == null ? null : response.usage();
 				accessGuard.assertAccessible(userId, streamConnection.sessionId(), access);
 				responseValidator.validate(
 					response,
@@ -450,19 +457,13 @@ public class SessionTurnService {
 					availableQuizPages(eventType, snapshot)
 				);
 				logQuizQuestionStream(request, aiRequest, quizQuestionCount.get(), quizQuestionFirstMs.get());
+				aiCallSucceeded = true;
 				return StreamExecution.completed(response);
 			} catch (AiClientException exception) {
-				logQuizQuestionStream(request, aiRequest, quizQuestionCount.get(), quizQuestionFirstMs.get());
-				if (aiCallStarted) {
-					aiUsageService.record(
-						userId,
-						AiFeature.TURN,
-						null,
-						false,
-						null,
-						quizDecisionSource
-					);
+				if (usage == null) {
+					usage = exception.usage();
 				}
+				logQuizQuestionStream(request, aiRequest, quizQuestionCount.get(), quizQuestionFirstMs.get());
 				if (cancellation.isUserCancelled()) {
 					if (partialContent.isEmpty()) {
 						throw new BusinessException(
@@ -491,6 +492,11 @@ public class SessionTurnService {
 					continue;
 				}
 				throw exception;
+			} finally {
+				if (aiCallStarted) {
+					aiUsageService.record(userId, AiFeature.TURN, usage, aiCallSucceeded,
+						turnId, quizDecisionSource);
+				}
 			}
 		}
 		throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
@@ -542,6 +548,8 @@ public class SessionTurnService {
 				false
 			);
 			boolean aiCallStarted = false;
+			boolean aiCallSucceeded = false;
+			AiUsage usage = null;
 			try {
 				Duration remaining = remainingTurnBudget(deadlineNanos);
 				Duration readTimeout = remaining.compareTo(
@@ -558,14 +566,7 @@ public class SessionTurnService {
 				aiCallStarted = true;
 				io.edupilot.ai.dto.TurnResponse response =
 					aiClient.executeTurn(aiRequest, readTimeout);
-				aiUsageService.record(
-					userId,
-					AiFeature.TURN,
-					response == null ? null : response.usage(),
-					true,
-					request.requestId(),
-					quizDecisionSource
-				);
+				usage = response == null ? null : response.usage();
 				accessGuard.assertAccessible(userId, sessionId, access);
 				responseValidator.validate(
 					response,
@@ -575,17 +576,11 @@ public class SessionTurnService {
 					expectedQuizType(eventType, payload),
 					availableQuizPages(eventType, snapshot)
 				);
+				aiCallSucceeded = true;
 				return response;
 			} catch (AiClientException exception) {
-				if (aiCallStarted) {
-					aiUsageService.record(
-						userId,
-						AiFeature.TURN,
-						null,
-						false,
-						null,
-						quizDecisionSource
-					);
+				if (usage == null) {
+					usage = exception.usage();
 				}
 				logAttemptFailure(
 					sessionId,
@@ -601,6 +596,11 @@ public class SessionTurnService {
 					continue;
 				}
 				throw exception;
+			} finally {
+				if (aiCallStarted) {
+					aiUsageService.record(userId, AiFeature.TURN, usage, aiCallSucceeded,
+						turnId, quizDecisionSource);
+				}
 			}
 		}
 		throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
