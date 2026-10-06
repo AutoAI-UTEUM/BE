@@ -2,7 +2,6 @@
 
 import json
 import math
-import resource
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -19,6 +18,11 @@ MEMORY_LIMIT_BYTES = 512 * 1024 * 1024
 
 def set_resource_limits(timeout_seconds: float) -> None:
     """Linux production enforces address-space, CPU and core-dump limits."""
+    if sys.platform == "win32":
+        # Local Windows uses the parent's deadline and output limits; production is Linux.
+        return
+    import resource
+
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     cpu_seconds = max(1, math.ceil(timeout_seconds))
     resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
@@ -45,8 +49,10 @@ def main() -> None:
     except PdfExtractionError as error:
         result = {"status": error.reason.value}
     except Exception:
-        result = {"status": "RESOURCE_LIMIT"}
-    sys.stdout.write(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+        result = {"status": "FAILED"}
+    sys.stdout.buffer.write(
+        json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
 
 
 if __name__ == "__main__":

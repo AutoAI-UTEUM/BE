@@ -87,10 +87,17 @@ def create_app(
         app.state.settings = resolved_settings
         app.state.llm_bridge = bridge
         app.state.xai_file_client = file_client
-        app.state.pdf_extractor = PdfExtractor()
+        extractor = PdfExtractor(
+            max_concurrent=resolved_settings.extract_max_concurrent,
+            max_waiting=resolved_settings.extract_max_waiting,
+            queue_timeout_seconds=resolved_settings.extract_queue_timeout_seconds,
+            cleanup_timeout_seconds=resolved_settings.extract_cleanup_timeout_seconds,
+        )
+        app.state.pdf_extractor = extractor
         try:
             yield
         finally:
+            await extractor.aclose()
             if owned_http_client is not None:
                 await owned_http_client.aclose()
             logging_runtime.close()
