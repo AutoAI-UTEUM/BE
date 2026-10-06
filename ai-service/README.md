@@ -97,6 +97,18 @@ curl --fail \
 300)를 순서대로 검증합니다. 응답은 1-based `pageNumber`와 정제된 페이지 텍스트를
 포함합니다. 전 페이지에 텍스트 레이어가 없으면 스캔본으로 분류해 거부합니다.
 
+PDF 추출은 별도 프로세스에서 실행합니다. `EXTRACT_MAX_CONCURRENT=2`,
+`EXTRACT_MAX_WAITING=2`는 앱 프로세스당 기본 실행·추가 접수 수이며,
+`EXTRACT_QUEUE_TIMEOUT_SECONDS=10`, `EXTRACT_TIMEOUT_SECONDS=120`,
+`EXTRACT_CLEANUP_TIMEOUT_SECONDS=5`, `EXTRACT_TOTAL_TIMEOUT_SECONDS=190`으로
+대기·추출·정리 확인·handler 전체 예산을 구분합니다. 다중 worker·replica의 상한은
+합산하며 운영 CPU·메모리·Spring read timeout과 대표 PDF를 배포 전 검증합니다.
+기한 초과·취소·연결/앱 종료에서 실제 worker를 회수하고 늦은 정리 중에는 새 접수를
+막습니다. 추출 후 선택적 xAI 업로드만 실패하면 기존 텍스트 성공과 경고를 보존합니다.
+Windows는 해당 venv launcher의 자식까지 종료하며 Linux의 메모리·CPU 제한 증거는
+Linux에서 별도로 확인합니다. 내부 오류·경계는 `docs/ai-integration-contract.md` §6.1을
+따릅니다. 새 수명주기 검증은 `tests/test_pdf_worker_lifecycle.py`에 있습니다.
+
 이 호출은 설정된 xAI endpoint를 사용합니다. 개발·CI 검증은 `FakeLlm` 또는
 `respx` mock만 사용하며 실제 provider 호출을 포함하지 않습니다.
 
