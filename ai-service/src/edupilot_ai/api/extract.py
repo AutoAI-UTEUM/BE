@@ -1,13 +1,16 @@
 """Deterministic PDF extraction endpoint."""
 
+import asyncio
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from http import HTTPStatus
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Annotated
 
 from anyio import CancelScope, to_thread
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 
 from edupilot_ai.api.deps import get_pdf_extractor, get_settings, get_xai_file_client
 from edupilot_ai.core.errors import ErrorCategory, InternalApiError, InternalErrorResponse
@@ -16,7 +19,7 @@ from edupilot_ai.extraction import (
     PdfFailureReason,
     PdfPageLimitError,
 )
-from edupilot_ai.extraction.service import PdfExtractor
+from edupilot_ai.extraction.service import PdfExtractor, extraction_timeout
 from edupilot_ai.llm.files import (
     XAI_FILE_MAX_BYTES,
     XaiFileClientError,
@@ -134,15 +137,23 @@ async def _upload_original_pdf(
     filename: str,
     size_bytes: int,
     file_client: XaiFileClientProtocol,
+    extractor: PdfExtractor,
+    timeout_seconds: float,
 ) -> tuple[str | None, list[ExtractWarning]]:
-    if size_bytes > XAI_FILE_MAX_BYTES:
+    if size_bytes > XAI_FILE_MAX_BYTES or timeout_seconds <= 0:
         return None, [_file_upload_warning(size_bytes=size_bytes)]
     try:
-        content = await to_thread.run_sync(path.read_bytes)
-        file_id = await file_client.upload(content, filename or "document.pdf")
-        if not file_id.strip():
-            raise XaiFileClientError("FILE_UPLOAD_FAILED")
-    except OSError, XaiFileClientError:
+        async with asyncio.timeout(timeout_seconds):
+            read = asyncio.create_task(to_thread.run_sync(path.read_bytes))
+            try:
+                content = await asyncio.shield(read)
+            except asyncio.CancelledError:
+                extractor.retain_read(path, read)
+                raise
+            file_id = await file_client.upload(content, filename or "document.pdf")
+            if not file_id.strip():
+                raise XaiFileClientError("FILE_UPLOAD_FAILED")
+    except OSError, XaiFileClientError, TimeoutError:
         return None, [_file_upload_warning(size_bytes=size_bytes)]
     return file_id, []
 
@@ -213,64 +224,109 @@ async def _stage_upload(
     return path
 
 
+@asynccontextmanager
+async def _cancel_on_disconnect(request: Request) -> AsyncIterator[None]:
+    owner = asyncio.current_task()
+    if owner is None:
+        raise RuntimeError("PDF request requires a running task")
+
+    async def observe() -> None:
+        # ASGI disconnect has no event exposed by Request; poll after multipart parsing.
+        while not await request.is_disconnected():  # noqa: ASYNC110
+            await asyncio.sleep(0.05)
+        owner.cancel()
+
+    monitor = asyncio.create_task(observe())
+    try:
+        yield
+    finally:
+        monitor.cancel()
+        with suppress(asyncio.CancelledError):
+            await monitor
+
+
 @router.post(
     "/extract",
     response_model=ExtractResponse,
     responses={
         400: {"model": InternalErrorResponse, "description": "Invalid or resource-limited PDF"},
+        500: {"model": InternalErrorResponse, "description": "PDF extraction worker failed"},
         503: {"model": InternalErrorResponse, "description": "PDF extraction capacity exhausted"},
         504: {"model": InternalErrorResponse, "description": "PDF extraction budget exhausted"},
     },
 )
 async def extract_document(
+    request: Request,
     file: Annotated[UploadFile, File(description="PDF document to extract")],
     settings: Annotated[Settings, Depends(get_settings)],
     file_client: Annotated[XaiFileClientProtocol, Depends(get_xai_file_client)],
     extractor: Annotated[PdfExtractor, Depends(get_pdf_extractor)],
 ) -> ExtractResponse:
-    """Return complete page text without persisting the PDF or extracted content."""
-    temporary_path: Path | None = None
-    size_bytes: int | None = None
+    """Own admission before named staging and preserve text on optional upload failure."""
     try:
         _validate_metadata(file)
-        temporary_path = await _stage_upload(file, max_bytes=settings.upload_max_bytes)
-        size_bytes = temporary_path.stat().st_size
+        async with extractor.admit(), _cancel_on_disconnect(request):
+            return await _extract_document(file, settings, file_client, extractor)
+    finally:
+        with CancelScope(shield=True):
+            await file.close()
+
+
+async def _extract_document(
+    file: UploadFile,
+    settings: Settings,
+    file_client: XaiFileClientProtocol,
+    extractor: PdfExtractor,
+) -> ExtractResponse:
+    temporary_path: Path | None = None
+    size_bytes: int | None = None
+    deadline = asyncio.get_running_loop().time() + settings.extract_total_timeout_seconds
+    try:
         try:
-            document = await extractor.extract(
-                temporary_path,
-                max_pages=settings.edupilot_extract_max_pages,
-                min_chars_per_page=settings.edupilot_extract_min_chars_per_page,
-                min_meaningful_page_ratio=settings.edupilot_extract_min_meaningful_page_ratio,
-                timeout_seconds=settings.extract_timeout_seconds,
-            )
-        except PdfPageLimitError as exception:
-            raise _logged_extraction_failure(
-                InternalApiError(
-                    status_code=HTTPStatus.BAD_REQUEST,
-                    code="PAGE_LIMIT_EXCEEDED",
-                    category=ErrorCategory.SCHEMA,
-                    message="PDF exceeds the configured page limit.",
-                    retryable=False,
-                ),
-                size_bytes=size_bytes,
-                page_count=exception.page_count,
-            ) from exception
-        except PdfExtractionError as exception:
-            raise _logged_extraction_failure(
-                _extraction_failure(exception.reason),
-                size_bytes=size_bytes,
-            ) from exception
-        except InternalApiError as exception:
-            raise _logged_extraction_failure(exception, size_bytes=size_bytes) from None
+            async with asyncio.timeout_at(deadline):
+                temporary_path = await _stage_upload(file, max_bytes=settings.upload_max_bytes)
+                size_bytes = temporary_path.stat().st_size
+                try:
+                    document = await extractor.extract(
+                        temporary_path,
+                        max_pages=settings.edupilot_extract_max_pages,
+                        min_chars_per_page=settings.edupilot_extract_min_chars_per_page,
+                        min_meaningful_page_ratio=settings.edupilot_extract_min_meaningful_page_ratio,
+                        timeout_seconds=settings.extract_timeout_seconds,
+                    )
+                except PdfPageLimitError as exception:
+                    raise _logged_extraction_failure(
+                        InternalApiError(
+                            status_code=HTTPStatus.BAD_REQUEST,
+                            code="PAGE_LIMIT_EXCEEDED",
+                            category=ErrorCategory.SCHEMA,
+                            message="PDF exceeds the configured page limit.",
+                            retryable=False,
+                        ),
+                        size_bytes=size_bytes,
+                        page_count=exception.page_count,
+                    ) from exception
+                except PdfExtractionError as exception:
+                    raise _logged_extraction_failure(
+                        _extraction_failure(exception.reason),
+                        size_bytes=size_bytes,
+                    ) from exception
+                except InternalApiError as exception:
+                    raise _logged_extraction_failure(exception, size_bytes=size_bytes) from None
+        except TimeoutError:
+            raise _logged_extraction_failure(extraction_timeout(), size_bytes=size_bytes) from None
 
         xai_file_id: str | None = None
         warnings: list[ExtractWarning] = []
         if settings.edupilot_xai_files_enabled:
+            remaining = deadline - asyncio.get_running_loop().time()
             xai_file_id, warnings = await _upload_original_pdf(
                 path=temporary_path,
                 filename=file.filename or "document.pdf",
                 size_bytes=size_bytes,
                 file_client=file_client,
+                extractor=extractor,
+                timeout_seconds=min(settings.edupilot_xai_file_upload_timeout_seconds, remaining),
             )
 
         return ExtractResponse(
@@ -284,6 +340,4 @@ async def extract_document(
         )
     finally:
         if temporary_path is not None:
-            _delete_temporary(temporary_path)
-        with CancelScope(shield=True):
-            await file.close()
+            extractor.discard_temporary(temporary_path)

@@ -508,8 +508,11 @@ DEC-041 opt-in QuizAgent는 기존 text stream에서 JSON 객체 하나를 받�
 
 ### 6.1 POST /internal/ai/extract
 
-- PDF parser는 요청별 별도 프로세스에서 실행한다. 앱당 활성 worker 2개 + 대기 6개까지 허용하며, 대기·기동·파싱에 `EXTRACT_TIMEOUT_SECONDS`(기본 120초) 하나를 적용한다. 초과/취소 시 worker를 종료·회수한 뒤 임시 파일을 제거한다. Linux worker는 주소 공간 512MiB·CPU 시간·core dump 금지 제한을 적용하고, 전체 추출 텍스트 8,000,000자를 넘으면 절단 성공 대신 기존 `EXTRACTION_FAILED`(400, INTERNAL, retryable=false)로 거부한다. 프로세스 격리는 파일/네트워크 권한 샌드박스를 뜻하지 않는다.
-- 용량 초과는 `AI_SERVICE_UNAVAILABLE`(503, INTERNAL, retryable=true), parser 총예산 초과는 `AI_SERVICE_TIMEOUT`(504, TIMEOUT, retryable=true)이며 기존 봉투를 유지한다. Spring 추출 경로는 이 플래그만으로 자동 재시도하지 않는다. 파싱 성공 후 선택적 Files 업로드 최대 60초는 별도이며 Spring 200초 read timeout을 유지한다. macOS 로컬 실행은 주소 공간 강제 제한의 증거가 아니므로 Linux CI에서 확인한다. 의존 parser의 문서 조각 진단은 로그에 전달하지 않는다.
+- PDF parser 전체는 요청별 별도 프로세스에서 실행한다. 앱 프로세스당 활성 worker 기본 2개, 추가 접수 기본 2개이며 접수 용량은 handler의 named-file 스테이징부터 선택적 업로드까지 점유한다. FastAPI가 handler 이전에 수행하는 multipart spooling 전체를 제한하는 것은 아니다. `EXTRACT_MAX_CONCURRENT`·`EXTRACT_MAX_WAITING`으로 조정하며 여러 Uvicorn worker·replica의 총 동시성은 합산한다.
+- 실행 슬롯 대기는 `EXTRACT_QUEUE_TIMEOUT_SECONDS` 기본 10초, 슬롯 획득 뒤 기동·파싱·결과 회수는 `EXTRACT_TIMEOUT_SECONDS` 기본 120초다. 과부하·대기 만료는 `EXTRACTION_BUSY`(503, INTERNAL), 추출 또는 handler 전체 기한 초과는 `EXTRACTION_TIMEOUT`(504, TIMEOUT), 예상하지 못한 worker 실패는 `EXTRACTION_FAILED`(500, INTERNAL)이며 모두 `retryable=false`다. 기존 parser 자원/출력 제한의 `EXTRACTION_FAILED`(400, INTERNAL)는 유지한다. Spring은 자동 재추출하지 않고 외부 자료 상태와 `failureReason=EXTRACTION_FAILED`로 처리한다.
+- 취소·HTTP 연결 종료·앱 종료에서 해당 worker를 종료·회수한다. `EXTRACT_CLEANUP_TIMEOUT_SECONDS` 기본 5초 안에 종료를 확인하지 못하면 late-start/reaper와 임시 파일 소유권을 보존하고 새 작업을 접수하지 않는다. 늦은 정상 회수 후 접수를 재개하며 정리 실패는 안전한 운영 코드로만 기록한다. Windows는 venv launcher의 자식까지 해당 프로세스 트리만 종료하고 `SYSTEMROOT` 외 서비스 환경을 전달하지 않는다.
+- handler 진입 후 스테이징·대기·추출·업로드에는 `EXTRACT_TOTAL_TIMEOUT_SECONDS` 기본 190초의 단조 시계 예산을 적용한다. 텍스트 완료 후 업로드는 기존 최대 60초와 남은 예산 중 작은 값만 사용하고, 만료 시 기존 `FILE_UPLOAD_FAILED` 경고와 HTTP 200·페이지 결과를 유지한다. 읽기 thread가 정리 중이면 임시 파일 삭제를 미룬다. Spring read timeout 기본 200초에 맞추되 multipart 전송·framework 직렬화·네트워크 여유와 실제 운영 설정은 배포 전 확인한다.
+- Linux worker의 기존 주소 공간 512MiB·CPU 시간·core dump 금지와 전체 텍스트 8,000,000자 상한을 유지한다. Windows 로컬은 시간·출력·프로세스 종료 검증이며 Linux RLIMIT 강제의 증거가 아니다. 같은 호스트/컨테이너의 총 CPU·메모리는 별도 운영 예산으로 검증한다. 프로세스 격리는 파일/네트워크 권한 샌드박스를 뜻하지 않으며 의존 parser의 원문 진단은 로그에 전달하지 않는다.
 
 - 요청: multipart PDF (≤45MB — DEC-016).
 - 응답: `{ "schemaVersion": "1.0", "pageCount": 42, "pages": [{ "pageNumber": 1, "text": "..." }], "xaiFileId": "file-...", "warnings": [] }`. `xaiFileId`는 nullable이며 `warnings[]` 항목은 `{type,message}` 형식입니다.

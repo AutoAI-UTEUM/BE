@@ -659,6 +659,25 @@ class HttpAiClientContractTest {
 		assertThat(response.usage()).isNull();
 	}
 
+	@ParameterizedTest
+	@ValueSource(strings = {"EXTRACTION_TIMEOUT", "EXTRACTION_BUSY"})
+	void extractKeepsBudgetFailureCodeAndNeverRetries(String code) {
+		boolean timeout = "EXTRACTION_TIMEOUT".equals(code);
+		server.enqueue(jsonResponse(timeout ? 504 : 503, """
+			{"schemaVersion":"1.0","error":{"code":"%s","category":"%s",
+			"message":"Synthetic extraction failure","retryable":false},"traceId":"synthetic-trace"}
+			""".formatted(code, timeout ? "TIMEOUT" : "INTERNAL")));
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1))
+			.extract(new ByteArrayResource("%%PDF-synthetic".getBytes())))
+			.isInstanceOfSatisfying(AiClientException.class, error -> {
+				assertThat(error.errorCode()).isEqualTo(timeout
+					? ErrorCode.AI_SERVICE_TIMEOUT : ErrorCode.AI_SERVICE_UNAVAILABLE);
+				assertThat(error.upstreamCode()).isEqualTo(code);
+				assertThat(error.retryable()).isFalse();
+			});
+		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
 	@Test
 	void uploadFileSendsPdfMultipartAndReturnsValidatedFileId() throws Exception {
 		server.enqueue(jsonResponse(200, """

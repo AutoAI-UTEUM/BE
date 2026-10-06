@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import ctypes
 import logging
 import os
 import sys
@@ -16,6 +17,7 @@ from fastapi import FastAPI, UploadFile
 from pypdf import PdfReader
 
 from edupilot_ai.api import extract as extract_api
+from edupilot_ai.api.extract import _stage_upload
 from edupilot_ai.core.errors import InternalApiError
 from edupilot_ai.extraction.pdf import PdfExtractionError, PdfFailureReason, extract_pdf
 from edupilot_ai.extraction.service import PdfExtractor
@@ -39,7 +41,7 @@ class ScriptedExtractor(PdfExtractor):
         return await super()._run((sys.executable, "-I", "-c", self.script, command[4]))
 
 
-async def run_extract(extractor: PdfExtractor, path: Path, budget: float = 2.0) -> None:
+async def run_extract(extractor: PdfExtractor, path: Path, budget: float = 10.0) -> None:
     await extractor.extract(
         path,
         max_pages=300,
@@ -58,6 +60,24 @@ async def wait_pid(path: Path) -> int:
 
 
 def assert_reaped(pid: int) -> None:
+    if sys.platform == "win32":
+        from ctypes import wintypes
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.WaitForSingleObject.restype = wintypes.DWORD
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        handle = kernel.OpenProcess(0x00100000, False, pid)
+        if not handle:
+            assert ctypes.get_last_error() == 87
+            return
+        try:
+            assert kernel.WaitForSingleObject(handle, 0) == 0
+        finally:
+            kernel.CloseHandle(handle)
+        return
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
 
@@ -129,7 +149,7 @@ async def test_timeout_reaps_child_and_next_document_succeeds(tmp_path: Path) ->
     pid = await wait_pid(path)
     with pytest.raises(InternalApiError) as caught:
         await task
-    assert caught.value.code == "AI_SERVICE_TIMEOUT"
+    assert caught.value.code == "EXTRACTION_TIMEOUT"
     assert_reaped(pid)
     await run_extract(PdfExtractor(), path)
 
@@ -185,18 +205,18 @@ async def test_worker_output_is_bounded_and_full_pipe_does_not_block_cleanup(
     assert_reaped(await wait_pid(path))
 
 
-async def test_admission_bounds_two_active_and_six_waiters(tmp_path: Path) -> None:
+async def test_admission_bounds_two_active_and_two_waiters(tmp_path: Path) -> None:
     extractor = ScriptedExtractor()
     tasks = [
-        asyncio.create_task(run_extract(extractor, tmp_path / f"{i}.pdf", 5)) for i in range(8)
+        asyncio.create_task(run_extract(extractor, tmp_path / f"{i}.pdf", 5)) for i in range(4)
     ]
     try:
         pids = [await wait_pid(tmp_path / f"{i}.pdf") for i in range(2)]
         assert not (tmp_path / "2.pdf.pid").exists()
         with pytest.raises(InternalApiError) as caught:
             await run_extract(extractor, tmp_path / "rejected.pdf")
-        assert caught.value.code == "AI_SERVICE_UNAVAILABLE"
-        assert caught.value.retryable
+        assert caught.value.code == "EXTRACTION_BUSY"
+        assert not caught.value.retryable
         assert not (tmp_path / "rejected.pdf.pid").exists()
     finally:
         for task in tasks:
@@ -248,7 +268,7 @@ async def test_queue_wait_consumes_budget_without_starting_another_child(tmp_pat
         pids = [await wait_pid(tmp_path / f"active{i}.pdf") for i in range(2)]
         with pytest.raises(InternalApiError) as caught:
             await run_extract(extractor, tmp_path / "queued.pdf", 0.05)
-        assert caught.value.code == "AI_SERVICE_TIMEOUT"
+        assert caught.value.code == "EXTRACTION_BUSY"
         assert not (tmp_path / "queued.pdf.pid").exists()
         assert extractor._admitted == 2
     finally:
@@ -288,7 +308,7 @@ async def test_slow_extract_keeps_health_responsive_and_never_uploads(
         assert (await client.get("/health")).status_code == 200
     response = await request
     assert response.status_code == 504
-    assert response.json()["error"]["code"] == "AI_SERVICE_TIMEOUT"
+    assert response.json()["error"]["code"] == "EXTRACTION_TIMEOUT"
     assert fake_file_client.uploads == []
 
 
@@ -311,9 +331,7 @@ async def test_staging_cancellation_removes_named_temporary(
             return b""
 
     monkeypatch.setattr(extract_api, "NamedTemporaryFile", temporary)
-    task = asyncio.create_task(
-        extract_api._stage_upload(PausedUpload(BytesIO(b"%PDF-")), max_bytes=100)
-    )
+    task = asyncio.create_task(_stage_upload(PausedUpload(BytesIO(b"%PDF-")), max_bytes=100))
     await reading.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -335,11 +353,11 @@ async def test_parser_crash_returns_safe_existing_error(
         headers=auth_headers,
         files={"file": ("PRIVATE-NAME.pdf", make_pdf(_TEXT), "application/pdf")},
     )
-    assert response.status_code == 400
+    assert response.status_code == 500
     assert response.json()["error"] == {
         "code": "EXTRACTION_FAILED",
         "category": "INTERNAL",
-        "message": "PDF extraction exceeded safe processing limits.",
+        "message": "PDF extraction worker failed.",
         "retryable": False,
     }
     captured = capfd.readouterr()

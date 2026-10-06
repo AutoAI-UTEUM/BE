@@ -234,6 +234,17 @@ DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC
 - **S3 전환 계획**: AWS 전개(DEC-019 확정) 시 어댑터 구현체를 S3로 교체한다. 이때 FE 다운로드는 Spring이 권한 확인 후 발급하는 **presigned URL**(유효기간 있는 서명 링크, 예: 10분)로 변경해 파일 바이트가 Spring을 거치지 않게 한다. `storage_key` 체계는 전환 시에도 유지한다.
 - 후속 변경 문서: api-spec §4 자료 상세, database.md §2, backend-plan §11
 
+### DEC-046 — PDF 추출 실행·접수·종료 예산 (#527)
+
+- 상태: 2026-10-06 사용자 구현 지시의 기본안 적용. 운영 용량 승인과 배포는 별도 확인한다.
+- 최신 develop의 #470 요청별 subprocess 구현을 보존하고 접수 수명을 파일 스테이징·선택적 업로드까지 확장한다. 앱 프로세스당 실행 2개·추가 접수 2개, 실행 대기 10초·추출 120초·정리 확인 5초·handler 전체 190초가 기본값이다. 환경 변수로 조정하며 전체 replica 동시성은 합산한다.
+- 기한 초과·취소·HTTP 연결 종료·앱 종료 시 해당 실행을 실제로 종료·회수한다. 종료 확인이 지연되면 늦게 시작하는 process/reaper·임시 파일을 계속 소유하고 새 접수를 막는다. 정상 회수가 확인되면 재개하고 정리 실패는 안전한 운영 코드로 기록한다.
+- Linux의 기존 512MiB 주소 공간·CPU 제한과 8,000,000자 출력 제한을 유지한다. Windows는 최소 SYSTEMROOT만 전달하고 venv launcher 자식까지 해당 PID 트리만 종료한다. Windows 로컬 검증을 Linux 자원 강제나 운영 RSS 상한으로 표현하지 않는다.
+- worker JSON은 로케일 대신 UTF-8 바이트로 전송한다. 실제 한글·이모지 CMap 합성 PDF의 원문 round-trip을 검증한다. Linux 합성 4문서(1/20/1/20페이지, 동시 worker 2개)의 별도 검증에서 총 3,454.7ms, worker HWM 63,928~64,432KiB, 전체 부모 테스트 프로세스 HWM 82,316KiB를 관측했다. 입력·모듈·테스트 버퍼를 포함한 이 관측은 대표 운영 문서의 최악치나 컨테이너 상한을 증명하지 않는다.
+- 내부 EXTRACTION_BUSY(503/INTERNAL)·EXTRACTION_TIMEOUT(504/TIMEOUT)·예상하지 못한 EXTRACTION_FAILED(500/INTERNAL)는 retryable=false다. 알려진 parser 자원 오류의 기존 400과 파일·페이지 오류는 유지한다. Spring 외부 자료 상태·failureReason은 유지하며 자동 재추출하지 않는다.
+- 텍스트 추출 후 파일 업로드는 기존 60초와 남은 전체 예산 중 작은 값만 사용한다. 업로드만 실패·만료하면 페이지를 보존하고 HTTP 200/FILE_UPLOAD_FAILED 경고를 반환한다. 읽기 thread 정리 전에 해당 임시 파일을 삭제하지 않는다.
+- 운영 TBD: 실제 Spring 추출 read timeout(기본 200초), multipart 전송·직렬화 여유, 컨테이너/replica별 부모·자식 CPU·메모리, 대표 사용자 PDF의 처리 시간·품질을 배포 전에 확인한다. handler 이전 multipart spooling은 이 접수 제한의 보호 범위 밖이다.
+
 ### DEC-006 — PDF 텍스트 추출 책임
 
 - 상태: Accepted
