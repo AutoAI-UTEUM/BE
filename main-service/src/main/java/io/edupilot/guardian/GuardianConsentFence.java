@@ -18,6 +18,7 @@ import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserBusinessAccessState;
+import io.edupilot.user.UserCurrentStateRefresh;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserStatus;
 import jakarta.persistence.EntityManager;
@@ -93,7 +94,7 @@ public class GuardianConsentFence {
 			User user = users.findByIdForBusinessAccess(snapshot.userId())
 				.orElseThrow(() -> new BusinessException(ErrorCode.USER_INACTIVE));
 			// 1차 캐시와 REPEATABLE_READ의 이전 조회 결과를 신뢰하지 않고 현재 잠긴 행을 읽습니다.
-			entityManager.refresh(user, LockModeType.PESSIMISTIC_READ);
+			UserCurrentStateRefresh.refreshLocked(entityManager, user, LockModeType.PESSIMISTIC_READ);
 			requireCurrent(snapshot, UserBusinessAccessState.from(user));
 		}
 		return save.get();

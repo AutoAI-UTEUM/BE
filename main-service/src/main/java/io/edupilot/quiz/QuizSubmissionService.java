@@ -120,8 +120,9 @@ public class QuizSubmissionService {
 				return response;
 			}
 			List<UiAction> uiActions;
+			GuardianConsentFence.Snapshot responseConsent = consent;
 			try {
-				uiActions = postGradingHook.onGraded(
+				QuizPostGradingHookResult hookResult = postGradingHook.onGraded(
 					new QuizPostGradingContext(
 						response.submissionId(),
 						prepared.quizId(),
@@ -140,6 +141,14 @@ public class QuizSubmissionService {
 						consent
 					)
 				);
+				uiActions = hookResult.uiActions();
+				GuardianConsentFence.Snapshot hookConsent = hookResult.guardianConsent();
+				if (hookConsent != null) {
+					if (!userId.equals(hookConsent.userId()) || (consent != null && !consent.equals(hookConsent))) {
+						throw new BusinessException(ErrorCode.GUARDIAN_CONSENT_CHANGED);
+					}
+					responseConsent = hookConsent;
+				}
 			} catch (RuntimeException exception) {
 				if (exception instanceof BusinessException businessException
 					&& (businessException.errorCode() == ErrorCode.AI_QUOTA_EXCEEDED
@@ -162,7 +171,7 @@ public class QuizSubmissionService {
 				uiActions = response.uiActions();
 			}
 			materialAccessService.assertSessionAccessible(userId, prepared.sessionId());
-			if (consent != null) consentFence.assertCurrent(consent);
+			if (responseConsent != null) consentFence.assertCurrent(responseConsent);
 			return response.withUiActions(uiActions);
 		} catch (DataIntegrityViolationException exception) {
 			return persistenceService.findByRequest(

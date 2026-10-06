@@ -81,11 +81,12 @@ class TurnPersistenceServiceTest {
 	@Mock
 	private ConversationSummaryDispatcher summaryDispatcher;
 	@Mock private io.edupilot.material.MaterialAccessService materialAccessService;
-	@Mock private jakarta.persistence.EntityManager entityManager;
+	private jakarta.persistence.EntityManager entityManager;
 
 	@BeforeEach
 	void authorizeAccount() {
-		org.mockito.Mockito.lenient().when(userRepository.findById(1L)).thenReturn(Optional.of(
+		entityManager = io.edupilot.GuardianConsentFenceTestSupport.lockedUserEntities();
+		org.mockito.Mockito.lenient().when(userRepository.findByIdForBusinessAccess(1L)).thenReturn(Optional.of(
 			io.edupilot.VerifiedTestUsers.legacyVerified(io.edupilot.user.User.create("synthetic@example.test", "hash", "Synthetic user"))));
 	}
 
@@ -96,7 +97,7 @@ class TurnPersistenceServiceTest {
 		child.verifyEmail(NOW.minusSeconds(60));
 		child.recordGuardianTeamApproval(NOW.plusSeconds(3600), true);
 		child.recordGuardianTeamPolicyDigest("c".repeat(64));
-		when(userRepository.findById(1L)).thenReturn(Optional.of(child));
+		when(userRepository.findByIdForBusinessAccess(1L)).thenReturn(Optional.of(child));
 
 		assertThatThrownBy(() -> service().persistCancelled(1L, io.edupilot.user.UserRole.LEARNER,
 			child.getGuardianConsentEpoch(), 100L, "request-1", "synthetic-turn", "합성 응답"))

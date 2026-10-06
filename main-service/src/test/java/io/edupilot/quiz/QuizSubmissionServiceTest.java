@@ -17,6 +17,8 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -87,7 +89,7 @@ class QuizSubmissionServiceTest {
 				List.of(UiAction.moveNextPage())
 			), true));
 		when(postGradingHook.onGraded(any()))
-			.thenReturn(List.of(UiAction.moveNextPage()));
+			.thenReturn(new QuizPostGradingHookResult(List.of(UiAction.moveNextPage()), null));
 		QuizSubmissionService service = new QuizSubmissionService(
 			preparationService,
 			gradingService,
@@ -136,7 +138,7 @@ class QuizSubmissionServiceTest {
 		when(persistenceService.persist(1L, prepared, grade, true)).thenReturn(new PersistedQuizSubmission(
 			new QuizSubmitResponse(200L, 50L, QuizType.SHORT, grade.score(), grade.maxScore(), true,
 				QuizGradingResultResponse.from(grade), List.of(UiAction.moveNextPage())), true));
-		when(postGradingHook.onGraded(any())).thenReturn(List.of(UiAction.moveNextPage()));
+		when(postGradingHook.onGraded(any())).thenReturn(new QuizPostGradingHookResult(List.of(UiAction.moveNextPage()), original));
 		QuizSubmissionService service = new QuizSubmissionService(preparationService, gradingService,
 			persistenceService, new QuizProperties(new BigDecimal("0.6"), 200), postGradingHook,
 			claimService, materialAccessService, consentFence);
@@ -148,6 +150,38 @@ class QuizSubmissionServiceTest {
 		ArgumentCaptor<QuizPostGradingContext> context = ArgumentCaptor.forClass(QuizPostGradingContext.class);
 		verify(postGradingHook).onGraded(context.capture());
 		assertThat(context.getValue().guardianConsent()).isSameAs(original);
+	}
+
+	@ParameterizedTest
+	@CsvSource({"2,7", "1,8"})
+	void postGradingCannotReplaceTheOriginalAiSubjectOrGeneration(Long hookUserId, long hookEpoch) {
+		PreparedQuizSubmission prepared = new PreparedQuizSubmission(50L, 100L, 10L, QuizType.SHORT,
+			"1.0", "request-1", List.of(), List.of(), List.of(), null);
+		QuizSubmitRequest request = new QuizSubmitRequest("request-1", List.of());
+		GradingResult grade = result("100.00");
+		GuardianConsentFence consentFence = org.mockito.Mockito.mock(GuardianConsentFence.class);
+		GuardianConsentFence.Snapshot original = new GuardianConsentFence.Snapshot(1L, 7L);
+		when(consentFence.capture(1L)).thenReturn(original);
+		when(consentFence.complete(eq(original), any())).thenAnswer(call ->
+			((java.util.function.Supplier<?>)call.getArgument(1)).get());
+		when(preparationService.prepare(1L, 50L, request)).thenReturn(prepared);
+		when(gradingService.grade(1L, prepared, original)).thenReturn(grade);
+		when(persistenceService.persist(1L, prepared, grade, true)).thenReturn(new PersistedQuizSubmission(
+			new QuizSubmitResponse(200L, 50L, QuizType.SHORT, grade.score(), grade.maxScore(), true,
+				QuizGradingResultResponse.from(grade), List.of(UiAction.moveNextPage())), true));
+		when(postGradingHook.onGraded(any())).thenReturn(new QuizPostGradingHookResult(
+			List.of(UiAction.diagnosisQuestion("Synthetic result", 300L)),
+			new GuardianConsentFence.Snapshot(hookUserId, hookEpoch)));
+		QuizSubmissionService service = new QuizSubmissionService(preparationService, gradingService,
+			persistenceService, new QuizProperties(new BigDecimal("0.6"), 200), postGradingHook,
+			claimService, materialAccessService, consentFence);
+
+		assertThatThrownBy(() -> service.submit(1L, 50L, request))
+			.isInstanceOfSatisfying(BusinessException.class,
+				error -> assertThat(error.errorCode()).isEqualTo(ErrorCode.GUARDIAN_CONSENT_CHANGED));
+		verify(persistenceService).persist(1L, prepared, grade, true);
+		verify(consentFence).capture(1L);
+		verify(claimService).release(eq(100L), any());
 	}
 
 	@Test
@@ -163,7 +197,7 @@ class QuizSubmissionServiceTest {
 		when(persistenceService.persist(1L, prepared, valid, true))
 			.thenReturn(new PersistedQuizSubmission(persisted, true));
 		when(postGradingHook.onGraded(any()))
-			.thenReturn(List.of(UiAction.moveNextPage()));
+			.thenReturn(new QuizPostGradingHookResult(List.of(UiAction.moveNextPage()), null));
 		QuizSubmissionService service = service("0.6");
 
 		assertThatThrownBy(() -> service.submit(1L, 50L, request))
@@ -263,7 +297,7 @@ class QuizSubmissionServiceTest {
 		when(persistenceService.persist(1L, prepared, result, true))
 			.thenReturn(new PersistedQuizSubmission(response, true));
 		when(postGradingHook.onGraded(any()))
-			.thenReturn(List.of(UiAction.moveNextPage()));
+			.thenReturn(new QuizPostGradingHookResult(List.of(UiAction.moveNextPage()), null));
 		doNothing()
 			.doThrow(new BusinessException(ErrorCode.TURN_IN_PROGRESS))
 			.when(claimService).claim(eq(1L), eq(100L), any());
@@ -361,7 +395,7 @@ class QuizSubmissionServiceTest {
 				true
 			));
 		when(postGradingHook.onGraded(any()))
-			.thenReturn(List.of(UiAction.moveNextPage()));
+			.thenReturn(new QuizPostGradingHookResult(List.of(UiAction.moveNextPage()), null));
 
 		assertThat(service(ratio).submit(1L, 50L, request).passed())
 			.isEqualTo(expected);

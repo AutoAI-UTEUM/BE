@@ -36,6 +36,9 @@ import io.edupilot.global.error.ErrorCode;
 import io.edupilot.mail.EmailService;
 import io.edupilot.user.dto.UpdatePreferencesRequest;
 import io.edupilot.user.dto.UpdateProfileRequest;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceContext;
 
 @SpringBootTest(properties = {
 	"spring.datasource.url=jdbc:h2:mem:account-mutation-withdrawal;MODE=MySQL;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000",
@@ -67,6 +70,7 @@ class UserMutationWithdrawalRaceJpaTest {
 	@Autowired private UserService service;
 	@Autowired private PlatformTransactionManager transactions;
 	@Autowired private JdbcTemplate jdbc;
+	@PersistenceContext private EntityManager entities;
 	@MockitoSpyBean private PasswordEncoder passwords;
 	@MockitoBean private AiClient ai;
 	@MockitoBean private EmailService mail;
@@ -124,6 +128,27 @@ class UserMutationWithdrawalRaceJpaTest {
 			}
 		}
 		assertAnonymous(userId);
+	}
+
+	@Test
+	void existingWriteLockCannotAuthorizeAMutationUsingAnOlderActiveSnapshot() throws Exception {
+		Long userId = account();
+		try (var executor = Executors.newSingleThreadExecutor()) {
+			new TransactionTemplate(transactions).executeWithoutResult(transaction -> {
+				User stale = users.findById(userId).orElseThrow();
+				assertThat(stale.isActive()).isTrue();
+				try { executor.submit(() -> service.withdraw(userId, PASSWORD)).get(15, TimeUnit.SECONDS); }
+				catch (Exception failure) { throw new IllegalStateException("Synthetic withdrawal did not commit", failure); }
+				assertThat(users.findByIdForUpdate(userId).orElseThrow()).isSameAs(stale);
+				assertThat(entities.getLockMode(stale)).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
+				assertThat(stale.isActive()).isTrue();
+				assertThatThrownBy(() -> mutate(Mutation.PROFILE, userId)).isInstanceOfSatisfying(BusinessException.class,
+					failure -> assertThat(failure.errorCode()).isEqualTo(ErrorCode.USER_INACTIVE));
+				transaction.setRollbackOnly();
+			});
+		}
+		assertAnonymous(userId);
+		org.mockito.Mockito.verifyNoInteractions(ai);
 	}
 
 	@ParameterizedTest

@@ -29,8 +29,8 @@ import io.edupilot.quiz.PrivateQuizQuestion;
 import io.edupilot.quiz.PublicQuizQuestion;
 import io.edupilot.quiz.QuizPostGradingContext;
 import io.edupilot.quiz.QuizPostGradingHook;
+import io.edupilot.quiz.QuizPostGradingHookResult;
 import io.edupilot.quiz.QuizType;
-import io.edupilot.session.UiAction;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 
@@ -74,7 +74,7 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 	}
 
 	@Override
-	public List<UiAction> onGraded(QuizPostGradingContext context) {
+	public QuizPostGradingHookResult onGraded(QuizPostGradingContext context) {
 		materialAccessService.assertSessionAccessible(context.userId(), context.sessionId());
 		GuardianConsentFence.Snapshot consent;
 		try {
@@ -86,7 +86,7 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 			}
 		} catch (BusinessException exception) {
 			// 선택 AI 동의가 없으면 이미 완료된 결정적 채점만 제공하고 외부 전송을 하지 않습니다.
-			if (exception.errorCode() == ErrorCode.GUARDIAN_AI_CONSENT_REQUIRED) return defaultActions(context);
+			if (exception.errorCode() == ErrorCode.GUARDIAN_AI_CONSENT_REQUIRED) return defaultActions(context, context.guardianConsent());
 			throw exception;
 		}
 		GuardianConsentFence.Snapshot capturedConsent = consent;
@@ -121,17 +121,17 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 					.log(
 						"Quiz assessment discarded after session state changed"
 					);
-				return defaultActions(context);
+				return defaultActions(context, capturedConsent);
 			}
 		} catch (RuntimeException exception) {
 			recordFailure(context.userId(), AiFeature.QUIZ_ASSESSMENT, exception);
 			rethrowProtectedFailure(exception);
 			logFailure("assessment", context, exception);
-			return defaultActions(context);
+			return defaultActions(context, capturedConsent);
 		}
 
 		if (context.passed()) {
-			return defaultActions(context);
+			return defaultActions(context, capturedConsent);
 		}
 
 		try {
@@ -147,7 +147,7 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 					.addKeyValue("submissionId", context.submissionId())
 					.addKeyValue("quizId", context.quizId())
 					.log("Diagnosis skipped because wrongItems is empty");
-				return defaultActions(context);
+				return defaultActions(context, capturedConsent);
 			}
 			User user = activeUser(context.userId());
 			aiQuotaService.checkQuota(context.userId(), user.getRole());
@@ -160,13 +160,13 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 				true
 			);
 			return consentFence.complete(capturedConsent, () -> diagnosisPersistenceService.savePending(context, response))
-				.map(List::of)
-				.orElseGet(() -> defaultActions(context));
+				.map(action -> new QuizPostGradingHookResult(List.of(action), capturedConsent))
+				.orElseGet(() -> defaultActions(context, capturedConsent));
 		} catch (RuntimeException exception) {
 			recordFailure(context.userId(), AiFeature.DIAGNOSIS, exception);
 			rethrowProtectedFailure(exception);
 			logFailure("diagnosis", context, exception);
-			return defaultActions(context);
+			return defaultActions(context, capturedConsent);
 		}
 	}
 
@@ -320,8 +320,8 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 		};
 	}
 
-	private List<UiAction> defaultActions(QuizPostGradingContext context) {
-		return context.defaultUiActions();
+	private QuizPostGradingHookResult defaultActions(QuizPostGradingContext context, GuardianConsentFence.Snapshot consent) {
+		return new QuizPostGradingHookResult(context.defaultUiActions(), consent);
 	}
 
 	private void logFailure(

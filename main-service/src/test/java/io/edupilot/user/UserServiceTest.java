@@ -37,7 +37,7 @@ import jakarta.persistence.LockModeType;
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
 	@Mock private io.edupilot.deletion.DeletionJournal deletionJournal;
-	@Mock private EntityManager entityManager;
+	private EntityManager entityManager;
 
 	@Mock
 	private UserRepository userRepository;
@@ -62,6 +62,7 @@ class UserServiceTest {
 	@BeforeEach
 	void setUp() {
 		passwordEncoder = new BCryptPasswordEncoder();
+		entityManager = io.edupilot.GuardianConsentFenceTestSupport.lockedUserEntities();
 		userService = new UserService(
 			userRepository,
 			passwordEncoder,
@@ -81,6 +82,7 @@ class UserServiceTest {
 		);
 		ReflectionTestUtils.setField(user, "id", 1L);
 		lenient().when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+		stubLockedAccount(user);
 	}
 
 	@Test
@@ -126,7 +128,7 @@ class UserServiceTest {
 			"google-sub"
 		);
 		ReflectionTestUtils.setField(googleUser, "id", 2L);
-		when(userRepository.findById(2L)).thenReturn(Optional.of(googleUser));
+		stubLockedAccount(googleUser);
 
 		assertBusinessError(
 			() -> userService.changePassword(2L, "unused", "newPassword456"),
@@ -266,7 +268,7 @@ class UserServiceTest {
 		assertThat(user.getPasswordHash()).isEqualTo("!withdrawn:1");
 		verify(deletionJournal).recordAvatar("avatars/avatar.png");
 		InOrder order = inOrder(userRepository, entityManager, withdrawalHook, refreshTokenService);
-		order.verify(userRepository).findById(1L);
+		order.verify(userRepository).findByIdForUpdate(1L);
 		order.verify(entityManager).refresh(user, LockModeType.PESSIMISTIC_WRITE);
 		order.verify(userRepository).flush();
 		order.verify(withdrawalHook).onWithdraw(1L);
@@ -296,7 +298,7 @@ class UserServiceTest {
 		User google = User.createGoogle("google@example.com", passwordEncoder.encode("password123"),
 			"Synthetic", UserRole.LEARNER, null, false, null, null, null, "actual-google-sub");
 		ReflectionTestUtils.setField(google, "id", 2L);
-		when(userRepository.findById(2L)).thenReturn(Optional.of(google));
+		stubLockedAccount(google);
 		assertBusinessError(() -> userService.withdraw(2L, "password123"), ErrorCode.INVALID_CREDENTIALS);
 		assertBusinessError(() -> userService.withdrawGoogle(1L, "actual-google-sub"), ErrorCode.INVALID_CREDENTIALS);
 		assertBusinessError(() -> userService.withdrawGoogle(2L, "other-google-sub"), ErrorCode.INVALID_CREDENTIALS);
@@ -304,6 +306,14 @@ class UserServiceTest {
 		userService.withdrawGoogle(2L, "actual-google-sub");
 		assertThat(google.isActive()).isFalse();
 		verify(refreshTokenService).revokeAll(2L);
+	}
+
+	private void stubLockedAccount(User account) {
+		lenient().when(userRepository.findByIdForUpdate(account.getId())).thenAnswer(ignored -> {
+			entityManager.unwrap(org.hibernate.engine.spi.SessionImplementor.class)
+				.getPersistenceContextInternal().getEntry(account).setLockMode(org.hibernate.LockMode.PESSIMISTIC_WRITE);
+			return Optional.of(account);
+		});
 	}
 
 	private byte[] pngBytes() {

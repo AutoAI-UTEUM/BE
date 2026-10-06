@@ -231,13 +231,11 @@ public class UserService {
 	}
 
 	private User activeUserForUpdate(Long userId) {
-		User user = userRepository.findById(userId)
+		User user = userRepository.findByIdForUpdate(userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-		if (entityManager.getLockMode(user) != LockModeType.PESSIMISTIC_WRITE) {
-			// Acquire the lock while reloading: a locking query followed by refresh can
-			// re-read an old MySQL snapshot. Reuse our lock for later unflushed mutations.
-			entityManager.refresh(user, LockModeType.PESSIMISTIC_WRITE);
-		}
+		// The query flushes earlier mutations before a current locking refresh, so a
+		// repeated mutation keeps its pending changes while rejecting stale account state.
+		UserCurrentStateRefresh.refreshLocked(entityManager, user, LockModeType.PESSIMISTIC_WRITE);
 		if (!user.isActive()) {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}

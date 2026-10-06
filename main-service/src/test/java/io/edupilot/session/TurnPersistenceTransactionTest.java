@@ -97,7 +97,12 @@ class TurnPersistenceTransactionTest {
 	@BeforeEach
 	void clearRecords() {
 		jdbcTemplate.update("DELETE FROM session_page_records");
-		when(userRepository.findById(1L)).thenReturn(Optional.of(
+		var lockedEntities = io.edupilot.GuardianConsentFenceTestSupport.lockedUserEntities();
+		var lockedSession = lockedEntities.unwrap(org.hibernate.engine.spi.SessionImplementor.class);
+		when(entityManager.isJoinedToTransaction()).thenReturn(true);
+		when(entityManager.unwrap(org.hibernate.engine.spi.SessionImplementor.class))
+			.thenReturn(lockedSession);
+		when(userRepository.findByIdForBusinessAccess(1L)).thenReturn(Optional.of(
 			io.edupilot.VerifiedTestUsers.legacyVerified(io.edupilot.user.User.create("synthetic@example.test", "hash", "Synthetic user"))));
 	}
 

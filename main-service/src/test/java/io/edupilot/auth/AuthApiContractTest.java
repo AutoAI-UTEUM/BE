@@ -26,6 +26,8 @@ import java.util.Arrays;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.hibernate.LockMode;
+import org.hibernate.engine.spi.SessionImplementor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
@@ -64,6 +66,7 @@ import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
+import jakarta.persistence.EntityManager;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -92,6 +95,9 @@ class AuthApiContractTest {
 
 	@Autowired
 	private RefreshTokenService refreshTokenService;
+
+	@Autowired
+	private EntityManager entityManager;
 
 	@MockitoBean
 	private UserRepository userRepository;
@@ -140,6 +146,7 @@ class AuthApiContractTest {
 
 	private MockMvc mockMvc;
 	private User user;
+	private SessionImplementor lockedUserSession;
 	private final AtomicLong authSessionIds = new AtomicLong(1_000L);
 
 	@BeforeEach
@@ -150,8 +157,13 @@ class AuthApiContractTest {
 			policyConsentRepository,
 			refreshTokenRepository,
 			authSessionRepository,
-			googleIdTokenVerifier
+			googleIdTokenVerifier,
+			entityManager
 		);
+		var lockedEntities = io.edupilot.GuardianConsentFenceTestSupport.lockedUserEntities();
+		lockedUserSession = lockedEntities.unwrap(SessionImplementor.class);
+		when(entityManager.isJoinedToTransaction()).thenReturn(true);
+		when(entityManager.unwrap(SessionImplementor.class)).thenReturn(lockedUserSession);
 		for (PolicyType type : PolicyType.values()) {
 			when(policyDocumentRepository
 				.findFirstByTypeAndEffectiveAtLessThanEqualOrderByEffectiveAtDescIdDesc(
@@ -186,6 +198,7 @@ class AuthApiContractTest {
 			"홍길동"
 		);
 		ReflectionTestUtils.setField(user, "id", 1L);
+		mockLockedAccount(user);
 	}
 
 	@Test
@@ -636,7 +649,6 @@ class AuthApiContractTest {
 	@Test
 	void profileAndAvatarEndpointsUseExpandedAuthenticatedContract() throws Exception {
 		when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-		when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
 		when(fileStorage.storeAvatar(any(), org.mockito.ArgumentMatchers.eq("png")))
 			.thenReturn("avatars/avatar.png");
 		String accessToken = jwtTokenProvider.createAccessToken(user);
@@ -1007,6 +1019,7 @@ class AuthApiContractTest {
 		);
 		ReflectionTestUtils.setField(googleUser, "id", 2L);
 		when(userRepository.findById(2L)).thenReturn(Optional.of(googleUser));
+		mockLockedAccount(googleUser);
 
 		mockMvc.perform(patch("/api/users/me/password")
 				.header(
@@ -1030,6 +1043,7 @@ class AuthApiContractTest {
 		);
 		ReflectionTestUtils.setField(rateLimitedUser, "id", 99L);
 		when(userRepository.findById(99L)).thenReturn(Optional.of(rateLimitedUser));
+		mockLockedAccount(rateLimitedUser);
 		String accessToken = jwtTokenProvider.createAccessToken(rateLimitedUser);
 
 		for (int attempt = 0; attempt < 5; attempt++) {
@@ -1060,7 +1074,6 @@ class AuthApiContractTest {
 	@Test
 	void withdrawalRequiresPasswordAndAnonymizesCurrentUser() throws Exception {
 		when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-		when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
 		when(refreshTokenRepository.revokeAllActiveByUserId(any(), any())).thenReturn(1);
 		String accessToken = jwtTokenProvider.createAccessToken(user);
 
@@ -1084,7 +1097,7 @@ class AuthApiContractTest {
 			UserRole.LEARNER, null, false, null, null, null, "withdraw-google-sub");
 		ReflectionTestUtils.setField(google, "id", 2L);
 		when(userRepository.findById(2L)).thenReturn(Optional.of(google));
-		when(userRepository.findByIdForUpdate(2L)).thenReturn(Optional.of(google));
+		mockLockedAccount(google);
 		when(googleIdTokenVerifier.verify("withdraw-id-token")).thenReturn(
 			new GoogleProfile("withdraw-google-sub", "different-email@example.com", "Synthetic"));
 		String bearer = "Bearer " + jwtTokenProvider.createAccessToken(google);
@@ -1097,6 +1110,14 @@ class AuthApiContractTest {
 			.contentType(MediaType.APPLICATION_JSON).content("{\"googleIdToken\":\"withdraw-id-token\"}"))
 			.andExpect(status().isOk());
 		org.assertj.core.api.Assertions.assertThat(google.isActive()).isFalse();
+	}
+
+	private void mockLockedAccount(User account) {
+		when(userRepository.findByIdForUpdate(account.getId())).thenAnswer(invocation -> {
+			lockedUserSession.getPersistenceContextInternal().getEntry(account)
+				.setLockMode(LockMode.PESSIMISTIC_WRITE);
+			return Optional.of(account);
+		});
 	}
 
 	private String logText(ILoggingEvent event) {

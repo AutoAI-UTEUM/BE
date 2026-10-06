@@ -1,13 +1,20 @@
 package io.edupilot;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 
 import java.time.Clock;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
+import org.hibernate.LockMode;
+import org.hibernate.engine.spi.EntityEntry;
+import org.hibernate.engine.spi.PersistenceContext;
+import org.hibernate.engine.spi.SessionImplementor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.edupilot.guardian.GuardianConsentFence;
@@ -49,7 +56,28 @@ public final class GuardianConsentFenceTestSupport {
 		lenient().when(sessions.findById(anyLong())).thenReturn(Optional.of(session));
 		GuardianConsentFence fence = new GuardianConsentFence(users, materials, sessions, Clock.systemUTC(),
 			mock(GuardianTeamProperties.class));
-		ReflectionTestUtils.setField(fence, "entityManager", mock(EntityManager.class));
+		ReflectionTestUtils.setField(fence, "entityManager", lockedUserEntities());
 		return fence;
+	}
+
+	/** Supplies the already-locked managed-User contract; real locking refresh is tested in JPA/MySQL. */
+	public static EntityManager lockedUserEntities() {
+		EntityManager entities = mock(EntityManager.class);
+		SessionImplementor session = mock(SessionImplementor.class);
+		PersistenceContext context = mock(PersistenceContext.class);
+		var entries = new IdentityHashMap<User, EntityEntry>();
+		lenient().when(entities.isJoinedToTransaction()).thenReturn(true);
+		lenient().when(entities.unwrap(SessionImplementor.class)).thenReturn(session);
+		lenient().when(session.getPersistenceContextInternal()).thenReturn(context);
+		lenient().when(context.getEntry(any(User.class))).thenAnswer(call ->
+			entries.computeIfAbsent(call.getArgument(0), account -> {
+				EntityEntry entry = mock(EntityEntry.class);
+				var mode = new AtomicReference<>(LockMode.PESSIMISTIC_READ);
+				lenient().when(entry.getLockMode()).thenAnswer(ignored -> mode.get());
+				lenient().doAnswer(changed -> { mode.set(changed.getArgument(0)); return null; })
+					.when(entry).setLockMode(any(LockMode.class));
+				return entry;
+			}));
+		return entities;
 	}
 }

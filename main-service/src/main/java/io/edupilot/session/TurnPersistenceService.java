@@ -32,6 +32,7 @@ import io.edupilot.session.dto.TurnStateResponse;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserBusinessAccessState;
+import io.edupilot.user.UserCurrentStateRefresh;
 import io.edupilot.user.UserRole;
 import io.edupilot.user.UserStatus;
 import jakarta.persistence.EntityManager;
@@ -345,11 +346,11 @@ public class TurnPersistenceService {
 		Long userId, UserRole expectedRole, long expectedGuardianConsentEpoch,
 		Long sessionId, String requestId
 	) {
-		User user = userRepository.findById(userId)
+		User user = userRepository.findByIdForBusinessAccess(userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID));
-		// Refresh with a locking read even if this transaction already loaded an older account.
-		// A shared account lock precedes the session lock and orders suspension/role updates after commit.
-		entityManager.refresh(user, LockModeType.PESSIMISTIC_READ);
+		// Keep the account lock ahead of session/material locks, and force a current read
+		// even when the managed account already carries the same or a stronger lock mode.
+		UserCurrentStateRefresh.refreshLocked(entityManager, user, LockModeType.PESSIMISTIC_READ);
 		if (user.getStatus() == UserStatus.SUSPENDED) {
 			throw new BusinessException(ErrorCode.ACCOUNT_SUSPENDED);
 		}

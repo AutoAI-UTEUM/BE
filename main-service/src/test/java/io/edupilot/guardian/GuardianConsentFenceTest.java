@@ -70,7 +70,7 @@ class GuardianConsentFenceTest {
 		policy = mock(GuardianTeamProperties.class);
 		when(policy.ready()).thenReturn(true);
 		when(policy.configurationDigest()).thenReturn(DIGEST);
-		entities = mock(EntityManager.class);
+		entities = io.edupilot.GuardianConsentFenceTestSupport.lockedUserEntities();
 		fence = new GuardianConsentFence(users, mock(LearningMaterialRepository.class),
 			mock(LearningSessionRepository.class), Clock.fixed(NOW, ZoneOffset.UTC), policy);
 		ReflectionTestUtils.setField(fence, "entityManager", entities);
@@ -99,7 +99,9 @@ class GuardianConsentFenceTest {
 		QuizPostGradingContext context = mock(QuizPostGradingContext.class);
 		when(context.userId()).thenReturn(1L);
 		when(context.defaultUiActions()).thenReturn(List.of());
-		assertThat(pipeline.onGraded(context)).isEmpty();
+		var result = pipeline.onGraded(context);
+		assertThat(result.uiActions()).isEmpty();
+		assertThat(result.guardianConsent()).isNull();
 		verifyNoInteractions(ai, assessments, diagnoses, memories);
 	}
 

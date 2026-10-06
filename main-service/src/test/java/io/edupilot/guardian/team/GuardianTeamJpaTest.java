@@ -19,8 +19,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import org.hibernate.Hibernate;
+import org.hibernate.LockMode;
+import org.hibernate.engine.spi.SessionImplementor;
+import org.hibernate.proxy.HibernateProxy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -42,6 +48,10 @@ import io.edupilot.guardian.AgeVerificationState;
 import io.edupilot.mail.EmailService;
 import io.edupilot.user.*;
 import tools.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceContext;
 
 /** Actual JPA, transactions and security over disposable synthetic data; no external mail, AI, SMS or permissions. */
 @SpringBootTest(properties = {
@@ -82,6 +92,8 @@ class GuardianTeamJpaTest {
 	@Autowired ObjectMapper json;
 	@Autowired JdbcTemplate jdbc;
 	@Autowired PlatformTransactionManager transactions;
+	@Autowired EntityManagerFactory entityManagerFactory;
+	@PersistenceContext EntityManager entityManager;
 	@Autowired io.edupilot.deletion.DeletionJournalLockRepository deletionLocks;
 	@MockitoBean Clock clock;
 	@MockitoBean AiClient ai;
@@ -353,6 +365,120 @@ class GuardianTeamJpaTest {
 			.andExpect(jsonPath("$.data.serviceApproved").value(false));
 		mvc.perform(get("/api/materials").header("Authorization", bearer(child)))
 			.andExpect(status().isForbidden()).andExpect(jsonPath("$.error.code").value("EMAIL_VERIFICATION_REQUIRED"));
+	}
+
+	@ParameterizedTest(name = "locked User proxy current hydration / {0}")
+	@EnumSource(value = LockModeType.class, names = {"PESSIMISTIC_READ", "PESSIMISTIC_WRITE"})
+	void aLockedUserProxyKeepsItsImplementationAndCurrentGuardianState(LockModeType requested) {
+		User child = child(); var approved = approve(confirm(intake(child, false).status(), Set.of("SERVICE", "EXTERNAL_AI")), "proxy-approve");
+		try (var pool = Executors.newSingleThreadExecutor()) {
+			new TransactionTemplate(transactions).executeWithoutResult(tx -> {
+				User proxy = entityManager.getReference(User.class, child.getId());
+				assertThat(proxy).isInstanceOf(HibernateProxy.class); assertThat(Hibernate.isInitialized(proxy)).isFalse();
+				long previousEpoch = proxy.getGuardianConsentEpoch();
+				assertThat(proxy.getGuardianApprovedUntil()).isEqualTo(approved.approvedUntil());
+				var session = entityManager.unwrap(SessionImplementor.class);
+				var initializer = HibernateProxy.extractLazyInitializer(proxy);
+				User implementation = (User) initializer.getImplementation(session);
+				assertThat(initializer.getSession()).isSameAs(session); assertThat(implementation).isNotNull();
+				try {
+					pool.submit(() -> service.revoke(1L, approved.requestId(), new GuardianTeamDtos.Revoke("proxy-revoke",
+						approved.generation(), approved.revision(), GuardianTeamRequest.Reason.OPERATOR_REVOKED))).get(5, TimeUnit.SECONDS);
+				} catch (Exception failure) { throw new IllegalStateException(failure); }
+				assertThat(proxy.getGuardianConsentEpoch()).isEqualTo(previousEpoch);
+				if (requested == LockModeType.PESSIMISTIC_WRITE) { proxy.updateProfile("합성 프록시 수정 보존", "합성 기관"); }
+				User locked = requested == LockModeType.PESSIMISTIC_WRITE
+					? users.findByIdForUpdate(child.getId()).orElseThrow() : users.findByIdForBusinessAccess(child.getId()).orElseThrow();
+				assertThat(locked).isSameAs(proxy);
+				var context = session.getPersistenceContextInternal();
+				LockMode expected = requested == LockModeType.PESSIMISTIC_WRITE ? LockMode.WRITE : LockMode.PESSIMISTIC_READ;
+				assertThat(context.getEntry(proxy)).isNull(); assertThat(context.getEntry(implementation).getLockMode()).isEqualTo(expected);
+				System.out.println("SYNTHETIC_USER_PROXY requested=" + requested + " rawEntry=null managedMode=" + expected + " staleEpoch=" + previousEpoch);
+				UserCurrentStateRefresh.refreshLocked(entityManager, locked, requested);
+				assertThat(initializer.getImplementation(session)).isSameAs(implementation);
+				assertThat(initializer.getImplementation()).isSameAs(implementation);
+				assertThat(entityManager.contains(proxy)).isTrue(); assertThat(entityManager.contains(implementation)).isTrue();
+				assertThat(context.getEntry(implementation).getLockMode()).isEqualTo(expected);
+				assertThat(proxy.getGuardianConsentEpoch()).isEqualTo(previousEpoch + 1);
+				assertThat(proxy.getAgeVerificationState()).isEqualTo(AgeVerificationState.UNKNOWN);
+				assertThat(proxy.getGuardianApprovedUntil()).isNull(); assertThat(proxy.isGuardianAiConsentAllowed()).isFalse();
+				assertThat(proxy.getGuardianApprovalPolicyDigest()).isNull();
+				if (requested == LockModeType.PESSIMISTIC_WRITE) {
+					assertThat(proxy.getName()).isEqualTo("합성 프록시 수정 보존"); assertThat(proxy.getAffiliation()).isEqualTo("합성 기관");
+				}
+			});
+		}
+		User stored = users.findById(child.getId()).orElseThrow();
+		assertThat(stored.getGuardianApprovedUntil()).isNull(); assertThat(stored.isGuardianAiConsentAllowed()).isFalse();
+		if (requested == LockModeType.PESSIMISTIC_WRITE) { assertThat(stored.getName()).isEqualTo("합성 프록시 수정 보존"); }
+		verifyNoInteractions(ai, mail);
+	}
+
+	@Test void anUnloadedProxyCannotAcquireALockOrInitializeThroughCurrentStateRefresh() {
+		User child = child();
+		new TransactionTemplate(transactions).executeWithoutResult(tx -> {
+			User proxy = entityManager.getReference(User.class, child.getId());
+			var initializer = HibernateProxy.extractLazyInitializer(proxy); var session = entityManager.unwrap(SessionImplementor.class);
+			assertThat(initializer).isNotNull(); assertThat(Hibernate.isInitialized(proxy)).isFalse();
+			assertThat(initializer.getImplementation(session)).isNull();
+			assertThatThrownBy(() -> UserCurrentStateRefresh.refreshLocked(entityManager, proxy, LockModeType.PESSIMISTIC_READ))
+				.isInstanceOf(IllegalStateException.class);
+			assertThat(Hibernate.isInitialized(proxy)).isFalse(); assertThat(initializer.getImplementation(session)).isNull();
+		});
+	}
+
+	@Test void aDetachedProxyCannotReuseAnotherManagedUsersSameIdLock() {
+		User child = child();
+		User detached = new TransactionTemplate(transactions).execute(tx -> entityManager.getReference(User.class, child.getId()));
+		var initializer = HibernateProxy.extractLazyInitializer(detached);
+		assertThat(initializer).isNotNull(); assertThat(initializer.getSession()).isNull(); assertThat(Hibernate.isInitialized(detached)).isFalse();
+		new TransactionTemplate(transactions).executeWithoutResult(tx -> {
+			User locked = users.findByIdForUpdate(child.getId()).orElseThrow();
+			locked.updateProfile("합성 분리 세션 수정 보존", null);
+			assertThatThrownBy(() -> UserCurrentStateRefresh.refreshLocked(entityManager, detached, LockModeType.PESSIMISTIC_READ))
+				.isInstanceOf(IllegalStateException.class);
+			assertThat(initializer.getSession()).isNull(); assertThat(Hibernate.isInitialized(detached)).isFalse();
+			assertThat(entityManager.contains(locked)).isTrue(); assertThat(entityManager.getLockMode(locked)).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
+		});
+		assertThat(users.findById(child.getId()).orElseThrow().getName()).isEqualTo("합성 분리 세션 수정 보존");
+	}
+
+	@Test void aForeignLiveSessionProxyCannotReuseTheCurrentSessionsUserLock() {
+		User child = child();
+		try (var foreign = entityManagerFactory.createEntityManager()) {
+			foreign.getTransaction().begin();
+			try {
+				User proxy = foreign.getReference(User.class, child.getId()); var initializer = HibernateProxy.extractLazyInitializer(proxy);
+				assertThat(initializer).isNotNull(); assertThat(Hibernate.isInitialized(proxy)).isFalse();
+				new TransactionTemplate(transactions).executeWithoutResult(tx -> {
+					var session = entityManager.unwrap(SessionImplementor.class);
+					User locked = users.findByIdForUpdate(child.getId()).orElseThrow(); locked.updateProfile("합성 다른 세션 수정 보존", null);
+					assertThat(initializer.getSession()).isNotSameAs(session);
+					assertThatThrownBy(() -> UserCurrentStateRefresh.refreshLocked(entityManager, proxy, LockModeType.PESSIMISTIC_READ))
+						.isInstanceOf(IllegalStateException.class);
+					assertThat(Hibernate.isInitialized(proxy)).isFalse(); assertThat(entityManager.contains(locked)).isTrue();
+					assertThat(entityManager.getLockMode(locked)).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
+				});
+			} finally { foreign.getTransaction().rollback(); }
+		}
+		assertThat(users.findById(child.getId()).orElseThrow().getName()).isEqualTo("합성 다른 세션 수정 보존");
+	}
+
+	@Test void aReadLockedUserProxyCannotRequestAnUnacquiredWriteLock() {
+		User child = child();
+		new TransactionTemplate(transactions).executeWithoutResult(tx -> {
+			User proxy = entityManager.getReference(User.class, child.getId());
+			assertThat(proxy).isInstanceOf(HibernateProxy.class);
+			assertThat(users.findByIdForBusinessAccess(child.getId()).orElseThrow()).isSameAs(proxy);
+			var session = entityManager.unwrap(SessionImplementor.class);
+			User implementation = (User) HibernateProxy.extractLazyInitializer(proxy).getImplementation(session);
+			assertThat(implementation).isNotNull();
+			assertThat(session.getPersistenceContextInternal().getEntry(implementation).getLockMode()).isEqualTo(LockMode.PESSIMISTIC_READ);
+			assertThatThrownBy(() -> UserCurrentStateRefresh.refreshLocked(entityManager, proxy, LockModeType.PESSIMISTIC_WRITE))
+				.isInstanceOf(IllegalStateException.class);
+			assertThat(session.getPersistenceContextInternal().getEntry(implementation).getLockMode()).isEqualTo(LockMode.PESSIMISTIC_READ);
+			assertThat(entityManager.contains(implementation)).isTrue();
+		});
 	}
 
 	private User child() { return users.saveAndFlush(actor(UserRole.LEARNER, LocalDate.of(2016, 1, 1))); }

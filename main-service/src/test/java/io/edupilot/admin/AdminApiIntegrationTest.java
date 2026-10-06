@@ -438,7 +438,8 @@ class AdminApiIntegrationTest {
 			assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
 			start.countDown();
 			assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)))
-				.containsExactlyInAnyOrder("OK", "LAST_ADMIN_PROTECTED");
+				// The second actor has already lost ADMIN in the first committed change.
+				.containsExactlyInAnyOrder("OK", "ACCESS_DENIED");
 			assertThat(userRepository.findAll().stream()
 				.filter(user -> user.getRole() == UserRole.ADMIN && user.isActive()).toList())
 				.hasSize(1);

@@ -108,7 +108,7 @@ class QuizSubmissionAccessJpaTest {
 	@BeforeEach
 	void configureStubs() {
 		when(clock.instant()).thenReturn(NOW);
-		when(postGrading.onGraded(any())).thenReturn(List.of(UiAction.moveNextPage()));
+		when(postGrading.onGraded(any())).thenReturn(new QuizPostGradingHookResult(List.of(UiAction.moveNextPage()), null));
 	}
 
 	@ParameterizedTest
@@ -314,7 +314,7 @@ class QuizSubmissionAccessJpaTest {
 			assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
 			assertThat(submissionCount(f)).isEqualTo(1);
 			revoke(f);
-			return List.of(UiAction.moveNextPage());
+			return new QuizPostGradingHookResult(List.of(UiAction.moveNextPage()), null);
 		});
 
 		assertDenied(() -> service.submit(f.learner(), f.quiz(), request()));
