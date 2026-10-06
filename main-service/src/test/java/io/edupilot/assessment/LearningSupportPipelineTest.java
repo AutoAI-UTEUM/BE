@@ -334,7 +334,7 @@ class LearningSupportPipelineTest {
 			assessmentPersistenceService,
 			diagnosisPersistenceService,
 			memoryRepository,
-			materialAccessService
+			materialAccessService, io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 	}
 

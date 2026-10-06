@@ -40,6 +40,10 @@ public class EmailService {
 
 	/** Provider failures are asynchronous. A failed durable payload insert rolls back its caller transaction. */
 	public Long sendAsync(EmailMessage message, Instant expiresAt) {
+		// 수신자 이력이 별도 트랜잭션에 남기 전에 지원하지 않는 보호자 발송을 차단합니다.
+		if (message != null && message.type() == EmailDeliveryType.GUARDIAN_TEAM_NOTICE) {
+			throw new IllegalArgumentException("보호자 팀 확인 메일은 일반 메일 경로에서 발송할 수 없습니다.");
+		}
 		if (message == null || message.to() == null || message.type() == null || message.textBody() == null
 			|| expiresAt == null || !expiresAt.isAfter(clock.instant())) {
 			log.warn("Mail request rejected: required field missing or expired");

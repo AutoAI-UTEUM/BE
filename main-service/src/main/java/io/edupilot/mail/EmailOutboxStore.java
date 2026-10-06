@@ -37,9 +37,14 @@ public class EmailOutboxStore {
 	/** Joins the caller transaction, so rolled-back token/account changes cannot leave sendable mail. */
 	@Transactional
 	public void enqueue(Long id, EmailMessage message, Instant expiry) {
+		EmailDelivery delivery = deliveries.getReferenceById(id);
+		if (delivery.getType() == EmailDeliveryType.GUARDIAN_TEAM_NOTICE
+			|| (message != null && message.type() == EmailDeliveryType.GUARDIAN_TEAM_NOTICE)) {
+			throw new IllegalArgumentException("보호자 팀 확인 메일은 일반 outbox에 저장할 수 없습니다.");
+		}
 		// The delivery ID is assigned before insertion. Persist this new row explicitly,
 		// rather than having repository.save merge a shared-primary-key association.
-		entities.persist(EmailOutbox.queued(deliveries.getReferenceById(id),
+		entities.persist(EmailOutbox.queued(delivery,
 			cipher.encrypt(id, message), clock.instant().truncatedTo(ChronoUnit.MICROS), expiry));
 		entities.flush();
 	}
@@ -78,7 +83,8 @@ public class EmailOutboxStore {
 		}
 		EmailOutbox job = jobs.findForUpdate(id).orElse(null);
 		Instant now = clock.instant();
-		if (job == null || !dispatch.permits(job)) {
+		if (job == null || job.delivery().getType() == EmailDeliveryType.GUARDIAN_TEAM_NOTICE
+			|| !dispatch.permits(job)) {
 			return null;
 		}
 		recover(job, now);
@@ -109,12 +115,13 @@ public class EmailOutboxStore {
 
 	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public boolean beginSending(Claim claim) {
-		if (!dispatch.permits(claim)) {
+		if (claim.message().type() == EmailDeliveryType.GUARDIAN_TEAM_NOTICE || !dispatch.permits(claim)) {
 			return false;
 		}
 		EmailOutbox job = jobs.findForUpdate(claim.id()).orElseThrow();
 		Instant now = clock.instant();
-		if (!dispatch.permits(job) || !job.ownedBy(claim.token()) || job.getStatus() != EmailOutboxStatus.CLAIMED
+		if (job.delivery().getType() == EmailDeliveryType.GUARDIAN_TEAM_NOTICE || !dispatch.permits(job)
+			|| !job.ownedBy(claim.token()) || job.getStatus() != EmailOutboxStatus.CLAIMED
 			|| !job.leaseUntil().isAfter(now)) {
 			return false;
 		}

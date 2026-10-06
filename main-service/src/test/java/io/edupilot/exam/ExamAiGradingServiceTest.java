@@ -41,7 +41,7 @@ class ExamAiGradingServiceTest {
 			aiClient,
 			aiUsageService,
 			persistenceService,
-			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class)
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 	}
 

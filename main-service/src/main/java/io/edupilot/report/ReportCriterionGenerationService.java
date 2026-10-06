@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.ai.AiClient;
 import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
@@ -31,6 +32,8 @@ import io.edupilot.user.UserRole;
 
 @Service
 public class ReportCriterionGenerationService {
+
+	private final GuardianConsentFence consentFence;
 
 	private static final Logger log = LoggerFactory.getLogger(
 		ReportCriterionGenerationService.class
@@ -61,8 +64,10 @@ public class ReportCriterionGenerationService {
 		AiClient aiClient,
 		AiUsageService aiUsageService,
 		@Qualifier("reportGenerationExecutor") Executor executor,
-		EmailVerificationGate emailVerification
+		EmailVerificationGate emailVerification,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
 		this.emailVerification = emailVerification;
 		this.classroomService = classroomService;
 		this.overviewRepository = overviewRepository;
@@ -154,7 +159,8 @@ public class ReportCriterionGenerationService {
 
 	private void generate(GenerationCommand command) {
 		try {
-			emailVerification.requireVerified(command.instructorId());
+			GuardianConsentFence.Snapshot consent = consentFence.capture(command.instructorId());
+			emailVerification.requireAiVerified(command.instructorId());
 			CriteriaSuggestResponse response = aiClient.suggestCriteria(
 				command.request()
 			);
@@ -175,12 +181,8 @@ public class ReportCriterionGenerationService {
 				.stream()
 				.map(this::registrationRequest)
 				.toList();
-			int registeredCount = criterionService.registerGenerated(
-				command.instructorId(),
-				command.role(),
-				command.classroomId(),
-				requests
-			);
+			int registeredCount = consentFence.complete(consent, () -> criterionService.registerGenerated(
+				command.instructorId(), command.role(), command.classroomId(), requests));
 			states.put(
 				command.classroomId(),
 				GenerationState.completed(
@@ -197,9 +199,8 @@ public class ReportCriterionGenerationService {
 					false
 				);
 			}
-			String message = exception.errorCode()
-				== ErrorCode.REPORT_CRITERION_DUPLICATE
-				? DUPLICATE_MESSAGE : SLOT_MESSAGE;
+			String message = GuardianConsentFence.isConsentFailure(exception) ? FAILURE_MESSAGE
+				: exception.errorCode() == ErrorCode.REPORT_CRITERION_DUPLICATE ? DUPLICATE_MESSAGE : SLOT_MESSAGE;
 			states.put(
 				command.classroomId(), GenerationState.failed(message)
 			);

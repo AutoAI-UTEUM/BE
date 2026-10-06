@@ -32,6 +32,9 @@ public class EmailDeliveryStore {
 
 	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public Long queue(EmailMessage message) {
+		if (message != null && message.type() == EmailDeliveryType.GUARDIAN_TEAM_NOTICE) {
+			throw new IllegalArgumentException("보호자 팀 확인 정보는 일반 메일 이력에 저장할 수 없습니다.");
+		}
 		return repository.saveAndFlush(EmailDelivery.queued(message, clock.instant())).getId();
 	}
 
@@ -44,6 +47,9 @@ public class EmailDeliveryStore {
 		// A missing migration-created row fails closed instead of bypassing the quota.
 		locks.findForUpdate(1).orElseThrow(() -> new IllegalStateException("Mail quota state unavailable"));
 		EmailDelivery delivery = repository.findForUpdate(id).orElseThrow();
+		if (delivery.getType() == EmailDeliveryType.GUARDIAN_TEAM_NOTICE) {
+			return false;
+		}
 		if (delivery.getStatus() != EmailDeliveryStatus.QUEUED) {
 			return false;
 		}

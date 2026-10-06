@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.material.MaterialAccessService;
@@ -21,6 +22,8 @@ import io.edupilot.session.UiAction;
 
 @Service
 public class QuizSubmissionService {
+
+	private final GuardianConsentFence consentFence;
 
 	private static final Logger log =
 		LoggerFactory.getLogger(QuizSubmissionService.class);
@@ -40,8 +43,10 @@ public class QuizSubmissionService {
 		QuizProperties properties,
 		QuizPostGradingHook postGradingHook,
 		TurnClaimService claimService,
-		MaterialAccessService materialAccessService
+		MaterialAccessService materialAccessService,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
 		this.preparationService = preparationService;
 		this.gradingService = gradingService;
 		this.persistenceService = persistenceService;
@@ -97,19 +102,21 @@ public class QuizSubmissionService {
 				throw new BusinessException(ErrorCode.QUIZ_ALREADY_SUBMITTED);
 			}
 			materialAccessService.assertSessionAccessible(userId, prepared.sessionId());
-			GradingResult gradingResult = gradingService.grade(userId, prepared);
+			GuardianConsentFence.Snapshot consent = prepared.quizType().usesAiGrading()
+				? consentFence.capture(userId) : null;
+			GradingResult gradingResult = consent == null ? gradingService.grade(userId, prepared)
+				: gradingService.grade(userId, prepared, consent);
 			boolean passed = gradingResult.score().compareTo(
 				gradingResult.maxScore().multiply(properties.passRatio())
 			) >= 0;
-			PersistedQuizSubmission persisted = persistenceService.persist(
-				userId,
-				prepared,
-				gradingResult,
-				passed
-			);
+			PersistedQuizSubmission persisted = consent == null
+				? persistenceService.persist(userId, prepared, gradingResult, passed)
+				: consentFence.complete(consent,
+					() -> persistenceService.persist(userId, prepared, gradingResult, passed));
 			QuizSubmitResponse response = persisted.response();
 			materialAccessService.assertSessionAccessible(userId, prepared.sessionId());
 			if (!persisted.currentPageQuiz()) {
+				if (consent != null) consentFence.assertCurrent(consent);
 				return response;
 			}
 			List<UiAction> uiActions;
@@ -129,14 +136,16 @@ public class QuizSubmissionService {
 						gradingResult,
 						passed,
 						prepared.pageContext(),
-						response.uiActions()
+						response.uiActions(),
+						consent
 					)
 				);
 			} catch (RuntimeException exception) {
 				if (exception instanceof BusinessException businessException
 					&& (businessException.errorCode() == ErrorCode.AI_QUOTA_EXCEEDED
 						|| businessException.errorCode() == ErrorCode.MATERIAL_NOT_FOUND
-						|| businessException.errorCode() == ErrorCode.SESSION_NOT_FOUND)) {
+						|| businessException.errorCode() == ErrorCode.SESSION_NOT_FOUND
+						|| GuardianConsentFence.isConsentFailure(businessException))) {
 					throw businessException;
 				}
 				log.atWarn()
@@ -153,6 +162,7 @@ public class QuizSubmissionService {
 				uiActions = response.uiActions();
 			}
 			materialAccessService.assertSessionAccessible(userId, prepared.sessionId());
+			if (consent != null) consentFence.assertCurrent(consent);
 			return response.withUiActions(uiActions);
 		} catch (DataIntegrityViolationException exception) {
 			return persistenceService.findByRequest(

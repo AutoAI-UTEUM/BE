@@ -334,7 +334,7 @@ final class SessionStreamConnection {
 		sendRaw("heartbeat", SseEmitter.event().comment("heartbeat"));
 	}
 
-	private void assertAccess() {
+	void assertAccess() {
 		if (closed) throw interrupted(null);
 		try {
 			accessCheck.run();

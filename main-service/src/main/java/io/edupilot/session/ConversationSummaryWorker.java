@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.ai.AiClient;
 import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.dto.ConversationSummaryResponse;
@@ -16,6 +17,8 @@ import io.edupilot.global.security.TraceIdFilter;
 
 @Component
 public class ConversationSummaryWorker implements ConversationSummaryTask {
+
+	private final GuardianConsentFence consentFence;
 
 	private static final Logger log = LoggerFactory.getLogger(
 		ConversationSummaryWorker.class
@@ -28,8 +31,10 @@ public class ConversationSummaryWorker implements ConversationSummaryTask {
 	public ConversationSummaryWorker(
 		ConversationSummaryPersistenceService persistenceService,
 		AiClient aiClient,
-		EmailVerificationGate emailVerification
+		EmailVerificationGate emailVerification,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
 		this.emailVerification = emailVerification;
 		this.persistenceService = persistenceService;
 		this.aiClient = aiClient;
@@ -51,16 +56,14 @@ public class ConversationSummaryWorker implements ConversationSummaryTask {
 				return;
 			}
 			ConversationSummaryBatch batch = candidate.get();
+			GuardianConsentFence.Snapshot consent = consentFence.captureSessionOwner(sessionId);
 			emailVerification.requireSessionOwnerVerified(sessionId);
 			ConversationSummaryResponse response =
 				aiClient.summarizeConversation(
 					batch.previousSummary(),
 					batch.messages()
 				);
-			boolean applied = persistenceService.apply(
-				batch,
-				response.summary()
-			);
+			boolean applied = consentFence.complete(consent, () -> persistenceService.apply(batch, response.summary()));
 			log.atInfo()
 				.addKeyValue("sessionId", sessionId)
 				.addKeyValue("messageCount", batch.messages().size())

@@ -318,3 +318,7 @@ V57 adds nullable users.date_of_birth and age_verification_state default UNKNOWN
 V58 adds users.access_cohort with LEGACY_EXEMPT for rows present at migration and NEW_SIGNUP for later rows and the database/JPA default. A CHECK restricts values. It does not update birthdate, age/guardian state or email evidence. [Legacy access policy](legacy-account-access.md).
 
 V59 adds guardian_web_requests with hashed single-use link binding, pinned consent version/digest and self-declaration timestamp, keyed phone fingerprint, provider attempt fencing, code counts, phone-control timestamp and exception reason. FK, unique link hash, lifecycle/evidence CHECKs and account/recovery indexes apply. It stores no raw phone/OTP/token and grants no account approval. Physical evidence retention remains undecided. [Guardian web/SMS intake](guardian-web-sms-intake.md).
+
+### 보호자 팀 검토 (#526)
+
+V61은 사용자당 현재 guardian_team_requests와 세대별 guardian_team_events/guardian_team_operations를 추가한다. V62는 users.guardian_approved_until, guardian_ai_consent_allowed, guardian_consent_epoch, guardian_approval_policy_digest와 승인 증거 제약을 추가한다. V63은 목적별 guardian_team_mail_bindings FK와 메일 타입 CHECK를 확장한다. 기존 DOB·이메일 증거·cohort를 보존하며 기존 계정을 승인하지 않는다. [스키마·개인정보 기한·rollback 경계](guardian-team-review.md).

@@ -23,6 +23,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
 
@@ -87,6 +88,8 @@ class ReportJpaTest {
 	@MockitoBean private AiClient aiClient;
 	// These persistence tests use rollback-only fixtures. Committed email eligibility is tested by EmailVerificationApiIntegrationTest.
 	@MockitoBean private io.edupilot.auth.EmailVerificationGate emailVerificationGate;
+	// AI 호출의 새 트랜잭션에서는 rollback-only 합성 계정이 보이지 않습니다. 완료 잠금은 실제 Fence를 사용합니다.
+	@MockitoSpyBean private io.edupilot.guardian.GuardianConsentFence consentFence;
 
 	private User instructor;
 	private User student;
@@ -108,6 +111,25 @@ class ReportJpaTest {
 		otherStudent = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"report-other@example.com", "hash", "Other", UserRole.LEARNER
 		)));
+		org.mockito.Mockito.doAnswer(call -> {
+			Long userId = call.getArgument(0);
+			User actor = java.util.stream.Stream.of(instructor, student, otherStudent)
+				.filter(user -> user.getId().equals(userId)).findFirst().orElseThrow();
+			assertThat(actor.isLegacyAccessExempt()).isTrue();
+			assertThat(actor.isActive()).isTrue();
+			return new io.edupilot.guardian.GuardianConsentFence.Snapshot(actor.getId(), actor.getGuardianConsentEpoch());
+		}).when(consentFence).capture(org.mockito.ArgumentMatchers.anyLong());
+		org.mockito.Mockito.doAnswer(call -> {
+			io.edupilot.guardian.GuardianConsentFence.Snapshot snapshot = call.getArgument(0);
+			User actor = java.util.stream.Stream.of(instructor, student, otherStudent)
+				.filter(user -> user.getId().equals(snapshot.userId())).findFirst().orElseThrow();
+			assertThat(actor.isLegacyAccessExempt()).isTrue();
+			if (!actor.isActive()) throw new BusinessException(ErrorCode.USER_INACTIVE);
+			if (actor.getGuardianConsentEpoch() != snapshot.guardianConsentEpoch())
+				throw new BusinessException(ErrorCode.GUARDIAN_CONSENT_CHANGED);
+			return null;
+		}).when(consentFence)
+			.assertCurrent(org.mockito.ArgumentMatchers.any(io.edupilot.guardian.GuardianConsentFence.Snapshot.class));
 		classroom = classroomRepository.save(Classroom.create(
 			instructor,
 			"Report classroom",
@@ -392,7 +414,7 @@ class ReportJpaTest {
 		boolean applied = persistenceService.applyGeneratedReport(
 			generation.getId(),
 			"first-token",
-			new ReportAiGenerationService.GeneratedReport(validResponse(80))
+			new ReportAiGenerationService.GeneratedReport(validResponse(80), new io.edupilot.guardian.GuardianConsentFence.Snapshot(instructor.getId(), instructor.getGuardianConsentEpoch()), new io.edupilot.guardian.GuardianConsentFence.Snapshot(student.getId(), student.getGuardianConsentEpoch()))
 		);
 
 		assertThat(applied).isFalse();
@@ -433,7 +455,7 @@ class ReportJpaTest {
 		assertThat(persistenceService.applyGeneratedReport(
 			first.getId(),
 			"token-1",
-			new ReportAiGenerationService.GeneratedReport(validResponse(80))
+			new ReportAiGenerationService.GeneratedReport(validResponse(80), new io.edupilot.guardian.GuardianConsentFence.Snapshot(instructor.getId(), instructor.getGuardianConsentEpoch()), new io.edupilot.guardian.GuardianConsentFence.Snapshot(student.getId(), student.getGuardianConsentEpoch()))
 		)).isTrue();
 
 		ReportGeneration second = frozenGeneration("versioned-2");
@@ -443,7 +465,7 @@ class ReportJpaTest {
 		assertThat(persistenceService.applyGeneratedReport(
 			second.getId(),
 			"token-2",
-			new ReportAiGenerationService.GeneratedReport(validResponse(90))
+			new ReportAiGenerationService.GeneratedReport(validResponse(90), new io.edupilot.guardian.GuardianConsentFence.Snapshot(instructor.getId(), instructor.getGuardianConsentEpoch()), new io.edupilot.guardian.GuardianConsentFence.Snapshot(student.getId(), student.getGuardianConsentEpoch()))
 		)).isTrue();
 
 		List<StudentReport> reports = reportRepository
@@ -489,7 +511,7 @@ class ReportJpaTest {
 		assertThat(persistenceService.applyGeneratedReport(
 			generation.getId(),
 			leaseToken,
-			new ReportAiGenerationService.GeneratedReport(withoutUsage)
+			new ReportAiGenerationService.GeneratedReport(withoutUsage, new io.edupilot.guardian.GuardianConsentFence.Snapshot(instructor.getId(), instructor.getGuardianConsentEpoch()), new io.edupilot.guardian.GuardianConsentFence.Snapshot(student.getId(), student.getGuardianConsentEpoch()))
 		)).isTrue();
 
 		StudentReport saved = reportRepository
@@ -649,7 +671,7 @@ class ReportJpaTest {
 		assertThat(persistenceService.applyGeneratedReport(
 			generation.getId(),
 			token,
-			new ReportAiGenerationService.GeneratedReport(validResponse(score))
+			new ReportAiGenerationService.GeneratedReport(validResponse(score), new io.edupilot.guardian.GuardianConsentFence.Snapshot(instructor.getId(), instructor.getGuardianConsentEpoch()), new io.edupilot.guardian.GuardianConsentFence.Snapshot(student.getId(), student.getGuardianConsentEpoch()))
 		)).isTrue();
 	}
 

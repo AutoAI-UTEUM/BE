@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.ai.AiClient;
 import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
@@ -19,6 +20,8 @@ import io.edupilot.material.MaterialOutlinePersistenceService.OutlineSnapshot;
 
 @Service
 public class MaterialOutlineGenerationService {
+
+	private final GuardianConsentFence consentFence;
 
 	private static final Logger log = LoggerFactory.getLogger(
 		MaterialOutlineGenerationService.class
@@ -38,8 +41,10 @@ public class MaterialOutlineGenerationService {
 		AiClient aiClient,
 		AiUsageService aiUsageService,
 		PageQuizPlanProperties pageQuizPlanProperties,
-		EmailVerificationGate emailVerification
+		EmailVerificationGate emailVerification,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
 		this.emailVerification = emailVerification;
 		this.persistenceService = persistenceService;
 		this.renderer = renderer;
@@ -82,8 +87,9 @@ public class MaterialOutlineGenerationService {
 				includePageQuizPlan ? Boolean.TRUE : null
 			);
 			OutlineResponse response;
+			GuardianConsentFence.Snapshot consent = consentFence.capture(snapshot.get().ownerId());
 			try {
-				emailVerification.requireVerified(snapshot.get().ownerId());
+				emailVerification.requireAiVerified(snapshot.get().ownerId());
 				response = aiClient.outline(request);
 				aiUsageService.record(
 					snapshot.get().ownerId(),
@@ -104,15 +110,12 @@ public class MaterialOutlineGenerationService {
 				response = response.withoutPageQuizPlan();
 			}
 			validate(response, request.totalPages());
-			if (manual) {
-				persistenceService.markReadyManual(
-					materialId, renderer.render(response), response
-				);
-			} else {
-				persistenceService.markReady(
-					materialId, renderer.render(response), response
-				);
-			}
+			OutlineResponse result = response;
+			consentFence.complete(consent, () -> {
+				if (manual) persistenceService.markReadyManual(materialId, renderer.render(result), result);
+				else persistenceService.markReady(materialId, renderer.render(result), result);
+				return null;
+			});
 		} catch (RuntimeException exception) {
 			persistenceService.markFailed(materialId);
 			log.atWarn()

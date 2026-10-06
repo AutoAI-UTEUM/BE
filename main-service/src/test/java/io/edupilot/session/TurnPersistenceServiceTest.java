@@ -90,6 +90,24 @@ class TurnPersistenceServiceTest {
 	}
 
 	@Test
+	void compatibilityConstructorCannotPersistTeamApprovedContentWithoutTheCurrentPolicy() {
+		io.edupilot.user.User child = io.edupilot.user.User.create("synthetic-child@example.test", "!synthetic", "합성 학습자");
+		child.recordSignupDateOfBirth(java.time.LocalDate.of(2014, 1, 1));
+		child.verifyEmail(NOW.minusSeconds(60));
+		child.recordGuardianTeamApproval(NOW.plusSeconds(3600), true);
+		child.recordGuardianTeamPolicyDigest("c".repeat(64));
+		when(userRepository.findById(1L)).thenReturn(Optional.of(child));
+
+		assertThatThrownBy(() -> service().persistCancelled(1L, io.edupilot.user.UserRole.LEARNER,
+			child.getGuardianConsentEpoch(), 100L, "request-1", "synthetic-turn", "합성 응답"))
+			.isInstanceOfSatisfying(BusinessException.class,
+				failure -> assertThat(failure.errorCode()).isEqualTo(ErrorCode.AGE_VERIFICATION_REQUIRED));
+
+		verify(entityManager).refresh(child, jakarta.persistence.LockModeType.PESSIMISTIC_READ);
+		verifyNoInteractions(sessionRepository, messageRepository, candidateRepository, summaryDispatcher);
+	}
+
+	@Test
 	void discardsAiResultWhenSessionCompletedDuringCall() {
 		LearningSession completed = org.mockito.Mockito.mock(
 			LearningSession.class

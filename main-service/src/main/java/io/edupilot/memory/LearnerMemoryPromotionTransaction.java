@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.material.LearningMaterial;
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
@@ -24,17 +25,20 @@ class LearnerMemoryPromotionTransaction {
 	private final LearnerMemoryCandidateRepository candidateRepository;
 	private final UserRepository userRepository;
 	private final LearningMaterialRepository materialRepository;
+	private final GuardianConsentFence consentFence;
 
 	LearnerMemoryPromotionTransaction(
 		LearnerMemoryRepository memoryRepository,
 		LearnerMemoryCandidateRepository candidateRepository,
 		UserRepository userRepository,
-		LearningMaterialRepository materialRepository
+		LearningMaterialRepository materialRepository,
+		GuardianConsentFence consentFence
 	) {
 		this.memoryRepository = memoryRepository;
 		this.candidateRepository = candidateRepository;
 		this.userRepository = userRepository;
 		this.materialRepository = materialRepository;
+		this.consentFence = consentFence;
 	}
 
 	@Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -46,6 +50,18 @@ class LearnerMemoryPromotionTransaction {
 		if (!validWrite(write)) {
 			return false;
 		}
+		GuardianConsentFence.Snapshot consent = consentFence.capture(userId);
+		return consentFence.complete(consent, () -> promoteCurrent(userId, materialId, write));
+	}
+
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public boolean promote(Long userId, Long materialId, MemoryWrite write, long expectedGuardianConsentEpoch) {
+		if (!validWrite(write)) return false;
+		return consentFence.complete(new GuardianConsentFence.Snapshot(userId, expectedGuardianConsentEpoch),
+			() -> promoteCurrent(userId, materialId, write));
+	}
+
+	private boolean promoteCurrent(Long userId, Long materialId, MemoryWrite write) {
 		Set<Long> requestedIds = new HashSet<>(write.candidateIds());
 		List<LearnerMemoryCandidate> candidates = candidateRepository
 			.findByIdInAndUser_IdAndMaterial_IdAndStatus(

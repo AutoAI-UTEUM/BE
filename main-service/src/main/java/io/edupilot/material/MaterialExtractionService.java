@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.ai.AiClient;
 import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
@@ -22,6 +23,8 @@ import io.edupilot.material.storage.FileStorage;
 
 @Service
 public class MaterialExtractionService {
+
+	private final GuardianConsentFence consentFence;
 
 	private static final Logger log = LoggerFactory.getLogger(MaterialExtractionService.class);
 
@@ -44,8 +47,10 @@ public class MaterialExtractionService {
 		MaterialOutlineTaskDispatcher outlineTaskDispatcher,
 		MaterialCaptionTaskDispatcher captionTaskDispatcher,
 		MaterialXaiFileLifecycleService xaiFileLifecycleService,
-		EmailVerificationGate emailVerification
+		EmailVerificationGate emailVerification,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
 		this.emailVerification = emailVerification;
 		this.persistenceService = persistenceService;
 		this.fileStorage = fileStorage;
@@ -71,8 +76,9 @@ public class MaterialExtractionService {
 			}
 
 			ExtractResponse response;
+			GuardianConsentFence.Snapshot consent = consentFence.capture(snapshot.get().ownerId());
 			try {
-				emailVerification.requireVerified(snapshot.get().ownerId());
+				emailVerification.requireAiVerified(snapshot.get().ownerId());
 				response = aiClient.extract(
 					fileStorage.load(snapshot.get().storageKey())
 				);
@@ -106,11 +112,14 @@ public class MaterialExtractionService {
 				return;
 			}
 
-			CompletionResult completion = persistenceService.complete(
-				materialId,
-				response.pages(),
-				response.xaiFileId()
-			);
+			CompletionResult completion;
+			try {
+				completion = consentFence.complete(consent, () -> persistenceService.complete(
+					materialId, response.pages(), response.xaiFileId()));
+			} catch (RuntimeException exception) {
+				deleteUnretainedFile(response.xaiFileId());
+				throw exception;
+			}
 			if (completion.applied()) {
 				if (completion.replacedXaiFileId() != null) {
 					xaiFileLifecycleService.deleteAfterCommit(

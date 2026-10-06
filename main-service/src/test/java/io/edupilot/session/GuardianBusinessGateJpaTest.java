@@ -256,6 +256,11 @@ class GuardianBusinessGateJpaTest {
 		user.recordSignupDateOfBirth(date);
 		user.verifyEmail(Instant.parse("2020-01-01T00:00:00Z"));
 		if (state == AgeVerificationState.MANUAL_PENDING) user.beginGuardianVerification();
+		if (state == AgeVerificationState.TEAM_APPROVED) {
+			// 상태 이름만 승인인 불완전한 합성 기록도 OFF·증거 미확인 경계를 우회할 수 없어야 한다.
+			// 실제 승인 방법, 동의 증거, 유효 기간이나 AI 범위를 부여하지 않는다.
+			org.springframework.test.util.ReflectionTestUtils.setField(user, "ageVerificationState", state);
+		}
 		user = users.saveAndFlush(user);
 		if (legacy) {
 			// Only migration/grandfathered synthetic actors use this exception, never new-account success.

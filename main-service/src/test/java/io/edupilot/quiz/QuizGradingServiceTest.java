@@ -33,7 +33,7 @@ class QuizGradingServiceTest {
 	void gradesMcqDeterministicallyWithoutAi() {
 		QuizGradingService service = new QuizGradingService(
 			aiClient, aiUsageService, new DeterministicAnswerGrader(),
-			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class)
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 		PreparedQuizSubmission prepared = prepared(
 			QuizType.MCQ,
@@ -60,7 +60,7 @@ class QuizGradingServiceTest {
 	void gradesOxDeterministicallyWithoutAi() {
 		QuizGradingService service = new QuizGradingService(
 			aiClient, aiUsageService, new DeterministicAnswerGrader(),
-			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class)
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 		PreparedQuizSubmission prepared = prepared(
 			QuizType.OX,
@@ -86,7 +86,7 @@ class QuizGradingServiceTest {
 	void acceptsValidAiResultAndRejectsMismatchedTotal() {
 		QuizGradingService service = new QuizGradingService(
 			aiClient, aiUsageService, new DeterministicAnswerGrader(),
-			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class)
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 		PreparedQuizSubmission prepared = prepared(
 			QuizType.SHORT,
@@ -126,7 +126,7 @@ class QuizGradingServiceTest {
 	void rejectsMissingDuplicateOutOfRangeAndUnknownVerdictAiItems() {
 		QuizGradingService service = new QuizGradingService(
 			aiClient, aiUsageService, new DeterministicAnswerGrader(),
-			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class)
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 		PreparedQuizSubmission prepared = prepared(
 			QuizType.SHORT,

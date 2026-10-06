@@ -35,7 +35,7 @@ public class AiQuotaService {
 	}
 
 	public void checkQuota(Long userId, UserRole role) {
-		emailVerification.requireVerified(userId);
+		emailVerification.requireAiVerified(userId);
 		if (!properties.enabled() || role == UserRole.ADMIN) {
 			return;
 		}

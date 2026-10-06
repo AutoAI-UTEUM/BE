@@ -173,6 +173,10 @@ class TurnCompletionAccessJpaTest {
 			streams.fail(invocation.getArgument(0), invocation.getArgument(1));
 			return null;
 		}).when(streamFacade).fail(any(), any());
+		doAnswer(invocation -> {
+			streams.assertAccessible(invocation.getArgument(0));
+			return null;
+		}).when(streamFacade).assertAccessible(any());
 		mvc = MockMvcBuilders.standaloneSetup(new SessionController(null, turns, null, streamFacade))
 			.setControllerAdvice(new GlobalExceptionHandler())
 			.setCustomArgumentResolvers(new HandlerMethodArgumentResolver() {
@@ -293,13 +297,14 @@ class TurnCompletionAccessJpaTest {
 		stubJsonMemoryWrite();
 		doAnswer(invocation -> {
 			assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+			assertThat(invocation.getArgument(3, Long.class)).isEqualTo(0L);
 			revoke(revocation);
-			return null;
-		}).when(memory).promoteMemory(any(), any(), any());
+			return false;
+		}).when(memory).promoteMemory(any(), any(), any(), org.mockito.ArgumentMatchers.eq(0L));
 		assertDenied(revocation);
 		assertThat(aiMessageCount()).isEqualTo(1);
 		assertThat(userMessageStatus()).isEqualTo("COMPLETED");
-		verify(memory).promoteMemory(any(), any(), any());
+		verify(memory).promoteMemory(any(), any(), any(), org.mockito.ArgumentMatchers.eq(0L));
 		assertReleased();
 	}
 

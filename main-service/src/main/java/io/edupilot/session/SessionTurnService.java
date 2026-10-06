@@ -34,6 +34,7 @@ import io.edupilot.aiusage.QuizDecisionSource;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.memory.LearnerMemoryPromotionService;
 import io.edupilot.material.MaterialAccessService;
 import io.edupilot.session.dto.TurnRequest;
@@ -162,6 +163,7 @@ public class SessionTurnService {
 		TurnRequest request
 	) {
 		materialAccessService.assertSessionAccessible(userId, sessionId);
+		SessionStreamAccessGuard.Access access = accessGuard.captureAccess(userId);
 		TurnEventType eventType = parseEventType(request.eventType());
 		ValidatedPayload payload = validatePayload(
 			userId,
@@ -213,13 +215,13 @@ public class SessionTurnService {
 					cancellation
 				);
 			streamConnection = activeStream.orElse(null);
-			UserRole role = userRole(userId);
+			UserRole role = access.role();
 			PersistedTurn persisted;
 			if (streamConnection == null) {
 				io.edupilot.ai.dto.TurnResponse aiResponse = executeAiTurn(
 						userId,
 						sessionId,
-						role,
+						access,
 						request,
 						eventType,
 						payload.aiPayload(),
@@ -228,6 +230,7 @@ public class SessionTurnService {
 				persisted = persistenceService.persist(
 					userId,
 					role,
+					access.guardianConsentEpoch(),
 					sessionId,
 					request.requestId(),
 					eventType,
@@ -239,7 +242,7 @@ public class SessionTurnService {
 			} else {
 				StreamExecution execution = executeAiTurnStream(
 						userId,
-						role,
+						access,
 						request,
 						eventType,
 						payload.aiPayload(),
@@ -251,6 +254,7 @@ public class SessionTurnService {
 					? persistenceService.persistCancelled(
 						userId,
 						role,
+						access.guardianConsentEpoch(),
 						sessionId,
 						request.requestId(),
 						execution.turnId(),
@@ -259,6 +263,7 @@ public class SessionTurnService {
 					: persistenceService.persist(
 						userId,
 						role,
+						access.guardianConsentEpoch(),
 						sessionId,
 						request.requestId(),
 						eventType,
@@ -269,8 +274,8 @@ public class SessionTurnService {
 					);
 			}
 			persistenceCompleted = true;
-			accessGuard.assertAccessible(userId, sessionId, role);
-			promoteMemory(userId, persisted);
+			accessGuard.assertAccessible(userId, sessionId, access);
+			promoteMemory(userId, persisted, access.guardianConsentEpoch());
 			TurnResponse response = persisted.response();
 			if (streamConnection != null) {
 				completeStream(
@@ -280,7 +285,7 @@ public class SessionTurnService {
 					request.requestId()
 				);
 			}
-			accessGuard.assertAccessible(userId, sessionId, role);
+			accessGuard.assertAccessible(userId, sessionId, access);
 			return response;
 		} catch (RuntimeException exception) {
 			if (!persistenceCompleted) {
@@ -349,7 +354,7 @@ public class SessionTurnService {
 
 	private StreamExecution executeAiTurnStream(
 		Long userId,
-		UserRole role,
+		SessionStreamAccessGuard.Access access,
 		TurnRequest request,
 		TurnEventType eventType,
 		Map<String, Object> payload,
@@ -384,7 +389,7 @@ public class SessionTurnService {
 						null
 					);
 				}
-				aiQuotaService.checkQuota(userId, role);
+				aiQuotaService.checkQuota(userId, access.role());
 				if (cancellation.isCancelled()) {
 					throw new AiClientException(
 						ErrorCode.AI_STREAM_INTERRUPTED,
@@ -398,11 +403,14 @@ public class SessionTurnService {
 					streamConnection.sessionId(), streamConnection,
 					request.requestId(), turnId, attempt, quizDecisionSource
 				);
+				accessGuard.assertAccessible(userId, streamConnection.sessionId(), access);
+				streamService.assertAccessible(streamConnection);
 				aiCallStarted = true;
 				io.edupilot.ai.dto.TurnResponse response =
 					aiClient.executeTurnStream(
 						aiRequest,
 						event -> {
+							accessGuard.assertAccessible(userId, streamConnection.sessionId(), access);
 							if (event.type()
 								== TurnStreamEvent.Type.CONTENT_DELTA) {
 								contentForwarded.set(true);
@@ -432,6 +440,7 @@ public class SessionTurnService {
 					request.requestId(),
 					quizDecisionSource
 				);
+				accessGuard.assertAccessible(userId, streamConnection.sessionId(), access);
 				responseValidator.validate(
 					response,
 					turnId,
@@ -514,7 +523,7 @@ public class SessionTurnService {
 	private io.edupilot.ai.dto.TurnResponse executeAiTurn(
 		Long userId,
 		Long sessionId,
-		UserRole role,
+		SessionStreamAccessGuard.Access access,
 		TurnRequest request,
 		TurnEventType eventType,
 		Map<String, Object> payload,
@@ -540,11 +549,12 @@ public class SessionTurnService {
 				) < 0
 					? remaining
 					: aiClientProperties.turnReadTimeout();
-				aiQuotaService.checkQuota(userId, role);
+				aiQuotaService.checkQuota(userId, access.role());
 				logAttemptStart(
 					sessionId, null, request.requestId(), turnId, attempt,
 					quizDecisionSource
 				);
+				accessGuard.assertAccessible(userId, sessionId, access);
 				aiCallStarted = true;
 				io.edupilot.ai.dto.TurnResponse response =
 					aiClient.executeTurn(aiRequest, readTimeout);
@@ -556,6 +566,7 @@ public class SessionTurnService {
 					request.requestId(),
 					quizDecisionSource
 				);
+				accessGuard.assertAccessible(userId, sessionId, access);
 				responseValidator.validate(
 					response,
 					turnId,
@@ -758,7 +769,7 @@ public class SessionTurnService {
 			: Set.of();
 	}
 
-	private void promoteMemory(Long userId, PersistedTurn persisted) {
+	private void promoteMemory(Long userId, PersistedTurn persisted, long expectedGuardianConsentEpoch) {
 		if (persisted.memoryWrite() == null) {
 			return;
 		}
@@ -766,9 +777,13 @@ public class SessionTurnService {
 			memoryPromotionService.promoteMemory(
 				userId,
 				persisted.materialId(),
-				persisted.memoryWrite()
+				persisted.memoryWrite(),
+				expectedGuardianConsentEpoch
 			);
 		} catch (RuntimeException exception) {
+			if (exception instanceof BusinessException failure && GuardianConsentFence.isConsentFailure(failure)) {
+				throw failure;
+			}
 			log.atWarn()
 				.addKeyValue("userId", userId)
 				.addKeyValue("materialId", persisted.materialId())
@@ -905,15 +920,6 @@ public class SessionTurnService {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}
 		return user.getAiAnswerStyle().detailLevel();
-	}
-
-	private UserRole userRole(Long userId) {
-		User user = userRepository.findById(userId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-		if (!user.isActive()) {
-			throw new BusinessException(ErrorCode.USER_INACTIVE);
-		}
-		return user.getRole();
 	}
 
 	private String requiredText(JsonNode payload, String field) {

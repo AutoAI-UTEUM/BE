@@ -3355,3 +3355,7 @@ Every authenticated request reads current DB role/status without a process-local
 ### Guardian web consent and phone-control intake (#491)
 
 POST /api/auth/guardian-verification/link requires authentication. Public POST view/consent/verify/dispute accept the bearer token only in JSON bodies. All success responses use no-store/no-referrer; GET never records consent. The disabled default and disconnected provider return GUARDIAN_VERIFICATION_UNAVAILABLE. PHONE_CONFIRMED is phone-control evidence only, guardianRelationshipVerified remains false, and User eligibility is unchanged. [Request/response and activation boundary](guardian-web-sms-intake.md).
+
+### 보호자 팀 검토 (#526)
+
+기본 비활성인 자기 신청·fragment 링크·POST 자기신고와 지정 담당자 회신 확인·승인/반려/보완·철회 API를 추가한다. 웹 자기신고나 회신 도착은 승인이 아니다. 현재 DB ACTIVE ADMIN과 지정 ID를 결정 트랜잭션에서 검사하며 외부 AI 선택 동의·승인 세대·현재 정책 digest를 각각 확인한다. [정확한 API/FE 계약](guardian-team-review-fe-contract.md), [한국어 양식](guardian-team-review-forms.md), [구현과 활성화 경계](guardian-team-review.md).

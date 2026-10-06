@@ -57,7 +57,7 @@ class BirthdateCorrectionMigrationTest {
 		try (var connection = DriverManager.getConnection(url, "root", ""); var sql = connection.createStatement()) {
 			sql.execute("insert into users(email,password_hash,name,role,status,date_of_birth,access_cohort,age_verification_state,email_verification_state) values('synthetic-migration@example.com','synthetic-hash','Synthetic','LEARNER','ACTIVE','2012-12-31','LEGACY_EXEMPT','MANUAL_PENDING','UNKNOWN')");
 		}
-		var after = org.flywaydb.core.Flyway.configure().dataSource(url, "root", "").locations("classpath:db/migration").load();
+		var after = org.flywaydb.core.Flyway.configure().dataSource(url, "root", "").locations("classpath:db/migration").target("60").load();
 		after.migrate(); assertThat(after.validateWithResult().validationSuccessful).isTrue();
 		assertThat(after.info().current().getVersion().getVersion()).isEqualTo("60");
 		try (var connection = DriverManager.getConnection(url, "root", ""); var sql = connection.createStatement()) {

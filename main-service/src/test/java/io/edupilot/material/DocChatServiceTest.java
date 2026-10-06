@@ -133,7 +133,7 @@ class DocChatServiceTest {
 			aiQuotaService,
 			userRepository,
 			materialContextService,
-			quizContextService
+			quizContextService, io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 	}
 }

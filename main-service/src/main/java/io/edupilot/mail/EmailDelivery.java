@@ -78,6 +78,9 @@ public class EmailDelivery {
 	}
 
 	public void sent(String messageId, Instant now) {
+		if (erasedGuardianContact()) {
+			return;
+		}
 		status = EmailDeliveryStatus.SENT;
 		providerMessageId = messageId;
 		sentAt = now;
@@ -85,12 +88,34 @@ public class EmailDelivery {
 	}
 
 	public void failed(String summary) {
+		if (erasedGuardianContact()) {
+			return;
+		}
 		status = EmailDeliveryStatus.FAILED;
 		errorSummary = summary;
 	}
 
 	public void rateLimited() {
 		status = EmailDeliveryStatus.RATE_LIMITED;
+	}
+
+	/** 보호자 요청에 연결된 개인정보만 지웁니다. 전역 발송량 예약은 그대로 유지합니다. */
+	public void eraseGuardianContact() {
+		if (type != EmailDeliveryType.GUARDIAN_TEAM_NOTICE) {
+			throw new IllegalStateException("보호자 팀 확인 메일만 정리할 수 있습니다.");
+		}
+		recipient = "";
+		subject = "";
+		providerMessageId = null;
+		errorSummary = "GUARDIAN_CONTACT_ERASED";
+		sentAt = null;
+		if (status != EmailDeliveryStatus.SENT) {
+			status = EmailDeliveryStatus.FAILED;
+		}
+	}
+
+	private boolean erasedGuardianContact() {
+		return type == EmailDeliveryType.GUARDIAN_TEAM_NOTICE && recipient.isEmpty();
 	}
 
 	public Long getId() {

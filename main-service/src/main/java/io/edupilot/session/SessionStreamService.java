@@ -25,7 +25,6 @@ import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.material.MaterialAccessService;
 import io.edupilot.session.dto.TurnResponse;
-import io.edupilot.user.UserRole;
 import jakarta.annotation.PreDestroy;
 
 @Service
@@ -81,13 +80,13 @@ public class SessionStreamService {
 			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
 		}
 		materialAccessService.assertAccessible(userId, session.getMaterialId());
-		UserRole connectedRole = streamAccess.captureRole(userId);
+		SessionStreamAccessGuard.Access connectedAccess = streamAccess.captureAccess(userId);
 
 		SessionStreamConnection[] holder = new SessionStreamConnection[1];
 		SessionStreamConnection connection = new SessionStreamConnection(
 			userId,
 			sessionId,
-			() -> streamAccess.assertAccessible(userId, sessionId, connectedRole),
+			() -> streamAccess.assertAccessible(userId, sessionId, connectedAccess),
 			() -> remove(sessionId, holder[0]),
 			emitterFactory.get()
 		);
@@ -181,6 +180,11 @@ public class SessionStreamService {
 			return false;
 		}
 		return connection.cancelTurn();
+	}
+
+	void assertAccessible(SessionStreamConnection connection) {
+		// 철회 후 재승인된 턴을 이전 동의의 SSE 연결로 실행하지 않는다.
+		connection.assertAccess();
 	}
 
 	public void complete(

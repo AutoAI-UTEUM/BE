@@ -211,4 +211,19 @@ New LOCAL/Google signup screens must provide dateOfBirth; existing Google login 
 
 Migration-defined legacy accounts retain access without DOB reentry. emailVerificationRequired=false can coexist with UNKNOWN/PENDING email evidence and must not be displayed as verified. New-account email requirements and all suspension/ownership checks remain. [Legacy access](legacy-account-access.md).
 
-Guardian consent page contract (#491): use the fragment token in POST bodies to view/consent/verify/dispute. Issuance requires login. PHONE_CONFIRMED is phone-control evidence, never signup/age/guardian approval. Show 503 as unavailable and REVIEW_REQUIRED as exception intake; no operator approval UI/API is defined yet. FE implementation and live SMS verification remain separate. [Contract](guardian-web-sms-intake.md).
+Guardian SMS consent page contract (#491): use the fragment token in POST bodies to view/consent/verify/dispute. Issuance requires login. PHONE_CONFIRMED is phone-control evidence, never signup/age/guardian approval. Show 503 as unavailable and REVIEW_REQUIRED as exception intake. Team review uses the separate request and reviewer APIs below. FE implementation and live SMS verification remain separate. [SMS contract](guardian-web-sms-intake.md).
+
+## 보호자 직접 확인 화면·API 매핑 (TEAM_REVIEW, #526)
+
+TEAM_REVIEW는 기본 OFF이며 실제 관계 확인 기준·동의문/수집항목/목적/선택 범위·지정 담당자·증거 보존기간·승인 유효기간이 미정이면 발급·승인을 차단한다. FE 화면 구현과 운영 활성화는 별도 작업이다. 상세 필드, 오류 code, 한국어 문구는 [FE 계약](guardian-team-review-fe-contract.md)과 [회신 양식 10종](guardian-team-review-forms.md)을 따른다.
+
+| 화면 | 행동 | Spring API | 표시·처리 기준 |
+| --- | --- | --- | --- |
+| 본인 보호자 신청·상태 | 접수·조회 | `POST`, `GET /api/users/me/guardian-requests` | 신청번호·신청 차수와 현재 상태를 표시한다. 접수나 보완 요청을 이용 승인으로 표시하지 않는다. 최초 수집일 기준 만료를 재발급으로 연장하지 않는다. |
+| 본인 보호자 신청 | 안내 링크 발급·재발급, 신청 철회 | `POST /api/users/me/guardian-requests/{id}/link`, `POST /api/users/me/guardian-requests/{id}/withdraw` | 만료·재발급 후 이전 링크 무효화를 안내한다. 토큰을 로그나 영구 저장소에 남기지 않는다. 본인 신청 경로의 예외를 학습·파일·AI 접근 허용으로 해석하지 않는다. |
+| 보호자 안내·의사 표시 | 현재 안내 조회·동의 의사 접수 | `POST /api/auth/guardian-team/view`, `POST /api/auth/guardian-team/consent` | 실제 동의문 버전·신청 차수와 필수/선택 의사를 구분한다. 웹 의사 표시(DECLARED), 링크 클릭, 메일 도착은 담당자의 실제 확인·승인 완료가 아니다. |
+| 담당자 신청 목록·상세 | 검토 대상 조회 | `GET /api/admin/guardian-requests`, `GET /api/admin/guardian-requests/{id}` | 현재 지정된 ADMIN만 담당 경로를 사용한다. 공개·본인 화면에 담당 상세의 연락처·감사 정보나 아동의 전체 프로필을 복사하지 않는다. |
+| 담당자 회신 확인·결정 | 실제 회신 수동 등록, 승인·반려·보완 요청 | `POST /api/admin/guardian-requests/{id}/confirmation`, `POST /api/admin/guardian-requests/{id}/decision` | 현재 신청 차수·동의문과 실제 명시 회신·확인 근거를 대조한다. 설정된 확인 방법을 따르고 원문 회신·민감 증거 업로드를 기본 요구하지 않는다. 문자열 검토 helper의 결과는 사람의 검토를 요구하며 자동 승인이 아니다. |
+| 담당자 승인 철회 | 승인 철회 | `POST /api/admin/guardian-requests/{id}/revoke` | 철회·만료를 현재 상태로 표시한다. TEAM_APPROVED 상태값만으로 이용 가능을 추정하지 않는다. 이후 학습·AI·SSE와 늦은 결과는 BE의 현재 승인 증거·동의 세대 검사에 따른다. |
+
+외부 AI 선택 동의와 서비스 이용 승인을 구분한다. 실제 오류 응답을 기존 이메일·연령·소유권 검사와 함께 처리하며, unavailable·pending·needs information을 성공 화면으로 표시하지 않는다. 확인된 실제 회신 등록·개별 승인과 메일 송수신 연결은 운영 승인이 필요한 별도 수행이다. [구현·설정·복구 경계](guardian-team-review.md).

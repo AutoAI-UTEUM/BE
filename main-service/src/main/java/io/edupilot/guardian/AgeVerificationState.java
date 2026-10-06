@@ -1,4 +1,4 @@
 package io.edupilot.guardian;
 
-/** No approved state is supplied before the approval/age policy is defined. */
-public enum AgeVerificationState { UNKNOWN, MANUAL_PENDING }
+/** A team approval is usable only with current explicit consent, configured mode and a valid expiry. */
+public enum AgeVerificationState { UNKNOWN, MANUAL_PENDING, TEAM_APPROVED }

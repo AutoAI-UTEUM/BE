@@ -32,7 +32,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
 	@Query("""
 		select new io.edupilot.user.UserBusinessAccessState(
 			account.role, account.status, account.emailVerificationState, account.emailVerifiedAt,
-			account.accessCohort, account.ageVerificationState, account.dateOfBirth)
+			account.accessCohort, account.ageVerificationState, account.dateOfBirth,
+			account.guardianApprovedUntil, account.guardianAiConsentAllowed, account.guardianConsentEpoch,
+			account.guardianApprovalPolicyDigest)
 		from User account where account.id = :userId
 		""")
 	Optional<UserBusinessAccessState> findBusinessAccessStateById(@Param("userId") Long userId);
@@ -44,6 +46,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select account from User account where account.id = :userId")
 	Optional<User> findByIdForUpdate(@Param("userId") Long userId);
+
+	@Lock(LockModeType.PESSIMISTIC_READ)
+	@Query("select account from User account where account.id = :userId")
+	Optional<User> findByIdForBusinessAccess(@Param("userId") Long userId);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""

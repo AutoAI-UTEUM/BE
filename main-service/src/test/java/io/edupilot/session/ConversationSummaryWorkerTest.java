@@ -95,7 +95,7 @@ class ConversationSummaryWorkerTest {
 
 	private ConversationSummaryWorker worker() {
 		return new ConversationSummaryWorker(persistenceService, aiClient,
-			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class)
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 	}
 

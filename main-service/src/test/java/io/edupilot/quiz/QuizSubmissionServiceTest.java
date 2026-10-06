@@ -18,6 +18,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.edupilot.quiz.dto.QuizSubmitRequest;
@@ -26,6 +27,7 @@ import io.edupilot.quiz.dto.QuizSubmitResponse;
 import io.edupilot.quiz.dto.QuizGradingResultResponse;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.session.UiAction;
 import io.edupilot.session.TurnClaimService;
 
@@ -93,7 +95,7 @@ class QuizSubmissionServiceTest {
 			new QuizProperties(new BigDecimal("0.6"), 200),
 			postGradingHook,
 			claimService,
-			materialAccessService
+			materialAccessService, io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 
 		QuizSubmitResponse response = service.submit(1L, 50L, request);
@@ -116,6 +118,36 @@ class QuizSubmissionServiceTest {
 			persistenceService
 		);
 		assertPassDecision("80.00", "0.8", true);
+	}
+
+	@Test
+	void originalAiConsentSnapshotIsPassedToGradingAndPostGradingWithoutRecapture() {
+		PreparedQuizSubmission prepared = new PreparedQuizSubmission(50L, 100L, 10L, QuizType.SHORT,
+			"1.0", "request-1", List.of(), List.of(), List.of(), null);
+		QuizSubmitRequest request = new QuizSubmitRequest("request-1", List.of());
+		GradingResult grade = result("100.00");
+		GuardianConsentFence consentFence = org.mockito.Mockito.mock(GuardianConsentFence.class);
+		GuardianConsentFence.Snapshot original = new GuardianConsentFence.Snapshot(1L, 7L);
+		when(consentFence.capture(1L)).thenReturn(original);
+		when(consentFence.complete(eq(original), any())).thenAnswer(call ->
+			((java.util.function.Supplier<?>)call.getArgument(1)).get());
+		when(preparationService.prepare(1L, 50L, request)).thenReturn(prepared);
+		when(gradingService.grade(1L, prepared, original)).thenReturn(grade);
+		when(persistenceService.persist(1L, prepared, grade, true)).thenReturn(new PersistedQuizSubmission(
+			new QuizSubmitResponse(200L, 50L, QuizType.SHORT, grade.score(), grade.maxScore(), true,
+				QuizGradingResultResponse.from(grade), List.of(UiAction.moveNextPage())), true));
+		when(postGradingHook.onGraded(any())).thenReturn(List.of(UiAction.moveNextPage()));
+		QuizSubmissionService service = new QuizSubmissionService(preparationService, gradingService,
+			persistenceService, new QuizProperties(new BigDecimal("0.6"), 200), postGradingHook,
+			claimService, materialAccessService, consentFence);
+
+		assertThat(service.submit(1L, 50L, request).passed()).isTrue();
+		verify(consentFence).capture(1L);
+		verify(gradingService).grade(1L, prepared, original);
+		verify(gradingService, never()).grade(any(), any());
+		ArgumentCaptor<QuizPostGradingContext> context = ArgumentCaptor.forClass(QuizPostGradingContext.class);
+		verify(postGradingHook).onGraded(context.capture());
+		assertThat(context.getValue().guardianConsent()).isSameAs(original);
 	}
 
 	@Test
@@ -343,7 +375,7 @@ class QuizSubmissionServiceTest {
 			new QuizProperties(new BigDecimal(ratio), 200),
 			postGradingHook,
 			claimService,
-			materialAccessService
+			materialAccessService, io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 	}
 

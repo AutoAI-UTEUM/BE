@@ -30,7 +30,7 @@ class EmailVerificationGateTest {
 		FileStorage storage=mock(FileStorage.class); AiClient ai=mock(AiClient.class);
 		new MaterialExtractionService(persistence,storage,ai,mock(AiUsageService.class),
 			new MaterialProperties(45,300,java.time.Duration.ofMinutes(30)),mock(MaterialOutlineTaskDispatcher.class),
-			mock(MaterialCaptionTaskDispatcher.class),mock(MaterialXaiFileLifecycleService.class),gate).extract(10L,"synthetic-trace");
+			mock(MaterialCaptionTaskDispatcher.class),mock(MaterialXaiFileLifecycleService.class),gate, io.edupilot.GuardianConsentFenceTestSupport.legacy()).extract(10L,"synthetic-trace");
 		verifyNoInteractions(storage,ai);
 	}
 	@Test void quotaDisabledAndAdminRoleCannotBypassEmailOwnership() {

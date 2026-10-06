@@ -217,7 +217,7 @@ class ExamGradingRecoveryJpaTest {
 			Map.of("q1", new ExamAiGradingOutcome.GradedItem(
 				new BigDecimal("8.00"), Verdict.PARTIAL, "feedback"
 			)),
-			false
+			false, new io.edupilot.guardian.GuardianConsentFence.Snapshot(learner.getId(), learner.getGuardianConsentEpoch())
 		);
 
 		assertThat(persistenceService.applyAiGrading(
@@ -336,7 +336,7 @@ class ExamGradingRecoveryJpaTest {
 				"q1", new ExamAiGradingOutcome.GradedItem(
 					new BigDecimal("9.00"), Verdict.PARTIAL, "regraded"
 				)
-			), false)
+			), false, new io.edupilot.guardian.GuardianConsentFence.Snapshot(learner.getId(), learner.getGuardianConsentEpoch()))
 		)).isTrue();
 		assertThat(studentExamService.mySubmission(
 			learner.getId(), UserRole.LEARNER, exam.getId(), null
@@ -439,7 +439,7 @@ class ExamGradingRecoveryJpaTest {
 				.isEqualTo(SubmissionStatus.GRADED);
 			assertThat(persistenceService.applyAiGrading(response.submissionId(), "lost-worker",
 				new ExamAiGradingOutcome(Map.of("q1", new ExamAiGradingOutcome.GradedItem(
-					BigDecimal.ZERO, Verdict.WRONG, "Stale worker result")), false))).isFalse();
+					BigDecimal.ZERO, Verdict.WRONG, "Stale worker result")), false, new io.edupilot.guardian.GuardianConsentFence.Snapshot(learner.getId(), learner.getGuardianConsentEpoch())))).isFalse();
 			assertThat(submissionRepository.findById(response.submissionId()).orElseThrow().getScore())
 				.isEqualByComparingTo("8.00");
 			assertThat(answerRepository.findBySubmission_IdOrderByQuestion_Id(response.submissionId()))

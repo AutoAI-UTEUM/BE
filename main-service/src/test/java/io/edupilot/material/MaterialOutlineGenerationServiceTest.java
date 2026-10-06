@@ -48,7 +48,7 @@ class MaterialOutlineGenerationServiceTest {
 			aiClient,
 			aiUsageService,
 			new PageQuizPlanProperties(false, false),
-			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class)
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 	}
 
@@ -101,7 +101,7 @@ class MaterialOutlineGenerationServiceTest {
 		generationService = new MaterialOutlineGenerationService(
 			persistenceService, renderer, aiClient, aiUsageService,
 			new PageQuizPlanProperties(true, false),
-			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class)
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 		OutlineSnapshot snapshot = snapshot();
 		OutlineRequest request = new OutlineRequest("1.0", snapshot.xaiFileId(),
@@ -122,7 +122,7 @@ class MaterialOutlineGenerationServiceTest {
 		generationService = new MaterialOutlineGenerationService(
 			persistenceService, renderer, aiClient, aiUsageService,
 			new PageQuizPlanProperties(true, false),
-			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class)
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 		OutlineSnapshot incomplete = new OutlineSnapshot(1L, 2,
 			"file-outline-phase-five", List.of(new OutlineRequest.Page(1, "첫 페이지")));
@@ -143,7 +143,7 @@ class MaterialOutlineGenerationServiceTest {
 		generationService = new MaterialOutlineGenerationService(
 			persistenceService, renderer, aiClient, aiUsageService,
 			new PageQuizPlanProperties(true, false),
-			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class)
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 		OutlineSnapshot snapshot = snapshot();
 		OutlineRequest request = new OutlineRequest("1.0", snapshot.xaiFileId(),

@@ -11,12 +11,14 @@ import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.guardian.team.GuardianTeamProperties;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialAccessService;
 import io.edupilot.memory.LearnerMemoryCandidate;
@@ -59,6 +61,9 @@ public class TurnPersistenceService {
 	private final QaQuizProposalSuppression qaQuizProposalSuppression;
 	private final MaterialAccessService materialAccessService;
 	private final EntityManager entityManager;
+	// 기존 직접 생성과 좁은 테스트 구성은 정책이 없으면 팀 승인을 허용하지 않는다.
+	@Autowired(required = false)
+	private GuardianTeamProperties guardianTeamPolicy;
 
 	public TurnPersistenceService(
 		LearningSessionRepository sessionRepository,
@@ -112,7 +117,26 @@ public class TurnPersistenceService {
 		boolean xaiFileAttached,
 		io.edupilot.ai.dto.TurnResponse aiResponse
 	) {
-		LearningSession session = lockAccessibleSession(userId, expectedRole, sessionId, requestId);
+		// 기존 호출은 초기 세대만 저장할 수 있다. 비동기 작업은 캡처한 동의 세대를 전달해야 한다.
+		return persist(userId, expectedRole, 0, sessionId, requestId, eventType, diagnosisId,
+			userMessageId, xaiFileAttached, aiResponse);
+	}
+
+	@Transactional
+	public PersistedTurn persist(
+		Long userId,
+		UserRole expectedRole,
+		long expectedGuardianConsentEpoch,
+		Long sessionId,
+		String requestId,
+		TurnEventType eventType,
+		Long diagnosisId,
+		Long userMessageId,
+		boolean xaiFileAttached,
+		io.edupilot.ai.dto.TurnResponse aiResponse
+	) {
+		LearningSession session = lockAccessibleSession(userId, expectedRole,
+			expectedGuardianConsentEpoch, sessionId, requestId);
 		// Persisted direct-note responses have no content delta by contract.
 		boolean directNote = aiResponse.isDirectNote(eventType.name(), 0);
 		if (eventType == TurnEventType.USER_QUESTION
@@ -279,7 +303,21 @@ public class TurnPersistenceService {
 		String turnId,
 		String content
 	) {
-		LearningSession session = lockAccessibleSession(userId, expectedRole, sessionId, requestId);
+		return persistCancelled(userId, expectedRole, 0, sessionId, requestId, turnId, content);
+	}
+
+	@Transactional
+	public PersistedTurn persistCancelled(
+		Long userId,
+		UserRole expectedRole,
+		long expectedGuardianConsentEpoch,
+		Long sessionId,
+		String requestId,
+		String turnId,
+		String content
+	) {
+		LearningSession session = lockAccessibleSession(userId, expectedRole,
+			expectedGuardianConsentEpoch, sessionId, requestId);
 
 		ChatMessage message = messageRepository.save(
 			ChatMessage.ai(session, content)
@@ -304,7 +342,8 @@ public class TurnPersistenceService {
 	}
 
 	private LearningSession lockAccessibleSession(
-		Long userId, UserRole expectedRole, Long sessionId, String requestId
+		Long userId, UserRole expectedRole, long expectedGuardianConsentEpoch,
+		Long sessionId, String requestId
 	) {
 		User user = userRepository.findById(userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID));
@@ -317,8 +356,14 @@ public class TurnPersistenceService {
 		if (!user.isActive() || user.getRole() != expectedRole) {
 			throw new BusinessException(ErrorCode.TOKEN_INVALID);
 		}
+		if (user.getGuardianConsentEpoch() != expectedGuardianConsentEpoch) {
+			throw new BusinessException(ErrorCode.GUARDIAN_CONSENT_CHANGED);
+		}
 		// Apply eligibility under the same current-read account lock, before any AI result writes.
-		ErrorCode eligibilityFailure = UserBusinessAccessState.from(user).eligibilityFailure(clock);
+		boolean policyReady = guardianTeamPolicy != null && guardianTeamPolicy.ready();
+		String expectedPolicyDigest = policyReady ? guardianTeamPolicy.configurationDigest() : null;
+		ErrorCode eligibilityFailure = UserBusinessAccessState.from(user)
+			.aiEligibilityFailure(clock, policyReady, expectedPolicyDigest);
 		if (eligibilityFailure != null) throw new BusinessException(eligibilityFailure);
 		LearningSession session = sessionRepository.findOwnedForUpdate(sessionId, userId)
 			.orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));

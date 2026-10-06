@@ -12,6 +12,7 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.ai.AiClient;
 import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
@@ -25,6 +26,8 @@ import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class ReportAiGenerationService {
+
+	private final GuardianConsentFence consentFence;
 
 	private static final String SCHEMA_VERSION = "1.0";
 
@@ -45,8 +48,10 @@ public class ReportAiGenerationService {
 		AiClient aiClient,
 		AiUsageService aiUsageService,
 		ObjectMapper objectMapper,
-		EmailVerificationGate emailVerification
+		EmailVerificationGate emailVerification,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
 		this.emailVerification = emailVerification;
 		this.generationRepository = generationRepository;
 		this.evidenceRepository = evidenceRepository;
@@ -59,9 +64,14 @@ public class ReportAiGenerationService {
 
 	public GeneratedReport generate(Long generationId) {
 		Prepared prepared = prepare(generationId);
+		GuardianConsentFence.Snapshot requesterConsent = consentFence.capture(prepared.userId());
+		GuardianConsentFence.Snapshot studentConsent = prepared.studentId().equals(prepared.userId())
+			? requesterConsent : consentFence.capture(prepared.studentId());
 		ReportGenerateResponse response;
 		try {
-			emailVerification.requireVerified(prepared.userId());
+			emailVerification.requireAiVerified(prepared.userId());
+			consentFence.assertCurrent(requesterConsent);
+			consentFence.assertCurrent(studentConsent);
 			response = aiClient.generateReport(prepared.request());
 			aiUsageService.record(
 				prepared.userId(),
@@ -79,7 +89,9 @@ public class ReportAiGenerationService {
 			throw exception;
 		}
 		validate(prepared.request(), response);
-		return new GeneratedReport(response);
+		consentFence.assertCurrent(requesterConsent);
+		consentFence.assertCurrent(studentConsent);
+		return new GeneratedReport(response, requesterConsent, studentConsent);
 	}
 
 	private Prepared prepare(Long generationId) {
@@ -116,7 +128,7 @@ public class ReportAiGenerationService {
 			evidence,
 			previousReport(generation)
 		);
-		return new Prepared(request, generation.getRequestedById());
+		return new Prepared(request, generation.getRequestedById(), generation.getStudentId());
 	}
 
 	private ReportGenerateRequest.Scope scope(ReportGeneration generation) {
@@ -417,10 +429,11 @@ public class ReportAiGenerationService {
 		return new AiClientException(ErrorCode.AI_RESPONSE_INVALID, cause);
 	}
 
-	public record GeneratedReport(ReportGenerateResponse response) {
+	public record GeneratedReport(ReportGenerateResponse response,
+		GuardianConsentFence.Snapshot requesterConsent, GuardianConsentFence.Snapshot studentConsent) {
 	}
 
-	private record Prepared(ReportGenerateRequest request, Long userId) {
+	private record Prepared(ReportGenerateRequest request, Long userId, Long studentId) {
 	}
 
 	private record FrozenInput(

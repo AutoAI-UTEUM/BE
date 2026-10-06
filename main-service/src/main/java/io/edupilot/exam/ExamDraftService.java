@@ -9,6 +9,7 @@ import java.util.Set;
 
 import org.springframework.stereotype.Service;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.ai.AiClient;
 import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
@@ -27,6 +28,8 @@ import io.edupilot.user.UserRole;
 @Service
 public class ExamDraftService {
 
+	private final GuardianConsentFence consentFence;
+
 	private static final String SCHEMA_VERSION = "1.0";
 
 	private final EmailVerificationGate emailVerification;
@@ -38,8 +41,10 @@ public class ExamDraftService {
 		ExamDraftPreparationService preparationService,
 		AiClient aiClient,
 		AiUsageService aiUsageService,
-		EmailVerificationGate emailVerification
+		EmailVerificationGate emailVerification,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
 		this.emailVerification = emailVerification;
 		this.preparationService = preparationService;
 		this.aiClient = aiClient;
@@ -56,9 +61,10 @@ public class ExamDraftService {
 		PreparedExamDraft prepared = preparationService.prepare(
 			userId, role, classroomId, examId, request
 		);
+		GuardianConsentFence.Snapshot consent = consentFence.capture(userId);
 		ExamDraftResponse response;
 		try {
-			emailVerification.requireVerified(userId);
+			emailVerification.requireAiVerified(userId);
 			response = aiClient.generateExamDraft(prepared.aiRequest());
 			aiUsageService.record(
 				userId,
@@ -71,6 +77,7 @@ public class ExamDraftService {
 			throw exception;
 		}
 		validateResponse(prepared, response);
+		consentFence.assertCurrent(consent);
 		return ExamDraftQuestionsResponse.from(response, prepared.truncated());
 	}
 

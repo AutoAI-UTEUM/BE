@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.DiagnosisRequest;
@@ -36,6 +37,8 @@ import io.edupilot.user.UserRepository;
 @Component
 public class LearningSupportPipeline implements QuizPostGradingHook {
 
+	private final GuardianConsentFence consentFence;
+
 	private static final Logger log =
 		LoggerFactory.getLogger(LearningSupportPipeline.class);
 
@@ -56,8 +59,10 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 		AssessmentPersistenceService assessmentPersistenceService,
 		DiagnosisPersistenceService diagnosisPersistenceService,
 		LearnerMemoryRepository memoryRepository,
-		MaterialAccessService materialAccessService
+		MaterialAccessService materialAccessService,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
 		this.aiClient = aiClient;
 		this.aiUsageService = aiUsageService;
 		this.aiQuotaService = aiQuotaService;
@@ -71,6 +76,20 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 	@Override
 	public List<UiAction> onGraded(QuizPostGradingContext context) {
 		materialAccessService.assertSessionAccessible(context.userId(), context.sessionId());
+		GuardianConsentFence.Snapshot consent;
+		try {
+			consent = context.guardianConsent();
+			if (consent == null) consent = consentFence.capture(context.userId());
+			else {
+				if (!context.userId().equals(consent.userId())) throw new BusinessException(ErrorCode.GUARDIAN_CONSENT_CHANGED);
+				consentFence.assertCurrent(consent);
+			}
+		} catch (BusinessException exception) {
+			// 선택 AI 동의가 없으면 이미 완료된 결정적 채점만 제공하고 외부 전송을 하지 않습니다.
+			if (exception.errorCode() == ErrorCode.GUARDIAN_AI_CONSENT_REQUIRED) return defaultActions(context);
+			throw exception;
+		}
+		GuardianConsentFence.Snapshot capturedConsent = consent;
 		String memoryDigest = memoryRepository.findByUser_IdAndMaterial_Id(
 				context.userId(),
 				context.materialId()
@@ -85,6 +104,7 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 		try {
 			User user = activeUser(context.userId());
 			aiQuotaService.checkQuota(context.userId(), user.getRole());
+			consentFence.assertCurrent(consent);
 			assessmentResponse = aiClient.quizAssessment(assessmentRequest);
 			aiUsageService.record(
 				context.userId(),
@@ -93,10 +113,7 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 				true
 			);
 			AssessmentPersistenceService.AssessmentSaveResult result =
-				assessmentPersistenceService.save(
-					context,
-					assessmentResponse
-				);
+				consentFence.complete(capturedConsent, () -> assessmentPersistenceService.save(context, assessmentResponse));
 			if (!result.applied()) {
 				log.atInfo()
 					.addKeyValue("submissionId", context.submissionId())
@@ -134,6 +151,7 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 			}
 			User user = activeUser(context.userId());
 			aiQuotaService.checkQuota(context.userId(), user.getRole());
+			consentFence.assertCurrent(consent);
 			DiagnosisResponse response = aiClient.diagnosis(request);
 			aiUsageService.record(
 				context.userId(),
@@ -141,7 +159,7 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 				response == null ? null : response.usage(),
 				true
 			);
-			return diagnosisPersistenceService.savePending(context, response)
+			return consentFence.complete(capturedConsent, () -> diagnosisPersistenceService.savePending(context, response))
 				.map(List::of)
 				.orElseGet(() -> defaultActions(context));
 		} catch (RuntimeException exception) {
@@ -345,7 +363,8 @@ public class LearningSupportPipeline implements QuizPostGradingHook {
 		if (exception instanceof BusinessException businessException
 			&& (businessException.errorCode() == ErrorCode.AI_QUOTA_EXCEEDED
 				|| businessException.errorCode() == ErrorCode.MATERIAL_NOT_FOUND
-				|| businessException.errorCode() == ErrorCode.SESSION_NOT_FOUND)) {
+				|| businessException.errorCode() == ErrorCode.SESSION_NOT_FOUND
+				|| GuardianConsentFence.isConsentFailure(businessException))) {
 			throw businessException;
 		}
 	}

@@ -75,4 +75,8 @@
 
 - [Deletion journal, retention gates and restore replay](deletion-journal.md)
 
+- [보호자 팀 검토 구현·활성화·rollback 경계](guardian-team-review.md)
+- [보호자 한국어 안내·회신·검토 양식](guardian-team-review-forms.md)
+- [보호자 팀 검토 API·FE 계약](guardian-team-review-fe-contract.md)
+
 - [신규 DOB·수동 보호자 접수 기반과 정책 대기 경계](birthdate-guardian-foundation.md)
