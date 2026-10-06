@@ -16,6 +16,8 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.MDC;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ByteArrayResource;
@@ -47,6 +49,54 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 
 class HttpAiClientContractTest {
+
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	void rejectedTurnKeepsDecodedUsageWithoutAcceptingInvalidResult(boolean streaming) {
+		String body = """
+			{"schemaVersion":"1.0","turnId":"wrong-turn","turnGoal":"ANSWER_USER_QUESTION",
+			 "actionsExecuted":[],"messages":[],"statePatch":{},"uiActions":[],"memoryCandidates":[],
+			 "usage":{"model":"synthetic-model","inputTokens":10,"outputTokens":20,
+			 "reasoningTokens":null,"costUsdTicks":123}}
+			""";
+		server.enqueue(streaming
+			? new MockResponse().setHeader("Content-Type", "application/x-ndjson")
+				.setBody("{\"type\":\"completed\",\"result\":" + body.replace("\n", "").strip() + "}\n")
+			: jsonResponse(200, body));
+		var ai = client(Duration.ofSeconds(2));
+		assertThatThrownBy(() -> {
+			if (streaming) {
+				ai.executeTurnStream(turnRequest("expected-turn"), event -> { },
+					new AiStreamCancellation(), Duration.ofSeconds(2));
+			} else {
+				ai.executeTurn(turnRequest("expected-turn"));
+			}
+		}).isInstanceOfSatisfying(AiClientException.class, error -> {
+			assertThat(error.errorCode()).isEqualTo(ErrorCode.AI_RESPONSE_INVALID);
+			assertThat(error.category()).isEqualTo(AiFailureCategory.SCHEMA);
+			assertThat(error.retryable()).isFalse();
+			assertThat(error.usage()).isEqualTo(new io.edupilot.ai.dto.AiUsage(
+				"synthetic-model", 10L, 20L, null, 123L));
+		});
+	}
+
+	@Test
+	void rejectedStreamCompletionKeepsKnownUsage() {
+		server.enqueue(new MockResponse().setHeader("Content-Type", "application/x-ndjson")
+			.setBody("""
+				{"type":"completed","result":{"schemaVersion":"1.0","turnId":"turn-123",
+				"turnGoal":"ANSWER_USER_QUESTION","actionsExecuted":[],"messages":[],
+				"statePatch":{},"uiActions":[],"memoryCandidates":[],
+				"usage":{"model":"synthetic-model","inputTokens":10,"outputTokens":20,
+				"reasoningTokens":null,"costUsdTicks":123}}}
+				""".replace("\n", "") + "\n"));
+		assertThatThrownBy(() -> client(Duration.ofSeconds(2)).executeTurnStream(
+			turnRequest("turn-123"), event -> { }, new AiStreamCancellation(), Duration.ofSeconds(2)))
+			.isInstanceOfSatisfying(AiClientException.class, error -> {
+				assertThat(error.errorCode()).isEqualTo(ErrorCode.AI_RESPONSE_INVALID);
+				assertThat(error.usage().costUsdTicks()).isEqualTo(123L);
+			});
+	}
 
 	private static final String INTERNAL_TOKEN = "contract-test-token";
 	private static final String TRACE_ID = "contract-test-trace";

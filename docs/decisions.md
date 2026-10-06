@@ -600,6 +600,16 @@ DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC
 - 대안과 trade-off: 모든 API마다 session을 조회·갱신하면 즉시 폐기는 강하지만 DB 쓰기와 stateless JWT 장점을 잃습니다. 15분 access TTL과 명시적 activity API를 택해 일반 요청 경로를 유지하며, session 종료 뒤 이미 발급된 access가 최대 15분 남을 수 있음을 수용합니다. FE는 실제 활동·선제 refresh·401 fallback을 탭 전체 single-flight로 조정해야 합니다.
 - 후속 변경 문서: [API 명세](api-spec.md) §3, [화면-API 매핑](screen-api-map.md), [DB 명세](database.md), [도메인 모델](domain-model.md), [에러 코드](error-code.md).
 
+### DEC-047 — 학습 턴 시도별 사용량 기록 (#528)
+
+- 상태: 2026-10-06 사용자 구현 지시. 클라이언트 requestId는 기존 세션·메시지·claim의 멱등 키로 유지한다.
+- TURN 집계는 Spring이 AI Service에 시작한 요청 시도 하나다. JSON·SSE 모두 시도 직전 서버가 발급한 turnId를 기존 ai_usage_log.request_id에 기록한다. 실제 재시도는 새 ID·새 행, 동일 실행의 기록 재저장만 UNIQUE로 중복 제거한다. 스키마·기존 migration·과거 로그를 변경하지 않는다.
+- 응답 검증까지 성공한 경우 success=true이며, 검증 거부·AI 실패·호출 중 취소는 해당 시도 실패 1행이다. 호출 전 거부·quota 초과·취소에는 새 사용량을 만들지 않는다. 완료 뒤 업무 저장이나 FE 전송 실패가 추가 호출 행을 만들지 않는다.
+- HttpAiClient가 이미 파싱한 usage는 내부 검증 예외에 보존하여 실패 기록에 전달한다. 파싱되지 않았거나 미확인인 값은 null이다. 토큰·비용을 0으로 추정하거나 부분 업무 결과를 성공으로 수용하지 않는다.
+- 트랜잭션 저장 경계에서 AI_POLICY_REJECTED/AI_RESPONSE_INVALID가 확인되면 해당 사용자·TURN·서버 실행 ID의 기존 행을 실패로 정정한다. 행 추가·비용·createdAt·quota 수는 바꾸지 않는다. 정상 저장 이후 메모리 승격·FE 전송 오류에는 이 정정을 적용하지 않는다. 정정 DB 장애는 기존 기록 실패 정책처럼 로그만 남기는 후속 보장 한계다.
+- REQUIRES_NEW와 기존 기록 실패 격리, KST·역할·ADMIN·quota OFF 정책을 유지한다. 한 요청 안의 개별 provider 호출 수와 Spring의 시도 수를 혼동하지 않는다.
+- 후속 범위: COUNT 검사와 호출 사이의 원자적 예약, DB 장애 중 엄격한 기록 보장, 프로세스 중단 뒤 복구는 구현하지 않는다. 모든 상황의 한도 초과 0 또는 정확한 provider 과금 원장을 보장한다고 보고하지 않는다. 모든 Main Service 인스턴스의 수정 적용과 새 집계·관리자 비용 대조를 배포 시 확인한다.
+
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 
 - 상태: Accepted

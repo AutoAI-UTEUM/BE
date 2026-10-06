@@ -370,7 +370,9 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 
 ## 4. 멱등성 · 타임아웃 · 재시도 (v0.4 확정 — DEC-002 §5 이관분)
 
-- **멱등성 책임 분리**: 멱등의 원천은 Spring의 `requestId`(UK(session_id, request_id)) — FastAPI는 무상태이므로 자체 멱등 저장을 하지 않는다. `turnId`는 Spring이 턴마다 새로 발급하는 추적 ID이며, **재시도 시에도 새 turnId 발급**(같은 requestId → Spring이 저장 단계에서 중복 차단). 이로써 v2 패널 지적(재시도 vs DUPLICATE_TURN 충돌)은 구조적으로 해소.
+- **멱등성 책임 분리**: 클라이언트 `requestId`는 Spring의 세션·메시지·claim 키(UK(session_id, request_id))로 유지하며 FastAPI는 자체 멱등 저장을 하지 않는다. `turnId`는 Spring이 실제 AI 요청 시도마다 발급하고 서버 TURN 사용량 기록의 멱등 키로도 사용한다. 실제 재시도는 같은 외부 requestId여도 새 turnId·새 기록이며, 동일 실행의 기록 재저장만 중복 제거한다(DEC-047).
+- TURN 사용량은 호출 시작 후 최종적으로 한 행만 기록한다. 응답 검증 거부·실패·취소는 실패로 집계하고, HTTP 클라이언트가 이미 파싱한 usage도 내부 예외로 보존한다. 파싱 불가·미확인 값은 null이며 외부 FE 응답에는 내부 usage를 추가하지 않는다. KST·역할별 한도와 기존 429/409 계약을 유지한다. Spring의 시도 수는 요청 내부 개별 provider 호출 수나 정확한 과금 원장과 같지 않다.
+- 저장 트랜잭션의 AI 응답 정책 거부는 같은 사용자·TURN·서버 실행 ID 행의 성공 표시만 실패로 정정한다. 비용·시각·행 수를 바꾸거나 두 번째 실패 행을 추가하지 않는다. 정상 저장 후 메모리 승격·FE 전송 실패에는 이 정정을 적용하지 않는다.
 - **타임아웃 (확정 — env로 관리, extract는 #5 실측 후 조정 여지)**:
 
 | 엔드포인트 | 제안 timeout | 근거 |
