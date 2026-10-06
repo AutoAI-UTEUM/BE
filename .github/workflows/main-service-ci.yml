@@ -58,11 +58,13 @@ jobs:
         working-directory: main-service
         run: ./gradlew build --no-daemon
 
-      - name: Set up Node for isolated SES trial guards
-        if: steps.changes.outputs.service == 'true'
+      - name: Set up Node for offline QA guards
         uses: actions/setup-node@v6
         with:
           node-version: '24'
+
+      - name: Validate launch readiness metadata without operations
+        run: node --test scripts/qa/launch-ops/check-manifest.test.mjs
 
       - name: Validate isolated SES trial guards without sending
         if: steps.changes.outputs.service == 'true'

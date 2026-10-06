@@ -1,15 +1,15 @@
 {
-  "version": "launch-ops-v1",
+  "version": "launch-ops-v2-team",
   "environment": "dev",
   "status": "PREPARATION_ONLY",
   "be": {
-    "reviewedBaselineSha": "0a8f7bd99db13d20ddcf392766b2bd69ab4754a3",
-    "sourceSha": "0a8f7bd99db13d20ddcf392766b2bd69ab4754a3",
+    "reviewedBaselineSha": "3343e608fa80dd6bdb5888454ad6fac5b09461ad",
+    "sourceSha": "3343e608fa80dd6bdb5888454ad6fac5b09461ad",
     "containsReviewedBaseline": true,
     "sourceFileHashes": [
       {
         "path": "docker-compose.yml",
-        "sha256": "4a8ee4b5dc7059d3c64dac90be2c50534b51494ea0919721e909083e6537182f"
+        "sha256": "3e481a37ff86364d827b95a00916f8d1531da8b19ff6e5c8f6b194cd0e3ae623"
       },
       {
         "path": "docker-compose.prod.yml",
@@ -50,18 +50,34 @@
       {
         "path": "main-service/src/main/resources/db/migration/V60__birthdate_correction_intake.sql",
         "sha256": "4f567c84ed1bf7cb5dd973d6225ac6432f2a2b7cb3de9debdb102e9826d3de71"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V61__guardian_team_review.sql",
+        "sha256": "d0899dbbf0e96eccfa9b16d8d1ce86ea3409d6cdbc80a515f8e55e2437554a56"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V62__guardian_team_access_generation.sql",
+        "sha256": "2dbd8d2f27aeb9d9d0b883be9ecd32d5a4b591281ed530ec2241113d5ed8ea52"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V63__guardian_team_mail_binding.sql",
+        "sha256": "33a16be463afb8b33c2df8d3d81ada180b7368863b36343331a43063459e6a96"
+      },
+      {
+        "path": "main-service/src/main/java/io/edupilot/guardian/team/GuardianTeamProperties.java",
+        "sha256": "2d7be49108c2c9a269afb85fa33e9599d5993ac1232f52ca67665b788084ecec"
       }
     ],
     "ci": {
       "main": {
-        "headSha": "0a8f7bd99db13d20ddcf392766b2bd69ab4754a3",
+        "headSha": "3343e608fa80dd6bdb5888454ad6fac5b09461ad",
         "conclusion": "success",
-        "url": "https://github.com/AutoAI-UTEUM/BE/actions/runs/37283320129"
+        "url": "https://github.com/AutoAI-UTEUM/BE/actions/runs/37435819039"
       },
       "ai": {
-        "headSha": "0a8f7bd99db13d20ddcf392766b2bd69ab4754a3",
+        "headSha": "3343e608fa80dd6bdb5888454ad6fac5b09461ad",
         "conclusion": "success",
-        "url": "https://github.com/AutoAI-UTEUM/BE/actions/runs/37283320041"
+        "url": "https://github.com/AutoAI-UTEUM/BE/actions/runs/37435818992"
       }
     },
     "runningImages": {
@@ -84,12 +100,22 @@
       "injectionEvidence": null
     },
     "artifact": null,
-    "served": null
+    "served": null,
+    "guardianContract": {
+      "sourceSha": null,
+      "reviewEvidence": null,
+      "intake": false,
+      "fragmentView": false,
+      "explicitDeclaration": false,
+      "currentGenerationReply": false,
+      "adminReview": false,
+      "scopeSeparation": false,
+      "revocationAndExpiry": false
+    }
   },
   "mail": {
     "selectedInboxHandle": "APPROVED_INBOX_1",
     "selectedRecipientCount": 1,
-    "actualSent": 0,
     "observed": null,
     "ses": null,
     "keyContinuityEvidence": null,
@@ -97,13 +123,28 @@
     "otherProducerIsolationConfirmed": false,
     "approvalRef": null,
     "approvedInboxHandle": null,
-    "plannedMessages": 2,
+    "plannedMessages": null,
     "incrementalBudgetApproval": null,
     "receiptEvidence": null,
-    "explicitConfirmAndStatusEvidence": null
+    "explicitConfirmAndStatusEvidence": null,
+    "actualServiceSent": 0,
+    "plannedActions": [],
+    "approvedOperation": null,
+    "sdkTrial": {
+      "sourceSha": "adcd10fbb91662ab1e3c5cc228b0a62552d3e9d2",
+      "jarSha256": "9f2ac426e3a7ea02961af62ae74231d2946f9efbb07137749ab95083c22dec09",
+      "identityCalls": 1,
+      "testSendCalls": 1,
+      "inboxConfirmed": true,
+      "budgetsConsumed": true,
+      "rerunPermitted": false,
+      "identityEvidence": "PRIVATE_SDK_IDENTITY_20261005",
+      "sendEvidence": "PRIVATE_SDK_TEST_RECEIPT_20261005",
+      "sendApprovalRef": "SDK_TEST_APPROVAL_20261005"
+    }
   },
   "recovery": {
-    "strategy": "roll-forward-preserve-gates-and-v60-hook",
+    "strategy": "roll-forward-preserve-gates-and-v60-v63-hooks",
     "hookPreserved": false,
     "syntheticEvidence": null,
     "beforeMigrationCancelPlan": null,
@@ -111,7 +152,9 @@
     "deletedUserDobLeakCount": null,
     "privateFreshBackupRef": null,
     "backupIntegrityChecked": false,
-    "currentDeletionJournalRef": null
+    "currentDeletionJournalRef": null,
+    "teamReadersPreserved": false,
+    "consentEpochAndDigestPreserved": false
   },
   "window": {
     "owner": null,
@@ -123,5 +166,67 @@
     "reopenCriteria": null,
     "roleSmokePassed": false,
     "smokeEvidence": null
+  },
+  "guardian": {
+    "mode": "TEAM_REVIEW",
+    "proposedPolicy": {
+      "enabled": null,
+      "policyConfirmed": null,
+      "approvalRef": null,
+      "noticeVersion": null,
+      "noticeDigest": null,
+      "configurationDigest": null,
+      "noticeUrl": null,
+      "portalBaseUrl": null,
+      "collectionItemsReviewRef": null,
+      "purposesReviewRef": null,
+      "retentionReviewRef": null,
+      "refusalReviewRef": null,
+      "relationshipReviewRef": null,
+      "requiredScopes": [
+        "SERVICE"
+      ],
+      "optionalAiScope": null,
+      "optionalConsentReviewRef": null,
+      "reviewerIds": [],
+      "linkTtlSeconds": null,
+      "requestTtlSeconds": null,
+      "approvedEvidenceRetentionSeconds": null,
+      "approvalValiditySeconds": null
+    },
+    "reply": {
+      "channel": "EMAIL_REPLY",
+      "selectedInboxHandle": "GUARDIAN_REPLY_INBOX",
+      "selectionRef": "USER_SELECTION_20261006_0856Z",
+      "privateBindingEvidence": null
+    },
+    "reviewer": {
+      "selectedAccountHandle": "GUARDIAN_REVIEW_ACCOUNT",
+      "sameAccountAsReplyInbox": true,
+      "selectionRef": "USER_SELECTION_20261006_0856Z",
+      "matchedAccountCount": null,
+      "userId": null,
+      "role": null,
+      "status": null,
+      "readOnlyCheck": false,
+      "identityEvidence": null
+    },
+    "cleanup": {
+      "syntheticEvidence": null,
+      "externalMailboxPlan": null,
+      "backupRestoreReplayPlan": null,
+      "monitoringPlan": null,
+      "overdueContacts": null,
+      "overdueEvidence": null,
+      "overdueEvents": null,
+      "overdueOperations": null,
+      "runtimeEvidence": null
+    },
+    "observed": null,
+    "acceptance": {
+      "syntheticRoleAndRevocationEvidence": null,
+      "serviceWithoutAiAccepted": false,
+      "unapprovedAiDenied": false
+    }
   }
 }

@@ -72,6 +72,8 @@
 - [Durable mail outbox and restart recovery](mail-outbox.md)
 - [가입 이메일 소유 확인과 배포 경계](email-verification.md)
 - [FE ON manifest·SES 조회/최소 수신·V60 보존 복구의 운영 준비](launch-operational-readiness.md)
+- [PR532·V61–V63 TEAM 운영 준비와 기존 관리자 읽기 전용 확인](launch-team-operational-readiness.md)
+- [보호자 관계·최종 고지·기간 검토 초안](guardian-team-policy-review.md)
 
 - [Deletion journal, retention gates and restore replay](deletion-journal.md)
 

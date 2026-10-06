@@ -1,5 +1,7 @@
 # 격리된 SES 컴포넌트 시험 준비 (#473, #471, #479)
 
+**2026-10-06 증거 갱신:** 2026-10-05 별도 승인 SDK identity 1회와 TEST 발송 1건·Gmail 수신 확인이 완료됐다. 두 예산은 소진됐고 재실행 승인은 없다. 당시 source/JAR과 이후 서비스 가입/reset/탈퇴 메일·outbox·fragment 인수의 미실행 경계는 [현재 TEAM 운영 준비](launch-team-operational-readiness.md)에 기록한다. 아래 최초 준비 시점의 미승인/미실행 안내와 다음 질문을 새 실행 승인으로 사용하지 않는다. 사용 기록을 지우거나 trial ID를 바꿔 재실행하지 않는다.
+
 브랜치 한 줄: `feature/473-isolated-ses-trial` — 동일 SDK 설정의 STS identity 조회와 SES TEST 1건을 별도 승인·예산·사용 기록으로 제한하는 실행 경로를 준비한다.
 
 실제 발송·권한 변경·설정 전환·develop 배포는 이 준비의 범위에 없다. public 예제의 `owner@example.com`은 시험 데이터다. 실제 수신자는 사용자 확정 **한 주소**이며 비공개 manifest에서만 사용한다. 주소 선택과 콘솔 발송 승인은 아래 앱 발송 승인을 대신하지 않는다.

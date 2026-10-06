@@ -1,5 +1,7 @@
 # FE·메일·V60 운영 준비 (#479, #515, #519)
 
+**2026-10-06 현재 기준은 [PR532·V61–V63 TEAM 운영 준비](launch-team-operational-readiness.md)다.** 아래는 2026-10-05 BE521/V60 당시 기록이며 현재 웹/SMS 정책·미실행 SDK 시험 상태로 재사용하지 않는다. 공용 예제 manifest와 점검기는 v2 TEAM 조건으로 갱신됐다. 실제 SDK identity 1회/TEST 수신 1건은 완료·예산 소진, 서비스 가입/reset/탈퇴 메일과 운영 활성화는 미실행이다.
+
 브랜치 한 줄: `feature/479-launch-ops-readiness` — FE ON manifest, SES 최소 조회·발송 인수와 V60 정리 hook을 보존하는 전환·복구 조건을 준비한다.
 
 2026-10-05의 배포 독립 준비다. 기준은 [BE521](https://github.com/AutoAI-UTEUM/BE/pull/521) `0a8f7bd99db13d20ddcf392766b2bd69ab4754a3`, FE 읽기 기준은 `f1ad9d924b4768f798dc438066a311a2aac955f0`이다. 실제 FE 변경, 서버 조회·설정 변경·배포·계정 변경·메일 발송·DB 복원은 이 문서 작성으로 실행되거나 승인되지 않는다. 기존 단기 가입/Google pause·합성 계정 2개/세션 1개 승인과 실제 메일/SMS/유료 AI 미승인 경계를 유지한다. 담당자·실행 창·대기 시간은 임의로 확정하지 않는다.
