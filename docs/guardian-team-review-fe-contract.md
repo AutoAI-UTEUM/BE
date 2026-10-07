@@ -25,6 +25,7 @@
 
 | API | 인증·권한 | 요청 | 결과 |
 | --- | --- | --- | --- |
+| `GET /api/users/me/guardian-requests/entry` | 활성 로그인 본인; 이메일·연령 확인 대기 중 조회 허용 | 없음 | `Entry`; 접수·정보 수집 없이 서버 대상 판정 |
 | `POST /api/users/me/guardian-requests` | 활성 로그인 본인, 신규 보호자 대상 | `Intake` | `View` |
 | `GET /api/users/me/guardian-requests` | 활성 로그인 본인 | 없음 | `View`; 접수 전은 404 |
 | `POST /api/users/me/guardian-requests/{id}/link` | 해당 신청 본인 | `Mutation` | `Link` |
@@ -38,6 +39,23 @@
 | `POST /api/admin/guardian-requests/{id}/revoke` | 지정 담당자, 결정 트랜잭션 권한 재확인 | `Revoke` | `Status` |
 
 담당자 설정은 관리자 역할을 부여하는 API가 아니다. 관리자 역할만 있고 지정 목록에 없는 계정도 거절된다. 본인의 신청을 담당자로 승인하는 경로는 허용하지 않는다. 관리자는 FE의 이전 로그인 정보만으로 버튼을 활성화해 권한 검사를 대신할 수 없다.
+
+### 최초 진입 신호와 회신 채널 (#526)
+
+FE는 로그인 뒤 `/entry`를 조회하며 DOB·브라우저 연도·`ageVerificationState`로 신청 대상을 독자 추론하지 않는다. `Entry`는 `{requirement,teamReviewAvailable,canStartRequest,replyChannel,request}`다. 현재 DB 계정의 가입 cohort와 DOB, 서버의 Asia/Seoul 현재 연도 기준을 사용한다. DOB 원문·사용자 ID·보호자 연락처는 반환하지 않는다.
+
+| 신호 | 화면 행동 |
+| --- | --- |
+| `requirement:NOT_REQUIRED` | LEGACY_EXEMPT 또는 유효 DOB의 KST 연도 차이 ≥15. 보호자 신청을 요구하지 않는다. 다른 이메일·역할·이용 조건이 충족됐다는 뜻은 아니다. |
+| `requirement:BIRTHDATE_REQUIRED` | 신규 계정의 DOB가 없거나 유효하지 않다. 임의 날짜를 넣거나 보호자 승인으로 간주하지 않고 기존 DOB 확인·수정 요청 안내로 연결한다. 이 API는 DOB를 수정하지 않는다. |
+| `requirement:REQUIRED` | 현재 서버 기준 보호자 절차 대상이다. 이미 승인된 계정도 대상 분류 자체는 유지하며 승인 여부는 `request.status`로 구분한다. |
+| `teamReviewAvailable:false` | 비활성 또는 미확정 정책. `canStartRequest:false`, `replyChannel:null`, `request:null`이며 수집·신청을 열지 않는다. 이때 `request:null`은 과거 신청 부재를 증명하지 않는다. |
+| 준비됨 + `canStartRequest:true` | 대상이며 새 신청이 가능하다. 새 계정은 `request:null`, 끝난 신청은 현재 `request`가 있을 수 있다. 사용자의 접수 동작 때만 새 키로 POST한다. |
+| 준비됨 + 기존 `request` | 본인 기존 신청의 `View`다. 진행 중 또는 APPROVED이면 `canStartRequest:false`. DECLARED를 승인으로 표시하지 않는다. 읽는 순간 만료된 기존 신청은 기존 정리 규칙으로 EXPIRED 처리될 수 있으며 차수·기한을 연장하지 않는다. |
+
+최초 화면의 회신 방법은 준비된 `/entry.replyChannel`, 접수 후·공개 보호자 화면은 `View.replyChannel`, 담당자 상세는 `Detail.replyChannel`을 사용한다. `EMAIL_REPLY`는 confirmation `method:EMAIL_REPLY`, `PHONE_CALLBACK`은 `method:PHONE`에 대응한다. 양식 문자열을 파싱해서 수단을 추측하거나 FE에서 운영 수단을 하드코딩하지 않는다. 기존 신청의 `currentNotice:false`이면 그 `View`·`Detail`의 `replyChannel:null`과 빈 양식을 따르고 계속 진행하지 않는다. Entry의 현재 정책 채널을 오래된 신청의 채널로 대입하지 않는다.
+
+`canStartRequest`는 조회 시점의 안내 신호다. POST에서 현재 대상·정책·상태·idempotency·속도 제한을 다시 검사하므로 경합 이후 성공을 보장하지 않는다. 이 최초 진입 경로의 예외는 학습·파일·SSE·외부 AI 접근을 열지 않는다.
 
 ## 본인 접수·토큰·의사 표시 요청
 
@@ -136,7 +154,7 @@
 
 `Status`의 필드는 `requestId`, `generation`, `revision`, `state`, `noticeVersion`, `noticeDigest`, `requestExpiresAt`, `contactEraseDueAt`, `webDeclaredAt`, `explicitResponseAt`, `approvedUntil`, `currentNotice`, `serviceApproved`, `externalAiApproved`, `reason`이다. 시각은 ISO-8601 UTC 값이며 없는 시각은 `null`이다. FE 표시는 시간대가 분명하게 보이도록 한다. `requestExpiresAt`과 개인정보 정리 기한 `contactEraseDueAt`을 하나의 “링크 만료”로 합치지 않는다. 실제 링크 만료는 `Link.expiresAt`이다.
 
-`View`는 `{status, noticeUrl, requiredScopes, optionalAiScope, forms}`다. `forms`에는 상태에 적용되는 문자열만 있다.
+`View`는 `{status, noticeUrl, requiredScopes, optionalAiScope, replyChannel, forms}`다. `forms`에는 상태에 적용되는 문자열만 있다.
 
 | 상태 | 공개·본인 `forms` 키 | 표시 의미 |
 | --- | --- | --- |
@@ -152,7 +170,9 @@
 
 현재 안내 설정과 신청 설정이 다르면 `currentNotice:false`, `noticeUrl:null`, `forms:{}`가 될 수 있다. 이전 동의문으로 진행 버튼을 열거나 FE에서 새 버전을 자동 대입하지 않는다.
 
-`Detail`은 `status`, 담당자 전용 `userId`, 기한 내 `guardianName`·`guardianContact`, `contactOrigin`, `relationship`, `confirmationMethod`, `evidenceReference`, `events`, 전체 `forms`를 반환한다. `userId`는 지정 관리자 상세에만 있으며 본인·공개 `View`나 `Status`에는 없다. 공개 화면에 복사하거나 분석 이벤트로 전송하지 않는다. 보호자 정보가 파기되면 해당 값은 `null`이며 FE가 이전 캐시에서 되살리지 않는다. `events`는 `{generation,revision,type,state,actorId,at}`의 최소 감사 이벤트다. 전체 양식 중 완료 상태 안내는 담당자의 미리 보기임을 표시하고 현재 신청의 상태와 구분한다.
+`Detail`은 `status`, 담당자 전용 `userId`, 기한 내 `guardianName`·`guardianContact`, `contactOrigin`, `generationStartedAt`, `declaredScopes`, `replyChannel`, `relationship`, `confirmationMethod`, `evidenceReference`, `events`, 전체 `forms`를 반환한다. `generationStartedAt`은 해당 차수 시작의 ISO-8601 UTC이며 재발급으로 이동하지 않는다. `declaredScopes`는 현재 차수의 구조화된 문자열 배열이며 아직 신고·수동 확인이 없거나 파기됐다면 `[]`다. `status.webDeclaredAt`이 있으면 웹 신고 범위이고, 웹 신고 없이 담당자가 확인을 등록했다면 그 확인 범위다. 웹 신고 이후 다른 범위로 confirmation을 등록하면 서버가 409를 반환한다. 따라서 배열만으로 웹 신고나 선택 동의의 출처를 추정하지 않고 시각·상태도 대조한다. 재발급·철회·새 차수는 이전 선언 범위를 되살리지 않는다.
+
+`userId`, 세대 시작 시각과 선언 범위는 지정 관리자 상세에만 있으며 본인·공개 `View`나 `Status`에는 없다. 공개 화면에 복사하거나 분석 이벤트로 전송하지 않는다. 보호자 정보가 파기되면 해당 값은 `null`이며 FE가 이전 캐시에서 되살리지 않는다. `events`는 `{generation,revision,type,state,actorId,at}`의 최소 감사 이벤트다. 전체 양식 중 완료 상태 안내는 담당자의 미리 보기임을 표시하고 현재 신청의 상태와 구분한다.
 
 `ListResponse`는 `{content,page,size,totalElements,totalPages}`이며 목록에는 `Status`만 포함한다. 신청번호·상태를 검색/분석 시스템에 추가로 전송하지 않는다. 화면을 벗어나거나 권한 오류가 발생하면 담당자 상세·연락처·증거 참조를 메모리에서도 비운다.
 

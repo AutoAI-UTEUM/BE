@@ -49,9 +49,13 @@ public final class GuardianTeamDtos {
 	public record Link(String url, Instant expiresAt, boolean replayed, Status status) {
 		@Override public String toString() { return "GuardianTeamLink[REDACTED]"; }
 	}
+	public enum Requirement { REQUIRED, NOT_REQUIRED, BIRTHDATE_REQUIRED }
+	public record Entry(Requirement requirement, boolean teamReviewAvailable, boolean canStartRequest,
+		String replyChannel, View request) { }
 	public record View(Status status, String noticeUrl, List<String> requiredScopes, String optionalAiScope,
-		Map<String, String> forms) { }
+		String replyChannel, Map<String, String> forms) { }
 	public record Detail(Status status, Long userId, String guardianName, String guardianContact, GuardianTeamRequest.ContactOrigin contactOrigin,
+		Instant generationStartedAt, Set<String> declaredScopes, String replyChannel,
 		GuardianTeamRequest.Relationship relationship, GuardianTeamRequest.ConfirmationMethod confirmationMethod,
 		String evidenceReference, List<Event> events, Map<String, String> forms) {
 		@Override public String toString() { return "GuardianTeamDetail[REDACTED]"; }

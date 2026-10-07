@@ -20,6 +20,12 @@ public class GuardianTeamSelfController {
 	private final GuardianTeamService service;
 	public GuardianTeamSelfController(GuardianTeamService service) { this.service = service; }
 
+	@GetMapping("/entry")
+	@Operation(summary = "보호자 신청 최초 진입 판정", description = "현재 계정의 서버 DOB·가입 cohort로 대상 여부를 판정합니다. 미확정·비활성 정책은 teamReviewAvailable=false이며 신청을 열지 않습니다. 신청이나 보호자 정보 수집을 만들지 않고, 준비된 기존 신청은 현재 상태로 반환합니다. 이 신호는 학습·외부 AI 이용 승인이 아닙니다.")
+	public ResponseEntity<ApiResponse<GuardianTeamDtos.Entry>> entry(@AuthenticationPrincipal AuthenticatedUser user) {
+		return privateResponse(service.entry(user.userId()));
+	}
+
 	@PostMapping
 	@Operation(summary = "보호자 팀 확인 신청", description = "보호자 이름·연락처는 선택 입력입니다. 입력하면 아동 제공 정보로 최초 수집일부터 최대 5일 이내 미확인 정리를 추적합니다. 신청은 이용 승인이 아닙니다.")
 	public ResponseEntity<ApiResponse<GuardianTeamDtos.View>> intake(@AuthenticationPrincipal AuthenticatedUser user,

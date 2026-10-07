@@ -219,10 +219,11 @@ TEAM_REVIEW는 기본 OFF이며 실제 관계 확인 기준·동의문/수집항
 
 | 화면 | 행동 | Spring API | 표시·처리 기준 |
 | --- | --- | --- | --- |
+| 본인 보호자 최초 진입 | 서버 대상·준비 여부·기존 신청 판정 | `GET /api/users/me/guardian-requests/entry` | `requirement`, `teamReviewAvailable`, `canStartRequest`, `request`로 진입을 판단한다. DOB를 FE에서 추론하지 않으며 정책 미준비면 수집을 열지 않는다. 최초 회신 방법은 `replyChannel`로 받는다. |
 | 본인 보호자 신청·상태 | 접수·조회 | `POST`, `GET /api/users/me/guardian-requests` | 신청번호·신청 차수와 현재 상태를 표시한다. 접수나 보완 요청을 이용 승인으로 표시하지 않는다. 최초 수집일 기준 만료를 재발급으로 연장하지 않는다. |
 | 본인 보호자 신청 | 안내 링크 발급·재발급, 신청 철회 | `POST /api/users/me/guardian-requests/{id}/link`, `POST /api/users/me/guardian-requests/{id}/withdraw` | 만료·재발급 후 이전 링크 무효화를 안내한다. 토큰을 로그나 영구 저장소에 남기지 않는다. 본인 신청 경로의 예외를 학습·파일·AI 접근 허용으로 해석하지 않는다. |
 | 보호자 안내·의사 표시 | 현재 안내 조회·동의 의사 접수 | `POST /api/auth/guardian-team/view`, `POST /api/auth/guardian-team/consent` | 실제 동의문 버전·신청 차수와 필수/선택 의사를 구분한다. 웹 의사 표시(DECLARED), 링크 클릭, 메일 도착은 담당자의 실제 확인·승인 완료가 아니다. |
-| 담당자 신청 목록·상세 | 검토 대상 조회 | `GET /api/admin/guardian-requests`, `GET /api/admin/guardian-requests/{id}` | 현재 지정된 ADMIN만 담당 경로를 사용한다. 공개·본인 화면에 담당 상세의 연락처·감사 정보나 아동의 전체 프로필을 복사하지 않는다. |
+| 담당자 신청 목록·상세 | 검토 대상 조회 | `GET /api/admin/guardian-requests`, `GET /api/admin/guardian-requests/{id}` | 현재 지정된 ADMIN만 담당 경로를 사용한다. `generationStartedAt`·배열 `declaredScopes`·`replyChannel`을 회신 시각·범위·수단과 대조하며 자동 승인을 만들지 않는다. 공개·본인 화면에 담당 상세의 연락처·감사 정보나 아동의 전체 프로필을 복사하지 않는다. |
 | 담당자 회신 확인·결정 | 실제 회신 수동 등록, 승인·반려·보완 요청 | `POST /api/admin/guardian-requests/{id}/confirmation`, `POST /api/admin/guardian-requests/{id}/decision` | 현재 신청 차수·동의문과 실제 명시 회신·확인 근거를 대조한다. 설정된 확인 방법을 따르고 원문 회신·민감 증거 업로드를 기본 요구하지 않는다. 문자열 검토 helper의 결과는 사람의 검토를 요구하며 자동 승인이 아니다. |
 | 담당자 승인 철회 | 승인 철회 | `POST /api/admin/guardian-requests/{id}/revoke` | 철회·만료를 현재 상태로 표시한다. TEAM_APPROVED 상태값만으로 이용 가능을 추정하지 않는다. 이후 학습·AI·SSE와 늦은 결과는 BE의 현재 승인 증거·동의 세대 검사에 따른다. |
 
