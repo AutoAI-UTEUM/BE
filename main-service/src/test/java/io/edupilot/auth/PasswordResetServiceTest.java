@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -35,6 +36,7 @@ import jakarta.validation.Validator;
 
 @ExtendWith(MockitoExtension.class)
 class PasswordResetServiceTest {
+	private static final Instant EXPIRES_AT = Instant.parse("2026-09-24T00:30:00Z");
 
 	@Mock private UserRepository users;
 	@Mock private PasswordResetTokenRepository tokens;
@@ -67,7 +69,7 @@ class PasswordResetServiceTest {
 
 	@Test
 	void mailFailureLeavesRequestFailSoftAndTokenHasOnlyHash() {
-		when(emailService.sendAsync(any(EmailMessage.class)))
+		when(emailService.sendAsync(any(EmailMessage.class), eq(EXPIRES_AT)))
 			.thenThrow(new IllegalStateException("provider unavailable"));
 		assertThatCode(() -> service.request("known@example.com", "192.0.2.20"))
 			.doesNotThrowAnyException();
@@ -77,6 +79,7 @@ class PasswordResetServiceTest {
 		assertThat(captured.getValue().getTokenHash()).hasSize(64)
 			.matches("[0-9a-f]{64}");
 		assertThat(captured.getValue().getRequestedIp()).isEqualTo("192.0.2.20");
+		assertThat(captured.getValue().getExpiresAt()).isEqualTo(EXPIRES_AT);
 	}
 
 	@Test
@@ -97,6 +100,6 @@ class PasswordResetServiceTest {
 		assertThat(slower).isLessThanOrEqualTo(
 			faster * 2 + Duration.ofMillis(100).toNanos()
 		);
-		verify(emailService, times(1)).sendAsync(any(EmailMessage.class));
+		verify(emailService, times(1)).sendAsync(any(EmailMessage.class), eq(EXPIRES_AT));
 	}
 }
