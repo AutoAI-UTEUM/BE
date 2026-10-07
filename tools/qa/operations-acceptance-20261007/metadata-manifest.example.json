@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "operations-acceptance-v1",
+  "requestedBaselineSha": "28e265397dc52667fd5e7f98f1e782ba2ddafef7",
+  "provenance": "OPERATOR_REPORTED",
+  "environment": "DEV",
+  "confirmedHistory": {
+    "devLogs": {
+      "status": "USER_REPORTED_READ_COMPLETE",
+      "observedAtUtc": "2026-10-06T17:39:09Z",
+      "mainRetentionInDays": 14,
+      "aiRetentionInDays": 14
+    },
+    "reviewer": {
+      "status": "USER_REPORTED_PROMOTED_VERIFIED",
+      "observedAtUtc": "2026-10-06T13:31:00Z",
+      "binding": "GUARDIAN_REVIEW_ACCOUNT",
+      "role": "ADMIN",
+      "accountStatus": "ACTIVE",
+      "promotionRerunAuthorized": false
+    }
+  },
+  "sections": {
+    "artifacts": {
+      "readStatus": "NOT_COLLECTED",
+      "observedAtUtc": null,
+      "data": null
+    },
+    "migrations": {
+      "readStatus": "NOT_COLLECTED",
+      "observedAtUtc": null,
+      "data": null
+    },
+    "flags": {
+      "readStatus": "NOT_COLLECTED",
+      "observedAtUtc": null,
+      "data": null
+    },
+    "workerCleanup": {
+      "readStatus": "NOT_COLLECTED",
+      "observedAtUtc": null,
+      "data": null
+    },
+    "security": {
+      "readStatus": "NOT_COLLECTED",
+      "observedAtUtc": null,
+      "data": null
+    },
+    "backupRestore": {
+      "readStatus": "NOT_COLLECTED",
+      "observedAtUtc": null,
+      "data": null
+    },
+    "reconciliation": {
+      "readStatus": "NOT_COLLECTED",
+      "observedAtUtc": null,
+      "data": null
+    }
+  },
+  "acceptance": {
+    "access_answers": {
+      "status": "NOT_RUN",
+      "observedAtUtc": null,
+      "receiptSha256": null
+    },
+    "persistence_duplicates": {
+      "status": "NOT_RUN",
+      "observedAtUtc": null,
+      "receiptSha256": null
+    },
+    "pdf_worker_cleanup": {
+      "status": "NOT_RUN",
+      "observedAtUtc": null,
+      "receiptSha256": null
+    },
+    "limits_security_internal_ai": {
+      "status": "NOT_RUN",
+      "observedAtUtc": null,
+      "receiptSha256": null
+    },
+    "images_migrations_restore": {
+      "status": "NOT_RUN",
+      "observedAtUtc": null,
+      "receiptSha256": null
+    },
+    "progress_scores_usage_quota": {
+      "status": "NOT_RUN",
+      "observedAtUtc": null,
+      "receiptSha256": null
+    }
+  }
+}
