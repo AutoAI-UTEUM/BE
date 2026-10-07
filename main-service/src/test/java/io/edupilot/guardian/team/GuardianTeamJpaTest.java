@@ -113,6 +113,115 @@ class GuardianTeamJpaTest {
 		mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
 	}
 
+	@Test void entryIsAuthenticatedButAnUnverifiedChildCanCheckItWithoutCreatingACase() throws Exception {
+		mvc.perform(get("/api/users/me/guardian-requests/entry")).andExpect(status().isUnauthorized());
+		User child = unverifiedChild();
+		mvc.perform(get("/api/users/me/guardian-requests/entry").header("Authorization", bearer(child)))
+			.andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+			.andExpect(header().string("Referrer-Policy", "no-referrer"))
+			.andExpect(jsonPath("$.data.requirement").value("REQUIRED"))
+			.andExpect(jsonPath("$.data.teamReviewAvailable").value(true))
+			.andExpect(jsonPath("$.data.canStartRequest").value(true))
+			.andExpect(jsonPath("$.data.replyChannel").value("EMAIL_REPLY"))
+			.andExpect(jsonPath("$.data.request").isEmpty())
+			.andExpect(jsonPath("$.data.dateOfBirth").doesNotExist())
+			.andExpect(jsonPath("$.data.userId").doesNotExist());
+		mvc.perform(get("/api/materials").header("Authorization", bearer(child)))
+			.andExpect(status().isForbidden()).andExpect(jsonPath("$.error.code").value("EMAIL_VERIFICATION_REQUIRED"));
+		assertThat(requests.count()).isZero(); assertThat(events.count()).isZero(); assertThat(operations.count()).isZero();
+		verifyNoInteractions(ai, mail);
+	}
+
+	@Test void entryUsesTheCurrentKstYearAndPreservesLegacyAndUnknownDobBoundaries() {
+		User boundary = users.saveAndFlush(actor(UserRole.LEARNER, LocalDate.of(2012, 1, 1)));
+		when(clock.instant()).thenReturn(Instant.parse("2026-12-31T14:59:59Z"));
+		assertThat(service.entry(boundary.getId()).requirement()).isEqualTo(GuardianTeamDtos.Requirement.REQUIRED);
+		when(clock.instant()).thenReturn(Instant.parse("2026-12-31T15:00:00Z"));
+		var adult = service.entry(boundary.getId());
+		assertThat(adult.requirement()).isEqualTo(GuardianTeamDtos.Requirement.NOT_REQUIRED);
+		assertThat(adult.canStartRequest()).isFalse();
+		User unknown = users.saveAndFlush(User.create("unknown-" + UUID.randomUUID() + "@example.invalid", "!synthetic", "합성 계정"));
+		var missing = service.entry(unknown.getId());
+		assertThat(missing.requirement()).isEqualTo(GuardianTeamDtos.Requirement.BIRTHDATE_REQUIRED);
+		assertThat(missing.canStartRequest()).isFalse();
+		User future = users.saveAndFlush(actor(UserRole.LEARNER, LocalDate.of(2099, 1, 1)));
+		assertThat(service.entry(future.getId()).requirement()).isEqualTo(GuardianTeamDtos.Requirement.BIRTHDATE_REQUIRED);
+		jdbc.update("update users set access_cohort='LEGACY_EXEMPT' where id=?", unknown.getId());
+		assertThat(service.entry(unknown.getId()).requirement()).isEqualTo(GuardianTeamDtos.Requirement.NOT_REQUIRED);
+		assertThat(requests.count()).isZero(); verifyNoInteractions(ai, mail);
+	}
+
+	@Test void entryResumesPendingAndApprovedCasesAndOnlyOffersANewCaseAfterExpiry() {
+		User child = child(); var first = intake(child, false);
+		var pending = service.entry(child.getId());
+		assertThat(pending.canStartRequest()).isFalse();
+		assertThat(pending.request().status()).isEqualTo(first.status());
+		var approved = approve(confirm(first.status(), Set.of("SERVICE")), "entry-approve");
+		var resumed = service.entry(child.getId());
+		assertThat(resumed.canStartRequest()).isFalse();
+		assertThat(resumed.request().status()).isEqualTo(approved);
+		assertThat(resumed.request().status().serviceApproved()).isTrue();
+		assertThat(resumed.request().status().externalAiApproved()).isFalse();
+		when(clock.instant()).thenReturn(approved.approvedUntil());
+		var expired = service.entry(child.getId());
+		assertThat(expired.canStartRequest()).isTrue();
+		assertThat(expired.request().status().state()).isEqualTo(GuardianTeamRequest.State.EXPIRED);
+		assertThat(expired.request().status().serviceApproved()).isFalse();
+		assertThat(expired.request().status().generation()).isEqualTo(first.status().generation());
+		assertThat(requests.count()).isEqualTo(1); verifyNoInteractions(ai, mail);
+	}
+
+	@Test void structuredReplyAndDeclarationFieldsAreVisibleOnlyInTheAppropriateResponses() throws Exception {
+		User child = child(); var first = intake(child, false); var issued = link(child, first.status());
+		assertThat(first.replyChannel()).isEqualTo("EMAIL_REPLY");
+		String raw = issued.url().split("#token=", 2)[1];
+		mvc.perform(post("/api/auth/guardian-team/view").contentType(MediaType.APPLICATION_JSON)
+			.content(json.writeValueAsString(new GuardianTeamDtos.Token(raw))))
+			.andExpect(status().isOk()).andExpect(jsonPath("$.data.replyChannel").value("EMAIL_REPLY"))
+			.andExpect(jsonPath("$.data.generationStartedAt").doesNotExist())
+			.andExpect(jsonPath("$.data.declaredScopes").doesNotExist()).andExpect(jsonPath("$.data.userId").doesNotExist());
+		var empty = service.detail(1L, issued.status().requestId());
+		assertThat(empty.generationStartedAt()).isEqualTo(baseline); assertThat(empty.declaredScopes()).isEmpty();
+		var declaration = service.consent(consent(raw, issued.status(), "structured-declare", Set.of("SERVICE", "EXTERNAL_AI")), ip());
+		mvc.perform(get("/api/admin/guardian-requests/" + declaration.requestId()).header("Authorization", bearer(reviewer)))
+			.andExpect(status().isOk()).andExpect(jsonPath("$.data.replyChannel").value("EMAIL_REPLY"))
+			.andExpect(jsonPath("$.data.generationStartedAt").value(baseline.toString()))
+			.andExpect(jsonPath("$.data.declaredScopes", org.hamcrest.Matchers.containsInAnyOrder("SERVICE", "EXTERNAL_AI")))
+			.andExpect(jsonPath("$.data.status.state").value("DECLARED"))
+			.andExpect(jsonPath("$.data.status.serviceApproved").value(false))
+			.andExpect(jsonPath("$.data.status.externalAiApproved").value(false));
+		assertError(() -> confirm(declaration, Set.of("SERVICE")), ErrorCode.GUARDIAN_STATE_CONFLICT);
+		assertThat(service.detail(1L, declaration.requestId()).declaredScopes()).containsExactlyInAnyOrder("SERVICE", "EXTERNAL_AI");
+		verifyNoInteractions(ai, mail);
+	}
+
+	@Test void reissueAndWithdrawalClearStructuredDeclarationsAndANewGenerationGetsANewStart() {
+		User child = child(); var first = intake(child, false); var issued = link(child, first.status());
+		var declared = service.consent(consent(issued.url().split("#token=", 2)[1], issued.status(), "before-reissue", Set.of("SERVICE")), ip());
+		var reissued = service.issueLink(child.getId(), declared.requestId(), new GuardianTeamDtos.Mutation("fresh-link", declared.generation(), declared.revision()));
+		var detail = service.detail(1L, reissued.status().requestId());
+		assertThat(detail.declaredScopes()).isEmpty(); assertThat(detail.status().webDeclaredAt()).isNull();
+		assertThat(detail.generationStartedAt()).isEqualTo(baseline);
+		var again = service.consent(consent(reissued.url().split("#token=", 2)[1], reissued.status(), "after-reissue", Set.of("SERVICE")), ip());
+		service.withdrawRequest(child.getId(), again.requestId(), new GuardianTeamDtos.Mutation("entry-withdraw", again.generation(), again.revision()));
+		assertThat(service.detail(1L, again.requestId()).declaredScopes()).isEmpty();
+		when(clock.instant()).thenReturn(baseline.plusSeconds(60));
+		var next = service.intake(child.getId(), new GuardianTeamDtos.Intake("new-entry-generation", null, null, false));
+		var nextDetail = service.detail(1L, next.status().requestId());
+		assertThat(nextDetail.generationStartedAt()).isEqualTo(baseline.plusSeconds(60));
+		assertThat(nextDetail.status().generation()).isEqualTo(first.status().generation() + 1);
+		assertThat(nextDetail.declaredScopes()).isEmpty(); verifyNoInteractions(ai, mail);
+	}
+
+	@Test void aChangedPolicyDoesNotAdvertiseItsReplyMethodAsBelongingToAnOldCase() {
+		User child = child(); var first = intake(child, false);
+		jdbc.update("update guardian_team_requests set configuration_digest=? where id=?", "b".repeat(64), first.status().requestId());
+		var view = service.self(child.getId()); var detail = service.detail(1L, first.status().requestId());
+		assertThat(view.status().currentNotice()).isFalse(); assertThat(view.replyChannel()).isNull(); assertThat(view.forms()).isEmpty();
+		assertThat(detail.replyChannel()).isNull(); assertThat(detail.forms()).isEmpty();
+		assertThat(service.entry(child.getId()).canStartRequest()).isFalse(); verifyNoInteractions(ai, mail);
+	}
+
 	@Test void webDeclarationAndExplicitResponseRemainSeparateFromHumanApproval() {
 		User child = child(); var intake = intake(child, false); var link = link(child, intake.status());
 		String raw = link.url().split("#token=", 2)[1];

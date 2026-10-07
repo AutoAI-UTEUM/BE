@@ -3359,3 +3359,5 @@ POST /api/auth/guardian-verification/link requires authentication. Public POST v
 ### 보호자 팀 검토 (#526)
 
 기본 비활성인 자기 신청·fragment 링크·POST 자기신고와 지정 담당자 회신 확인·승인/반려/보완·철회 API를 추가한다. 웹 자기신고나 회신 도착은 승인이 아니다. 현재 DB ACTIVE ADMIN과 지정 ID를 결정 트랜잭션에서 검사하며 외부 AI 선택 동의·승인 세대·현재 정책 digest를 각각 확인한다. [정확한 API/FE 계약](guardian-team-review-fe-contract.md), [한국어 양식](guardian-team-review-forms.md), [구현과 활성화 경계](guardian-team-review.md).
+
+`GET /api/users/me/guardian-requests/entry`는 활성 로그인 본인에게 `{requirement,teamReviewAvailable,canStartRequest,replyChannel,request}`를 반환한다. 서버의 현재 cohort·DOB·KST 연도로 REQUIRED/NOT_REQUIRED/BIRTHDATE_REQUIRED를 판정하며, 정책 미준비에서는 신청과 수집을 열지 않는다. 이메일 미확인 본인의 조회는 허용하되 업무·파일·AI 게이트는 유지한다. 접수나 승인을 만들지 않으며 준비된 기존 신청의 만료 정리는 기존 규칙을 따른다. `View`와 `Detail`에 `replyChannel`, 지정 담당자 `Detail`에 UTC `generationStartedAt`과 배열 `declaredScopes`가 추가된다. 이 배열이 DECLARED를 승인으로 바꾸거나 EXTERNAL_AI 동의를 추정하지 않는다. 위 FE 계약이 nullable·기존 신청·재발급·기한·채널 의미의 정본이며 OpenAPI는 실제 DTO와 controller annotation에서 생성된다.

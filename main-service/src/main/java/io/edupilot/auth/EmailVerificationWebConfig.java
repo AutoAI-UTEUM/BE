@@ -13,7 +13,7 @@ public class EmailVerificationWebConfig implements WebMvcConfigurer {
 			.excludePathPatterns("/api/auth/**", "/api/health", "/api/health/**", "/api/policies/**",
 				"/api/users/me", "/api/users/me/password", "/api/users/me/preferences",
 				"/api/users/me/avatar", "/api/users/me/consents", "/api/users/me/birthdate-correction-requests",
-				"/api/users/me/guardian-requests", "/api/users/me/guardian-requests/*/link",
+				"/api/users/me/guardian-requests", "/api/users/me/guardian-requests/entry", "/api/users/me/guardian-requests/*/link",
 				"/api/users/me/guardian-requests/*/withdraw");
 	}
 }

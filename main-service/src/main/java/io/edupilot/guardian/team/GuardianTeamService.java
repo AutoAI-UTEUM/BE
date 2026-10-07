@@ -82,6 +82,29 @@ public class GuardianTeamService {
 		expireDue(row); return viewOf(row);
 	}
 
+	/** Classifies the current account without creating a case or collecting guardian information. */
+	public GuardianTeamDtos.Entry entry(Long userId) {
+		User user = users.findByIdForUpdate(userId).orElseThrow(this::notFound); requireActive(user);
+		var requirement = requirement(user);
+		boolean available = policy.ready();
+		if (!available || requirement != GuardianTeamDtos.Requirement.REQUIRED) {
+			return new GuardianTeamDtos.Entry(requirement, available, false, available ? policy.replyChannel() : null, null);
+		}
+		var row = requests.findByUserForUpdate(userId).orElse(null);
+		if (row != null) { expireDue(row); }
+		boolean canStart = row == null || !row.pending() && row.state() != GuardianTeamRequest.State.APPROVED;
+		return new GuardianTeamDtos.Entry(requirement, true, canStart, policy.replyChannel(), row == null ? null : viewOf(row));
+	}
+
+	private GuardianTeamDtos.Requirement requirement(User user) {
+		if (user.isLegacyAccessExempt() || BirthdatePolicy.guardianNotRequired(user.getDateOfBirth(), clock)) {
+			return GuardianTeamDtos.Requirement.NOT_REQUIRED;
+		}
+		try { BirthdatePolicy.validate(user.getDateOfBirth(), clock); }
+		catch (BusinessException invalidDate) { return GuardianTeamDtos.Requirement.BIRTHDATE_REQUIRED; }
+		return GuardianTeamDtos.Requirement.REQUIRED;
+	}
+
 	public GuardianTeamDtos.Link issueLink(Long userId, String id, GuardianTeamDtos.Mutation body) {
 		requireReady(); var row = lockSelf(userId, id);
 		String key = "LINK:" + requireKey(body.idempotencyKey());
@@ -135,6 +158,7 @@ public class GuardianTeamService {
 	public GuardianTeamDtos.Detail detail(Long reviewerId, String id) {
 		requireReady(); var row = lockReviewer(reviewerId, id); expireDue(row);
 		return new GuardianTeamDtos.Detail(status(row), row.userId(), row.guardianName(), row.guardianContact(), row.contactOrigin(),
+			row.generationStartedAt(), scopeSet(row.declaredScopes()), row.configurationDigest().equals(configurationDigest()) ? policy.replyChannel() : null,
 			row.relationship(), row.confirmationMethod(), row.evidenceReference(),
 			events.findByRequestIdOrderByRecordedAtAscIdAsc(row.id(), PageRequest.of(0, 200)).stream()
 				.map(e -> new GuardianTeamDtos.Event(e.generation(), e.revision(), e.eventType(), e.state(), e.actorId(), e.recordedAt())).toList(),
@@ -349,6 +373,7 @@ public class GuardianTeamService {
 	private GuardianTeamDtos.View viewOf(GuardianTeamRequest row) {
 		boolean current = row.configurationDigest().equals(configurationDigest());
 		return new GuardianTeamDtos.View(status(row), current ? policy.noticeUrl() : null, policy.requiredScopes(), policy.optionalAiScope(),
+			current ? policy.replyChannel() : null,
 			current ? applicableForms(row) : Map.of());
 	}
 	private Map<String, String> applicableForms(GuardianTeamRequest row) {
