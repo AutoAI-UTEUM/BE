@@ -35,7 +35,7 @@ public record SignupRequest(
 	@Schema(defaultValue = "false")
 	Boolean learningEmailOptIn,
 
-	@Schema(description = "현재 TERMS·PRIVACY 버전 동의. 서버 설정에 따라 필수 여부가 달라집니다.")
+	@Schema(description = "현재 requiresConsent=true인 정책 버전 동의. 필수 설정에서 유효한 동의 대상이 없으면 SIGNUP_POLICY_NOT_READY(503), 준비된 대상의 누락·중복·버전 오류는 POLICY_CONSENT_REQUIRED(400)입니다.")
 	List<PolicyConsentChoice> consents,
 
 	@NotNull(message = "신규 가입에는 생년월일이 필요합니다.")

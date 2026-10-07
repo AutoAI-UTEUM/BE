@@ -90,7 +90,8 @@ erDiagram
 ### PolicyDocument / PolicyConsent
 
 - `PolicyDocument`는 TERMS·PRIVACY 유형별 `(type, version)`으로 구분하는 불변 문서입니다. 시행 시각이 현재 이전인 문서 중 유형별 최신 버전이 현재 정책입니다. `0.9` 시드는 법무 검토 전 초안입니다.
-- `PolicyConsent`는 사용자·유형·버전별 동의 시각, IP, User-Agent의 변경 불가 이력입니다. LOCAL·Google 신규 가입은 당시 현재 TERMS·PRIVACY 모두 동의해야 하며 로그인 응답은 미동의 현재 버전 목록을 반환합니다. 기존 사용자 동의는 멱등이고 과거 이력은 유지합니다.
+- `PolicyConsent`는 사용자·유형·버전별 동의 시각, IP, User-Agent의 변경 불가 이력입니다. LOCAL·Google 신규 가입에서 `signup-consent-required=true`이면 현재 유효한 `requiresConsent=true` 대상 목록이 비었을 때 `SIGNUP_POLICY_NOT_READY`(503)로 중단하고, 대상이 있으면 각 현재 버전의 동의를 요구합니다. 비대상 문서는 동의 이력에 넣지 않으며 한 종류만 필수인 계약도 유지합니다. 설정 `false`의 생략·빈 배열 가입 호환성은 유지하고 제출 배열은 기존대로 검증합니다. 로그인 응답은 미동의 현재 필수 버전 목록을 반환합니다. 기존 사용자 동의는 멱등이고 과거 이력은 유지합니다.
+- 독립 `active` 상태는 없습니다. 유형별 최신 시행 버전이 현재 정책이고 미래 시행 문서·대체된 과거 문서는 현재 동의 대상을 채우지 못합니다. 실제 게시 문구·버전·필수 여부를 이 가입 검증 변경으로 결정하지 않습니다.
 - 정책 미동의는 현재 인증·일반 API의 서버 차단 조건이 아닙니다. FE 화면 게이팅만 이 이슈 범위이며 서버 강제는 후속 결정을 따릅니다. 탈퇴 후 동의 이력은 보존하지만 식별자 처리·보존 기한은 법무 검토 과제입니다.
 
 ### AuthSession / RefreshToken

@@ -83,8 +83,9 @@ class GuardianFoundationJpaTest {
   requests.deleteAll();consents.deleteAll();documents.deleteAll();refreshTokens.deleteAll();authSessions.deleteAll();users.deleteAll();
   if(!deletionLocks.existsById(1))deletionLocks.saveAndFlush(io.edupilot.deletion.DeletionJournalLock.initial());
   var actor=users.saveAndFlush(User.create("synthetic-admin@example.com","hash","Synthetic admin",UserRole.ADMIN));
+  // Calendar cases move the clock before setup time; policy readiness must already hold in every case.
   Instant now=clock.instant();for(var type:List.of(PolicyType.TERMS,PolicyType.PRIVACY))
-   documents.saveAndFlush(PolicyDocument.create(type,"1.0","Synthetic","Synthetic document","Synthetic summary",true,now.minusSeconds(60),actor.getId(),now));
+   documents.saveAndFlush(PolicyDocument.create(type,"1.0","Synthetic","Synthetic document","Synthetic summary",true,Instant.EPOCH,actor.getId(),now));
  }
  @Test void localSignupCapturesBirthdateAndRetainsUnknownWithoutGuardianApproval() throws Exception {
   mvc.perform(post("/api/auth/signup").contentType(MediaType.APPLICATION_JSON).content(localJson(true,true)))

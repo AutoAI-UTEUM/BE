@@ -94,7 +94,8 @@
 | `USER_INACTIVE` | 403 | 비활성/삭제 계정 |
 | `USER_NOT_FOUND` | 404 | 사용자 없음 |
 | `POLICY_NOT_FOUND` | 404 | 요청한 유형·버전의 정책 문서 없음 |
-| `POLICY_CONSENT_REQUIRED` | 400 | 가입 동의 필수 설정 시 누락, 또는 제출한 이용약관·개인정보처리방침 배열의 누락·중복·버전 불일치 |
+| `SIGNUP_POLICY_NOT_READY` | 503 | 가입 동의 필수 설정에서 현재 유효한 `requiresConsent=true` 문서가 하나도 없음. 신규 LOCAL·Google 계정·토큰·동의·메일 작업 생성 전 중단. 기존 로그인에는 적용하지 않음 |
+| `POLICY_CONSENT_REQUIRED` | 400 | 유효한 동의 대상이 준비된 경우, 필수 설정의 동의 누락 또는 제출 배열의 필수 대상 누락·중복·현재 버전 불일치 |
 | `POLICY_VERSION_MISMATCH` | 400 | 기존 사용자가 현재 유효 버전이 아닌 정책에 동의 시도 |
 | `POLICY_VERSION_EXISTS` | 409 | 같은 유형·버전의 정책 문서 중복 등록 |
 
