@@ -66,6 +66,9 @@ jobs:
       - name: Validate launch readiness metadata without operations
         run: node --test scripts/qa/launch-ops/check-manifest.test.mjs
 
+      - name: Validate operations acceptance metadata without operations
+        run: node --test tools/qa/operations-acceptance-20261007/check-manifest.test.mjs
+
       - name: Validate isolated SES trial guards without sending
         if: steps.changes.outputs.service == 'true'
         run: |

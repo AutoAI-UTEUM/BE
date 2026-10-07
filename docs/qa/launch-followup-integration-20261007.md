@@ -18,7 +18,11 @@
 
 통합 checkout에서 운영70 + 기존 readiness82 = **152/152 PASS**, mail-trial guard **27/27 PASS**, bash 문법 PASS, 실제 bootJar plan **6/6 PASS**를 확인했다. C의 pinned109개 기존 source/migration 참조도 일치했다. Boot plan은 sends0·SpringStarted=false·executionAuthorized=false이며 실제 발송·계정 권한·서비스 설정을 건드리지 않는다.
 
+Main CI에 `Validate operations acceptance metadata without operations`를 추가해 C의70개 오프라인 검사를 tools/docs-only 변경에서도 명시 실행한다. 기존 Node24 setup을 사용하고 network·server/SQL 실행·메일·권한 변경은 없다. C checker는 로컬 JSON 구조/값과 요청된 baseline을 검사할 뿐 현재 서버 DEV 대상을 자동 인증하지 않는다. DEV/PROD 입력 모두 허용되므로 운영자가 실제 container/Compose/DB 대상을 대조해야 하며 `liveAcceptanceVerified`·`executionAuthorized`는 항상 false다.
+
 전체 Spring 실행은 JDK21/Gradle9.5.1 offline `-Dit.ai=false --no-daemon --max-workers=1 --console=plain build`로 별도 검증한다. 최종 통합 commit과 fresh XML의 total/pass/fail/error/conditional-skip, Main/AI CI job·필수 단계는 통합 PR의 최종 검증 기록에서 확인한다. MySQL 조건부 검사의 skip을 성공으로 집계하거나 과거 PR532의 합성 MySQL42 실행을 새 head에서 재실행한 것으로 표시하지 않는다. AI 필수 formatting/lint/type/pytest는 게시한 정확한 head CI에서 실제 수행한다.
+
+로컬 전체 build는 **BUILD SUCCESSFUL, 299 suites / 2,046 total / 2,016 PASS / failure0 / error0 / conditional skip30**이었다. 5개 exact source commit을 합친 `5eee088965fd39f6a41f840ca6b770de9cfe4fda`에서 실행했으며 이후 변경은 이 QA 문서와 위 오프라인 C 검사 workflow 연결뿐이다. Java runtime/test/resource/build source는 동일하다. 조건부 skip의 class별 근거와 최종 source 일치는 PR 증거로 기록하며, 이전 환경의 parameterized/조건부 실행 수와 단순 합산 비교하지 않는다.
 
 PR535 AI attempt1은 테스트 단계에서 취소됐고 원인 단정 없이 해당 job만 재실행해 같은 SHA attempt2 SUCCESS를 확인했다. PR537 AI attempt1도 같은 방식으로 취소 후 해당 job만 재실행해 SUCCESS를 확인했다. workflow15분 제한과 시각이 비슷하나 취소 원인 로그가 충분하지 않으므로 코드 실패나 timeout으로 단정하지 않는다. 성공한 Main job을 다시 실행하지 않았다. C의 Main은 tools/docs diff라 Java build가 skip된 success이며 전체 Java 인수 증거로 쓰지 않는다.
 
