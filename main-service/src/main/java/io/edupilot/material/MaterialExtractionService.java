@@ -9,7 +9,9 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.ExtractResponse;
 import io.edupilot.aiusage.AiFeature;
@@ -22,8 +24,11 @@ import io.edupilot.material.storage.FileStorage;
 @Service
 public class MaterialExtractionService {
 
+	private final GuardianConsentFence consentFence;
+
 	private static final Logger log = LoggerFactory.getLogger(MaterialExtractionService.class);
 
+	private final EmailVerificationGate emailVerification;
 	private final MaterialExtractionPersistenceService persistenceService;
 	private final FileStorage fileStorage;
 	private final AiClient aiClient;
@@ -41,8 +46,12 @@ public class MaterialExtractionService {
 		MaterialProperties properties,
 		MaterialOutlineTaskDispatcher outlineTaskDispatcher,
 		MaterialCaptionTaskDispatcher captionTaskDispatcher,
-		MaterialXaiFileLifecycleService xaiFileLifecycleService
+		MaterialXaiFileLifecycleService xaiFileLifecycleService,
+		EmailVerificationGate emailVerification,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
+		this.emailVerification = emailVerification;
 		this.persistenceService = persistenceService;
 		this.fileStorage = fileStorage;
 		this.aiClient = aiClient;
@@ -67,7 +76,9 @@ public class MaterialExtractionService {
 			}
 
 			ExtractResponse response;
+			GuardianConsentFence.Snapshot consent = consentFence.capture(snapshot.get().ownerId());
 			try {
+				emailVerification.requireAiVerified(snapshot.get().ownerId());
 				response = aiClient.extract(
 					fileStorage.load(snapshot.get().storageKey())
 				);
@@ -101,11 +112,14 @@ public class MaterialExtractionService {
 				return;
 			}
 
-			CompletionResult completion = persistenceService.complete(
-				materialId,
-				response.pages(),
-				response.xaiFileId()
-			);
+			CompletionResult completion;
+			try {
+				completion = consentFence.complete(consent, () -> persistenceService.complete(
+					materialId, response.pages(), response.xaiFileId()));
+			} catch (RuntimeException exception) {
+				deleteUnretainedFile(response.xaiFileId());
+				throw exception;
+			}
 			if (completion.applied()) {
 				if (completion.replacedXaiFileId() != null) {
 					xaiFileLifecycleService.deleteAfterCommit(

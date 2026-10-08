@@ -24,9 +24,19 @@ public class EmailTemplates {
 	}
 
 	public Template emailVerify(String link) {
-		String text = "이메일 주소를 인증하려면 아래 링크를 여세요.\n"
-			+ absoluteLink(link) + FOOTER;
-		return template("[UTEUM] 이메일 인증", text, EmailDeliveryType.EMAIL_VERIFY);
+		String url = absoluteLink(link);
+		String introduction = "이메일 주소를 인증하려면 아래 링크를 여세요.\n";
+		String text = introduction + url + FOOTER;
+		String html = "<div style=\"font-family:sans-serif;white-space:pre-wrap\">"
+			+ escape(introduction) + "<a href=\"" + escape(url) + "\">이메일 확인 페이지 열기</a>"
+			+ escape(FOOTER) + "</div>";
+		return new Template("[UTEUM] 이메일 인증", text, html, EmailDeliveryType.EMAIL_VERIFY);
+	}
+
+	public Template withdrawal() {
+		return template("[UTEUM] 회원 탈퇴 완료",
+			"회원 탈퇴가 처리되어 계정을 더 이상 이용할 수 없습니다." + FOOTER,
+			EmailDeliveryType.NOTIFICATION);
 	}
 
 	public Template notification(String title, String body, String link) {

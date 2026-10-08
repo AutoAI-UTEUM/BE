@@ -60,6 +60,13 @@ import io.edupilot.material.storage.StorageException;
 
 class PageImageRendererTest {
 
+	private PageImageRenderer renderer(FileStorage storage) {
+		MaterialRenderStorage writer=mock(MaterialRenderStorage.class);
+		when(writer.store(any(),any(),any())).thenAnswer(invocation->{
+			storage.storePageImage(invocation.getArgument(2),invocation.getArgument(1)); return true;
+		});
+		return new PageImageRenderer(storage,writer);
+	}
 	@TempDir
 	Path temporaryDirectory;
 
@@ -82,7 +89,7 @@ class PageImageRendererTest {
 					.when(mock).renderImage(anyInt(), anyFloat(), eq(ImageType.RGB));
 			})) {
 			List<PageImageRenderer.RenderedPage> rendered = new ArrayList<>();
-			new PageImageRenderer(storage).render(materialKey, List.of(1), rendered::add);
+			renderer(storage).render(materialKey, List.of(1), rendered::add);
 			assertThat(construction.constructed()).hasSize(1);
 			assertThat(rendered).hasSize(1);
 		}
@@ -190,7 +197,7 @@ class PageImageRendererTest {
 				try (MockedStatic<Loader> loader = mockStatic(Loader.class);
 					MockedConstruction<PDFRenderer> renderers = mockConstruction(PDFRenderer.class)) {
 					loader.when(() -> Loader.loadPDF(any(byte[].class))).thenReturn(document);
-					assertThatThrownBy(() -> new PageImageRenderer(storage).render(
+					assertThatThrownBy(() -> renderer(storage).render(
 						"materials/test.pdf", List.of(pageNumber), ignored -> { }
 					)).isInstanceOf(StorageException.class);
 					assertThat(document.getDocument().isClosed()).isTrue();
@@ -213,7 +220,7 @@ class PageImageRendererTest {
 					(renderer, context) -> when(renderer.renderImage(anyInt(), anyFloat(), any()))
 						.thenThrow(new IOException("render failed")))) {
 				loader.when(() -> Loader.loadPDF(any(byte[].class))).thenReturn(document);
-				assertThatThrownBy(() -> new PageImageRenderer(storage).render(
+				assertThatThrownBy(() -> renderer(storage).render(
 					"materials/test.pdf", List.of(1), ignored -> { }
 				)).isInstanceOf(StorageException.class).hasCauseInstanceOf(IOException.class);
 				assertThat(document.getDocument().isClosed()).isTrue();
@@ -248,7 +255,7 @@ class PageImageRendererTest {
 					outputs.add(output);
 					return output;
 				});
-				assertThatThrownBy(() -> new PageImageRenderer(storage).render(
+				assertThatThrownBy(() -> renderer(storage).render(
 					"materials/test.pdf", List.of(1), ignored -> { }
 				)).isInstanceOf(StorageException.class).hasCauseInstanceOf(IOException.class);
 				verify(writer).dispose();
@@ -272,7 +279,7 @@ class PageImageRendererTest {
 					(renderer, context) -> when(renderer.renderImage(anyInt(), anyFloat(), any()))
 						.thenReturn(image))) {
 				loader.when(() -> Loader.loadPDF(any(byte[].class))).thenReturn(document);
-				assertThatThrownBy(() -> new PageImageRenderer(storage).render(
+				assertThatThrownBy(() -> renderer(storage).render(
 					"materials/test.pdf", List.of(1), ignored -> { throw new IllegalStateException("consumer"); }
 				)).isInstanceOf(IllegalStateException.class).hasMessage("consumer");
 				verify(image).flush();
@@ -302,7 +309,7 @@ class PageImageRendererTest {
 				results.add(executor.submit(() -> {
 					assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
 					List<PageImageRenderer.RenderedPage> pages = new ArrayList<>();
-					new PageImageRenderer(storage).render(key, List.of(1, 2), pages::add);
+					renderer(storage).render(key, List.of(1, 2), pages::add);
 					for (var page : pages) {
 						BufferedImage jpeg = ImageIO.read(new ByteArrayInputStream(page.jpeg()));
 						try {
@@ -329,7 +336,7 @@ class PageImageRendererTest {
 		LocalVolumeStorage storage = new LocalVolumeStorage(new StorageProperties(temporaryDirectory));
 		String key = storePdf(storage, page);
 		List<PageImageRenderer.RenderedPage> pages = new ArrayList<>();
-		new PageImageRenderer(storage).render(key, List.of(1), pages::add);
+		renderer(storage).render(key, List.of(1), pages::add);
 		BufferedImage image = ImageIO.read(new ByteArrayInputStream(pages.getFirst().jpeg()));
 		try {
 			assertThat(image.getWidth()).isEqualTo(plan.width()).isBetween(1, 1_600);
@@ -356,7 +363,7 @@ class PageImageRendererTest {
 			new StorageProperties(temporaryDirectory)
 		);
 		String materialKey = storage.store(new ByteArrayInputStream(twoPagePdf()));
-		PageImageRenderer renderer = new PageImageRenderer(storage);
+		PageImageRenderer renderer = renderer(storage);
 		List<PageImageRenderer.RenderedPage> rendered = new ArrayList<>();
 
 		renderer.render(materialKey, List.of(1, 2), rendered::add);

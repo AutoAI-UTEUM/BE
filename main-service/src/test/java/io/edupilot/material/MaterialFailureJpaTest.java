@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +17,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,6 +46,24 @@ import jakarta.persistence.EntityManager;
 @ActiveProfiles("jpa-context")
 @Transactional
 class MaterialFailureJpaTest {
+	@DynamicPropertySource
+	static void isolatedMysql(DynamicPropertyRegistry registry) {
+		if (!"true".equals(System.getenv("RUNTIME_REGRESSIONS_MYSQL"))) { return; }
+		registry.add("spring.datasource.url", () -> "jdbc:mysql://127.0.0.1:33316/runtime_material_synthetic");
+		registry.add("spring.datasource.username", () -> "root");
+		registry.add("spring.datasource.password", () -> "");
+		registry.add("spring.datasource.driver-class-name", () -> "com.mysql.cj.jdbc.Driver");
+	}
+	@Autowired private io.edupilot.deletion.DeletionJournalLockRepository deletionLocks;
+	@BeforeEach
+	void seedDeletionJournal() {
+		if ("true".equals(System.getenv("RUNTIME_REGRESSIONS_MYSQL"))) {
+			assertThat(jdbcTemplate.queryForObject("select @@port", Integer.class)).isEqualTo(33316);
+			assertThat(jdbcTemplate.queryForObject("select database()", String.class)).isEqualTo("runtime_material_synthetic");
+		}
+		// create-drop omits V56's migration-created mutex; production still requires the migration.
+		if(!deletionLocks.existsById(1)) { deletionLocks.saveAndFlush(io.edupilot.deletion.DeletionJournalLock.initial()); }
+	}
 
 	@Autowired private UserRepository userRepository;
 	@Autowired private LearningMaterialRepository materialRepository;
@@ -118,11 +139,11 @@ class MaterialFailureJpaTest {
 
 	@Test
 	void persistsFailureMetadataWithFailedMaterial() {
-		User owner = userRepository.saveAndFlush(User.create(
+		User owner = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"material-failure@example.com",
 			"hash",
 			"owner"
-		));
+		)));
 		LearningMaterial material = materialRepository.saveAndFlush(
 			LearningMaterial.create(
 				owner,
@@ -345,11 +366,11 @@ class MaterialFailureJpaTest {
 	}
 
 	private User owner() {
-		return userRepository.saveAndFlush(User.create(
+		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"material-recovery-" + UUID.randomUUID() + "@example.com",
 			"hash",
 			"owner"
-		));
+		)));
 	}
 
 	private LearningMaterial material(User owner, String name) {

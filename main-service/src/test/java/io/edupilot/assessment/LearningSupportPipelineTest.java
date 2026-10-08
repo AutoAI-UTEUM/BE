@@ -89,7 +89,7 @@ class LearningSupportPipelineTest {
 				)
 			);
 
-		List<UiAction> actions = pipeline().onGraded(context);
+		List<UiAction> actions = pipeline().onGraded(context).uiActions();
 
 		assertThat(actions).containsExactly(UiAction.moveNextPage());
 		verify(aiClient, never()).diagnosis(any());
@@ -117,7 +117,7 @@ class LearningSupportPipelineTest {
 		when(diagnosisPersistenceService.savePending(context, diagnosis))
 			.thenReturn(Optional.of(action));
 
-		List<UiAction> actions = pipeline().onGraded(context);
+		List<UiAction> actions = pipeline().onGraded(context).uiActions();
 
 		assertThat(actions).containsExactly(action);
 		ArgumentCaptor<io.edupilot.ai.dto.DiagnosisRequest> request =
@@ -140,7 +140,7 @@ class LearningSupportPipelineTest {
 		when(aiClient.quizAssessment(any()))
 			.thenThrow(new AiClientException(ErrorCode.AI_SERVICE_TIMEOUT));
 
-		List<UiAction> actions = pipeline().onGraded(context(false));
+		List<UiAction> actions = pipeline().onGraded(context(false)).uiActions();
 
 		assertThat(actions).containsExactly(UiAction.moveNextPage());
 		verify(aiClient, never()).diagnosis(any());
@@ -163,7 +163,7 @@ class LearningSupportPipelineTest {
 		when(aiClient.diagnosis(any()))
 			.thenThrow(new AiClientException(ErrorCode.AI_SERVICE_TIMEOUT));
 
-		assertThat(pipeline().onGraded(context))
+		assertThat(pipeline().onGraded(context).uiActions())
 			.containsExactly(UiAction.moveNextPage());
 		verify(assessmentPersistenceService).save(context, assessment);
 	}
@@ -183,7 +183,7 @@ class LearningSupportPipelineTest {
 				)
 			);
 
-		assertThat(pipeline().onGraded(context))
+		assertThat(pipeline().onGraded(context).uiActions())
 			.containsExactly(UiAction.moveNextPage());
 		verify(aiClient, never()).diagnosis(any());
 	}
@@ -206,7 +206,7 @@ class LearningSupportPipelineTest {
 				)
 			);
 
-		assertThat(pipeline().onGraded(context))
+		assertThat(pipeline().onGraded(context).uiActions())
 			.containsExactly(UiAction.moveNextPage());
 		verify(aiClient, never()).diagnosis(any());
 	}
@@ -334,7 +334,7 @@ class LearningSupportPipelineTest {
 			assessmentPersistenceService,
 			diagnosisPersistenceService,
 			memoryRepository,
-			materialAccessService
+			materialAccessService, io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 	}
 

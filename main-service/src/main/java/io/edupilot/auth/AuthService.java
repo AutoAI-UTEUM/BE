@@ -23,6 +23,7 @@ import io.edupilot.auth.dto.SignupRequest;
 import io.edupilot.auth.dto.SignupResponse;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.guardian.BirthdatePolicy;
 import io.edupilot.policy.PolicyService;
 import io.edupilot.policy.PolicyService.SignupSelection;
 import io.edupilot.user.User;
@@ -47,6 +48,7 @@ public class AuthService {
 	private final PolicyService policyService;
 	private final String dummyPasswordHash;
 	private final Clock clock;
+	private final EmailVerificationService emailVerification;
 
 	public AuthService(
 		UserRepository userRepository,
@@ -58,7 +60,8 @@ public class AuthService {
 		UserActivityTracker userActivityTracker,
 		LoginAttemptLimiter loginAttemptLimiter,
 		PolicyService policyService,
-		Clock clock
+		Clock clock,
+		EmailVerificationService emailVerification
 	) {
 		this.userRepository = userRepository;
 		this.passwordEncoder = passwordEncoder;
@@ -71,10 +74,12 @@ public class AuthService {
 		this.policyService = policyService;
 		this.dummyPasswordHash = passwordEncoder.encode(DUMMY_PASSWORD);
 		this.clock = clock;
+		this.emailVerification = emailVerification;
 	}
 
 	@Transactional
 	public SignupResponse signup(SignupRequest request, String ip, String userAgent) {
+		BirthdatePolicy.validate(request.dateOfBirth(), clock);
 		String email = normalizeEmail(request.email());
 		if (!isEmailAvailable(email)) {
 			throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);
@@ -93,12 +98,14 @@ public class AuthService {
 			consent.agreedAt()
 		);
 		User savedUser;
+		user.recordSignupDateOfBirth(request.dateOfBirth());
 		try {
 			savedUser = userRepository.saveAndFlush(user);
 		} catch (DataIntegrityViolationException exception) {
 			throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);
 		}
 		policyService.recordSignup(savedUser, consent, ip, userAgent);
+		emailVerification.signup(savedUser, ip);
 		return SignupResponse.from(savedUser);
 	}
 

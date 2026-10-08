@@ -55,6 +55,7 @@ services:
     image: nginx:stable
     environment:
       EDUPILOT_DOMAIN: ${EDUPILOT_DOMAIN}
+      EDUPILOT_SIGNUP_PAUSED: ${EDUPILOT_SIGNUP_PAUSED:-false}
       TZ: Asia/Seoul
     depends_on:
       main-service:

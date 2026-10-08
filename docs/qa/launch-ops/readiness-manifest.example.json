@@ -1,0 +1,232 @@
+{
+  "version": "launch-ops-v2-team",
+  "environment": "dev",
+  "status": "PREPARATION_ONLY",
+  "be": {
+    "reviewedBaselineSha": "3343e608fa80dd6bdb5888454ad6fac5b09461ad",
+    "sourceSha": "3343e608fa80dd6bdb5888454ad6fac5b09461ad",
+    "containsReviewedBaseline": true,
+    "sourceFileHashes": [
+      {
+        "path": "docker-compose.yml",
+        "sha256": "3e481a37ff86364d827b95a00916f8d1531da8b19ff6e5c8f6b194cd0e3ae623"
+      },
+      {
+        "path": "docker-compose.prod.yml",
+        "sha256": "e825d3a7d197d0b2aefd6a9faf5c998226bba65d62fb29c8d55561211e0b3169"
+      },
+      {
+        "path": "infra/nginx/edupilot.conf",
+        "sha256": "0b931f16de93a797668992f1afe400b88c83d5f571eb11bd2f2b0c370a9ec158"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V53__note_source_idempotency.sql",
+        "sha256": "f368f28ecd8fe3b482104a886f1ed25f1f0b2863c7d0465f8047e0c42c6ecdf8"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V54__durable_email_outbox.sql",
+        "sha256": "ade730ad4c0a0a49220c4d2e9ff927f5e65875f5e99393ffa80ede586d04f209"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V55__email_ownership_verification.sql",
+        "sha256": "8da4dd6eb70dfd8ced3a9b1cefceba71feb69390e077e3015fcbd18749ad13c5"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V56__durable_deletion_journal.sql",
+        "sha256": "027f2449411dbf22aab1ce4e46be43d544389677f10e7ac8aac21e4466f74f5b"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V57__birthdate_and_guardian_pending_foundation.sql",
+        "sha256": "2526fa5388294101c2f5d21d6b7f25aa0c6e0a0e3e1c73828cc450b07c4f002b"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V58__legacy_account_access_cohort.sql",
+        "sha256": "f64c9e4486f5cda7cfe18a00dcd63686f44db71d309b083ac793b4ad29fda7d1"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V59__guardian_web_consent_phone_intake.sql",
+        "sha256": "5aad867932e89e2c9a33efcae40d5c54948504b07055614ac6c1e7c084a84be4"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V60__birthdate_correction_intake.sql",
+        "sha256": "4f567c84ed1bf7cb5dd973d6225ac6432f2a2b7cb3de9debdb102e9826d3de71"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V61__guardian_team_review.sql",
+        "sha256": "d0899dbbf0e96eccfa9b16d8d1ce86ea3409d6cdbc80a515f8e55e2437554a56"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V62__guardian_team_access_generation.sql",
+        "sha256": "2dbd8d2f27aeb9d9d0b883be9ecd32d5a4b591281ed530ec2241113d5ed8ea52"
+      },
+      {
+        "path": "main-service/src/main/resources/db/migration/V63__guardian_team_mail_binding.sql",
+        "sha256": "33a16be463afb8b33c2df8d3d81ada180b7368863b36343331a43063459e6a96"
+      },
+      {
+        "path": "main-service/src/main/java/io/edupilot/guardian/team/GuardianTeamProperties.java",
+        "sha256": "2d7be49108c2c9a269afb85fa33e9599d5993ac1232f52ca67665b788084ecec"
+      }
+    ],
+    "ci": {
+      "main": {
+        "headSha": "3343e608fa80dd6bdb5888454ad6fac5b09461ad",
+        "conclusion": "success",
+        "url": "https://github.com/AutoAI-UTEUM/BE/actions/runs/37435819039"
+      },
+      "ai": {
+        "headSha": "3343e608fa80dd6bdb5888454ad6fac5b09461ad",
+        "conclusion": "success",
+        "url": "https://github.com/AutoAI-UTEUM/BE/actions/runs/37435818992"
+      }
+    },
+    "runningImages": {
+      "main": null,
+      "ai": null
+    },
+    "flyway": null
+  },
+  "fe": {
+    "readOnlyReferenceSha": "f1ad9d924b4768f798dc438066a311a2aac955f0",
+    "sourceSha": null,
+    "contractReviewComplete": false,
+    "ci": null,
+    "reviewedReadinessValue": "be-auth-ee69e425-v1",
+    "settings": {
+      "apiBaseUrl": "/api",
+      "capabilities": "reports,password-reset,exam-attempt-drafts,exam-learner-regrade,policy-consent",
+      "authReadiness": "be-auth-ee69e425-v1",
+      "googleClientIdHandle": "existing VITE_GOOGLE_CLIENT_ID secret unchanged; value excluded",
+      "injectionEvidence": null
+    },
+    "artifact": null,
+    "served": null,
+    "guardianContract": {
+      "sourceSha": null,
+      "reviewEvidence": null,
+      "intake": false,
+      "fragmentView": false,
+      "explicitDeclaration": false,
+      "currentGenerationReply": false,
+      "adminReview": false,
+      "scopeSeparation": false,
+      "revocationAndExpiry": false
+    }
+  },
+  "mail": {
+    "selectedInboxHandle": "APPROVED_INBOX_1",
+    "selectedRecipientCount": 1,
+    "observed": null,
+    "ses": null,
+    "keyContinuityEvidence": null,
+    "outboxDecisionEvidence": null,
+    "otherProducerIsolationConfirmed": false,
+    "approvalRef": null,
+    "approvedInboxHandle": null,
+    "plannedMessages": null,
+    "incrementalBudgetApproval": null,
+    "receiptEvidence": null,
+    "explicitConfirmAndStatusEvidence": null,
+    "actualServiceSent": 0,
+    "plannedActions": [],
+    "approvedOperation": null,
+    "sdkTrial": {
+      "sourceSha": "adcd10fbb91662ab1e3c5cc228b0a62552d3e9d2",
+      "jarSha256": "9f2ac426e3a7ea02961af62ae74231d2946f9efbb07137749ab95083c22dec09",
+      "identityCalls": 1,
+      "testSendCalls": 1,
+      "inboxConfirmed": true,
+      "budgetsConsumed": true,
+      "rerunPermitted": false,
+      "identityEvidence": "PRIVATE_SDK_IDENTITY_20261005",
+      "sendEvidence": "PRIVATE_SDK_TEST_RECEIPT_20261005",
+      "sendApprovalRef": "SDK_TEST_APPROVAL_20261005"
+    }
+  },
+  "recovery": {
+    "strategy": "roll-forward-preserve-gates-and-v60-v63-hooks",
+    "hookPreserved": false,
+    "syntheticEvidence": null,
+    "beforeMigrationCancelPlan": null,
+    "backupPlan": null,
+    "deletedUserDobLeakCount": null,
+    "privateFreshBackupRef": null,
+    "backupIntegrityChecked": false,
+    "currentDeletionJournalRef": null,
+    "teamReadersPreserved": false,
+    "consentEpochAndDigestPreserved": false
+  },
+  "window": {
+    "owner": null,
+    "feOwner": null,
+    "mailOwner": null,
+    "approvalRef": null,
+    "pauseScopeAndBudget": null,
+    "cancelOwner": null,
+    "reopenCriteria": null,
+    "roleSmokePassed": false,
+    "smokeEvidence": null
+  },
+  "guardian": {
+    "mode": "TEAM_REVIEW",
+    "proposedPolicy": {
+      "enabled": null,
+      "policyConfirmed": null,
+      "approvalRef": null,
+      "noticeVersion": null,
+      "noticeDigest": null,
+      "configurationDigest": null,
+      "noticeUrl": null,
+      "portalBaseUrl": null,
+      "collectionItemsReviewRef": null,
+      "purposesReviewRef": null,
+      "retentionReviewRef": null,
+      "refusalReviewRef": null,
+      "relationshipReviewRef": null,
+      "requiredScopes": [
+        "SERVICE"
+      ],
+      "optionalAiScope": null,
+      "optionalConsentReviewRef": null,
+      "reviewerIds": [],
+      "linkTtlSeconds": null,
+      "requestTtlSeconds": null,
+      "approvedEvidenceRetentionSeconds": null,
+      "approvalValiditySeconds": null
+    },
+    "reply": {
+      "channel": "EMAIL_REPLY",
+      "selectedInboxHandle": "GUARDIAN_REPLY_INBOX",
+      "selectionRef": "USER_SELECTION_20261006_0856Z",
+      "privateBindingEvidence": null
+    },
+    "reviewer": {
+      "selectedAccountHandle": "GUARDIAN_REVIEW_ACCOUNT",
+      "sameAccountAsReplyInbox": true,
+      "selectionRef": "USER_SELECTION_20261006_0856Z",
+      "matchedAccountCount": null,
+      "userId": null,
+      "role": null,
+      "status": null,
+      "readOnlyCheck": false,
+      "identityEvidence": null
+    },
+    "cleanup": {
+      "syntheticEvidence": null,
+      "externalMailboxPlan": null,
+      "backupRestoreReplayPlan": null,
+      "monitoringPlan": null,
+      "overdueContacts": null,
+      "overdueEvidence": null,
+      "overdueEvents": null,
+      "overdueOperations": null,
+      "runtimeEvidence": null
+    },
+    "observed": null,
+    "acceptance": {
+      "syntheticRoleAndRevocationEvidence": null,
+      "serviceWithoutAiAccepted": false,
+      "unapprovedAiDenied": false
+    }
+  }
+}

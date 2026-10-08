@@ -3,17 +3,24 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-09-21 |
+| 마지막 갱신 | 2026-10-04 |
 | 대상 | Frontend · Spring Backend |
 
 ## 1. 화면별 매핑
 
+강사 탈퇴 확인 화면은 소유한 진행 중 강의실도 탈퇴와 함께 종료된다고 안내합니다. 서버는 해당 강의실을 `COMPLETED`로 전환하며 기존 학생·평가 이력과 소유 관계는 보존합니다. 다른 강사의 강의실은 유지합니다. 기존 완료 강의실의 조회·쓰기 제한을 따르며, 탈퇴 완료 응답·메일을 물리 파일 삭제 완료로 표시하지 않습니다.
+
 | 화면/영역 | 사용자 행동/시점 | API | 성공 시 UI | 주요 오류 |
 | --- | --- | --- | --- | --- |
 | 회원가입 | 이메일 입력 중 중복 확인 | `GET /api/auth/email-availability?email={email}` | 사용 가능 여부 표시 | 이메일 누락·형식 오류 |
-| 회원가입 | 역할·선택 소속·수신 동의 제출; 현재 이용약관 동의와 개인정보 처리방침 열람 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}`, `POST /api/auth/signup` | `requiresConsent=true`인 현재 정책만 `consents`로 제출하고 이력 저장. 개인정보 처리방침 등 동의 비대상 문서는 전문 열람 제공; 로그인 화면 이동 | 필수 설정 시 동의 누락 또는 제출 배열 오류 `POLICY_CONSENT_REQUIRED`, 유효성, 이메일 중복 |
-| 로그인 | 제출 | `POST /api/auth/login` | access와 역할별 `session` 메타를 메모리에 보존한 뒤 자료 목록 이동. refresh는 HttpOnly cookie | 자격 증명 실패, 정지 계정 `ACCOUNT_SUSPENDED` 안내, 429 `LOGIN_RATE_LIMITED`는 `Retry-After` 초 표시 |
-| 로그인 | Google 로그인 | `POST /api/auth/google` | 같은 `googleSub`의 기존 계정은 access·`session`·`pendingConsents`를 받아 로그인 완료. 신규 계정은 `SIGNUP_REQUIRED` 시 역할·선택 정보와, 필수 설정 시 현재 정책 동의를 받은 뒤 같은 ID 토큰으로 재요청. 이메일 충돌은 자동 연결·가입 재시도 없이 기존 로그인 방식 선택 또는 지원 문의 안내 | `EMAIL_ALREADY_EXISTS` 409(토큰 오류·추가 정보 필요와 구분), Google 토큰 오류, 추가 정보 필요, 비활성 계정 |
+| 회원가입 | 생년월일·역할·선택 소속·수신 동의 제출; 현재 동의 대상 정책 선택과 비대상 문서 열람 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}`, `POST /api/auth/signup` | 신규 필수 `dateOfBirth`와 `requiresConsent=true`인 현재 버전만 제출. DOB 저장/200 가입은 연령·이메일 승인이나 로그인 grant가 아니며 로그인 화면 이동 | DOB 누락400 `VALIDATION_FAILED`, 날짜형식400 `MALFORMED_REQUEST`, 필수 설정에서 유효한 동의 대상이 없는 `SIGNUP_POLICY_NOT_READY`503은 가입 준비 미완료 안내; 대상이 준비된 경우의 동의 누락·배열 오류 `POLICY_CONSENT_REQUIRED`400, 이메일 중복 |
+| 로그인 | 제출 | `POST /api/auth/login` | access와 역할별 `session` 메타를 메모리에 보존. `user.emailVerificationRequired=true`이면 이메일 확인 화면. 이메일 확인 후에도 신규 연령·보호자 제한은 별도 처리하며 자료 이용 성공으로 표시하지 않음. refresh는 HttpOnly cookie | 자격 증명 실패, 정지 계정 `ACCOUNT_SUSPENDED` 안내, 429 `LOGIN_RATE_LIMITED`는 `Retry-After` 초 표시 |
+| 이메일 확인 | 신규 가입 후 확인 안내 또는 기존 예외 계정의 선택 확인 | `GET /api/auth/email-verification/status`, `POST /api/auth/email-verification/request` | 로그인한 본인 계정에 30분 링크 안내; 202는 실제 수신 완료를 뜻하지 않음. LOCAL·Google 신규 가입 모두 BE 확인 링크 사용. UNKNOWN/PENDING+required=false는 확인 성공 표시가 아님 | 인증 누락 401, `RATE_LIMIT_EXCEEDED` 429; 이메일 제한에는 정확한 Retry-After 없음 |
+| 이메일 확인 | `/verify-email#token=`에서 사용자의 확정 동작 | `POST /api/auth/email-verification/confirm` | FE232 계약에 따라 진입 시 주소를 정리하고 메모리 토큰을 명시적 POST body로 전달. URL 열기만으로 소비하지 않음. 구 query 링크는 재발급 안내. status/me는 로그인한 본인 상태를 재조회하며 익명 확정은 자동 로그인하지 않음 | `EMAIL_VERIFICATION_TOKEN_INVALID` 400은 만료·재사용 등을 같은 안내로 처리; 형식 오류 400; GET 확정 405 |
+| 앱 공통 접근 | 신규 계정의 학습·자료·파일·SSE·노트·강의실 호출 | 기존 업무 API | 이메일 확인 필요와 보호자 대상의 UNKNOWN/MANUAL_PENDING 403을 구분. KST 현재 연도−출생 연도 ≥15는 보호자 불필요, ≤14·DOB 미확인은 차단. 세션·본인 관리·동의·탈퇴·로그인·refresh와 V58 기존 이용 예외 유지. 입력·전화 확인·접수를 보호자 승인 성공으로 표시하지 않음 | `EMAIL_VERIFICATION_REQUIRED` → 대상인 경우 `AGE_VERIFICATION_REQUIRED` 또는 `GUARDIAN_VERIFICATION_PENDING`; [현재 BE 경계](business-eligibility-gate.md) |
+| 생년월일 수정 요청 | 관리자에게 정정 요청·본인 상태 조회 | `POST`, `GET /api/users/me/birthdate-correction-requests` | 이메일/보호자 대기 계정도 접수 가능. User DOB는 그대로이며 요청 PENDING을 보호자 승인이나 변경 완료로 표시하지 않음. 동일 날짜 재접수 멱등 | 미래일/현재 DOB 동일400 `VALIDATION_FAILED`, 다른 날짜 대기 요청409 `BIRTHDATE_CORRECTION_PENDING` |
+| 관리자 생년월일 요청 | 대기 목록·상세 조회 | `GET /api/admin/birthdate-correction-requests`, `GET /api/admin/birthdate-correction-requests/{id}` | 현재 DB ADMIN, page 0부터 size 1~100. 승인·수정 버튼의 BE API는 미제공. 탈퇴 후 요청 DOB는 null | 권한 거부, 없는 요청404 `BIRTHDATE_CORRECTION_NOT_FOUND`; [접수 계약](birthdate-policy-and-correction.md) |
+| 로그인 | Google 로그인 | `POST /api/auth/google` | 같은 `googleSub`의 기존 계정은 DOB 재입력 없이 로그인. 비충돌 신규는 role·필수DOB·필요한 현재 동의를 받고 같은 유효 ID 토큰으로 재요청. 신규 로그인 성공 후에도 이메일 PENDING 확인 안내. 이메일 충돌은 기존 로그인 방식 선택 또는 지원 문의 | `SIGNUP_REQUIRED`409, 동의400이 DOB누락보다 먼저일 수 있음; `EMAIL_ALREADY_EXISTS`409, Google 토큰 오류, 비활성 계정 |
 | 로그인 직후 | 미동의 정책 확인·재동의 | 로그인 `pendingConsents`, `GET·POST /api/users/me/consents`, `GET /api/policies/{type}/{version}` | 현재 `requiresConsent=true`인 정책의 pending이 있으면 FE 동의 화면으로 이동. 동의 후 pending 빈 배열 확인; 서버는 미동의 API 차단을 하지 않음 | `POLICY_VERSION_MISMATCH` 시 current 재조회 |
 | 정책 본문 | 현재 이용약관·개인정보 처리방침 표시 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}` | 공개 `/terms`, `/privacy`에서 현재 버전의 본문과 시행일 표시. 0.9는 법무 검토 전 초안이므로 정식 1.0 게시 전 운영 정보·법률 검토 필요 | 없는 버전 404 |
 | 비밀번호 찾기 | 이메일 제출 | `POST /api/auth/password-reset/request` | 202면 가입 여부와 무관하게 "등록된 이메일이면 재설정 안내를 발송했습니다." 표시 | 요청 상한·미가입·비활성 계정도 동일 202 |
@@ -71,7 +78,7 @@
 | 전역 | access 만료 5분 전 최근 실제 활동이 있거나 일반 요청의 최초 401 시 | `POST /api/auth/refresh` (credentials 포함) | 탭 전체 single-flight로 같은 세션의 access/refresh를 1회 회전하고 원 요청은 최대 1회 재시도. `absoluteExpiresAt`은 유지 | `TOKEN_INVALID`, `AUTH_SESSION_IDLE_EXPIRED`, `AUTH_SESSION_ABSOLUTE_EXPIRED`, `USER_INACTIVE`, `ACCOUNT_SUSPENDED` → 전체 탭 로그인 이동; 5xx·통신 오류는 강제 로그아웃 금지 |
 | 헤더/메뉴 | 로그아웃 버튼 | `POST /api/auth/logout` | 현재 기기 인증 세션만 폐기하고 메모리 access 삭제 후 로그인 화면 | 없음(멱등) |
 | 계정 설정 | 현재·새 비밀번호 입력 후 변경 | `PATCH /api/users/me/password` | 성공 시 `reauthenticationRequired=true`를 확인하고 access 삭제 후 로그인 화면 이동 | GOOGLE 계정·동일 비밀번호 409, 현재 비밀번호 불일치·정책 위반 400, 5회 실패 후 429 |
-| 계정 설정 | 탈퇴 버튼 → 비밀번호 확인 모달 | `DELETE /api/users/me` | 토큰 정리 후 로그인 화면 이동 | 비밀번호 불일치 (DEC-028) |
+| 계정 설정 | 탈퇴 확인 → LOCAL 비밀번호 / Google ID 토큰 재인증 | `DELETE /api/users/me` | password·googleIdToken 중 해당 provider 증명 하나만 제출, 성공 후 토큰 정리·로그인 이동 | 누락/중복 증명, provider·sub 불일치, Google 만료/검증 실패 (DEC-028); 파일 보존·강사 강의실 정책은 #477 별도 |
 | 자료 목록 | 화면 진입/페이지 이동 | `GET /api/materials` | 자료 카드 목록. FAILED는 `failureReason`별 안내, null이면 일반 실패 문구, `traceId`가 있으면 문의 정보로 표시 | 권한, 네트워크 |
 | 자료 업로드 | 파일 제출 | `POST /api/materials` | 처리 상태 표시 후 목록 반영 | 파일 형식/크기/처리 실패 |
 | 자료 상세 | 화면 진입 | `GET /api/materials/{materialId}` | 제목, 페이지 수, 학습 시작 가능 여부. FAILED는 사유 코드와 업로드 traceId 표시 | 자료 없음/권한 |
@@ -98,7 +105,7 @@
 | 오답 노트 | 퀴즈 제출 문항을 노트로 저장·조회·수정·삭제 | `GET·POST /api/wrong-answer-notes`, `PATCH·DELETE /api/wrong-answer-notes/{noteId}` | 제출 결과의 `submissionId:questionId`로 등록하고 서버 snapshot을 표시 | 타인·부재 결과 404, 중복 결과는 기존 항목 200 |
 | 최초 로그인 | 로컬 수동·오답 노트 1회 이관 | `POST /api/user-notes/import` | imported·skipped 항목만 로컬에서 제거하고 failed는 사유 표시 후 재시도 | 배열당 200건, 분당 5회, 항목별 부분 성공 |
 | PDF 뷰어 | 다음/이전/번호 입력 | `PATCH /api/sessions/{sessionId}/page` | 응답 페이지로 뷰어 동기화, 설명 여부 UI | 페이지 범위/상태 충돌 |
-| 채팅 | 스트림 선연결 | `GET /api/sessions/{sessionId}/stream` | fetch+Bearer로 현재 연결의 ready 수신 후 turns 호출, 이전 연결 callback은 새 연결과 격리 | 실행 중 중복 연결 409/AI 스트림 중단 |
+| 채팅 | 스트림 선연결 | `GET /api/sessions/{sessionId}/stream` | fetch+Bearer로 현재 연결의 ready 수신 후 turns 호출, 이전 연결 callback은 새 연결과 격리. 새 연결마다 현재 자료 접근 재검사 | 자료 접근 회수 404/정지·탈퇴·역할 변경 401/실행 중 중복 연결 409/AI 스트림 중단 |
 | 채팅 | 설명 시작 선택 | `POST /api/sessions/{sessionId}/turns` | 설명 스트림/메시지 표시 | AI timeout/스키마 오류/일일 AI 쿼터 429 |
 | 채팅 | 답변 생성 중지 | `POST /api/sessions/{sessionId}/turns/cancel` | 수신한 텍스트가 있으면 부분 답변을 저장하고 completed 처리, 없으면 `TURN_CANCELLED` 표시 | 인증, 실행 중 턴 없음은 `cancelled:false` 멱등 응답 |
 | 채팅 | 질문 전송 | 같은 turns API | QA 답변과 후속 질문 문맥 반영. 서버 플래그 활성화 시 응답 `uiActions`에 기존 퀴즈 제안 위젯이 올 수 있으며 기존 수락·유형 선택 UI 재사용 | 빈 질문/AI 오류/일일 AI 쿼터 429 |
@@ -191,3 +198,33 @@ turn 응답의 `state.activeQuizId`는 nullable입니다. 퀴즈 생성 턴에�
 - 오류별 사용자 문구와 재시도 버튼 정책
 - 타 사용자 아바타가 필요한 Epic 10 강의실 범위에서 공개 또는 사용자 ID 기반 아바타 endpoint 검토
 - 강의실 색상은 `BLUE | GREEN | PURPLE | ORANGE | RED | GRAY`와 DEC-030의 고정 hex 매핑을 사용
+
+Mail history (#473): keep existing admin endpoints and status fields. Show uncertain delivery
+(FAILED/DELIVERY_RESULT_UNKNOWN) as requiring investigation; do not show it as received or offer
+an automatic replay. Body/token data is never provided. [Recovery contract](mail-outbox.md).
+
+
+Withdrawal and material-delete completion must not be presented as physical-file purge completion. These APIs commit logical deletion plus a retention-gated cleanup intent; retention remains pending. See [deletion journal](deletion-journal.md).
+
+
+New LOCAL/Google signup screens must provide dateOfBirth; existing Google login has no DOB reentry requirement. Saving DOB is not approval. Full age/access-state UI and global protection binding await policy. [Foundation](birthdate-guardian-foundation.md).
+
+Migration-defined legacy accounts retain access without DOB reentry. emailVerificationRequired=false can coexist with UNKNOWN/PENDING email evidence and must not be displayed as verified. New-account email requirements and all suspension/ownership checks remain. [Legacy access](legacy-account-access.md).
+
+Guardian SMS consent page contract (#491): use the fragment token in POST bodies to view/consent/verify/dispute. Issuance requires login. PHONE_CONFIRMED is phone-control evidence, never signup/age/guardian approval. Show 503 as unavailable and REVIEW_REQUIRED as exception intake. Team review uses the separate request and reviewer APIs below. FE implementation and live SMS verification remain separate. [SMS contract](guardian-web-sms-intake.md).
+
+## 보호자 직접 확인 화면·API 매핑 (TEAM_REVIEW, #526)
+
+TEAM_REVIEW는 기본 OFF이며 실제 관계 확인 기준·동의문/수집항목/목적/선택 범위·지정 담당자·증거 보존기간·승인 유효기간이 미정이면 발급·승인을 차단한다. FE 화면 구현과 운영 활성화는 별도 작업이다. 상세 필드, 오류 code, 한국어 문구는 [FE 계약](guardian-team-review-fe-contract.md)과 [회신 양식 10종](guardian-team-review-forms.md)을 따른다.
+
+| 화면 | 행동 | Spring API | 표시·처리 기준 |
+| --- | --- | --- | --- |
+| 본인 보호자 최초 진입 | 서버 대상·준비 여부·기존 신청 판정 | `GET /api/users/me/guardian-requests/entry` | `requirement`, `teamReviewAvailable`, `canStartRequest`, `request`로 진입을 판단한다. DOB를 FE에서 추론하지 않으며 정책 미준비면 수집을 열지 않는다. 최초 회신 방법은 `replyChannel`로 받는다. |
+| 본인 보호자 신청·상태 | 접수·조회 | `POST`, `GET /api/users/me/guardian-requests` | 신청번호·신청 차수와 현재 상태를 표시한다. 접수나 보완 요청을 이용 승인으로 표시하지 않는다. 최초 수집일 기준 만료를 재발급으로 연장하지 않는다. |
+| 본인 보호자 신청 | 안내 링크 발급·재발급, 신청 철회 | `POST /api/users/me/guardian-requests/{id}/link`, `POST /api/users/me/guardian-requests/{id}/withdraw` | 만료·재발급 후 이전 링크 무효화를 안내한다. 토큰을 로그나 영구 저장소에 남기지 않는다. 본인 신청 경로의 예외를 학습·파일·AI 접근 허용으로 해석하지 않는다. |
+| 보호자 안내·의사 표시 | 현재 안내 조회·동의 의사 접수 | `POST /api/auth/guardian-team/view`, `POST /api/auth/guardian-team/consent` | 실제 동의문 버전·신청 차수와 필수/선택 의사를 구분한다. 웹 의사 표시(DECLARED), 링크 클릭, 메일 도착은 담당자의 실제 확인·승인 완료가 아니다. |
+| 담당자 신청 목록·상세 | 검토 대상 조회 | `GET /api/admin/guardian-requests`, `GET /api/admin/guardian-requests/{id}` | 현재 지정된 ADMIN만 담당 경로를 사용한다. `generationStartedAt`·배열 `declaredScopes`·`replyChannel`을 회신 시각·범위·수단과 대조하며 자동 승인을 만들지 않는다. 공개·본인 화면에 담당 상세의 연락처·감사 정보나 아동의 전체 프로필을 복사하지 않는다. |
+| 담당자 회신 확인·결정 | 실제 회신 수동 등록, 승인·반려·보완 요청 | `POST /api/admin/guardian-requests/{id}/confirmation`, `POST /api/admin/guardian-requests/{id}/decision` | 현재 신청 차수·동의문과 실제 명시 회신·확인 근거를 대조한다. 설정된 확인 방법을 따르고 원문 회신·민감 증거 업로드를 기본 요구하지 않는다. 문자열 검토 helper의 결과는 사람의 검토를 요구하며 자동 승인이 아니다. |
+| 담당자 승인 철회 | 승인 철회 | `POST /api/admin/guardian-requests/{id}/revoke` | 철회·만료를 현재 상태로 표시한다. TEAM_APPROVED 상태값만으로 이용 가능을 추정하지 않는다. 이후 학습·AI·SSE와 늦은 결과는 BE의 현재 승인 증거·동의 세대 검사에 따른다. |
+
+외부 AI 선택 동의와 서비스 이용 승인을 구분한다. 실제 오류 응답을 기존 이메일·연령·소유권 검사와 함께 처리하며, unavailable·pending·needs information을 성공 화면으로 표시하지 않는다. 확인된 실제 회신 등록·개별 승인과 메일 송수신 연결은 운영 승인이 필요한 별도 수행이다. [구현·설정·복구 경계](guardian-team-review.md).

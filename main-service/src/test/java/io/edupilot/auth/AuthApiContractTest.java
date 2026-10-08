@@ -26,6 +26,8 @@ import java.util.Arrays;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.hibernate.LockMode;
+import org.hibernate.engine.spi.SessionImplementor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
@@ -64,6 +66,7 @@ import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
+import jakarta.persistence.EntityManager;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -92,6 +95,9 @@ class AuthApiContractTest {
 
 	@Autowired
 	private RefreshTokenService refreshTokenService;
+
+	@Autowired
+	private EntityManager entityManager;
 
 	@MockitoBean
 	private UserRepository userRepository;
@@ -140,6 +146,7 @@ class AuthApiContractTest {
 
 	private MockMvc mockMvc;
 	private User user;
+	private SessionImplementor lockedUserSession;
 	private final AtomicLong authSessionIds = new AtomicLong(1_000L);
 
 	@BeforeEach
@@ -150,8 +157,13 @@ class AuthApiContractTest {
 			policyConsentRepository,
 			refreshTokenRepository,
 			authSessionRepository,
-			googleIdTokenVerifier
+			googleIdTokenVerifier,
+			entityManager
 		);
+		var lockedEntities = io.edupilot.GuardianConsentFenceTestSupport.lockedUserEntities();
+		lockedUserSession = lockedEntities.unwrap(SessionImplementor.class);
+		when(entityManager.isJoinedToTransaction()).thenReturn(true);
+		when(entityManager.unwrap(SessionImplementor.class)).thenReturn(lockedUserSession);
 		for (PolicyType type : PolicyType.values()) {
 			when(policyDocumentRepository
 				.findFirstByTypeAndEffectiveAtLessThanEqualOrderByEffectiveAtDescIdDesc(
@@ -186,6 +198,7 @@ class AuthApiContractTest {
 			"홍길동"
 		);
 		ReflectionTestUtils.setField(user, "id", 1L);
+		mockLockedAccount(user);
 	}
 
 	@Test
@@ -307,7 +320,7 @@ class AuthApiContractTest {
 		mockMvc.perform(post("/api/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
-					{
+					{"dateOfBirth":"2000-01-01",
 					  "email":"bad-email",
 					  "password":"short",
 					  "name":"홍길동",
@@ -333,7 +346,7 @@ class AuthApiContractTest {
 		mockMvc.perform(post("/api/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
-					{
+					{"dateOfBirth":"2000-01-01",
 					  "email":"instructor@example.com",
 					  "password":"password123",
 					  "name":"강사",
@@ -349,7 +362,7 @@ class AuthApiContractTest {
 		mockMvc.perform(post("/api/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
-					{
+					{"dateOfBirth":"2000-01-01",
 					  "email":"missing-role@example.com",
 					  "password":"password123",
 					  "name":"학습자"
@@ -365,7 +378,7 @@ class AuthApiContractTest {
 			mockMvc.perform(post("/api/auth/signup")
 					.contentType(MediaType.APPLICATION_JSON)
 					.content("""
-						{
+						{"dateOfBirth":"2000-01-01",
 						  "email":"invalid-role@example.com",
 						  "password":"password123",
 						  "name":"사용자",
@@ -391,6 +404,7 @@ class AuthApiContractTest {
 				.content("""
 					{
 					  "email":"profile@example.com",
+					  "dateOfBirth":"2000-01-01",
 					  "password":"password123",
 					  "name":"학습자",
 					  "role":"LEARNER",
@@ -419,7 +433,7 @@ class AuthApiContractTest {
 		mockMvc.perform(post("/api/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
-					{"email":"no-consent@example.com","password":"password123",
+					{"dateOfBirth":"2000-01-01","email":"no-consent@example.com","password":"password123",
 					 "name":"학습자","role":"LEARNER"}
 					"""))
 			.andExpect(status().isOk())
@@ -438,7 +452,7 @@ class AuthApiContractTest {
 			mockMvc.perform(post("/api/auth/signup")
 					.contentType(MediaType.APPLICATION_JSON)
 					.content("""
-						{
+						{"dateOfBirth":"2000-01-01",
 						  "email":"consent@example.com",
 						  "password":"password123",
 						  "name":"학습자",
@@ -1005,6 +1019,7 @@ class AuthApiContractTest {
 		);
 		ReflectionTestUtils.setField(googleUser, "id", 2L);
 		when(userRepository.findById(2L)).thenReturn(Optional.of(googleUser));
+		mockLockedAccount(googleUser);
 
 		mockMvc.perform(patch("/api/users/me/password")
 				.header(
@@ -1028,6 +1043,7 @@ class AuthApiContractTest {
 		);
 		ReflectionTestUtils.setField(rateLimitedUser, "id", 99L);
 		when(userRepository.findById(99L)).thenReturn(Optional.of(rateLimitedUser));
+		mockLockedAccount(rateLimitedUser);
 		String accessToken = jwtTokenProvider.createAccessToken(rateLimitedUser);
 
 		for (int attempt = 0; attempt < 5; attempt++) {
@@ -1073,6 +1089,35 @@ class AuthApiContractTest {
 
 		org.assertj.core.api.Assertions.assertThat(user.getEmail()).isEqualTo("deleted_1");
 		org.assertj.core.api.Assertions.assertThat(user.isActive()).isFalse();
+	}
+
+	@Test
+	void googleWithdrawalAcceptsVerifiedSameSubjectAndRejectsAmbiguousCredentials() throws Exception {
+		User google = User.createGoogle("google-withdraw@example.com", "!google", "Synthetic",
+			UserRole.LEARNER, null, false, null, null, null, "withdraw-google-sub");
+		ReflectionTestUtils.setField(google, "id", 2L);
+		when(userRepository.findById(2L)).thenReturn(Optional.of(google));
+		mockLockedAccount(google);
+		when(googleIdTokenVerifier.verify("withdraw-id-token")).thenReturn(
+			new GoogleProfile("withdraw-google-sub", "different-email@example.com", "Synthetic"));
+		String bearer = "Bearer " + jwtTokenProvider.createAccessToken(google);
+		for (String invalid : java.util.List.of("{}", "{\"password\":\"pw\",\"googleIdToken\":\"id\"}")) {
+			mockMvc.perform(delete("/api/users/me").header(HttpHeaders.AUTHORIZATION, bearer)
+				.contentType(MediaType.APPLICATION_JSON).content(invalid))
+				.andExpect(status().isBadRequest());
+		}
+		mockMvc.perform(delete("/api/users/me").header(HttpHeaders.AUTHORIZATION, bearer)
+			.contentType(MediaType.APPLICATION_JSON).content("{\"googleIdToken\":\"withdraw-id-token\"}"))
+			.andExpect(status().isOk());
+		org.assertj.core.api.Assertions.assertThat(google.isActive()).isFalse();
+	}
+
+	private void mockLockedAccount(User account) {
+		when(userRepository.findByIdForUpdate(account.getId())).thenAnswer(invocation -> {
+			lockedUserSession.getPersistenceContextInternal().getEntry(account)
+				.setLockMode(LockMode.PESSIMISTIC_WRITE);
+			return Optional.of(account);
+		});
 	}
 
 	private String logText(ILoggingEvent event) {

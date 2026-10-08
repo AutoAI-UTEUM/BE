@@ -3,6 +3,7 @@ package io.edupilot.user;
 import java.time.Instant;
 
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import jakarta.persistence.Column;
@@ -16,6 +17,7 @@ import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "users")
+@DynamicUpdate
 public class User {
 
 	@Id
@@ -24,6 +26,13 @@ public class User {
 
 	@Column(nullable = false, unique = true, length = 255)
 	private String email;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "email_verification_state", nullable = false, length = 20)
+	private EmailVerificationState emailVerificationState = EmailVerificationState.UNKNOWN;
+
+	@Column(name = "email_verified_at")
+	private Instant emailVerifiedAt;
 
 	@Column(name = "password_hash", nullable = false, length = 255)
 	private String passwordHash;
@@ -85,6 +94,29 @@ public class User {
 
 	@Column(name = "last_active_at")
 	private Instant lastActiveAt;
+
+	@Column(name = "date_of_birth")
+	private java.time.LocalDate dateOfBirth;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "age_verification_state",nullable = false,length = 30,columnDefinition = "varchar(30) default 'UNKNOWN'")
+	private io.edupilot.guardian.AgeVerificationState ageVerificationState = io.edupilot.guardian.AgeVerificationState.UNKNOWN;
+
+	@Column(name = "guardian_approved_until")
+	private Instant guardianApprovedUntil;
+
+	@Column(name = "guardian_ai_consent_allowed", nullable = false, columnDefinition = "boolean default false")
+	private boolean guardianAiConsentAllowed;
+
+	@Column(name = "guardian_consent_epoch", nullable = false, columnDefinition = "bigint default 0")
+	private long guardianConsentEpoch;
+
+	@Column(name = "guardian_approval_policy_digest", length = 64)
+	private String guardianApprovalPolicyDigest;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "access_cohort", nullable = false, length = 24, columnDefinition = "varchar(24) default 'NEW_SIGNUP'")
+	private AccountAccessCohort accessCohort = AccountAccessCohort.NEW_SIGNUP;
 
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
@@ -194,8 +226,86 @@ public class User {
 		this.passwordHash = passwordHash;
 	}
 
+	/** Creation-only capture. The signup service validates the approved KST calendar policy. */
+	public void recordSignupDateOfBirth(java.time.LocalDate date) {
+		if(id!=null || date==null) { throw new IllegalStateException("Birth date can only be captured during signup"); }
+		// Storage bounds also protect internal fixture/import callers. No guardian evidence is inferred.
+		if(date.getYear()<1 || date.getYear()>9999) {
+			throw new io.edupilot.global.error.BusinessException(io.edupilot.global.error.ErrorCode.VALIDATION_FAILED);
+		}
+		this.dateOfBirth=date;
+	}
+	public void beginGuardianVerification() {
+		if(!isActive()) { throw new IllegalStateException("Inactive account cannot request verification"); }
+		if (ageVerificationState == io.edupilot.guardian.AgeVerificationState.TEAM_APPROVED || guardianApprovedUntil != null) {
+			clearGuardianTeamApproval(true);
+		} else {
+			ageVerificationState = io.edupilot.guardian.AgeVerificationState.MANUAL_PENDING;
+			guardianAiConsentAllowed = false;
+		}
+	}
+	/** Only the transactional team decision service supplies an explicitly reviewed expiry and scope. */
+	public void recordGuardianTeamApproval(Instant until, boolean aiAllowed) {
+		if (!isActive() || isLegacyAccessExempt() || dateOfBirth == null) {
+			throw new IllegalStateException("현재 계정에는 보호자 검토 승인을 적용할 수 없습니다.");
+		}
+		guardianApprovedUntil = java.util.Objects.requireNonNull(until);
+		guardianApprovalPolicyDigest = null;
+		guardianAiConsentAllowed = aiAllowed;
+		ageVerificationState = io.edupilot.guardian.AgeVerificationState.TEAM_APPROVED;
+		guardianConsentEpoch = Math.incrementExact(guardianConsentEpoch);
+	}
+	public void clearGuardianTeamApproval(boolean pending) {
+		guardianApprovedUntil = null;
+		guardianApprovalPolicyDigest = null;
+		guardianAiConsentAllowed = false;
+		ageVerificationState = pending ? io.edupilot.guardian.AgeVerificationState.MANUAL_PENDING
+			: io.edupilot.guardian.AgeVerificationState.UNKNOWN;
+		guardianConsentEpoch = Math.incrementExact(guardianConsentEpoch);
+	}
+	public Instant getGuardianApprovedUntil() { return guardianApprovedUntil; }
+	public boolean isGuardianAiConsentAllowed() { return guardianAiConsentAllowed; }
+	public long getGuardianConsentEpoch() { return guardianConsentEpoch; }
+	public String getGuardianApprovalPolicyDigest() { return guardianApprovalPolicyDigest; }
+	public void recordGuardianTeamPolicyDigest(String digest) {
+		if (ageVerificationState != io.edupilot.guardian.AgeVerificationState.TEAM_APPROVED
+			|| digest == null || !digest.matches("[0-9a-f]{64}")) {
+			throw new IllegalStateException("Reviewed guardian policy evidence is required");
+		}
+		guardianApprovalPolicyDigest = digest;
+	}
+	public java.time.LocalDate getDateOfBirth() { return dateOfBirth; }
+	public io.edupilot.guardian.AgeVerificationState getAgeVerificationState() { return ageVerificationState; }
+	public AccountAccessCohort getAccessCohort() { return accessCohort; }
+	public boolean isLegacyAccessExempt() { return accessCohort == AccountAccessCohort.LEGACY_EXEMPT; }
+	public boolean isEmailVerificationRequired() { return !isEmailVerified() && !isLegacyAccessExempt(); }
+
+	public void beginEmailVerification() {
+		if (!isEmailVerified()) {
+			emailVerificationState = EmailVerificationState.PENDING;
+			emailVerifiedAt = null;
+		}
+	}
+
+	public void verifyEmail(Instant verifiedAt) {
+		emailVerifiedAt = java.util.Objects.requireNonNull(verifiedAt);
+		emailVerificationState = EmailVerificationState.VERIFIED;
+	}
+
+	public boolean isEmailVerified() {
+		return emailVerificationState == EmailVerificationState.VERIFIED && emailVerifiedAt != null;
+	}
+
+	public EmailVerificationState getEmailVerificationState() { return emailVerificationState; }
+	public Instant getEmailVerifiedAt() { return emailVerifiedAt; }
+
 	public void withdraw() {
+		clearGuardianTeamApproval(false);
+		this.dateOfBirth=null;
+		this.ageVerificationState=io.edupilot.guardian.AgeVerificationState.UNKNOWN;
 		this.email = "deleted_" + id;
+		this.emailVerificationState = EmailVerificationState.UNKNOWN;
+		this.emailVerifiedAt = null;
 		this.name = "탈퇴 사용자";
 		this.affiliation = null;
 		this.avatarKey = null;

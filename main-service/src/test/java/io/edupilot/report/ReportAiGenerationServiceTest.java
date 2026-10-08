@@ -61,7 +61,8 @@ class ReportAiGenerationServiceTest {
 			resultRepository,
 			aiClient,
 			aiUsageService,
-			objectMapper
+			objectMapper,
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 		instructor = User.create(
 			"instructor@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
@@ -69,6 +70,8 @@ class ReportAiGenerationServiceTest {
 		student = User.create(
 			"student@example.com", "hash", "Student", UserRole.LEARNER
 		);
+		org.springframework.test.util.ReflectionTestUtils.setField(instructor, "id", 1L);
+		org.springframework.test.util.ReflectionTestUtils.setField(student, "id", 2L);
 		classroom = Classroom.create(
 			instructor,
 			"Report classroom",
@@ -109,7 +112,7 @@ class ReportAiGenerationServiceTest {
 			.thenReturn(List.of(evidence));
 		when(reportRepository
 			.findFirstByClassroom_IdAndStudent_IdAndScopeKeyOrderByVersionDesc(
-				null, null, "FULL"
+				null, 2L, "FULL"
 			))
 			.thenReturn(Optional.empty());
 	}

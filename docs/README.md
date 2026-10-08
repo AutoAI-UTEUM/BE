@@ -43,6 +43,7 @@
 - [백엔드 실행 계획](backend-plan.md)
 - [백엔드 컨벤션](backend-convention.md)
 - [배포·롤백 운영 가이드](deploy.md)
+- [강사 탈퇴와 소유 강의실 종료](withdrawal-classrooms.md)
 - [Definition of Done](definition-of-done.md)
 
 ### 협업과 AI
@@ -66,3 +67,22 @@
 - 도메인 규칙이나 상태가 바뀌면 `domain-model.md`, `database.md`, 관련 테스트를 함께 갱신합니다.
 - FastAPI 계약이 바뀌면 `ai-integration-contract.md`, `agent-system-spec.md`와 Spring 내부 API 계약을 함께 갱신합니다.
 - 확정되지 않은 항목에는 날짜와 소유자를 포함한 TBD를 남깁니다.
+
+
+- [Durable mail outbox and restart recovery](mail-outbox.md)
+- [가입 이메일 소유 확인과 배포 경계](email-verification.md)
+- [FE ON manifest·SES 조회/최소 수신·V60 보존 복구의 운영 준비](launch-operational-readiness.md)
+- [PR532·V61–V63 TEAM 운영 준비와 기존 관리자 읽기 전용 확인](launch-team-operational-readiness.md)
+- [보호자 관계·최종 고지·기간 검토 초안](guardian-team-policy-review.md)
+
+- [Deletion journal, retention gates and restore replay](deletion-journal.md)
+
+- [보호자 팀 검토 구현·활성화·rollback 경계](guardian-team-review.md)
+- [보호자 한국어 안내·회신·검토 양식](guardian-team-review-forms.md)
+- [보호자 팀 검토 API·FE 계약](guardian-team-review-fe-contract.md)
+
+- [신규 DOB·수동 보호자 접수 기반과 정책 대기 경계](birthdate-guardian-foundation.md)
+- [아동 포함 약관·처리방침1.0 후보와 공식 출처·미정 검토표](policies/launch-review-20261008.md)
+- [FE 실제 artifact/readiness·PR538/541 후속 증거 인계](qa/fe-auth-contract/FE-READINESS-20261008.md)
+- [서비스 메일 시험 중단 경로 검토·9회 조건과 미채택6회 대안](qa/mail-trial-interruption-review-20261008.md)
+- [DEV 전환·private 복구 지점의 비민감 증빙 인계](qa/dev-deployment-recovery-handoff-20261008.md)

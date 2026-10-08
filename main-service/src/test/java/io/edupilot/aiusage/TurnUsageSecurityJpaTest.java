@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -23,12 +24,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import io.edupilot.ai.AiClient;
@@ -36,6 +40,7 @@ import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.guardian.team.GuardianTeamProperties;
 import io.edupilot.material.LearningMaterial;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialPage;
@@ -43,6 +48,7 @@ import io.edupilot.material.MaterialPageRepository;
 import io.edupilot.session.ChatMessage;
 import io.edupilot.session.ChatMessageRepository;
 import io.edupilot.session.ChatMessageStatus;
+import io.edupilot.session.ConversationSummaryDispatcher;
 import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.session.SessionService;
 import io.edupilot.session.SessionStreamService;
@@ -65,7 +71,24 @@ import tools.jackson.databind.ObjectMapper;
 	"edupilot.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
 	"edupilot.storage.root-directory=build/test-storage/turn-usage-security",
 	"edupilot.ai.quota.daily-default=2",
-	"edupilot.ai.quota.daily-instructor=2"
+	"edupilot.ai.quota.daily-instructor=2",
+	"edupilot.mail.enabled=false",
+	// Synthetic policy only; these values do not authorize real child intake or approval.
+	"edupilot.guardian.team.enabled=true", "edupilot.guardian.team.policy-confirmed=true",
+	"edupilot.guardian.team.portal-base-url=https://synthetic.example.test",
+	"edupilot.guardian.team.notice-url=https://synthetic.example.test/notice",
+	"edupilot.guardian.team.notice-version=synthetic-1",
+	"edupilot.guardian.team.notice-digest=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+	"edupilot.guardian.team.collection-items-text=Synthetic test information",
+	"edupilot.guardian.team.purposes-text=Synthetic test review",
+	"edupilot.guardian.team.retention-text=Synthetic test retention notice",
+	"edupilot.guardian.team.refusal-text=Synthetic test refusal notice",
+	"edupilot.guardian.team.reply-contact=reviewer@synthetic.example.test",
+	"edupilot.guardian.team.reply-channel=EMAIL_REPLY", "edupilot.guardian.team.reviewer-ids=1",
+	"edupilot.guardian.team.required-scopes=SERVICE", "edupilot.guardian.team.optional-ai-scope=EXTERNAL_AI",
+	"edupilot.guardian.team.optional-consent-text=Synthetic external AI consent",
+	"edupilot.guardian.team.link-ttl=PT1H", "edupilot.guardian.team.request-ttl=PT96H",
+	"edupilot.guardian.team.approved-evidence-retention=P30D", "edupilot.guardian.team.approval-validity=P30D"
 })
 @ActiveProfiles("jpa-context")
 class TurnUsageSecurityJpaTest {
@@ -81,8 +104,10 @@ class TurnUsageSecurityJpaTest {
 	@Autowired private AiUsageService usageService;
 	@Autowired private AiUsageLogRepository usage;
 	@Autowired private PlatformTransactionManager transactions;
+	@Autowired private GuardianTeamProperties guardianPolicy;
 	@MockitoBean private AiClient ai;
 	@MockitoBean private Clock clock;
+	@MockitoBean private ConversationSummaryDispatcher summaries;
 
 	private final List<String> executions = new CopyOnWriteArrayList<>();
 	private final AtomicInteger attempts = new AtomicInteger();
@@ -290,6 +315,70 @@ class TurnUsageSecurityJpaTest {
 		});
 	}
 
+	@ParameterizedTest
+	@CsvSource({"false,false", "false,true", "true,false", "true,true"})
+	void consentChangeAfterAiRetainsFailedUsageWithoutPersistingAnswer(boolean streaming, boolean reapprove) {
+		Fixture f = guardianFixture();
+		stubBoth(request -> {
+			var result = answer(request);
+			changeConsent(f.user(), reapprove);
+			return result;
+		});
+		assertError(() -> execute(f, f.session(), "consent-after-ai", streaming), ErrorCode.GUARDIAN_CONSENT_CHANGED);
+		assertExecutions(1);
+		assertThat(usage.findAll()).singleElement().satisfies(log -> {
+			assertThat(log.isSuccess()).isFalse();
+			assertThat(log.getCostUsdTicks()).isEqualTo(123L);
+			assertThat(log.getInputTokens()).isEqualTo(10L);
+			assertThat(log.getOutputTokens()).isEqualTo(20L);
+		});
+		assertThat(messages.findBySession_IdOrderByCreatedAtDescIdDesc(f.session(),
+			org.springframework.data.domain.PageRequest.of(0, 10))).singleElement().satisfies(message -> {
+			assertThat(message.getRequestId()).isEqualTo("consent-after-ai");
+			assertThat(message.getStatus()).isEqualTo(ChatMessageStatus.FAILED);
+		});
+		assertThat(sessions.findById(f.session()).orElseThrow().getActiveTurnRequestId()).isNull();
+	}
+
+	@ParameterizedTest
+	@CsvSource({"false,false", "false,true", "true,false", "true,true"})
+	void consentChangeAfterCommitPreservesCompletedMessageAndSuccessfulUsage(boolean streaming, boolean reapprove) {
+		Fixture f = guardianFixture();
+		AtomicInteger committedBarrier = new AtomicInteger();
+		doAnswer(invocation -> {
+			assertThat(TransactionSynchronizationManager.isSynchronizationActive()).isTrue();
+			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+				@Override public void afterCommit() {
+					try (var executor = Executors.newSingleThreadExecutor()) {
+						try {
+							executor.submit(() -> changeConsent(f.user(), reapprove)).get(10, TimeUnit.SECONDS);
+						} catch (Exception failure) {
+							throw new IllegalStateException("Synthetic committed consent barrier failed", failure);
+						}
+					}
+					committedBarrier.incrementAndGet();
+				}
+			});
+			return null;
+		}).when(summaries).dispatchAfterCommit(f.session());
+		assertError(() -> execute(f, f.session(), "consent-after-commit", streaming), ErrorCode.GUARDIAN_CONSENT_CHANGED);
+		assertThat(committedBarrier).hasValue(1);
+		assertExecutions(1);
+		assertThat(usage.findAll()).singleElement().satisfies(log -> {
+			assertThat(log.isSuccess()).isTrue();
+			assertThat(log.getCostUsdTicks()).isEqualTo(123L);
+		});
+		assertThat(messages.findBySession_IdAndRequestId(f.session(), "consent-after-commit")
+			.orElseThrow().getStatus()).isEqualTo(ChatMessageStatus.COMPLETED);
+		assertThat(messages.findBySession_IdOrderByCreatedAtDescIdDesc(f.session(),
+			org.springframework.data.domain.PageRequest.of(0, 10))).hasSize(2);
+		assertThat(sessions.findById(f.session()).orElseThrow().getActiveTurnRequestId()).isNull();
+		if (!reapprove) changeConsent(f.user(), true);
+		assertError(() -> execute(f, f.session(), "consent-after-commit", streaming), ErrorCode.TURN_ALREADY_PROCESSED);
+		assertExecutions(1);
+		assertThat(usage.findAll()).allSatisfy(log -> assertThat(log.isSuccess()).isTrue());
+	}
+
 	private io.edupilot.ai.dto.TurnResponse answer(io.edupilot.ai.dto.TurnRequest request) {
 		executions.add(request.turnId());
 		attempts.incrementAndGet();
@@ -310,8 +399,32 @@ class TurnUsageSecurityJpaTest {
 	}
 
 	private Fixture fixture() {
-		return fixture(users.saveAndFlush(User.create(UUID.randomUUID() + "@example.com",
-			"synthetic-hash", "Synthetic learner")).getId());
+		User learner = User.create(UUID.randomUUID() + "@example.com", "synthetic-hash", "Synthetic learner");
+		learner.recordSignupDateOfBirth(LocalDate.of(1990, 1, 1));
+		learner.verifyEmail(clock.instant().minusSeconds(60));
+		return fixture(users.saveAndFlush(learner).getId());
+	}
+
+	private Fixture guardianFixture() {
+		User learner = User.create(UUID.randomUUID() + "@example.test", "synthetic-hash", "Synthetic child fixture");
+		learner.recordSignupDateOfBirth(LocalDate.of(2016, 1, 1));
+		learner.verifyEmail(clock.instant().minusSeconds(60));
+		assertThat(guardianPolicy.ready()).isTrue();
+		learner.recordGuardianTeamApproval(clock.instant().plusSeconds(3600), true);
+		learner.recordGuardianTeamPolicyDigest(guardianPolicy.configurationDigest());
+		return fixture(users.saveAndFlush(learner).getId());
+	}
+
+	private void changeConsent(long userId, boolean reapprove) {
+		new TransactionTemplate(transactions).executeWithoutResult(status -> {
+			User learner = users.findById(userId).orElseThrow();
+			learner.clearGuardianTeamApproval(false);
+			if (reapprove) {
+				learner.recordGuardianTeamApproval(clock.instant().plusSeconds(3600), true);
+				learner.recordGuardianTeamPolicyDigest(guardianPolicy.configurationDigest());
+			}
+			users.flush();
+		});
 	}
 
 	private Fixture fixture(long userId) {

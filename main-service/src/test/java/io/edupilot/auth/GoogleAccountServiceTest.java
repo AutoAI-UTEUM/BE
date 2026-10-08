@@ -55,7 +55,9 @@ class GoogleAccountServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new GoogleAccountService(userRepository, policyService);
+		service = new GoogleAccountService(userRepository, policyService,
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationService.class), java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC)
+		);
 		org.mockito.Mockito.lenient().when(policyService.validateSignup(any())).thenReturn(
 			new SignupSelection("0.9", "0.9", NOW));
 	}
@@ -225,11 +227,11 @@ class GoogleAccountServiceTest {
 				new PolicyConsentChoice(PolicyType.PRIVACY, "0.9")),
 			true,
 			" EduPilot University "
-		);
+		, java.time.LocalDate.of(2000,1,1));
 	}
 
 	private GoogleLoginRequest minimalRequest() {
-		return new GoogleLoginRequest("id-token", null, null, null, null);
+		return new GoogleLoginRequest("id-token", null, null, null, null, java.time.LocalDate.of(2000,1,1));
 	}
 
 	@Test
@@ -242,7 +244,7 @@ class GoogleAccountServiceTest {
 			new BusinessException(ErrorCode.POLICY_CONSENT_REQUIRED));
 
 		assertBusinessError(() -> resolve(new GoogleLoginRequest(
-			"id-token", "LEARNER", null, false, null), PROFILE),
+			"id-token", "LEARNER", null, false, null, java.time.LocalDate.of(2000,1,1)), PROFILE),
 			ErrorCode.POLICY_CONSENT_REQUIRED);
 		verify(userRepository, never()).saveAndFlush(any());
 	}

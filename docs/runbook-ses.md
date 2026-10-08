@@ -1,27 +1,31 @@
-# SES 시스템 메일 운영 런북 (#410)
+# SES 시스템 메일 운영 런북 (#410, #471, #473)
 
-이 PR은 공통 발송 기반만 설치합니다. 비밀번호 재설정·이메일 인증·알림의 **실제 호출 연결은 후속 이슈**입니다. 서버·AWS 적용은 운영자가 수행합니다. V43 적용 전 prod DB 스냅샷을 생성합니다.
+2026-10-05 출시 후보 BE521 기준이다. 이전 V43 기반의 공통 메일 골격 이후 가입 확인·reset·탈퇴 완료 호출과 V54 durable outbox가 구현됐다. 현재 운영 확인과 최소 조회·수신 인수·기존 대기 작업 처리의 상세 기준은 [FE·메일·V60 운영 준비](launch-operational-readiness.md#2-ses-확인-근거와-최소-조회)다. 10:58 UTC 콘솔 1건 수신과 현재 앱 logging 설정의 갱신 증거, provider 전환 없는 **별도 TEST 1건 준비**는 [격리된 SES 시험](ses-component-trial.md)에 기록했다. source 준비를 실제 앱 발송·수신 완료로 해석하지 않는다.
 
-## 1. SES 인증과 권한 (서울 리전)
+## 현재 source 경계
 
-1. AWS SES `ap-northeast-2` > Verified identities에서 `uteum.com` 도메인을 생성하고 Easy DKIM을 켭니다. Route 53이 같은 계정의 호스팅 영역이면 제공되는 DNS 레코드 게시 기능을 사용하고, 그렇지 않으면 SES가 제시한 DKIM CNAME 3개를 실제 권한 DNS에 수동 등록합니다. Verified 상태를 확인합니다. 발신 주소 `no-reply@uteum.com`은 검증된 도메인에 포함되지만, 콘솔에서 발신 주소도 확인합니다. MAIL FROM 하위 도메인은 선택 사항입니다.
-2. `infra/iam/ec2-ses-policy.json`의 `<AWS_ACCOUNT_ID>`를 실제 계정 ID로 치환하고 `Ai-Tutor-EC2-SSM-Role`에 인라인 정책으로 추가합니다. `ses:FromAddress`를 `no-reply@uteum.com`으로 한정합니다. AWS 액세스 키를 환경변수나 파일에 넣지 않습니다.
-3. SES sandbox에서는 검증된 수신 주소/도메인 또는 mailbox simulator로만 발송할 수 있습니다. dev 실발송 리허설에 쓸 팀원 메일을 Verified identities에서 별도 검증하거나 simulator를 사용합니다.
-4. SES > Account dashboard에서 production access를 신청합니다. 용도는 비밀번호 재설정·이메일 인증·서비스 알림의 transactional mail, 예상 일 100통 미만으로 기재합니다. AWS 문서상 첫 응답 목표는 보통 24시간이지만 심사 결과·완료 시간은 보장되지 않습니다. **prod 수신자 발송은 해제 승인과 발송 한도 확인 후** 켭니다.
+- SES는 SDK v2 `SendEmail`, 명시 `AWS_REGION`, 기존 DefaultCredentialsProvider를 사용한다. 저장소의 서울 리전/From 및 IAM placeholder는 실제 region/domain 인증·실행 역할 권한 증거가 아니다.
+- LoggingEmailSender는 **모든 프로파일에서 메시지 종류만** 기록한다. 수신 주소·제목·text/HTML·token은 출력하지 않는다. `logging-...` 및 SENT는 실제 전달이 아니다.
+- worker의 SES SDK 자동 재시도는 끄고 알려진 429만 제한 재시도한다. 결과 불명은 UNKNOWN이며 자동 재전송하지 않는다. 최대 시도는 3이지만 실제 실패 유형에 따라 1회에 종료할 수 있으므로 실패를 항상 attemptCount=2로 기대하지 않는다.
+- 본문은 V54 outbox에 AES-GCM으로 일시 보관한다. terminal/expiry에서 제거한다. 메일 본문이 DB에 저장되지 않는다는 옛 V43 설명을 현재 source에 적용하지 않는다.
+- 실제 발송 전 기존 암호화 key/JWT 기반 HKDF 관리 버전을 유지한다. 키·credential을 읽거나 출력하지 않는다.
+- prod의 logging 금지를 보존하며 기존 예외 설정으로 실제 발송·가입 확인을 우회하지 않는다. provider 변경/재생성·IAM/DNS/sandbox 신청은 별도 운영 작업이다.
 
-참고: [SES 도메인 검증](https://docs.aws.amazon.com/ses/latest/dg/creating-identities.html), [sandbox/production access](https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html), [From 주소 IAM 제한](https://docs.aws.amazon.com/ses/latest/dg/control-user-access.html).
+## 운영자가 확인할 증거
 
-## 2. dev → SES 테스트 → prod
+[allowlist env 조회와 SES GET 2개](launch-operational-readiness.md#2-ses-확인-근거와-최소-조회)로 provider/enabled/region/from/base URL, SendingEnabled·sandbox/quota·identity/DKIM을 확인한다. 앱 실행 역할의 SendEmail 권한과 container credential 접근도 비밀값 없는 운영 증거가 필요하다. operator CLI의 성공을 앱 권한으로 대체하지 않는다. AccessDenied/미설정은 미확인으로 남기고 이번 준비 작업에서 권한을 늘리지 않는다.
 
-1. dev 배포 전에 V43이 포함됐는지 확인하고 `EDUPILOT_MAIL_ENABLED=true`, `EDUPILOT_MAIL_PROVIDER=logging`, `EDUPILOT_MAIL_FROM=no-reply@uteum.com`, `EDUPILOT_MAIL_BASE_URL=https://dev.uteum.com`, `AWS_REGION=ap-northeast-2`를 설정합니다. `docker compose up -d main-service`로 재생성합니다(`restart`만으로 새 환경변수가 반영되지 않음).
-2. ADMIN으로 `POST /api/admin/mail/test`에 검증 가능한 수신 주소를 보내고 반환된 `deliveryId`를 `GET /api/admin/mail/deliveries`에서 찾습니다. dev/test의 logging provider는 본문을 INFO 로그에 출력하므로 실토큰·실사용자 정보를 넣지 않습니다. `SENT`, `attemptCount=1`, `logging-...` provider ID를 확인합니다.
-3. `EDUPILOT_MAIL_PROVIDER=ses`로 바꿔 재생성하고 샌드박스에서 검증된 팀원 수신자 또는 SES simulator에 **한 통만** 보냅니다. `SENT`, SES message ID를 확인합니다. 실패 시 `FAILED`, `attemptCount=2`, 민감값이 제거된 `errorSummary`를 확인합니다. `EDUPILOT_MAIL_ENABLED=false`면 호출해도 이력만 `FAILED`/`DISABLED`가 됩니다.
-4. prod에서는 SES 샌드박스 해제와 검증된 identity, IAM 권한을 확인하고 `EDUPILOT_MAIL_ENABLED=true`, `EDUPILOT_MAIL_PROVIDER=ses`, `EDUPILOT_MAIL_BASE_URL=https://www.uteum.com`, `AWS_REGION=ap-northeast-2`를 설정합니다. `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d main-service`로 재생성합니다. prod compose 오버라이드는 provider 기본값을 `ses`로 둡니다. prod에서 `logging`이 선택되면 기동을 거부하며, 예외적으로 `EDUPILOT_MAIL_ALLOW_LOGGING_IN_PROD=true`를 명시한 경우에만 기동하고 기존처럼 본문을 로그에서 숨깁니다(실제 발송 없음).
-5. prod 배포 후 관리자 테스트 1통으로 발송·이력 확인. 메일 내용은 DB에 저장되지 않으며, SES `SENT`는 API 수락을 뜻하지 최종 수신함 배달 보장은 아닙니다.
+사용자 확정 수신 주소는 **1개**이며 원문은 비공개 인계 자료만 사용한다. 주소 선택은 실제 앱 발송 승인이 아니다. 실제 수신 인수는 별도 승인된 inbox/건수/비용/fixture 범위로 진행한다. 최소 가입 확인 1건 또는 재발급 포함 2건을 제안하며 password-reset/탈퇴 연결 전체는 4건, 추가 Google 신규 확인까지는 5건이다. 사용자 콘솔 시험 1건은 수신 확인됐고 **앱 경로 실제 발송은 0건**이다. 별도 TEST는 앱 SES 컴포넌트의 전달만 확인하며 signup/outbox/confirm 인수를 대신하지 않는다.
 
-## 3. 운영 점검
+가격·현재 요금제·추가 기능 여부는 [공식 SES 가격](https://aws.amazon.com/ses/pricing/)과 운영자 확인을 대조한다. 기존 서울 sandbox 한도나 무료 구간을 고정 값으로 가정하지 않는다.
 
-- 수신자당 직전 1시간 5통, 전체 KST 날짜당 500통이 상한입니다. 초과 행은 `RATE_LIMITED`이고 SES 호출은 없습니다. 샌드박스의 AWS 자체 한도(현재 문서 기준 24시간 200통/초당 1통)는 앱 상한과 별개입니다.
-- `QUEUED`가 오래 지속되거나 `FAILED`가 증가하면 executor/DB/SES 장애, IAM, identity, sandbox/한도, region을 순서대로 확인합니다. 앱 이력에는 본문이 없으며 prod 로그에도 본문·키를 남기지 않습니다.
-- 반송·불만·수신거부 자동 처리는 이번 범위 밖입니다. SES 콘솔의 발송·반송 지표를 수동 확인하고 필요한 자동화는 별도 이슈로 진행합니다.
-- 중지: `EDUPILOT_MAIL_ENABLED=false`로 변경 후 컨테이너 재생성. 이미 SES가 수락한 메일은 회수되지 않습니다.
+## queued 작업과 긴급 중지
+
+- `EDUPILOT_MAIL_ENABLED=false`는 새 요청을 DISABLED 이력으로 남기고 새 발송을 막지만 이미 SES가 수락했거나 진행 중인 요청을 회수하지 않는다. 실제 변경/재생성은 승인 운영자가 수행한다.
+- V54 이전 QUEUED metadata는 `LEGACY_PAYLOAD_UNAVAILABLE` 실패가 된다. 과거 시도 quota 예약과 SENT/FAILED/RATE_LIMITED 이력을 보존한다.
+- READY/RETRY는 worker가 **현재 provider**로 회수한다. stored query 본문은 fragment 코드 배포만으로 바뀌지 않는다. Logging SENT를 SES로 재발송하지 않는다.
+- source의 수신자당 5회/시간·KST 전체 500회/일 quota는 시험별 receiver allowlist나 1/2건 hard cap이 아니다. signup pause도 다른 producer를 멈추지 않는다. 대기 건·다른 producer·시험 격리 방침을 먼저 결정한다.
+- `readonly-counts.sql`은 본문/주소/token 없이 상태·시도·due/expiry·in-flight·quota 집계만 제공한다. 테이블 부재를 0건으로 계산하지 않는다.
+- 반송·불만 자동 처리와 실제 provider 수신, 운영 worker 재시작, 운영 backup/restore는 합성 source 테스트의 완료 범위에 포함되지 않는다.
+
+[durable outbox/재시작 처리](mail-outbox.md), [가입 이메일 계약](email-verification.md), [V60 보존 복구](launch-operational-readiness.md#4-v60-정리-hook을-보존하는-복구)를 함께 확인한다.

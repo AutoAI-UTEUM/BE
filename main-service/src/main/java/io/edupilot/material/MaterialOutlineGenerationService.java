@@ -7,7 +7,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.OutlineRequest;
 import io.edupilot.ai.dto.OutlineResponse;
@@ -19,11 +21,14 @@ import io.edupilot.material.MaterialOutlinePersistenceService.OutlineSnapshot;
 @Service
 public class MaterialOutlineGenerationService {
 
+	private final GuardianConsentFence consentFence;
+
 	private static final Logger log = LoggerFactory.getLogger(
 		MaterialOutlineGenerationService.class
 	);
 	private static final String SCHEMA_VERSION = "1.0";
 
+	private final EmailVerificationGate emailVerification;
 	private final MaterialOutlinePersistenceService persistenceService;
 	private final MaterialOutlineMarkdownRenderer renderer;
 	private final AiClient aiClient;
@@ -35,8 +40,12 @@ public class MaterialOutlineGenerationService {
 		MaterialOutlineMarkdownRenderer renderer,
 		AiClient aiClient,
 		AiUsageService aiUsageService,
-		PageQuizPlanProperties pageQuizPlanProperties
+		PageQuizPlanProperties pageQuizPlanProperties,
+		EmailVerificationGate emailVerification,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
+		this.emailVerification = emailVerification;
 		this.persistenceService = persistenceService;
 		this.renderer = renderer;
 		this.aiClient = aiClient;
@@ -78,7 +87,9 @@ public class MaterialOutlineGenerationService {
 				includePageQuizPlan ? Boolean.TRUE : null
 			);
 			OutlineResponse response;
+			GuardianConsentFence.Snapshot consent = consentFence.capture(snapshot.get().ownerId());
 			try {
+				emailVerification.requireAiVerified(snapshot.get().ownerId());
 				response = aiClient.outline(request);
 				aiUsageService.record(
 					snapshot.get().ownerId(),
@@ -99,15 +110,12 @@ public class MaterialOutlineGenerationService {
 				response = response.withoutPageQuizPlan();
 			}
 			validate(response, request.totalPages());
-			if (manual) {
-				persistenceService.markReadyManual(
-					materialId, renderer.render(response), response
-				);
-			} else {
-				persistenceService.markReady(
-					materialId, renderer.render(response), response
-				);
-			}
+			OutlineResponse result = response;
+			consentFence.complete(consent, () -> {
+				if (manual) persistenceService.markReadyManual(materialId, renderer.render(result), result);
+				else persistenceService.markReady(materialId, renderer.render(result), result);
+				return null;
+			});
 		} catch (RuntimeException exception) {
 			persistenceService.markFailed(materialId);
 			log.atWarn()

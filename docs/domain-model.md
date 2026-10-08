@@ -8,9 +8,11 @@
 
 ## 1. 도메인 경계
 
+#519의 DOB 정책은 `Asia/Seoul` 오늘 이하 입력과 현재 연도−출생 연도를 사용한다. 연도차 ≤14·DOB 미확인은 보호자 대상, ≥15는 다른 조건 충족 시 보호자 불필요다. 이 분류는 `UNKNOWN`/`MANUAL_PENDING` 증거 상태나 V58 cohort를 변경하지 않는다. `BirthdateCorrectionRequest`는 user당 하나의 `PENDING` 접수만 보관하며 User DOB를 변경하지 않는다. 탈퇴는 요청 DOB를 제거하고 `WITHDRAWN`으로 바꾼다. [승인 기준·정정 접수와 남은 절차](birthdate-policy-and-correction.md).
+
 | 도메인 | 주요 모델 | 책임 |
 | --- | --- | --- |
-| Identity | User, AuthSession, RefreshToken | 인증 주체, 역할, 계정 상태, 브라우저·기기별 인증 수명 |
+| Identity | User, AuthSession, RefreshToken, BirthdateCorrectionRequest | 인증 주체, 역할, 계정 상태, 인증 수명, 관리자 DOB 정정 요청 접수 |
 | Material | LearningMaterial, MaterialPage, MaterialOverview | PDF 메타데이터, 페이지 문맥과 자료 개요 |
 | Classroom | Classroom, ClassroomMember, ClassroomJoinRequest, ClassroomWeek, ClassroomWeekMaterial, ClassroomNotice, ClassroomResource | 강의실 소유권, 참여, 주차 학습 자료, 일반 파일·링크 자료, 즉시·예약 공지 |
 | Notification | Notification | 사용자 귀속 인앱 알림, 읽음·보관 수명 |
@@ -74,7 +76,10 @@ erDiagram
 
 ### User
 
+- 탈퇴 재인증은 최초 제공자에 맞춰 LOCAL 비밀번호 또는 서버 검증 Google `sub` 하나로 수행합니다. 삭제 트랜잭션은 사용자 행을 잠가 동시 탈퇴를 직렬화하고, 커밋 후 접근 캐시를 무효화하며 원래 이메일로 계정 종료 메일을 요청합니다. 메일은 물리 파일 삭제 완료를 의미하지 않습니다. 강사 소유 강의실 정책·파일 보존기간·보호자 확인은 별도 미정 범위입니다(#477, #478).
+
 - 이메일은 중복될 수 없습니다.
+- 이메일 소유 확인은 계정 상태와 별도로 `UNKNOWN | PENDING | VERIFIED`입니다. 기존 계정은 확인 근거 없이 `UNKNOWN`으로 유지하고 LOCAL·Google 신규 계정은 BE 확인 링크를 발급해 `PENDING`으로 시작합니다. `VERIFIED`에는 `emailVerifiedAt`이 반드시 있어야 합니다. 확인 전 로그인·refresh·본인 계정 관리는 가능하고 업무 API와 백그라운드 외부 AI 처리는 서버에서 차단합니다. 탈퇴는 상태를 `UNKNOWN`, 확인 시각을 null로 지웁니다. 이메일 확인을 보호자·연령·AI 동의로 해석하지 않습니다.
 - 비밀번호 원문을 저장하지 않습니다.
 - 역할은 `LEARNER`, `INSTRUCTOR`, `ADMIN`입니다. 공개 가입은 `LEARNER | INSTRUCTOR`만 허용하고 `ADMIN`은 기능 미구현·예약 상태로 유지합니다(DEC-017, DEC-029 Accepted).
 - `LEARNER`와 `INSTRUCTOR`는 개인 PDF 업로드와 개인 통합학습을 사용할 수 있습니다. 강의실 개설·관리·자료 연결은 소유 `INSTRUCTOR`만 가능하고, `LEARNER`와 타 강의실에 참여한 `INSTRUCTOR`는 승인 멤버로서 공개 자료를 조회·학습할 수 있습니다(DEC-030).
@@ -85,7 +90,8 @@ erDiagram
 ### PolicyDocument / PolicyConsent
 
 - `PolicyDocument`는 TERMS·PRIVACY 유형별 `(type, version)`으로 구분하는 불변 문서입니다. 시행 시각이 현재 이전인 문서 중 유형별 최신 버전이 현재 정책입니다. `0.9` 시드는 법무 검토 전 초안입니다.
-- `PolicyConsent`는 사용자·유형·버전별 동의 시각, IP, User-Agent의 변경 불가 이력입니다. LOCAL·Google 신규 가입은 당시 현재 TERMS·PRIVACY 모두 동의해야 하며 로그인 응답은 미동의 현재 버전 목록을 반환합니다. 기존 사용자 동의는 멱등이고 과거 이력은 유지합니다.
+- `PolicyConsent`는 사용자·유형·버전별 동의 시각, IP, User-Agent의 변경 불가 이력입니다. LOCAL·Google 신규 가입에서 `signup-consent-required=true`이면 현재 유효한 `requiresConsent=true` 대상 목록이 비었을 때 `SIGNUP_POLICY_NOT_READY`(503)로 중단하고, 대상이 있으면 각 현재 버전의 동의를 요구합니다. 비대상 문서는 동의 이력에 넣지 않으며 한 종류만 필수인 계약도 유지합니다. 설정 `false`의 생략·빈 배열 가입 호환성은 유지하고 제출 배열은 기존대로 검증합니다. 로그인 응답은 미동의 현재 필수 버전 목록을 반환합니다. 기존 사용자 동의는 멱등이고 과거 이력은 유지합니다.
+- 독립 `active` 상태는 없습니다. 유형별 최신 시행 버전이 현재 정책이고 미래 시행 문서·대체된 과거 문서는 현재 동의 대상을 채우지 못합니다. 실제 게시 문구·버전·필수 여부를 이 가입 검증 변경으로 결정하지 않습니다.
 - 정책 미동의는 현재 인증·일반 API의 서버 차단 조건이 아닙니다. FE 화면 게이팅만 이 이슈 범위이며 서버 강제는 후속 결정을 따릅니다. 탈퇴 후 동의 이력은 보존하지만 식별자 처리·보존 기한은 법무 검토 과제입니다.
 
 ### AuthSession / RefreshToken
@@ -95,6 +101,13 @@ erDiagram
 - refresh token 회전은 같은 `AuthSession`을 유지하고 token 행만 교체합니다. 폐기 token 재사용은 현재 session family만 폐기하며, family를 알 수 없는 V41 이전 legacy token만 사용자 전체를 폐기합니다.
 - 로그아웃은 현재 session만 폐기합니다. 비밀번호 변경·관리자 초기화·회원 탈퇴·관리자 정지·역할 변경은 해당 사용자의 모든 `AuthSession`과 refresh token을 폐기합니다. 정지·역할 변경 전 발급한 access token은 인증 필터의 계정 상태·역할 재검증으로 차단합니다.
 - 이메일 비밀번호 재설정은 활성 `LOCAL` 사용자에게만 30분 유효한 단일 사용 링크를 발급합니다. 원문은 메일에만 싣고 DB에는 SHA-256 해시만 저장하며 재요청 시 이전 링크를 무효화합니다. 확정 성공 시 비밀번호 변경과 모든 `AuthSession`·refresh token 폐기를 한 트랜잭션에서 처리합니다.
+
+### EmailVerificationToken
+
+- 가입 이메일 소유 확인 전용 32바이트 난수이며 DB에는 원문 대신 SHA-256 토큰 해시와 발급 당시 이메일 해시를 저장합니다. 만료는 발급 후 30분, 경계 시각 포함입니다.
+- 재발급·확정·탈퇴는 사용자 행을 먼저 잠그는 순서로 직렬화합니다. 사용 완료·만료·현재 이메일 변경·비활성 계정의 링크는 무효입니다. 확정은 확인 시각 저장과 미사용 링크 폐기를 같은 트랜잭션에서 처리하며 인증 세션은 만들지 않습니다.
+- 가입·확인 링크 발급과 암호화 메일 outbox 저장은 호출자 트랜잭션에 참여합니다. 롤백이면 발송하지 않습니다. 비밀번호 재설정 링크는 이 확인 상태를 자동 변경하지 않습니다.
+- 업무 API와 외부 AI 호출 직전에 별도 읽기 트랜잭션으로 현재 커밋된 사용자 상태를 확인합니다. JWT·계정 캐시·아직 커밋하지 않은 상태를 확인 근거로 사용하지 않습니다. 상세 계약은 [이메일 소유 확인](email-verification.md)을 따릅니다.
 
 ### LearningMaterial
 
@@ -121,6 +134,7 @@ erDiagram
 
 ### Classroom / ClassroomMember
 
+- 소유자 탈퇴 시 그 사용자가 소유한 `ACTIVE` 강의실은 사용자 논리 삭제와 같은 트랜잭션에서 `COMPLETED`로 종료합니다. 실제 소유 관계를 기준으로 처리하며, 기존 멤버·평가·소유자 이력을 삭제하거나 다른 강사에게 이전하지 않습니다. 생성과 탈퇴는 소유자 사용자 행 잠금으로 직렬화합니다.
 - 강의실은 한 명의 `INSTRUCTOR`가 소유하며 `ACTIVE | COMPLETED` 상태를 가집니다. `COMPLETED`는 명시적 전환이고 날짜 경과로 자동 전환하지 않습니다.
 - `weekCount`와 `currentWeek`은 저장하지 않고 날짜에서 계산합니다. `currentWeek`의 날짜 기준은 `Asia/Seoul`입니다.
 - 초대 코드는 대문자·숫자의 `XXXX-XXXX` 형식이며 재발급하면 기존 코드는 즉시 무효화됩니다.
@@ -343,10 +357,40 @@ MVP는 세션 단일 `pageStatus`를 유지하고 페이지 이동 시 초기화
 9. AI 결과와 그 근거가 된 퀴즈/진단 기록을 연결해 재현 가능하게 보존합니다.
 10. 강의실 소유권 위반은 `CLASSROOM_NOT_FOUND`로 숨기고, 강사 전용 행위에 대한 역할 부족은 `ACCESS_DENIED`로 처리합니다.
 11. 강의실 진도율은 주차 상태와 관계없이 연결된 모든 고유 READY 자료의 사용자×자료 설명 완료 이력을 합산하며, 동일 자료가 여러 주차에 연결돼도 한 번만 계산합니다.
-12. 자료 연결 해제·강의실 멤버십 제거 후 다른 소유권·강의실 연결 접근 경로가 없으면 신규 접근·추가 학습 턴·새 퀴즈 채점과 보호된 제출 결과 재응답을 차단하고 기존 사용자 학습 기록은 보존합니다. 퀴즈 소유권만으로 현재 자료 이용 권한을 대신하지 않습니다. 제출 준비·채점 직전·저장·재응답과 평가/진단 후속 처리에 같은 정책을 적용하며, 접근 거절은 `MATERIAL_NOT_FOUND`(404)입니다. 저장 전에 회수가 먼저 커밋되면 결과·세션 진행·평가·메모리 후보·진단을 저장하지 않습니다. 저장이 먼저 커밋됐으면 기록은 보존하되 다음 권한 검사에서 후속 처리·응답을 차단합니다. 저장과 접근 근거 삭제의 순서 및 응답 승인 경계는 DEC-042를 따릅니다. 주차 상태 변경은 접근권에 영향을 주지 않습니다.
+12. 자료 연결 해제·강의실 멤버십 제거 후 다른 소유권·강의실 연결 접근 경로가 없으면 신규 접근·추가 학습 턴·새 퀴즈 채점과 보호된 제출 결과 재응답을 차단하고 기존 사용자 학습 기록은 보존합니다. 퀴즈 소유권만으로 현재 자료 이용 권한을 대신하지 않습니다. 제출 준비·채점 직전·저장·재응답과 평가/진단 후속 처리에 같은 정책을 적용하며, 접근 거절은 `MATERIAL_NOT_FOUND`(404)입니다. 저장 전에 회수가 먼저 커밋되면 결과·세션 진행·평가·메모리 후보·진단을 저장하지 않습니다. 저장이 먼저 커밋됐으면 기록은 보존하되 다음 권한 검사에서 후속 처리·응답을 차단합니다. 저장과 접근 근거 삭제의 순서 및 응답 승인 경계는 DEC-044를 따릅니다. 주차 상태 변경은 접근권에 영향을 주지 않습니다.
 13. 시험의 DRAFT 저장은 편집 중 불완전 상태를 허용하고 공개 시점에만 전체 불변식을 검증합니다.
 14. 시험의 재응시는 전부 보존하고 최신 시도를 대표값으로 사용하며, 같은 제출 재시도와 새 attempt는 requestId로 구분합니다.
 15. 시험 AI 채점 실패를 오답으로 기록하지 않습니다. 미채점 결과는 null로 유지하고 미응답만 결정적 0점으로 처리합니다.
 16. 시험 응시 시작은 시험·사용자별 미소비 기록 하나로 멱등 처리하고, 성공한 제출만 같은 트랜잭션에서 이를 소비합니다.
 17. 시험 임시 답안은 시험·사용자당 한 행과 버전 조건부 갱신으로 보호하고, 미소비 응시 시작 기록이 있는 `allowRetake=true` 재응시에는 새 임시저장을 허용합니다.
 
+
+### Durable mail delivery (#473)
+
+READY -> CLAIMED -> SENDING -> SENT uses a DB lock and fencing token; provider calls hold no DB
+transaction. Expired pre-send claims recover; uncertain sends become UNKNOWN and cannot auto-resend.
+Definite SES 429 rejection permits bounded RETRY. Caller rollback removes sendable payload while
+keeping metadata audit. Terminal/expired payloads are cleared. See [mail outbox](mail-outbox.md).
+Expiry/lease cleanup is independent of READY dispatch, including while mail is disabled.
+Before sending, a migration-created singleton lock serializes durable quota reservations across
+workers: five units per recipient in the rolling hour and 500 global units per KST day.
+Every new retry claim consumes one unit; repeated reservation of the same claim is idempotent.
+Created-at ordering and delivery IDs never reset this budget; abandoned reservations remain counted.
+
+
+### Deletion intent lifecycle (#477)
+
+Logical deletion and per-asset tombstones commit together. Ordinary owner-requested original PDF/render deletion records the approved 30-day retainUntil while cleanup remains disabled/POLICY_PENDING; withdrawal and legal/consent exceptions keep their own unresolved periods. Explicitly enabled physical cleanup uses READY/LEASED/DONE, bounded RETRY/FAILED and active external-reference holds. Account tombstones retain identity fingerprints without raw email. Restore epochs invalidate old worker generations without shortening retention. See [deletion journal](deletion-journal.md), [ordinary 30-day scope](general-file-retention.md).
+
+
+### Age input and pending intake (#478 foundation)
+
+Signup captures DOB after KST future-date validation. Legacy DOB stays null/UNKNOWN. The approved KST year difference ≥15 requires no guardian; ≤14 or missing DOB remains blocked by UNKNOWN/MANUAL_PENDING after email checks. Classification does not change stored verification evidence. Stream/completion/response checks use a fresh scalar projection; normal and cancelled-partial turn persistence applies the same rule under the existing account current-read lock before AI result writes. V58 LEGACY_EXEMPT is a separate access exception, not verification evidence. BirthdateCorrectionRequest stores one pending intake per user; submission cannot mutate User DOB, and withdrawal erases requested DOB. No guardian approval or production cohort mutation is added. [Current policy and correction intake](birthdate-policy-and-correction.md), [business boundary](business-eligibility-gate.md).
+
+### Committed authorization revocation (#479)
+
+Authentication reads a role/status scalar from the User primary key on every request, so another instance's committed revocation applies to the next request. Session SSE packets and heartbeats recheck current account/material access and cancel upstream when denied. Completed and user-cancelled turn persistence lock current account/material grants; final POST checks use a fresh transaction. Revocation after commit suppresses the protected response while retaining completed history and request deduplication. Already approved downstream work and HTTP serialization/transmission are separate boundaries. [API contract](api-spec.md), [DEC-044](decisions.md).
+
+Guardian web/SMS intake (#491) stores AWAITING_CONSENT -> SENDING -> PHONE_PENDING -> VERIFYING -> PHONE_CONFIRMED separately from User eligibility. Provider failures, code mismatch, dispute and uncertain interrupted calls become REVIEW_REQUIRED. User-row locks and attempt nonce checks fence late completions; withdrawal atomically cancels links and clears phone identifiers. Phone confirmation is not guardian relationship approval. [Lifecycle and scope](guardian-web-sms-intake.md).
+
+보호자 팀 검토(#526)는 웹 자기신고 DECLARED, 담당자가 확인한 명시적 회신 REVIEW_PENDING, 관계 검토 완료 APPROVED를 구분한다. User의 TEAM_APPROVED는 현재 정책 digest·유효기간·필수 SERVICE 동의가 필요하며 선택 EXTERNAL_AI와 별개다. 철회·재승인 시 세대가 증가하고 이전 AI/SSE 결과는 저장·출력하지 않는다. 기존 SMS 소유 확인을 승인으로 바꾸지 않는다. [팀 검토 상태·개인정보 정리·마이그레이션](guardian-team-review.md).

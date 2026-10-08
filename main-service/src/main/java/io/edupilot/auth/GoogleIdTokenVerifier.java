@@ -1,6 +1,7 @@
 package io.edupilot.auth;
 
 import java.time.Duration;
+import java.time.Clock;
 import java.util.Set;
 
 import org.slf4j.Logger;
@@ -28,14 +29,20 @@ public class GoogleIdTokenVerifier {
 
 	private final GoogleOAuthProperties properties;
 	private final RestClient restClient;
+	private final Clock clock;
 
 	@Autowired
-	public GoogleIdTokenVerifier(GoogleOAuthProperties properties) {
-		this(properties, TOKEN_INFO_BASE_URL);
+	public GoogleIdTokenVerifier(GoogleOAuthProperties properties, Clock clock) {
+		this(properties, TOKEN_INFO_BASE_URL, clock);
 	}
 
 	GoogleIdTokenVerifier(GoogleOAuthProperties properties, String baseUrl) {
+		this(properties, baseUrl, Clock.systemUTC());
+	}
+
+	GoogleIdTokenVerifier(GoogleOAuthProperties properties, String baseUrl, Clock clock) {
 		this.properties = properties;
+		this.clock = clock;
 		SimpleClientHttpRequestFactory requestFactory =
 			new SimpleClientHttpRequestFactory();
 		requestFactory.setConnectTimeout(TIMEOUT);
@@ -66,6 +73,7 @@ public class GoogleIdTokenVerifier {
 		}
 
 		if (tokenInfo == null
+			|| tokenInfo.exp() == null || tokenInfo.exp() <= clock.instant().getEpochSecond()
 			|| !properties.clientId().equals(tokenInfo.aud())
 			|| !ALLOWED_ISSUERS.contains(tokenInfo.iss())
 			|| !"true".equals(tokenInfo.email_verified())
@@ -92,7 +100,8 @@ public class GoogleIdTokenVerifier {
 		String name,
 		String aud,
 		String iss,
-		String email_verified
+		String email_verified,
+		Long exp
 	) {
 	}
 }

@@ -2,6 +2,9 @@ package io.edupilot.admin;
 
 import java.time.Clock;
 import java.util.Locale;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.TreeSet;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -15,14 +18,17 @@ import io.edupilot.admin.dto.AdminUserDetailResponse;
 import io.edupilot.admin.dto.AdminUserListResponse;
 import io.edupilot.admin.dto.AdminUserResponse;
 import io.edupilot.auth.RefreshTokenService;
-import io.edupilot.auth.UserAccessGuard;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.user.AuthProvider;
 import io.edupilot.user.User;
+import io.edupilot.user.UserCurrentStateRefresh;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
 import io.edupilot.user.UserStatus;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceContext;
 
 @Service
 public class AdminUserService {
@@ -32,22 +38,20 @@ public class AdminUserService {
 	private final PasswordEncoder passwordEncoder;
 	private final RefreshTokenService refreshTokenService;
 	private final TemporaryPasswordGenerator temporaryPasswordGenerator;
-	private final UserAccessGuard userAccessGuard;
 	private final Clock clock;
+	@PersistenceContext private EntityManager entityManager;
 
 	public AdminUserService(
 		UserRepository userRepository,
 		PasswordEncoder passwordEncoder,
 		RefreshTokenService refreshTokenService,
 		TemporaryPasswordGenerator temporaryPasswordGenerator,
-		UserAccessGuard userAccessGuard,
 		Clock clock
 	) {
 		this.userRepository = userRepository;
 		this.passwordEncoder = passwordEncoder;
 		this.refreshTokenService = refreshTokenService;
 		this.temporaryPasswordGenerator = temporaryPasswordGenerator;
-		this.userAccessGuard = userAccessGuard;
 		this.clock = clock;
 	}
 
@@ -117,15 +121,14 @@ public class AdminUserService {
 		if (actorUserId.equals(targetUserId)) {
 			throw new BusinessException(ErrorCode.ADMIN_SELF_MODIFICATION);
 		}
-		var activeAdmins = userRepository.findActiveAdminsForUpdate();
-		User target = lockedTarget(targetUserId);
+		var accounts = lockAdminMutation(actorUserId, targetUserId);
+		User target = accounts.target();
 		if (!target.isActive()) {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}
-		protectLastAdmin(target, activeAdmins.size());
+		protectLastAdmin(target, accounts.lockedActiveAdminCount());
 		target.suspend(reason.trim(), actorUserId, clock.instant());
 		refreshTokenService.revokeAll(targetUserId);
-		userAccessGuard.invalidateAfterCommit(targetUserId);
 		return AdminUserDetailResponse.from(target);
 	}
 
@@ -136,7 +139,6 @@ public class AdminUserService {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}
 		target.reinstate();
-		userAccessGuard.invalidateAfterCommit(targetUserId);
 		return AdminUserDetailResponse.from(target);
 	}
 
@@ -145,8 +147,8 @@ public class AdminUserService {
 		if (actorUserId.equals(targetUserId) && role != UserRole.ADMIN) {
 			throw new BusinessException(ErrorCode.ADMIN_SELF_MODIFICATION);
 		}
-		var activeAdmins = userRepository.findActiveAdminsForUpdate();
-		User target = lockedTarget(targetUserId);
+		var accounts = lockAdminMutation(actorUserId, targetUserId);
+		User target = accounts.target();
 		if (target.getStatus() == UserStatus.DELETED) {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}
@@ -155,11 +157,10 @@ public class AdminUserService {
 			return new RoleChangeResult(before, AdminUserDetailResponse.from(target));
 		}
 		if (role != UserRole.ADMIN && target.isActive()) {
-			protectLastAdmin(target, activeAdmins.size());
+			protectLastAdmin(target, accounts.lockedActiveAdminCount());
 		}
 		target.changeRole(role);
 		refreshTokenService.revokeAll(targetUserId);
-		userAccessGuard.invalidateAfterCommit(targetUserId);
 		return new RoleChangeResult(before, AdminUserDetailResponse.from(target));
 	}
 
@@ -168,11 +169,36 @@ public class AdminUserService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 	}
 
-	private void protectLastAdmin(User target, int activeAdminCount) {
-		if (target.getRole() == UserRole.ADMIN && activeAdminCount <= 1) {
+	private LockedAdminMutation lockAdminMutation(Long actorUserId, Long targetUserId) {
+		var accounts = new ArrayList<User>();
+		// Match TEAM review and consent/report fences: lock existing User IDs in numeric order.
+		for (Long id : new TreeSet<>(List.of(actorUserId, targetUserId))) {
+			userRepository.findByIdForUpdate(id).ifPresent(account -> {
+				// An existing caller transaction may contain a stale managed entity.
+				UserCurrentStateRefresh.refreshLocked(entityManager, account, LockModeType.PESSIMISTIC_WRITE);
+				accounts.add(account);
+			});
+		}
+		User actor = accounts.stream().filter(account -> account.getId().equals(actorUserId)).findFirst()
+			.orElseThrow(() -> new BusinessException(ErrorCode.ACCESS_DENIED));
+		if (actor.getRole() != UserRole.ADMIN || !actor.isActive()) {
+			throw new BusinessException(ErrorCode.ACCESS_DENIED);
+		}
+		User target = accounts.stream().filter(account -> account.getId().equals(targetUserId)).findFirst()
+			.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+		// Self removal is rejected above. A different fresh, locked actor remains ACTIVE ADMIN
+		// when the target is removed, so this locked count is a sufficient lower bound.
+		long lockedActiveAdmins = accounts.stream().filter(account -> account.getRole() == UserRole.ADMIN && account.isActive()).count();
+		return new LockedAdminMutation(target, lockedActiveAdmins);
+	}
+
+	private void protectLastAdmin(User target, long lockedActiveAdminCount) {
+		if (target.getRole() == UserRole.ADMIN && lockedActiveAdminCount <= 1) {
 			throw new BusinessException(ErrorCode.LAST_ADMIN_PROTECTED);
 		}
 	}
+
+	private record LockedAdminMutation(User target, long lockedActiveAdminCount) { }
 
 	public record RoleChangeResult(UserRole before, AdminUserDetailResponse user) {
 	}

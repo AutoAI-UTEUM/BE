@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -79,6 +80,33 @@ class TurnPersistenceServiceTest {
 	private DiagnosisService diagnosisService;
 	@Mock
 	private ConversationSummaryDispatcher summaryDispatcher;
+	@Mock private io.edupilot.material.MaterialAccessService materialAccessService;
+	private jakarta.persistence.EntityManager entityManager;
+
+	@BeforeEach
+	void authorizeAccount() {
+		entityManager = io.edupilot.GuardianConsentFenceTestSupport.lockedUserEntities();
+		org.mockito.Mockito.lenient().when(userRepository.findByIdForBusinessAccess(1L)).thenReturn(Optional.of(
+			io.edupilot.VerifiedTestUsers.legacyVerified(io.edupilot.user.User.create("synthetic@example.test", "hash", "Synthetic user"))));
+	}
+
+	@Test
+	void compatibilityConstructorCannotPersistTeamApprovedContentWithoutTheCurrentPolicy() {
+		io.edupilot.user.User child = io.edupilot.user.User.create("synthetic-child@example.test", "!synthetic", "합성 학습자");
+		child.recordSignupDateOfBirth(java.time.LocalDate.of(2014, 1, 1));
+		child.verifyEmail(NOW.minusSeconds(60));
+		child.recordGuardianTeamApproval(NOW.plusSeconds(3600), true);
+		child.recordGuardianTeamPolicyDigest("c".repeat(64));
+		when(userRepository.findByIdForBusinessAccess(1L)).thenReturn(Optional.of(child));
+
+		assertThatThrownBy(() -> service().persistCancelled(1L, io.edupilot.user.UserRole.LEARNER,
+			child.getGuardianConsentEpoch(), 100L, "request-1", "synthetic-turn", "합성 응답"))
+			.isInstanceOfSatisfying(BusinessException.class,
+				failure -> assertThat(failure.errorCode()).isEqualTo(ErrorCode.AGE_VERIFICATION_REQUIRED));
+
+		verify(entityManager).refresh(child, jakarta.persistence.LockModeType.PESSIMISTIC_READ);
+		verifyNoInteractions(sessionRepository, messageRepository, candidateRepository, summaryDispatcher);
+	}
 
 	@Test
 	void discardsAiResultWhenSessionCompletedDuringCall() {
@@ -91,6 +119,7 @@ class TurnPersistenceServiceTest {
 
 		assertThatThrownBy(() -> service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
@@ -144,6 +173,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service().persistCancelled(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			"turn-partial",
@@ -197,6 +227,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.USER_QUESTION,
@@ -246,6 +277,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.NOTE_REQUESTED,
@@ -282,6 +314,7 @@ class TurnPersistenceServiceTest {
 
 		assertThatThrownBy(() -> service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.USER_QUESTION,
@@ -348,6 +381,7 @@ class TurnPersistenceServiceTest {
 			io.edupilot.ai.dto.TurnResponse variant = variants.get(index);
 			assertThatThrownBy(() -> service().persist(
 				1L,
+				io.edupilot.user.UserRole.LEARNER,
 				100L,
 				"request-1",
 				TurnEventType.USER_QUESTION,
@@ -385,6 +419,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service(policy).persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
@@ -435,6 +470,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service(policy).persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
@@ -475,6 +511,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service(policy).persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
@@ -519,6 +556,7 @@ class TurnPersistenceServiceTest {
 		try {
 			persisted = service(policy).persist(
 				1L,
+				io.edupilot.user.UserRole.LEARNER,
 				100L,
 				"request-1",
 				TurnEventType.EXPLAIN_CURRENT_PAGE,
@@ -571,6 +609,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service(policy).persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.USER_QUESTION,
@@ -611,6 +650,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.USER_QUESTION,
@@ -646,6 +686,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.USER_QUESTION,
@@ -684,7 +725,8 @@ class TurnPersistenceServiceTest {
 		PersistedTurn persisted = qaService(new QaQuizProposalSuppression(
 			new QaQuizProposalProperties(true, 2, 5)
 		)).persist(
-			1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+			1L,
+			io.edupilot.user.UserRole.LEARNER, 100L, "request-1", TurnEventType.USER_QUESTION,
 			null, 501L, false,
 			responseWithUiActions(
 				Map.of("qaThread", Map.of("mode", "START_NEW")),
@@ -715,7 +757,8 @@ class TurnPersistenceServiceTest {
 		PersistedTurn persisted = qaService(new QaQuizProposalSuppression(
 			new QaQuizProposalProperties(true, 2, 5)
 		)).persist(
-			1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+			1L,
+			io.edupilot.user.UserRole.LEARNER, 100L, "request-1", TurnEventType.USER_QUESTION,
 			null, 501L, false,
 			responseWithUiActions(
 				Map.of(
@@ -765,7 +808,8 @@ class TurnPersistenceServiceTest {
 				persisted = qaService(new QaQuizProposalSuppression(
 					new QaQuizProposalProperties(true, 2, 5)
 				)).persist(
-					1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+					1L,
+					io.edupilot.user.UserRole.LEARNER, 100L, "request-1", TurnEventType.USER_QUESTION,
 					null, 501L, false,
 					responseWithUiActions(
 						Map.of("qaThread", Map.of("mode", "START_NEW")),
@@ -826,7 +870,8 @@ class TurnPersistenceServiceTest {
 		PersistedTurn suppressed;
 		try {
 			suppressed = qaService(suppression).persist(
-				1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+				1L,
+				io.edupilot.user.UserRole.LEARNER, 100L, "request-1", TurnEventType.USER_QUESTION,
 				null, 501L, false, response
 			);
 		} finally {
@@ -856,7 +901,8 @@ class TurnPersistenceServiceTest {
 			invocation.getArgument(0)
 		);
 		assertThat(service().persist(
-			1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+			1L,
+			io.edupilot.user.UserRole.LEARNER, 100L, "request-1", TurnEventType.USER_QUESTION,
 			null, 501L, false, response
 		).uiActions()).isEmpty();
 	}
@@ -871,7 +917,8 @@ class TurnPersistenceServiceTest {
 		assertThat(qaService(new QaQuizProposalSuppression(
 			new QaQuizProposalProperties(true, 2, 5)
 		)).persist(
-			1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+			1L,
+			io.edupilot.user.UserRole.LEARNER, 100L, "request-1", TurnEventType.USER_QUESTION,
 			null, 501L, false,
 			responseWithUiActions(
 				Map.of("qaThread", Map.of("mode", "START_NEW")),
@@ -897,7 +944,8 @@ class TurnPersistenceServiceTest {
 		assertThat(qaService(new QaQuizProposalSuppression(
 			new QaQuizProposalProperties(true, 2, 5)
 		)).persist(
-			1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+			1L,
+			io.edupilot.user.UserRole.LEARNER, 100L, "request-1", TurnEventType.USER_QUESTION,
 			null, 501L, false, directNote
 		).uiActions()).isEmpty();
 	}
@@ -914,7 +962,8 @@ class TurnPersistenceServiceTest {
 		logger.addAppender(appender);
 		try {
 			assertThat(service().persist(
-				1L, 100L, "request-1", TurnEventType.USER_QUESTION,
+				1L,
+				io.edupilot.user.UserRole.LEARNER, 100L, "request-1", TurnEventType.USER_QUESTION,
 				null, 501L, false,
 				responseWithUiActions(
 					Map.of("qaThread", Map.of("mode", "START_NEW")),
@@ -954,6 +1003,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.USER_QUESTION,
@@ -997,6 +1047,7 @@ class TurnPersistenceServiceTest {
 		try {
 			persisted = service().persist(
 				1L,
+				io.edupilot.user.UserRole.LEARNER,
 				100L,
 				"request-1",
 				TurnEventType.USER_QUESTION,
@@ -1045,6 +1096,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
@@ -1078,6 +1130,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
@@ -1106,6 +1159,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
@@ -1130,6 +1184,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
@@ -1172,6 +1227,7 @@ class TurnPersistenceServiceTest {
 
 		service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.USER_QUESTION,
@@ -1211,6 +1267,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.DIAGNOSIS_ANSWER_SUBMITTED,
@@ -1275,6 +1332,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.DIAGNOSIS_ANSWER_SUBMITTED,
@@ -1320,6 +1378,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.QUIZ_TYPE_SELECTED,
@@ -1371,6 +1430,7 @@ class TurnPersistenceServiceTest {
 
 		service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
@@ -1426,6 +1486,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
@@ -1508,6 +1569,7 @@ class TurnPersistenceServiceTest {
 
 		PersistedTurn persisted = service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
@@ -1523,6 +1585,7 @@ class TurnPersistenceServiceTest {
 	private void assertMemoryWriteRejected(Map<String, Object> memoryWrite) {
 		assertThatThrownBy(() -> service().persist(
 			1L,
+			io.edupilot.user.UserRole.LEARNER,
 			100L,
 			"request-1",
 			TurnEventType.EXPLAIN_CURRENT_PAGE,
@@ -1765,7 +1828,9 @@ class TurnPersistenceServiceTest {
 			summaryDispatcher,
 			Clock.fixed(NOW, ZoneOffset.UTC),
 			properties,
-			suppression
+			suppression,
+			materialAccessService,
+			entityManager
 		);
 	}
 }

@@ -11,12 +11,16 @@
 
 ## 1. 테이블 목록
 
+V60은 DOB 관리자 수정 요청 접수 테이블만 생성하며 기존 users DOB/cohort/이메일·연령 증거를 backfill하지 않는다. 요청과 탈퇴는 User 행을 먼저 잠그고 탈퇴 트랜잭션에서 요청 DOB 제거를 함께 반영한다. metadata 보존기간·관리자 정정 실행은 미정이다. KST 현재 연도 기준은 읽을 때 계산하며 DB 인증 상태를 변경하지 않는다. [정책·검증 경계](birthdate-policy-and-correction.md).
+
 | 테이블 | 핵심 컬럼 | 주요 제약/인덱스 |
 | --- | --- | --- |
 | `users` | id, email, password_hash, auth_provider, google_sub(nullable), name, affiliation, avatar_key, learning_email_opt_in, 약관 버전·동의 시각, notification preferences, ai_answer_style, role, status, last_active_at(nullable), suspended_at/reason/by(nullable), timestamps | `UK(email)`, `UK(google_sub)`, `IDX(status)`, `IDX(last_active_at)`, role·status·ai_answer_style CHECK |
+| `birthdate_correction_requests` (V60) | id, user_id, requested_date_of_birth(nullable on withdrawal), state, requested_at(UTC DATETIME(6)) | `UK(user_id)`, `FK(users)`, PENDING/DOB 필수·WITHDRAWN/DOB NULL CHECK, `IDX(state,requested_at,id)`; 승인 상태 없음 |
 | `auth_sessions` | id, user_id, last_activity_at, idle_expires_at, absolute_expires_at, revoked_at(nullable), timestamps | `FK(user_id)`, `IDX(user_id,revoked_at)`, 만료 순서 CHECK |
 | `refresh_tokens` | id, user_id, session_id(nullable), token_hash, expires_at, revoked_at, created_at | `FK(user_id)`, `FK(session_id)`, `UK(token_hash)`, `IDX(user_id)`, `IDX(session_id,revoked_at)` |
 | `password_reset_tokens` | id, user_id, token_hash(SHA-256 hex), expires_at, used_at(nullable), requested_ip, created_at | `FK(user_id)`, `UK(token_hash)`, `IDX(user_id,created_at)`; 원문 미저장 |
+| `email_verification_tokens` | id, user_id, token_hash(SHA-256 hex), email_hash(SHA-256 hex), expires_at, used_at(nullable), created_at | `FK(user_id) ON DELETE CASCADE`, `UK(token_hash)`, `IDX(user_id,created_at)`, `IDX(expires_at)`; 원문 미저장 |
 | `policy_documents` | id, type(TERMS/PRIVACY), version, title, content, summary(nullable), requires_consent, effective_at, created_by, created_at | `UK(type,version)`, `IDX(type,effective_at,id)`, type CHECK; 내용 불변, 현재 버전은 시행 시각 기준 |
 | `policy_consents` | id, user_id, policy_type, policy_version, agreed_at, ip, user_agent(nullable) | `FK(user_id)`, `UK(user_id,policy_type,policy_version)`, `IDX(user_id,policy_type)`; 이력 삭제·수정 없음 |
 | `learning_materials` | id, owner_id, title, storage_key, page_count, processing_status, failure_reason(nullable), failure_trace_id(nullable), captions_completed_at(nullable), caption_failure_reason(nullable), xai_file_id(nullable), xai_file_upload_attempted_at(nullable), status, timestamps | `FK(owner_id)`, `UK(storage_key)`, `IDX(owner_id,status)`, `IDX(status,processing_status,xai_file_id,xai_file_upload_attempted_at,id)`, 상태·추출/캡션 실패 사유·page_count CHECK |
@@ -282,3 +286,41 @@ MySQL CHECK 제약 지원 버전을 확인하고 DB 제약과 애플리케이션
 
 - 보존 레코드·storage 파일의 물리 삭제·아카이빙 배치 정책 (DEC-028·DEC-011의 "이후 개선안" — 운영 전환 전 확정)
 - LearnerMemory 항목별 변경 이력 테이블 (DEC-012 이후 개선안 — 필요 시)
+
+### Durable mail outbox (#473)
+
+`V54__durable_email_outbox.sql` adds `email_outbox(delivery_id PK/FK ON DELETE CASCADE,
+encrypted_payload LONGBLOB nullable, status, lease_token, lease_until, next_attempt_at,
+expires_at, created_at, attempt_count, last_error_code)`, due/lease/expiry indexes and status/attempt checks.
+`email_quota_lock(id=1)` serializes dispatch quota reservations. `email_send_reservations`
+stores `(delivery_id FK ON DELETE CASCADE, claim_token, reserved_at, units>0)` with a unique
+delivery/claim pair and time indexes. New claims reserve one unit before calling the provider;
+legacy attempted rows bootstrap their known attempt count at sent_at, or conservatively at migration time.
+Quota queries use reservation time across every delivery ID. Missing singleton state fails closed.
+Metadata stays in `email_deliveries`; terminal payloads are cleared. Legacy QUEUED rows without
+payload become FAILED/LEGACY_PAYLOAD_UNAVAILABLE. V53 must precede this migration in the release.
+Encryption configuration, recovery boundaries and rollback limitations: [mail outbox](mail-outbox.md).
+
+### Email ownership verification (#471)
+
+`V55__email_ownership_verification.sql` adds `users.email_verification_state VARCHAR(20) NOT NULL DEFAULT 'UNKNOWN'` and nullable `email_verified_at DATETIME(6)`. State and evidence checks require VERIFIED with a timestamp, or UNKNOWN/PENDING with no timestamp. Existing users stay UNKNOWN; no email confirmation is inferred from login history or previous signup.
+
+The migration creates `email_verification_tokens` with SHA-256 token/current-email binding, single-use metadata, unique token hash and user/expiry indexes. It neither deletes existing users nor backfills approval. V53 (#474) and V54 (#473) precede V55; the integrated candidate continues through V56–V59. V58 retains access for migration-existing LEGACY_EXEMPT accounts without changing UNKNOWN/PENDING evidence, while later NEW_SIGNUP accounts require email verification. Email expiry cleanup deletes only expired token rows. See [email verification](email-verification.md) and [legacy access](legacy-account-access.md) for the current access boundary and release checks.
+
+
+### Durable deletion journal (#477)
+
+V56 adds deletion_intents and a seeded deletion_journal_lock singleton. Unique SHA-256 identity, typed status/binding/lease checks and a polling index support idempotent recording and restart recovery. No cascading FK removes tombstones. V53, V54 and V55 must precede V56. Ordinary owner-requested original PDF/render deletion now records the approved 30-day deadline in the existing retain_until column; no new schema/backfill is required. Exception periods and physical execution selection stay unset; deletion is disabled by default. See [deletion journal](deletion-journal.md), [ordinary 30-day scope](general-file-retention.md) for the restore boundary and unimplemented operational export storage.
+
+
+### Birthdate and guardian pending foundation (#478)
+
+V57 adds nullable users.date_of_birth and age_verification_state default UNKNOWN, restricted to UNKNOWN/MANUAL_PENDING. Existing rows are not approved/backfilled. guardian_verification_requests stores per-user PENDING/CANCELLED intake metadata with unique user binding and FK. No proof/contact or approval evidence is stored; retention and approval schema remain pending. V53 through V56 precede V57. [Foundation](birthdate-guardian-foundation.md).
+
+V58 adds users.access_cohort with LEGACY_EXEMPT for rows present at migration and NEW_SIGNUP for later rows and the database/JPA default. A CHECK restricts values. It does not update birthdate, age/guardian state or email evidence. [Legacy access policy](legacy-account-access.md).
+
+V59 adds guardian_web_requests with hashed single-use link binding, pinned consent version/digest and self-declaration timestamp, keyed phone fingerprint, provider attempt fencing, code counts, phone-control timestamp and exception reason. FK, unique link hash, lifecycle/evidence CHECKs and account/recovery indexes apply. It stores no raw phone/OTP/token and grants no account approval. Physical evidence retention remains undecided. [Guardian web/SMS intake](guardian-web-sms-intake.md).
+
+### 보호자 팀 검토 (#526)
+
+V61은 사용자당 현재 guardian_team_requests와 세대별 guardian_team_events/guardian_team_operations를 추가한다. V62는 users.guardian_approved_until, guardian_ai_consent_allowed, guardian_consent_epoch, guardian_approval_policy_digest와 승인 증거 제약을 추가한다. V63은 목적별 guardian_team_mail_bindings FK와 메일 타입 CHECK를 확장한다. 기존 DOB·이메일 증거·cohort를 보존하며 기존 계정을 승인하지 않는다. [스키마·개인정보 기한·rollback 경계](guardian-team-review.md).

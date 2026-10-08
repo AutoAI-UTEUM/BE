@@ -11,13 +11,16 @@ import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.guardian.team.GuardianTeamProperties;
 import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.memory.LearnerMemoryCandidate;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
 import io.edupilot.memory.MemoryEvidenceRef;
@@ -27,6 +30,13 @@ import io.edupilot.session.dto.MessageResponse;
 import io.edupilot.session.dto.NoteDraft;
 import io.edupilot.session.dto.TurnStateResponse;
 import io.edupilot.user.UserRepository;
+import io.edupilot.user.User;
+import io.edupilot.user.UserBusinessAccessState;
+import io.edupilot.user.UserCurrentStateRefresh;
+import io.edupilot.user.UserRole;
+import io.edupilot.user.UserStatus;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 
 @Service
 public class TurnPersistenceService {
@@ -50,6 +60,11 @@ public class TurnPersistenceService {
 	private final Clock clock;
 	private final QaQuizProposalProperties qaQuizProposalProperties;
 	private final QaQuizProposalSuppression qaQuizProposalSuppression;
+	private final MaterialAccessService materialAccessService;
+	private final EntityManager entityManager;
+	// 기존 직접 생성과 좁은 테스트 구성은 정책이 없으면 팀 승인을 허용하지 않는다.
+	@Autowired(required = false)
+	private GuardianTeamProperties guardianTeamPolicy;
 
 	public TurnPersistenceService(
 		LearningSessionRepository sessionRepository,
@@ -67,7 +82,9 @@ public class TurnPersistenceService {
 		ConversationSummaryDispatcher summaryDispatcher,
 		Clock clock,
 		QaQuizProposalProperties qaQuizProposalProperties,
-		QaQuizProposalSuppression qaQuizProposalSuppression
+		QaQuizProposalSuppression qaQuizProposalSuppression,
+		MaterialAccessService materialAccessService,
+		EntityManager entityManager
 	) {
 		this.sessionRepository = sessionRepository;
 		this.pageRecordRepository = pageRecordRepository;
@@ -85,11 +102,14 @@ public class TurnPersistenceService {
 		this.clock = clock;
 		this.qaQuizProposalProperties = qaQuizProposalProperties;
 		this.qaQuizProposalSuppression = qaQuizProposalSuppression;
+		this.materialAccessService = materialAccessService;
+		this.entityManager = entityManager;
 	}
 
 	@Transactional
 	public PersistedTurn persist(
 		Long userId,
+		UserRole expectedRole,
 		Long sessionId,
 		String requestId,
 		TurnEventType eventType,
@@ -98,18 +118,26 @@ public class TurnPersistenceService {
 		boolean xaiFileAttached,
 		io.edupilot.ai.dto.TurnResponse aiResponse
 	) {
-		LearningSession session = sessionRepository.findOwnedForUpdate(
-				sessionId,
-				userId
-			)
-			.orElseThrow(() ->
-				new BusinessException(ErrorCode.SESSION_NOT_FOUND));
-		if (session.getStatus() != SessionStatus.ACTIVE) {
-			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
-		}
-		if (!requestId.equals(session.getActiveTurnRequestId())) {
-			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
-		}
+		// 기존 호출은 초기 세대만 저장할 수 있다. 비동기 작업은 캡처한 동의 세대를 전달해야 한다.
+		return persist(userId, expectedRole, 0, sessionId, requestId, eventType, diagnosisId,
+			userMessageId, xaiFileAttached, aiResponse);
+	}
+
+	@Transactional
+	public PersistedTurn persist(
+		Long userId,
+		UserRole expectedRole,
+		long expectedGuardianConsentEpoch,
+		Long sessionId,
+		String requestId,
+		TurnEventType eventType,
+		Long diagnosisId,
+		Long userMessageId,
+		boolean xaiFileAttached,
+		io.edupilot.ai.dto.TurnResponse aiResponse
+	) {
+		LearningSession session = lockAccessibleSession(userId, expectedRole,
+			expectedGuardianConsentEpoch, sessionId, requestId);
 		// Persisted direct-note responses have no content delta by contract.
 		boolean directNote = aiResponse.isDirectNote(eventType.name(), 0);
 		if (eventType == TurnEventType.USER_QUESTION
@@ -270,23 +298,27 @@ public class TurnPersistenceService {
 	@Transactional
 	public PersistedTurn persistCancelled(
 		Long userId,
+		UserRole expectedRole,
 		Long sessionId,
 		String requestId,
 		String turnId,
 		String content
 	) {
-		LearningSession session = sessionRepository.findOwnedForUpdate(
-				sessionId,
-				userId
-			)
-			.orElseThrow(() ->
-				new BusinessException(ErrorCode.SESSION_NOT_FOUND));
-		if (session.getStatus() != SessionStatus.ACTIVE) {
-			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
-		}
-		if (!requestId.equals(session.getActiveTurnRequestId())) {
-			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
-		}
+		return persistCancelled(userId, expectedRole, 0, sessionId, requestId, turnId, content);
+	}
+
+	@Transactional
+	public PersistedTurn persistCancelled(
+		Long userId,
+		UserRole expectedRole,
+		long expectedGuardianConsentEpoch,
+		Long sessionId,
+		String requestId,
+		String turnId,
+		String content
+	) {
+		LearningSession session = lockAccessibleSession(userId, expectedRole,
+			expectedGuardianConsentEpoch, sessionId, requestId);
 
 		ChatMessage message = messageRepository.save(
 			ChatMessage.ai(session, content)
@@ -308,6 +340,42 @@ public class TurnPersistenceService {
 		);
 		summaryDispatcher.dispatchAfterCommit(sessionId);
 		return persisted;
+	}
+
+	private LearningSession lockAccessibleSession(
+		Long userId, UserRole expectedRole, long expectedGuardianConsentEpoch,
+		Long sessionId, String requestId
+	) {
+		User user = userRepository.findByIdForBusinessAccess(userId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID));
+		// Keep the account lock ahead of session/material locks, and force a current read
+		// even when the managed account already carries the same or a stronger lock mode.
+		UserCurrentStateRefresh.refreshLocked(entityManager, user, LockModeType.PESSIMISTIC_READ);
+		if (user.getStatus() == UserStatus.SUSPENDED) {
+			throw new BusinessException(ErrorCode.ACCOUNT_SUSPENDED);
+		}
+		if (!user.isActive() || user.getRole() != expectedRole) {
+			throw new BusinessException(ErrorCode.TOKEN_INVALID);
+		}
+		if (user.getGuardianConsentEpoch() != expectedGuardianConsentEpoch) {
+			throw new BusinessException(ErrorCode.GUARDIAN_CONSENT_CHANGED);
+		}
+		// Apply eligibility under the same current-read account lock, before any AI result writes.
+		boolean policyReady = guardianTeamPolicy != null && guardianTeamPolicy.ready();
+		String expectedPolicyDigest = policyReady ? guardianTeamPolicy.configurationDigest() : null;
+		ErrorCode eligibilityFailure = UserBusinessAccessState.from(user)
+			.aiEligibilityFailure(clock, policyReady, expectedPolicyDigest);
+		if (eligibilityFailure != null) throw new BusinessException(eligibilityFailure);
+		LearningSession session = sessionRepository.findOwnedForUpdate(sessionId, userId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
+		if (session.getStatus() != SessionStatus.ACTIVE) {
+			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
+		}
+		if (!requestId.equals(session.getActiveTurnRequestId())) {
+			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
+		}
+		materialAccessService.requireAccessibleForUpdate(userId, session.getMaterialId());
+		return session;
 	}
 
 	private List<UiAction> applyAllowedAiUiAction(

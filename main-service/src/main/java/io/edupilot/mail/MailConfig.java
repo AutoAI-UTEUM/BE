@@ -12,7 +12,9 @@ import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.retries.StandardRetryStrategy;
 import software.amazon.awssdk.services.sesv2.SesV2Client;
+import software.amazon.awssdk.services.sts.StsClient;
 
 @Configuration(proxyBeanMethods = false)
 public class MailConfig {
@@ -36,9 +38,24 @@ public class MailConfig {
 			.region(Region.of(properties.region()))
 			.credentialsProvider(DefaultCredentialsProvider.create())
 			.httpClientBuilder(UrlConnectionHttpClient.builder())
-			.overrideConfiguration(ClientOverrideConfiguration.builder()
-				.apiCallTimeout(Duration.ofSeconds(10))
-				.build())
+			.overrideConfiguration(singleCallConfiguration())
+			.build();
+	}
+
+	/** Standalone identity probe only; deliberately not a Spring bean. */
+	StsClient identityClient(MailProperties properties) {
+		return StsClient.builder()
+			.region(Region.of(properties.region()))
+			.credentialsProvider(DefaultCredentialsProvider.create())
+			.httpClientBuilder(UrlConnectionHttpClient.builder())
+			.overrideConfiguration(singleCallConfiguration())
+			.build();
+	}
+
+	private ClientOverrideConfiguration singleCallConfiguration() {
+		return ClientOverrideConfiguration.builder()
+			.retryStrategy(StandardRetryStrategy.builder().maxAttempts(1).build())
+			.apiCallTimeout(Duration.ofSeconds(10))
 			.build();
 	}
 }

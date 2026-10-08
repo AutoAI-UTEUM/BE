@@ -57,12 +57,38 @@ class PolicyServiceTest {
 	}
 
 	@Test
-	void mandatorySettingDoesNotBlockSignupWhenNoDocumentRequiresConsent() {
-		PolicyService.SignupSelection selection = service.validateSignup(null);
-		assertThat(selection.termsVersion()).isNull();
-		assertThat(selection.privacyVersion()).isNull();
-		assertThat(selection.agreedAt()).isNull();
+	void mandatorySettingRejectsSignupWhenNoEffectiveDocumentRequiresConsent() {
+		assertError(() -> service.validateSignup(null), ErrorCode.SIGNUP_POLICY_NOT_READY);
+		assertError(() -> service.validateSignup(List.of()), ErrorCode.SIGNUP_POLICY_NOT_READY);
+		assertError(() -> service.validateSignup(choices("1.0", "1.0")),
+			ErrorCode.SIGNUP_POLICY_NOT_READY);
 		verifyNoInteractions(consents);
+	}
+
+	@Test
+	void mandatorySettingRejectsNoticeOnlyDocumentsBeforeValidatingUserChoices() {
+		currentDocuments("0.9", false, "0.9", false);
+		assertError(() -> service.validateSignup(null), ErrorCode.SIGNUP_POLICY_NOT_READY);
+		assertError(() -> service.validateSignup(choices("0.9", "0.9")),
+			ErrorCode.SIGNUP_POLICY_NOT_READY);
+		verifyNoInteractions(consents);
+	}
+
+	@Test
+	void optionalSignupWithRequiredDocumentsStillAllowsOmittedChoicesButValidatesSuppliedChoices() {
+		PolicyService optional = new PolicyService(documents, consents, users,
+			Clock.fixed(NOW, ZoneOffset.UTC), false);
+		currentDocuments("1.0", true, "1.0", true);
+		PolicyService.SignupSelection omitted = optional.validateSignup(null);
+		assertThat(omitted.agreedAt()).isNull();
+		assertThat(optional.validateSignup(List.of())).isEqualTo(omitted);
+		optional.recordSignup(user(), omitted, "192.0.2.1", "test-agent");
+		verifyNoInteractions(consents);
+		assertError(() -> optional.validateSignup(choices("0.9", "1.0")),
+			ErrorCode.POLICY_CONSENT_REQUIRED);
+		assertError(() -> optional.validateSignup(List.of(choice(PolicyType.TERMS, "1.0"))),
+			ErrorCode.POLICY_CONSENT_REQUIRED);
+		assertThat(optional.validateSignup(choices("1.0", "1.0")).agreedAt()).isEqualTo(NOW);
 	}
 
 	@Test

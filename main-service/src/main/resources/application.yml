@@ -43,6 +43,17 @@ springdoc:
     path: /swagger-ui.html
 
 edupilot:
+  deletion:
+    enabled: ${EDUPILOT_DELETION_ENABLED:false}
+    general-files:
+      # Approved owner-requested ordinary original PDF/render retention; never enables the worker.
+      retention-days: 30
+    # Physical cleanup selection and exception periods remain unset; ordinary retention is above.
+    policy-version: ${EDUPILOT_DELETION_POLICY_VERSION:}
+    original-retention-days: ${EDUPILOT_DELETION_ORIGINAL_RETENTION_DAYS:}
+    render-retention-days: ${EDUPILOT_DELETION_RENDER_RETENTION_DAYS:}
+    external-retention-days: ${EDUPILOT_DELETION_EXTERNAL_RETENTION_DAYS:}
+    avatar-retention-days: ${EDUPILOT_DELETION_AVATAR_RETENTION_DAYS:}
   policy:
     signup-consent-required: ${EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED:false}
   mail:
@@ -53,6 +64,17 @@ edupilot:
     reply-to: ${EDUPILOT_MAIL_REPLY_TO:}
     base-url: ${EDUPILOT_MAIL_BASE_URL:https://dev.uteum.com}
     region: ${AWS_REGION:ap-northeast-2}
+    outbox:
+      encryption-key: ${EDUPILOT_MAIL_OUTBOX_ENCRYPTION_KEY:}
+      lease-duration: 2m
+      retry-delay: 30s
+      max-attempts: 3
+      batch-size: 50
+      recovery-delay-ms: 30000
+      dispatch:
+        mode: ${EDUPILOT_MAIL_OUTBOX_DISPATCH_MODE:NORMAL}
+        delivery-ids: ${EDUPILOT_MAIL_OUTBOX_DISPATCH_DELIVERY_IDS:}
+        recipient: ${EDUPILOT_MAIL_OUTBOX_DISPATCH_RECIPIENT:}
   admin:
     infra:
       enabled: ${EDUPILOT_ADMIN_INFRA_ENABLED:false}

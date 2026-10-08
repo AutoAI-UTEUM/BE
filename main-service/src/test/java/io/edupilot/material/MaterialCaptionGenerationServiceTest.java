@@ -59,7 +59,8 @@ class MaterialCaptionGenerationServiceTest {
 			imageRenderer,
 			aiClient,
 			aiUsageService,
-			Clock.fixed(NOW, ZoneOffset.UTC)
+			Clock.fixed(NOW, ZoneOffset.UTC),
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 	}
 

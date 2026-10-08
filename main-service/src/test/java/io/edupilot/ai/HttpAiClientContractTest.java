@@ -741,6 +741,21 @@ class HttpAiClientContractTest {
 	}
 
 	@Test
+	void internalDeleteRoute404CannotBeRecordedAsCompletedCleanup() {
+		server.enqueue(new MockResponse().setResponseCode(404));
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).deleteFile("synthetic-missing"))
+			.isInstanceOf(AiClientException.class);
+		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
+	@Test
+	void deletionRetryDoesNotTreatProviderFailureAsSuccess() {
+		server.enqueue(new MockResponse().setResponseCode(503));
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).deleteFile("synthetic-failure"))
+			.isInstanceOf(AiClientException.class);
+	}
+
+	@Test
 	void extractRejectsNonContiguousPageNumbers() {
 		server.enqueue(jsonResponse(200, """
 			{

@@ -11,12 +11,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.CaptionsRequest;
 import io.edupilot.ai.dto.CaptionsResponse;
 import io.edupilot.aiusage.AiFeature;
 import io.edupilot.aiusage.AiUsageService;
+import io.edupilot.global.error.BusinessException;
 import io.edupilot.material.MaterialCaptionPersistenceService.CaptionSnapshot;
 import io.edupilot.material.MaterialCaptionPersistenceService.PageSnapshot;
 import io.edupilot.material.PageImageRenderer.RenderedPage;
@@ -24,12 +27,15 @@ import io.edupilot.material.PageImageRenderer.RenderedPage;
 @Service
 public class MaterialCaptionGenerationService {
 
+	private final GuardianConsentFence consentFence;
+
 	private static final Logger log = LoggerFactory.getLogger(
 		MaterialCaptionGenerationService.class
 	);
 	private static final int CHUNK_SIZE = 10;
 	private static final String SCHEMA_VERSION = "1.0";
 
+	private final EmailVerificationGate emailVerification;
 	private final MaterialCaptionPersistenceService persistenceService;
 	private final PageImageRenderer imageRenderer;
 	private final AiClient aiClient;
@@ -41,8 +47,12 @@ public class MaterialCaptionGenerationService {
 		PageImageRenderer imageRenderer,
 		AiClient aiClient,
 		AiUsageService aiUsageService,
-		Clock clock
+		Clock clock,
+		EmailVerificationGate emailVerification,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
+		this.emailVerification = emailVerification;
 		this.persistenceService = persistenceService;
 		this.imageRenderer = imageRenderer;
 		this.aiClient = aiClient;
@@ -64,20 +74,24 @@ public class MaterialCaptionGenerationService {
 		}
 		List<CaptionsRequest.Page> chunk = new ArrayList<>(CHUNK_SIZE);
 		CaptionFailureReason permanentFailure = null;
+		GuardianConsentFence.Snapshot consent = null;
 		try {
+			consent = consentFence.capture(snapshot.ownerId());
+			GuardianConsentFence.Snapshot capturedConsent = consent;
+			emailVerification.requireAiVerified(snapshot.ownerId());
 			imageRenderer.render(
 				snapshot.storageKey(),
 				pageNumbers,
 				rendered -> {
 					chunk.add(toRequestPage(rendered, textByPage));
 					if (chunk.size() == CHUNK_SIZE) {
-						processChunk(materialId, snapshot.ownerId(), chunk);
+						processChunk(materialId, snapshot.ownerId(), chunk, capturedConsent);
 						chunk.clear();
 					}
 				}
 			);
 			if (!chunk.isEmpty()) {
-				processChunk(materialId, snapshot.ownerId(), chunk);
+				processChunk(materialId, snapshot.ownerId(), chunk, capturedConsent);
 			}
 		} catch (PageRenderingException exception) {
 			permanentFailure = exception.reason();
@@ -91,10 +105,19 @@ public class MaterialCaptionGenerationService {
 				.addKeyValue("reason", exception.getClass().getSimpleName())
 				.log("Material caption rendering failed");
 		} finally {
-			if (permanentFailure == null) {
-				persistenceService.markCompleted(materialId, clock.instant());
-			} else {
-				persistenceService.markPermanentlyFailed(materialId, permanentFailure, clock.instant());
+			if (consent != null) {
+				CaptionFailureReason failure = permanentFailure;
+				try {
+					consentFence.complete(consent, () -> {
+						if (failure == null) persistenceService.markCompleted(materialId, clock.instant());
+						else persistenceService.markPermanentlyFailed(materialId, failure, clock.instant());
+						return null;
+					});
+				} catch (BusinessException exception) {
+					if (!GuardianConsentFence.isConsentFailure(exception)) throw exception;
+					log.atInfo().addKeyValue("materialId", materialId)
+						.log("Material caption completion discarded after consent changed");
+				}
 			}
 		}
 	}
@@ -113,10 +136,13 @@ public class MaterialCaptionGenerationService {
 	private void processChunk(
 		Long materialId,
 		Long ownerId,
-		List<CaptionsRequest.Page> pages
+		List<CaptionsRequest.Page> pages,
+		GuardianConsentFence.Snapshot consent
 	) {
 		List<CaptionsRequest.Page> requestPages = List.copyOf(pages);
 		try {
+			consentFence.assertCurrent(consent);
+			emailVerification.requireAiVerified(ownerId);
 			CaptionsResponse response = aiClient.captions(
 				new CaptionsRequest(SCHEMA_VERSION, requestPages)
 			);
@@ -132,8 +158,10 @@ public class MaterialCaptionGenerationService {
 					captions.put(caption.pageNumber(), caption.caption());
 				}
 			}
-			persistenceService.applyCaptions(materialId, captions);
+			consentFence.complete(consent, () -> { persistenceService.applyCaptions(materialId, captions); return null; });
 		} catch (RuntimeException exception) {
+			if (exception instanceof BusinessException businessException
+				&& GuardianConsentFence.isConsentFailure(businessException)) throw exception;
 			if (exception instanceof AiClientException) {
 				aiUsageService.record(
 					ownerId,

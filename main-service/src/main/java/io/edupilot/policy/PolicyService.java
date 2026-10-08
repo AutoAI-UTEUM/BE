@@ -127,6 +127,9 @@ public class PolicyService {
 		Instant now = clock.instant();
 		Map<PolicyType, PolicyDocument> required = requiredCurrentByType(now);
 		if (required.isEmpty()) {
+			if (signupConsentRequired) {
+				throw new BusinessException(ErrorCode.SIGNUP_POLICY_NOT_READY);
+			}
 			return new SignupSelection(null, null, null);
 		}
 		if (choices == null || choices.isEmpty()) {

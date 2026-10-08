@@ -3,6 +3,8 @@ package io.edupilot.exam;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -16,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +37,7 @@ import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.quiz.QuizOption;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
@@ -71,18 +75,22 @@ class StudentExamJpaTest {
 	@Autowired private ExamAiGradingService aiGradingService;
 	private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 	@MockitoBean private AiClient aiClient;
+	// These persistence tests use rollback-only fixtures. Committed email eligibility is tested by EmailVerificationApiIntegrationTest.
+	@MockitoBean private io.edupilot.auth.EmailVerificationGate emailVerificationGate;
+	// Only the uncommitted legacy fixture lookup is supplied here; completion uses the real account lock and refresh.
+	@MockitoSpyBean private GuardianConsentFence consentFence;
 
 	private User learner;
 	private Classroom classroom;
 
 	@BeforeEach
 	void setUp() {
-		User instructor = userRepository.save(User.create(
+		User instructor = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"student-exam-instructor@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
-		));
-		learner = userRepository.save(User.create(
+		)));
+		learner = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"student-exam-learner@example.com", "hash", "Learner", UserRole.LEARNER
-		));
+		)));
 		classroom = classroomRepository.save(Classroom.create(
 			instructor,
 			"Student exam classroom",
@@ -95,6 +103,25 @@ class StudentExamJpaTest {
 		memberRepository.save(ClassroomMember.create(
 			classroom, learner, Instant.parse("2026-08-03T00:00:00Z")
 		));
+		doAnswer(call -> {
+			Long userId = call.getArgument(0);
+			assertThat(userId).isEqualTo(learner.getId());
+			assertThat(learner.isLegacyAccessExempt()).isTrue();
+			assertThat(learner.isActive()).isTrue();
+			return new GuardianConsentFence.Snapshot(learner.getId(), learner.getGuardianConsentEpoch());
+		}).when(consentFence).capture(anyLong());
+		doAnswer(call -> {
+			GuardianConsentFence.Snapshot snapshot = call.getArgument(0);
+			assertThat(snapshot.userId()).isEqualTo(learner.getId());
+			assertThat(learner.isLegacyAccessExempt()).isTrue();
+			if (!learner.isActive()) {
+				throw new BusinessException(ErrorCode.USER_INACTIVE);
+			}
+			if (learner.getGuardianConsentEpoch() != snapshot.guardianConsentEpoch()) {
+				throw new BusinessException(ErrorCode.GUARDIAN_CONSENT_CHANGED);
+			}
+			return null;
+		}).when(consentFence).assertCurrent(any(GuardianConsentFence.Snapshot.class));
 	}
 
 	@Test
@@ -421,11 +448,11 @@ class StudentExamJpaTest {
 		)).isTrue();
 		assertThat(persistenceService.applyAiGrading(
 			submitted.submissionId(), firstToken,
-			new ExamAiGradingOutcome(java.util.Map.of(), true)
+			new ExamAiGradingOutcome(java.util.Map.of(), true, new io.edupilot.guardian.GuardianConsentFence.Snapshot(learner.getId(), learner.getGuardianConsentEpoch()))
 		)).isFalse();
 		assertThat(persistenceService.applyAiGrading(
 			submitted.submissionId(), secondToken,
-			new ExamAiGradingOutcome(java.util.Map.of(), true)
+			new ExamAiGradingOutcome(java.util.Map.of(), true, new io.edupilot.guardian.GuardianConsentFence.Snapshot(learner.getId(), learner.getGuardianConsentEpoch()))
 		)).isTrue();
 	}
 

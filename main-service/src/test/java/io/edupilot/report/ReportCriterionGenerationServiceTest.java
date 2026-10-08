@@ -230,7 +230,8 @@ class ReportCriterionGenerationServiceTest {
 			criterionService,
 			aiClient,
 			aiUsageService,
-			executor
+			executor,
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 	}
 

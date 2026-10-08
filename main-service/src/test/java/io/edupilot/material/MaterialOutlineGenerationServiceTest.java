@@ -47,7 +47,8 @@ class MaterialOutlineGenerationServiceTest {
 			renderer,
 			aiClient,
 			aiUsageService,
-			new PageQuizPlanProperties(false, false)
+			new PageQuizPlanProperties(false, false),
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 	}
 
@@ -99,7 +100,9 @@ class MaterialOutlineGenerationServiceTest {
 	void enabledPlanWithBackfillDisabledStillRequestsAllPagesAndStoresDecision() {
 		generationService = new MaterialOutlineGenerationService(
 			persistenceService, renderer, aiClient, aiUsageService,
-			new PageQuizPlanProperties(true, false));
+			new PageQuizPlanProperties(true, false),
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
+		);
 		OutlineSnapshot snapshot = snapshot();
 		OutlineRequest request = new OutlineRequest("1.0", snapshot.xaiFileId(),
 			2, snapshot.pages(), true);
@@ -118,7 +121,9 @@ class MaterialOutlineGenerationServiceTest {
 	void incompletePagesDoNotRequestPlanEvenWhenEnabled() {
 		generationService = new MaterialOutlineGenerationService(
 			persistenceService, renderer, aiClient, aiUsageService,
-			new PageQuizPlanProperties(true, false));
+			new PageQuizPlanProperties(true, false),
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
+		);
 		OutlineSnapshot incomplete = new OutlineSnapshot(1L, 2,
 			"file-outline-phase-five", List.of(new OutlineRequest.Page(1, "첫 페이지")));
 		OutlineRequest request = request(incomplete);
@@ -137,7 +142,9 @@ class MaterialOutlineGenerationServiceTest {
 	void invalidPlanStillStoresReadyOverviewWithoutPlan() {
 		generationService = new MaterialOutlineGenerationService(
 			persistenceService, renderer, aiClient, aiUsageService,
-			new PageQuizPlanProperties(true, false));
+			new PageQuizPlanProperties(true, false),
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
+		);
 		OutlineSnapshot snapshot = snapshot();
 		OutlineRequest request = new OutlineRequest("1.0", snapshot.xaiFileId(),
 			2, snapshot.pages(), true);

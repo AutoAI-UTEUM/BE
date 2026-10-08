@@ -1,0 +1,746 @@
+{
+  "schemaVersion": "operations-evidence-v1",
+  "baselineSha": "28e265397dc52667fd5e7f98f1e782ba2ddafef7",
+  "runtimeBaselineSha": "3343e608fa80dd6bdb5888454ad6fac5b09461ad",
+  "requestReference": "Discord message 1555841308650770496; six bundles supplied by parent",
+  "baselineCi": [
+    {
+      "job": "main-service-build",
+      "url": "https://github.com/AutoAI-UTEUM/BE/actions/runs/37442834629",
+      "status": "success",
+      "headSha": "28e265397dc52667fd5e7f98f1e782ba2ddafef7"
+    },
+    {
+      "job": "ai-service-build",
+      "url": "https://github.com/AutoAI-UTEUM/BE/actions/runs/37442834527",
+      "status": "success",
+      "headSha": "28e265397dc52667fd5e7f98f1e782ba2ddafef7",
+      "pytestPassed": 1067
+    }
+  ],
+  "bundles": [
+    {
+      "id": "access_answers",
+      "owner": "C-evidence-mapping",
+      "coverage": "Current DB role/resource ownership, revoked SSE and quiz pre-submit public DTO; live browser/proxy access remains separate.",
+      "receipts": [
+        "runtime_mysql",
+        "sse_mysql",
+        "retention_mysql"
+      ],
+      "mappingStatus": "SOURCE_MAPPED_NOT_LIVE_ACCEPTED",
+      "sources": [
+        {
+          "path": "main-service/src/test/java/io/edupilot/session/SessionAccessRevocationJpaTest.java",
+          "sha256": "547cee26000d478f9d77082017feff9a54e963567c88611b8ae60e6400cd363e"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/session/SessionStreamAccessDeliveryTest.java",
+          "sha256": "e036e781ffd58b5101bd8ee0505bf887ac0169f57648604cae56c0cc8ca67b14"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/session/TurnCompletionAccessJpaTest.java",
+          "sha256": "9e71d38409ec5dd462b75e9cf5e9848610c237b570b34adeb1f95d2191b8d49f"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/quiz/QuizApiContractTest.java",
+          "sha256": "fd602ff271d9dedc03fa71d8176a6de6c609cde4560f0d86372c9e90345f5756"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/exam/ExamFailureSecurityJpaTest.java",
+          "sha256": "f19dc36a96beee687206c35a999b748acf8da721df917d316cde2fba1e8176ec"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/admin/AdminSecurityIntegrationTest.java",
+          "sha256": "a88952089ce812340801c89983a8a17369ef54bda11cd3a03a019b7df5362261"
+        },
+        {
+          "path": "docs/session-stream-access.md",
+          "sha256": "dd5d6f790e93c3071f62c796ec63d4b834ffe39de86632223ba2ee44b7afbab8"
+        },
+        {
+          "path": "docs/quiz-access-revocation-457.md",
+          "sha256": "41142cb569f9736f37b7d3cca3aa2691e93cf123af0f55f7d6e5fa5575d1dd33"
+        }
+      ]
+    },
+    {
+      "id": "persistence_duplicates",
+      "owner": "A-test-execution;C-reference-only",
+      "coverage": "Concurrent fixed exam attempt/answer set, duplicate worker/replay and TURN execution accounting; C changes no persistence tests.",
+      "receipts": [
+        "runtime_mysql",
+        "retention_mysql"
+      ],
+      "mappingStatus": "SOURCE_MAPPED_NOT_LIVE_ACCEPTED",
+      "sources": [
+        {
+          "path": "main-service/src/test/java/io/edupilot/exam/ExamFailureSecurityJpaTest.java",
+          "sha256": "f19dc36a96beee687206c35a999b748acf8da721df917d316cde2fba1e8176ec"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/exam/ExamGradingRecoveryJpaTest.java",
+          "sha256": "c79edc596bbe11dd7ea978b9d19f35d612d2ef7f4f13fbdecc32a0e90f800efc"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/quiz/QuizSubmissionReconstructionTest.java",
+          "sha256": "16774c794f90f550d5d79d16e2bb8ce1c154edd8ea36573950ee82685865e50e"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/note/NoteIdempotencyMigrationTest.java",
+          "sha256": "29128e564a49bffe97944fe28b121ad8768d6f40c0859e2650a1083de6dd4b95"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/aiusage/TurnUsageSecurityJpaTest.java",
+          "sha256": "122f6293c01368fdbf99850766436a8421e02422067e05cb8619f2fe07099259"
+        },
+        {
+          "path": "docs/release-runtime-regressions.md",
+          "sha256": "31488d0c11113bd5c39ac12b3248970bfbf52dc66217653748de7f7a8a9fe4a1"
+        }
+      ]
+    },
+    {
+      "id": "pdf_worker_cleanup",
+      "owner": "C-evidence-mapping",
+      "coverage": "Bounded PDF process admission, timeout/crash/disconnect reaping, temporary ownership and durable deletion lease/restore replay. Physical server cleanup is not attested.",
+      "receipts": [
+        "retention_mysql"
+      ],
+      "mappingStatus": "SOURCE_MAPPED_NOT_LIVE_ACCEPTED",
+      "sources": [
+        {
+          "path": "ai-service/tests/test_pdf_security.py",
+          "sha256": "bdcbf9082d133e37fb63681179087d607f17f7696ea248d8ba9072da40e826fc"
+        },
+        {
+          "path": "ai-service/tests/test_pdf_worker_lifecycle.py",
+          "sha256": "9aa7b81c444e38a1a89f6b09537522d7e28b806381b3d0083706f26cd2517338"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/material/MaterialFailureJpaTest.java",
+          "sha256": "d295338b5a8405140ef8ea273b6417cf7699553963c456370e99632e6ae18f17"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/material/MaterialExtractionRecoverySchedulerTest.java",
+          "sha256": "66459b08c9d9d38f1068d1705b1cc051bbf6a0d946c363aa777d09d7ae31fbf1"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/deletion/DeletionJournalJpaTest.java",
+          "sha256": "c140c28d0f435c3927a6dd17a47b155dd290e1e0065126f9784f0b379efc9eef"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/deletion/DeletionStorageTest.java",
+          "sha256": "514efabaa4fbbba044abc8adac4e22a8d2f7a71c7cc0695b4246850fc1a32e16"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/deletion/DeletionWorkerTest.java",
+          "sha256": "43b4856237a7fd1bc3e02798f6634465dc7b910c26ca5da7cbe5ed95c6493afd"
+        },
+        {
+          "path": "docs/general-file-retention.md",
+          "sha256": "d55291f9443fe86e4920056ce384532b8380cce65b369b4a1bd7868461a93889"
+        },
+        {
+          "path": "docs/deletion-journal.md",
+          "sha256": "ba86e911db1620e8810c1a7690d991c810bd67a8c1cb5fcdc6258472956623a1"
+        }
+      ]
+    },
+    {
+      "id": "limits_security_internal_ai",
+      "owner": "C-evidence-mapping;B-owns-mail",
+      "coverage": "Internal token refusal, selected application rate limiters and reviewed Nginx 429/hidden routes. Applied proxy/ports/CORS still require metadata.",
+      "receipts": [],
+      "mappingStatus": "SOURCE_MAPPED_NOT_LIVE_ACCEPTED",
+      "sources": [
+        {
+          "path": "ai-service/tests/test_auth.py",
+          "sha256": "244bca171447547e4c1a89907fed67735133dcb943a903fa21b9605b7cc7d891"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/exam/ExamDraftRateLimiterTest.java",
+          "sha256": "9f83444eaeeb871bbe231e776dc0bb3634d36a8aa4057d5652b9d9c74b457e59"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/usernote/NoteImportRateLimiterTest.java",
+          "sha256": "d854706aa0d8fb5b4fc79554286a8fa12a7f99f10532e1ed76bc003684148cdc"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/admin/AdminSecurityIntegrationTest.java",
+          "sha256": "a88952089ce812340801c89983a8a17369ef54bda11cd3a03a019b7df5362261"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/global/security/TraceIdFilterTest.java",
+          "sha256": "232398dd4917829d73790c78c99239e1db2df881f339e4db3c28e8c10d012a28"
+        },
+        {
+          "path": "infra/nginx/edupilot.conf",
+          "sha256": "0b931f16de93a797668992f1afe400b88c83d5f571eb11bd2f2b0c370a9ec158"
+        },
+        {
+          "path": "main-service/src/main/java/io/edupilot/auth/SecurityConfig.java",
+          "sha256": "58bff0d96a685a6f780977e715dacf1e09938c1462bc204f3594f84119945dc0"
+        }
+      ]
+    },
+    {
+      "id": "images_migrations_restore",
+      "owner": "C-evidence-mapping",
+      "coverage": "V1-V63 file integrity, configuration and image/source identity, legacy reader/TEAM/deletion-hook compatibility. Fresh backup, new-host restore and rollback remain unexecuted.",
+      "receipts": [
+        "retention_mysql"
+      ],
+      "mappingStatus": "SOURCE_MAPPED_NOT_LIVE_ACCEPTED",
+      "sources": [
+        {
+          "path": "main-service/src/test/java/io/edupilot/global/migration/MigrationVersionUniquenessTest.java",
+          "sha256": "79c0fb674aef9fff984b576982f78702261c8a4b2594d325ab1a4eacd7f581ad"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/guardian/team/GuardianTeamFullMigrationTest.java",
+          "sha256": "f852e0a51adc241346f12d4a32178f01361e4294ffd74932652a69c375546170"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/deletion/DeletionJournalJpaTest.java",
+          "sha256": "c140c28d0f435c3927a6dd17a47b155dd290e1e0065126f9784f0b379efc9eef"
+        },
+        {
+          "path": "docker-compose.prod.yml",
+          "sha256": "e825d3a7d197d0b2aefd6a9faf5c998226bba65d62fb29c8d55561211e0b3169"
+        },
+        {
+          "path": "docs/launch-team-operational-readiness.md",
+          "sha256": "5ae4d19d44467e35d9e9adf26e7e60aabfa4149772288aa391ca72155c4f2cf0"
+        },
+        {
+          "path": "docs/runbook-db-restore.md",
+          "sha256": "2dd042ef127796c3e87aeb7d9a98ea3edcd8f995168d46829c4a6732e99e6030"
+        },
+        {
+          "path": "docs/deploy.md",
+          "sha256": "3ebd6428ac97471fa725d3039f5b8fadfeb9921c9ed040dd1d55f5617f1bada6"
+        }
+      ]
+    },
+    {
+      "id": "progress_scores_usage_quota",
+      "owner": "C-evidence-mapping",
+      "coverage": "Distinct-page progress, score bounds, cost unknown-vs-zero and billed failed/replayed TURN usage. KST quota gates four feature classes; strict concurrent cost ceiling is not attested.",
+      "receipts": [],
+      "mappingStatus": "SOURCE_MAPPED_NOT_LIVE_ACCEPTED",
+      "sources": [
+        {
+          "path": "main-service/src/test/java/io/edupilot/session/LearningProgressServiceTest.java",
+          "sha256": "7cdd3208b4c21ee570c0ce5c8a30441eed1f6df7f03934f666332bd4b6663ed3"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/report/ReportSnapshotCalculatorTest.java",
+          "sha256": "a75ef74c08e24a2d2aecebcdc37129cd75ab6e1791412ed255b5c9d2b5f51fd0"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/exam/ExamSubmissionScoreCalculatorTest.java",
+          "sha256": "48e6990decb770d6d24dea99eab2e70a921d269ba8a3a62ec7483e38b7daeb61"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/aiusage/AiQuotaServiceTest.java",
+          "sha256": "13bb18ce844b152e9138e1113fc8e19326232a378e388e6633732c169cafc680"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/aiusage/TurnUsageSecurityJpaTest.java",
+          "sha256": "122f6293c01368fdbf99850766436a8421e02422067e05cb8619f2fe07099259"
+        },
+        {
+          "path": "main-service/src/test/java/io/edupilot/aiusage/AiUsageTransactionIntegrationTest.java",
+          "sha256": "bb887ed51e3720ccec313a312695b819af500eda92d027cc408cde74eb47a051"
+        },
+        {
+          "path": "ai-service/tests/test_usage.py",
+          "sha256": "fa56da21b52bd990912ce1ded65917ed09a1cd79033f50a58736e4897d88c61b"
+        },
+        {
+          "path": "ai-service/tests/test_usage_cost.py",
+          "sha256": "806497126e6ebfbf91e3be54b8b0384e780308ba785382f4580296ba63a2078f"
+        },
+        {
+          "path": "main-service/src/main/java/io/edupilot/aiusage/AiFeature.java",
+          "sha256": "9daa987ec4b9596505b90fb3e8c6e2d75f43d5cff9d75e659a70c6a3abac84d8"
+        }
+      ]
+    }
+  ],
+  "historicalReceipts": [
+    {
+      "id": "runtime_mysql",
+      "receipt": "479-runtime-mysql-results.json",
+      "passed": 50,
+      "failed": 0,
+      "skipped": 0,
+      "attribution": "historical-local-synthetic-not-rerun-by-C",
+      "receiptSha256": "e34437c1505260bb9d58c1655dd5b0a4c2eb5c23983060003441dedea9b1a228"
+    },
+    {
+      "id": "sse_mysql",
+      "receipt": "479-sse-revocation-mysql-results.json",
+      "passed": 28,
+      "failed": 0,
+      "skipped": 0,
+      "attribution": "historical-local-synthetic-not-rerun-by-C",
+      "receiptSha256": "b82e9907e9bab6da80a50a1933b7b4470a90418eae3275bb026e2af65f72b249"
+    },
+    {
+      "id": "retention_mysql",
+      "receipt": "launch-be-candidate-retention-mysql-results.json",
+      "sourceSha": "de92a8eb84b35b65e481c52ee4038749f1be54ae",
+      "passed": 181,
+      "failed": 0,
+      "skipped": 0,
+      "attribution": "historical-local-synthetic-not-rerun-by-C",
+      "receiptSha256": "13d9da337e11a7f0ac3ef48b2b857864569d184f53f9f9aedcce71d25deff122"
+    }
+  ],
+  "migrations": [
+    {
+      "version": 1,
+      "script": "V1__baseline.sql",
+      "path": "main-service/src/main/resources/db/migration/V1__baseline.sql",
+      "sha256": "411d15e6a306d97290436b89a82c528a07e8196a9b5cee0f1bdb50c1dd80d1f3",
+      "flywayChecksum": -65002876
+    },
+    {
+      "version": 2,
+      "script": "V2__auth_users.sql",
+      "path": "main-service/src/main/resources/db/migration/V2__auth_users.sql",
+      "sha256": "2efbc474027819df9c9f08680a25cd8e266d4ce10a06d3a0cd3f7ae9d6e8948a",
+      "flywayChecksum": 2080523180
+    },
+    {
+      "version": 3,
+      "script": "V3__learning_materials.sql",
+      "path": "main-service/src/main/resources/db/migration/V3__learning_materials.sql",
+      "sha256": "8d9d9bb93ba3b6fb903c28d7d107adaf2e4ae9bf824a6a92cf0b205da94ff9fa",
+      "flywayChecksum": -1482731183
+    },
+    {
+      "version": 4,
+      "script": "V4__learning_sessions.sql",
+      "path": "main-service/src/main/resources/db/migration/V4__learning_sessions.sql",
+      "sha256": "dd914c3d46285b4ef7f7cf75bbc78f626127e858fb333e738648696ad479af73",
+      "flywayChecksum": -795145759
+    },
+    {
+      "version": 5,
+      "script": "V5__quizzes.sql",
+      "path": "main-service/src/main/resources/db/migration/V5__quizzes.sql",
+      "sha256": "bcdd46bfe61bb47152bc3122bb6fce6b484d9b5bf504c0813d0f23553fe752b2",
+      "flywayChecksum": 1640978510
+    },
+    {
+      "version": 6,
+      "script": "V6__learning_support.sql",
+      "path": "main-service/src/main/resources/db/migration/V6__learning_support.sql",
+      "sha256": "1772c9a96baf9798668c1b5d4d48f56e9373a1293cb3cce16fba6bef72d264a9",
+      "flywayChecksum": 880500639
+    },
+    {
+      "version": 7,
+      "script": "V7__turn_integration.sql",
+      "path": "main-service/src/main/resources/db/migration/V7__turn_integration.sql",
+      "sha256": "09c4d89b3900e9eac16ed28881f11566e3c0b7fdafa71af7e9df577221e46582",
+      "flywayChecksum": 1400509975
+    },
+    {
+      "version": 8,
+      "script": "V8__account_roles.sql",
+      "path": "main-service/src/main/resources/db/migration/V8__account_roles.sql",
+      "sha256": "bccd4c3be395af6fb6a4719a75416d5661c5d7cd8d6636cbcd06b89ba862d8fa",
+      "flywayChecksum": 1012079984
+    },
+    {
+      "version": 9,
+      "script": "V9__session_page_records.sql",
+      "path": "main-service/src/main/resources/db/migration/V9__session_page_records.sql",
+      "sha256": "dbd2b71d203ae459d9e6de8ac10384ad248a0075277a2fdc28bc569e3e70e308",
+      "flywayChecksum": -2020962761
+    },
+    {
+      "version": 10,
+      "script": "V10__account_profile.sql",
+      "path": "main-service/src/main/resources/db/migration/V10__account_profile.sql",
+      "sha256": "05f91f2230aac7c964e54b3b51ebcf7b423c59f9c65403fa13b9f0dca27257a0",
+      "flywayChecksum": 1023110599
+    },
+    {
+      "version": 11,
+      "script": "V11__learning_notes.sql",
+      "path": "main-service/src/main/resources/db/migration/V11__learning_notes.sql",
+      "sha256": "656a6bc9964797cc0bd3ec3123ef8ba96ead9b1f3daa179fe95982118a66f057",
+      "flywayChecksum": 131746838
+    },
+    {
+      "version": 12,
+      "script": "V12__feedbacks.sql",
+      "path": "main-service/src/main/resources/db/migration/V12__feedbacks.sql",
+      "sha256": "b8ee9eb89bdb957472ce44122b14f438821816bd7bbb5ee8e3c8165be0f6f415",
+      "flywayChecksum": -1248197821
+    },
+    {
+      "version": 13,
+      "script": "V13__classroom_core.sql",
+      "path": "main-service/src/main/resources/db/migration/V13__classroom_core.sql",
+      "sha256": "b28869ebd13b4b192c2485a477005136faf3973666efc088e886ff9a1366ffad",
+      "flywayChecksum": 1350927143
+    },
+    {
+      "version": 14,
+      "script": "V14__classroom_weeks_materials.sql",
+      "path": "main-service/src/main/resources/db/migration/V14__classroom_weeks_materials.sql",
+      "sha256": "0b989140355de0fec33d31c3eb5af6acc2925f3eff28b2a4807912c1b4a0a74e",
+      "flywayChecksum": 1579501212
+    },
+    {
+      "version": 15,
+      "script": "V15__classroom_notices.sql",
+      "path": "main-service/src/main/resources/db/migration/V15__classroom_notices.sql",
+      "sha256": "91f2e4a51520eb6180c860d89f48ad70cc9d750be689402efca61b49a91e444b",
+      "flywayChecksum": 1809048900
+    },
+    {
+      "version": 16,
+      "script": "V16__conversation_reset.sql",
+      "path": "main-service/src/main/resources/db/migration/V16__conversation_reset.sql",
+      "sha256": "7410bd5a6f52697a97e54b6412cb227df8170e928af16afe4f63dbe7b536b3bb",
+      "flywayChecksum": -1929422045
+    },
+    {
+      "version": 17,
+      "script": "V17__exam.sql",
+      "path": "main-service/src/main/resources/db/migration/V17__exam.sql",
+      "sha256": "0a74ab074b25e5cb3a0f64c9b60272e8676f7c80f86d506105cb33b771e8af83",
+      "flywayChecksum": 1301454830
+    },
+    {
+      "version": 18,
+      "script": "V18__exam_grading_lease.sql",
+      "path": "main-service/src/main/resources/db/migration/V18__exam_grading_lease.sql",
+      "sha256": "c8da2bfe747c89903eee09d1bd731d6b1e1635c42bc5e55a1ff7fe7df32bc51e",
+      "flywayChecksum": -2085135219
+    },
+    {
+      "version": 19,
+      "script": "V19__report.sql",
+      "path": "main-service/src/main/resources/db/migration/V19__report.sql",
+      "sha256": "d7e0e1304f23e952d805b3cce51070f809e0415652ab033560af3ada41114024",
+      "flywayChecksum": -361639142
+    },
+    {
+      "version": 20,
+      "script": "V20__user_schedules.sql",
+      "path": "main-service/src/main/resources/db/migration/V20__user_schedules.sql",
+      "sha256": "68db6b2bac341dab59f2ba8436f432facb20de8c759eb0888ab116f43c81c562",
+      "flywayChecksum": 1372806372
+    },
+    {
+      "version": 21,
+      "script": "V21__classroom_week_status_order.sql",
+      "path": "main-service/src/main/resources/db/migration/V21__classroom_week_status_order.sql",
+      "sha256": "26315c77c3d335532d5977f9f01904e570b4bcde60f6c21ae4cf3b7f7218428c",
+      "flywayChecksum": -349604859
+    },
+    {
+      "version": 22,
+      "script": "V22__classroom_notice_week_publish.sql",
+      "path": "main-service/src/main/resources/db/migration/V22__classroom_notice_week_publish.sql",
+      "sha256": "32db3199819a53f8659c24f0b5e2c7f22e28958582e5a03fe76f330f813c8034",
+      "flywayChecksum": -1893858959
+    },
+    {
+      "version": 23,
+      "script": "V23__material_failure_metadata.sql",
+      "path": "main-service/src/main/resources/db/migration/V23__material_failure_metadata.sql",
+      "sha256": "66b5add736a10ff6dc1362031ef0f60009950a4a32facbcf6f5d09c418233a97",
+      "flywayChecksum": -1848691457
+    },
+    {
+      "version": 24,
+      "script": "V24__exam_grading_retry.sql",
+      "path": "main-service/src/main/resources/db/migration/V24__exam_grading_retry.sql",
+      "sha256": "3953e22681a7439ce1030b94380d1393c891c2f7f9c418a955914096c9ee4892",
+      "flywayChecksum": 267595603
+    },
+    {
+      "version": 25,
+      "script": "V25__report_scope_chain.sql",
+      "path": "main-service/src/main/resources/db/migration/V25__report_scope_chain.sql",
+      "sha256": "84bf236c7c4cc5465fc44ba8403df494b8f0a57d4cfd37cfdab581334ec65ae9",
+      "flywayChecksum": 1464231222
+    },
+    {
+      "version": 26,
+      "script": "V26__in_app_notifications.sql",
+      "path": "main-service/src/main/resources/db/migration/V26__in_app_notifications.sql",
+      "sha256": "7dec0f2103bda3223a851eb2ce44a69b33aa6d1fb48d09dfe5f6af3631e243f8",
+      "flywayChecksum": -617660505
+    },
+    {
+      "version": 27,
+      "script": "V27__material_failure_reason_expansion.sql",
+      "path": "main-service/src/main/resources/db/migration/V27__material_failure_reason_expansion.sql",
+      "sha256": "c480163be352e4f280966c3c8b54cff8fefc100eae02b8440d10739db3aad292",
+      "flywayChecksum": 631317344
+    },
+    {
+      "version": 28,
+      "script": "V28__material_overviews.sql",
+      "path": "main-service/src/main/resources/db/migration/V28__material_overviews.sql",
+      "sha256": "207f460cb170e9efed02c18295ecff4d080c4f037836262aae7255a81ac5b12e",
+      "flywayChecksum": -782373036
+    },
+    {
+      "version": 29,
+      "script": "V29__material_overview_outline.sql",
+      "path": "main-service/src/main/resources/db/migration/V29__material_overview_outline.sql",
+      "sha256": "68803e352bf227e242d5e352433fb86c10d5323eaaa865ab57f36a7ccd3905ba",
+      "flywayChecksum": 146892517
+    },
+    {
+      "version": 30,
+      "script": "V30__material_page_captions.sql",
+      "path": "main-service/src/main/resources/db/migration/V30__material_page_captions.sql",
+      "sha256": "acf0be45f1e935e8752590bdceb4f2b9add4d6ca0fcd12360f451c060e304d5a",
+      "flywayChecksum": -422894548
+    },
+    {
+      "version": 31,
+      "script": "V31__users_google_oauth.sql",
+      "path": "main-service/src/main/resources/db/migration/V31__users_google_oauth.sql",
+      "sha256": "3d7dda819c3682ca6168dc3a80941c988d8f91bfa8df3fa65de71bf3da5ed038",
+      "flywayChecksum": -2040658156
+    },
+    {
+      "version": 32,
+      "script": "V32__classroom_resources.sql",
+      "path": "main-service/src/main/resources/db/migration/V32__classroom_resources.sql",
+      "sha256": "c7835f6d957c89148a30a85fac387d86c389f39dcd560f29cc1c8fc2b608f766",
+      "flywayChecksum": 991510789
+    },
+    {
+      "version": 33,
+      "script": "V33__material_xai_file.sql",
+      "path": "main-service/src/main/resources/db/migration/V33__material_xai_file.sql",
+      "sha256": "93791b2217305ebb637a90b410365424407038b3208d64a3e7a5d3358d48e119",
+      "flywayChecksum": -1226071013
+    },
+    {
+      "version": 34,
+      "script": "V34__material_xai_file_backfill.sql",
+      "path": "main-service/src/main/resources/db/migration/V34__material_xai_file_backfill.sql",
+      "sha256": "a283b23820d54bb82ca5a52535ed7803a419ae789b73f06a3e3b5b74b013d342",
+      "flywayChecksum": 664201035
+    },
+    {
+      "version": 35,
+      "script": "V35__conversation_summary_marker.sql",
+      "path": "main-service/src/main/resources/db/migration/V35__conversation_summary_marker.sql",
+      "sha256": "8663f667c024527a2871be9c5a9cefc91bdef39b540f3a1e86f05f43a9d14709",
+      "flywayChecksum": 1597512218
+    },
+    {
+      "version": 36,
+      "script": "V36__ai_usage_log.sql",
+      "path": "main-service/src/main/resources/db/migration/V36__ai_usage_log.sql",
+      "sha256": "290b188f06876490559b960393001f4e74493a8341a9455a67e1825ae4e989ed",
+      "flywayChecksum": -740469314
+    },
+    {
+      "version": 37,
+      "script": "V37__user_last_active_at.sql",
+      "path": "main-service/src/main/resources/db/migration/V37__user_last_active_at.sql",
+      "sha256": "8f2d71d7068c11c35ac19bab66f49efe2e97fcbdb3e388b9e7985302862f17e2",
+      "flywayChecksum": -1624234086
+    },
+    {
+      "version": 38,
+      "script": "V38__exam_review_timing.sql",
+      "path": "main-service/src/main/resources/db/migration/V38__exam_review_timing.sql",
+      "sha256": "fd60c0b81aa1d2f19feb37ef540d1062d045ff2679ea33c110ea97f7af45bdb6",
+      "flywayChecksum": -1839933855
+    },
+    {
+      "version": 39,
+      "script": "V39__exam_due_at_notifications.sql",
+      "path": "main-service/src/main/resources/db/migration/V39__exam_due_at_notifications.sql",
+      "sha256": "50ee1f7f153cda8d6f40e7b6b58ab9e5996d28246c096fc609551343184564dc",
+      "flywayChecksum": 949622828
+    },
+    {
+      "version": 40,
+      "script": "V40__exam_answer_manual_scores.sql",
+      "path": "main-service/src/main/resources/db/migration/V40__exam_answer_manual_scores.sql",
+      "sha256": "b06be918023c5cf9a968853c03b649be31dcdfb6b83c56e25ab69d61ab876ec5",
+      "flywayChecksum": -1231525686
+    },
+    {
+      "version": 41,
+      "script": "V41__auth_sessions.sql",
+      "path": "main-service/src/main/resources/db/migration/V41__auth_sessions.sql",
+      "sha256": "8d16c841ad2ab788e0e42b6697bdae0b14e00d144c65f5b8406a3e4e9d29d839",
+      "flywayChecksum": -1734654926
+    },
+    {
+      "version": 42,
+      "script": "V42__xai_management_monitoring.sql",
+      "path": "main-service/src/main/resources/db/migration/V42__xai_management_monitoring.sql",
+      "sha256": "85f0d82ebeca1852df900dc2b92f42a0d057f3da41c2d7129980af54f3c3d53f",
+      "flywayChecksum": 1715789440
+    },
+    {
+      "version": 43,
+      "script": "V43__email_deliveries.sql",
+      "path": "main-service/src/main/resources/db/migration/V43__email_deliveries.sql",
+      "sha256": "a9eda7ad4dac1f6a97834f1e9c570504bad2ff28f8bd7cb6e1c5f95d460ac5b0",
+      "flywayChecksum": -74459586
+    },
+    {
+      "version": 44,
+      "script": "V44__password_reset_tokens.sql",
+      "path": "main-service/src/main/resources/db/migration/V44__password_reset_tokens.sql",
+      "sha256": "411014a948b0043517f1f5a28d9b1e91eb3a687a482a1475c422ed81c2bef4bd",
+      "flywayChecksum": 1644648538
+    },
+    {
+      "version": 45,
+      "script": "V45__exam_attempt_drafts.sql",
+      "path": "main-service/src/main/resources/db/migration/V45__exam_attempt_drafts.sql",
+      "sha256": "0b03e9fe763d5ebb188c2f569c7ffac84e28bb41cb9d3424b73a5f42914c4bc4",
+      "flywayChecksum": 1400300084
+    },
+    {
+      "version": 46,
+      "script": "V46__user_notes_wrong_answer_notes.sql",
+      "path": "main-service/src/main/resources/db/migration/V46__user_notes_wrong_answer_notes.sql",
+      "sha256": "46bf05a1609552c8edc6379745bfcb6c250eefd95487e124436de61760d1542c",
+      "flywayChecksum": -1727974108
+    },
+    {
+      "version": 47,
+      "script": "V47__account_suspension.sql",
+      "path": "main-service/src/main/resources/db/migration/V47__account_suspension.sql",
+      "sha256": "aa601daf2b1cb2cb3bef65a7dd654ac48c3f6cc9875c0994b42e5222ba4aa071",
+      "flywayChecksum": 850389006
+    },
+    {
+      "version": 48,
+      "script": "V48__policy_documents_consents.sql",
+      "path": "main-service/src/main/resources/db/migration/V48__policy_documents_consents.sql",
+      "sha256": "ae40497b6797c1422922ac7a4a305dfdf009a1a1598d6e6ca1d32cbfa865415f",
+      "flywayChecksum": -1485532398
+    },
+    {
+      "version": 49,
+      "script": "V49__policy_consent_requirement.sql",
+      "path": "main-service/src/main/resources/db/migration/V49__policy_consent_requirement.sql",
+      "sha256": "cc9546b345a3486572e9f3f703fa89fafab2d79a69e8654c5b0178bd17849c99",
+      "flywayChecksum": 1887118844
+    },
+    {
+      "version": 50,
+      "script": "V50__ai_usage_quiz_decision_source.sql",
+      "path": "main-service/src/main/resources/db/migration/V50__ai_usage_quiz_decision_source.sql",
+      "sha256": "df5513b5279e09bdb8fdf0074da34101f026e183cf5d8585e8b85e1f2d53f97b",
+      "flywayChecksum": -75272363
+    },
+    {
+      "version": 51,
+      "script": "V51__material_overview_retry_guard.sql",
+      "path": "main-service/src/main/resources/db/migration/V51__material_overview_retry_guard.sql",
+      "sha256": "7488da64c2561ee41a30d91a20f3eab694c2a21d89492f6714c6757a150aa2f2",
+      "flywayChecksum": -327004352
+    },
+    {
+      "version": 52,
+      "script": "V52__material_caption_failure_reason.sql",
+      "path": "main-service/src/main/resources/db/migration/V52__material_caption_failure_reason.sql",
+      "sha256": "ac879da7e17f86f5e9d8871b66e0200ea0efb70bddacc8ef2c7163cc08a6785b",
+      "flywayChecksum": -786201935
+    },
+    {
+      "version": 53,
+      "script": "V53__note_source_idempotency.sql",
+      "path": "main-service/src/main/resources/db/migration/V53__note_source_idempotency.sql",
+      "sha256": "f368f28ecd8fe3b482104a886f1ed25f1f0b2863c7d0465f8047e0c42c6ecdf8",
+      "flywayChecksum": -1700497713
+    },
+    {
+      "version": 54,
+      "script": "V54__durable_email_outbox.sql",
+      "path": "main-service/src/main/resources/db/migration/V54__durable_email_outbox.sql",
+      "sha256": "ade730ad4c0a0a49220c4d2e9ff927f5e65875f5e99393ffa80ede586d04f209",
+      "flywayChecksum": -1404466119
+    },
+    {
+      "version": 55,
+      "script": "V55__email_ownership_verification.sql",
+      "path": "main-service/src/main/resources/db/migration/V55__email_ownership_verification.sql",
+      "sha256": "8da4dd6eb70dfd8ced3a9b1cefceba71feb69390e077e3015fcbd18749ad13c5",
+      "flywayChecksum": 951595542
+    },
+    {
+      "version": 56,
+      "script": "V56__durable_deletion_journal.sql",
+      "path": "main-service/src/main/resources/db/migration/V56__durable_deletion_journal.sql",
+      "sha256": "027f2449411dbf22aab1ce4e46be43d544389677f10e7ac8aac21e4466f74f5b",
+      "flywayChecksum": 2046480811
+    },
+    {
+      "version": 57,
+      "script": "V57__birthdate_and_guardian_pending_foundation.sql",
+      "path": "main-service/src/main/resources/db/migration/V57__birthdate_and_guardian_pending_foundation.sql",
+      "sha256": "2526fa5388294101c2f5d21d6b7f25aa0c6e0a0e3e1c73828cc450b07c4f002b",
+      "flywayChecksum": 1845928378
+    },
+    {
+      "version": 58,
+      "script": "V58__legacy_account_access_cohort.sql",
+      "path": "main-service/src/main/resources/db/migration/V58__legacy_account_access_cohort.sql",
+      "sha256": "f64c9e4486f5cda7cfe18a00dcd63686f44db71d309b083ac793b4ad29fda7d1",
+      "flywayChecksum": -1823586356
+    },
+    {
+      "version": 59,
+      "script": "V59__guardian_web_consent_phone_intake.sql",
+      "path": "main-service/src/main/resources/db/migration/V59__guardian_web_consent_phone_intake.sql",
+      "sha256": "5aad867932e89e2c9a33efcae40d5c54948504b07055614ac6c1e7c084a84be4",
+      "flywayChecksum": -1709623308
+    },
+    {
+      "version": 60,
+      "script": "V60__birthdate_correction_intake.sql",
+      "path": "main-service/src/main/resources/db/migration/V60__birthdate_correction_intake.sql",
+      "sha256": "4f567c84ed1bf7cb5dd973d6225ac6432f2a2b7cb3de9debdb102e9826d3de71",
+      "flywayChecksum": 1926589531
+    },
+    {
+      "version": 61,
+      "script": "V61__guardian_team_review.sql",
+      "path": "main-service/src/main/resources/db/migration/V61__guardian_team_review.sql",
+      "sha256": "d0899dbbf0e96eccfa9b16d8d1ce86ea3409d6cdbc80a515f8e55e2437554a56",
+      "flywayChecksum": 551319160
+    },
+    {
+      "version": 62,
+      "script": "V62__guardian_team_access_generation.sql",
+      "path": "main-service/src/main/resources/db/migration/V62__guardian_team_access_generation.sql",
+      "sha256": "2dbd8d2f27aeb9d9d0b883be9ecd32d5a4b591281ed530ec2241113d5ed8ea52",
+      "flywayChecksum": -33910229
+    },
+    {
+      "version": 63,
+      "script": "V63__guardian_team_mail_binding.sql",
+      "path": "main-service/src/main/resources/db/migration/V63__guardian_team_mail_binding.sql",
+      "sha256": "33a16be463afb8b33c2df8d3d81ada180b7368863b36343331a43063459e6a96",
+      "flywayChecksum": 1429210292
+    }
+  ],
+  "sourceHashMode": "git-blob-sha256;normalize-checkout-CRLF-to-LF-for-text"
+}

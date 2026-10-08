@@ -36,6 +36,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -80,6 +82,14 @@ import io.edupilot.user.UserRole;
 })
 @ActiveProfiles("jpa-context")
 class ExamFailureSecurityJpaTest {
+	@DynamicPropertySource
+	static void isolatedMysql(DynamicPropertyRegistry registry) {
+		if (!"true".equals(System.getenv("RUNTIME_REGRESSIONS_MYSQL"))) { return; }
+		registry.add("spring.datasource.url", () -> "jdbc:mysql://127.0.0.1:33316/runtime_exam_failure_synthetic");
+		registry.add("spring.datasource.username", () -> "root");
+		registry.add("spring.datasource.password", () -> "");
+		registry.add("spring.datasource.driver-class-name", () -> "com.mysql.cj.jdbc.Driver");
+	}
 	@Autowired private UserRepository userRepository;
 	@Autowired private ClassroomRepository classroomRepository;
 	@Autowired private ClassroomMemberRepository memberRepository;
@@ -108,13 +118,17 @@ class ExamFailureSecurityJpaTest {
 
 	@BeforeEach
 	void setUp() {
+		if ("true".equals(System.getenv("RUNTIME_REGRESSIONS_MYSQL"))) {
+			assertThat(jdbcTemplate.queryForObject("select @@port", Integer.class)).isEqualTo(33316);
+			assertThat(jdbcTemplate.queryForObject("select database()", String.class)).isEqualTo("runtime_exam_failure_synthetic");
+		}
 		String suffix = UUID.randomUUID().toString().substring(0, 8);
-		instructor = userRepository.saveAndFlush(User.create(
+		instructor = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"security-instructor-" + suffix + "@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
-		));
-		learner = userRepository.saveAndFlush(User.create(
+		)));
+		learner = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"security-learner-" + suffix + "@example.com", "hash", "Learner", UserRole.LEARNER
-		));
+		)));
 		Classroom classroom = classroomRepository.saveAndFlush(Classroom.create(
 			instructor, "Security exam", LocalDate.of(2026, 9, 1), LocalDate.of(2026, 12, 15),
 			ClassroomColor.BLUE, null, "SEC" + suffix
@@ -486,6 +500,59 @@ class ExamFailureSecurityJpaTest {
 		assertError(() -> studentService.regradeMySubmission(learner.getId(), UserRole.LEARNER, exam.getId()),
 			ErrorCode.EXAM_NOT_FOUND);
 	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = {true, false})
+	void concurrentSubmissionsPersistOneAttemptAndOneFixedAnswerSet(boolean sameRequestId) throws Exception {
+		CountDownLatch ready = new CountDownLatch(2);
+		CountDownLatch start = new CountDownLatch(1);
+		List<SubmissionOutcome> outcomes;
+		try (var executor = Executors.newFixedThreadPool(2)) {
+			var first = executor.submit(() -> concurrentSubmit("concurrent-first", "First fixed answer", ready, start));
+			var second = executor.submit(() -> concurrentSubmit(sameRequestId ? "concurrent-first" : "concurrent-second",
+				"Second fixed answer", ready, start));
+			try {
+				assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+			} finally {
+				start.countDown();
+			}
+			outcomes = List.of(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS));
+		}
+		List<SubmissionOutcome> accepted = outcomes.stream().filter(result -> result.error() == null).toList();
+		assertThat(accepted).hasSize(sameRequestId ? 2 : 1);
+		if (!sameRequestId) {
+			assertThat(outcomes).filteredOn(result -> result.error() != null).singleElement()
+				.satisfies(result -> assertThat(result.error()).isEqualTo(ErrorCode.EXAM_ALREADY_SUBMITTED));
+		}
+		Long submissionId = accepted.getFirst().submissionId();
+		assertThat(accepted).allSatisfy(result -> assertThat(result.submissionId()).isEqualTo(submissionId));
+		assertThat(submissionRepository.countByExam_Id(exam.getId())).isEqualTo(1);
+		var stored = submissionRepository.findById(submissionId).orElseThrow();
+		assertThat(stored.getAttemptNo()).isEqualTo(1);
+		assertThat(stored.getStatus()).isEqualTo(SubmissionStatus.SUBMITTED);
+		var answers = answerRepository.findBySubmission_IdOrderByQuestion_Id(submissionId);
+		assertThat(answers).hasSize(3);
+		String fixedAnswer = answers.stream().filter(answer -> answer.getQuestionNo() == 3)
+			.findFirst().orElseThrow().getAnswer();
+		assertThat(fixedAnswer).isIn("First fixed answer", "Second fixed answer");
+		assertThat(accepted).allSatisfy(result -> assertThat(result.answer()).isEqualTo(fixedAnswer));
+		verify(dispatcher).dispatchAfterCommit(submissionId, exam.getId());
+		verify(aiClient, never()).grade(any());
+	}
+
+	private SubmissionOutcome concurrentSubmit(String requestId, String answer, CountDownLatch ready,
+		CountDownLatch start) throws InterruptedException {
+		ready.countDown();
+		assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
+		try {
+			var result = submit(requestId, answer);
+			return new SubmissionOutcome(result.submissionId(), result.items().get(2).answer(), null);
+		} catch (BusinessException exception) {
+			return new SubmissionOutcome(null, null, exception.errorCode());
+		}
+	}
+
+	private record SubmissionOutcome(Long submissionId, String answer, ErrorCode error) { }
 
 	private GradeResponse successfulGrade() {
 		return new GradeResponse("1.0", exam.getId(), "SHORT", BigDecimal.TEN, BigDecimal.TEN,

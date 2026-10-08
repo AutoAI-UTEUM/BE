@@ -17,6 +17,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.classroom.ClassroomService;
 import io.edupilot.classroom.ClassroomStatus;
 import io.edupilot.exam.dto.ExamAnswerRequest;
@@ -34,6 +35,8 @@ import io.edupilot.user.UserRole;
 
 @Service
 public class ExamSubmissionPersistenceService {
+	private final GuardianConsentFence consentFence;
+
 	private static final Logger log = LoggerFactory.getLogger(
 		ExamSubmissionPersistenceService.class
 	);
@@ -72,8 +75,10 @@ public class ExamSubmissionPersistenceService {
 		ExamSubmissionScoreCalculator scoreCalculator,
 		ExamGradingDispatcher gradingDispatcher,
 		ExamNotificationDispatcher notificationDispatcher,
-		Clock clock
+		Clock clock,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
 		this.classroomService = classroomService;
 		this.examRepository = examRepository;
 		this.questionRepository = questionRepository;
@@ -252,16 +257,22 @@ public class ExamSubmissionPersistenceService {
 		);
 	}
 
-	@Transactional
 	public boolean applyAiGrading(
 		Long submissionId,
 		String leaseToken,
 		ExamAiGradingOutcome outcome
 	) {
+		return consentFence.complete(outcome.consent(), () -> applyCurrentAiGrading(submissionId, leaseToken, outcome));
+	}
+
+	private boolean applyCurrentAiGrading(Long submissionId, String leaseToken, ExamAiGradingOutcome outcome) {
 		ExamSubmission submission = submissionRepository.findByIdForUpdate(submissionId)
 			.orElse(null);
 		if (submission == null || !submission.hasGradingLease(leaseToken)) {
 			return false;
+		}
+		if (!submission.getUserId().equals(outcome.consent().userId())) {
+			throw new BusinessException(ErrorCode.GUARDIAN_CONSENT_CHANGED);
 		}
 		List<ExamAnswer> answers = answerRepository
 			.findBySubmission_IdOrderByQuestion_Id(submissionId);

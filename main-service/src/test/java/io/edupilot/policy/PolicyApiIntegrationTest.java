@@ -70,10 +70,10 @@ class PolicyApiIntegrationTest {
 			"약관 초안", null, false, now.minusSeconds(60), 0L, now.minusSeconds(60)));
 		documents.saveAndFlush(PolicyDocument.create(PolicyType.PRIVACY, "0.9", "처리방침",
 			"개인정보 초안", null, false, now.minusSeconds(60), 0L, now.minusSeconds(60)));
-		admin = users.saveAndFlush(User.create("admin@example.com",
-			passwordEncoder.encode("password123"), "관리자", UserRole.ADMIN));
-		learner = users.saveAndFlush(User.create("learner@example.com",
-			passwordEncoder.encode("password123"), "학습자", UserRole.LEARNER));
+		admin = users.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create("admin@example.com",
+			passwordEncoder.encode("password123"), "관리자", UserRole.ADMIN)));
+		learner = users.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create("learner@example.com",
+			passwordEncoder.encode("password123"), "학습자", UserRole.LEARNER)));
 		mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity())
 			.addFilters(traceIdFilter).build();
 	}
@@ -106,14 +106,14 @@ class PolicyApiIntegrationTest {
 			"확정 약관", "변경", true, now.minusSeconds(1), admin.getId(), now));
 		mvc.perform(post("/api/auth/signup").contentType(MediaType.APPLICATION_JSON)
 			.content("""
-				{"email":"new@example.com","password":"password123",
+				{"dateOfBirth":"2000-01-01","email":"new@example.com","password":"password123",
 				 "name":"신규","role":"LEARNER"}
 				"""))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.error.code").value("POLICY_CONSENT_REQUIRED"));
 		mvc.perform(post("/api/auth/signup").contentType(MediaType.APPLICATION_JSON)
 			.content("""
-				{"email":"new@example.com","password":"password123",
+				{"dateOfBirth":"2000-01-01","email":"new@example.com","password":"password123",
 				 "name":"신규","role":"LEARNER",
 				 "consents":[{"type":"TERMS","version":"1.0"}]}
 				"""))

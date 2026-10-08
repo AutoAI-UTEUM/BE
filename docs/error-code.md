@@ -60,12 +60,15 @@
 | `UNSUPPORTED_GROUP_BY` | 400 | xAI 사용량의 `groupBy=API_KEY`처럼 내부 로그가 지원하지 않는 그룹 기준 |
 | `MALFORMED_REQUEST` | 400 | JSON/요청 구조 오류 |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | 지원하지 않는 콘텐츠 타입 |
+| `METHOD_NOT_ALLOWED` | 405 | 지원하지 않는 HTTP 메서드; `Allow` 반환. 이메일 확인 GET은 비소비 |
 | `AUTHENTICATION_REQUIRED` | 401 | 인증 정보 없음 |
 | `TOKEN_INVALID` | 401 | 위조/형식 오류 토큰 |
 | `TOKEN_EXPIRED` | 401 | 만료된 토큰 |
 | `AUTH_SESSION_IDLE_EXPIRED` | 401 | 역할별 idle timeout 동안 실제 사용자 활동이 없어 인증 세션 종료 |
 | `AUTH_SESSION_ABSOLUTE_EXPIRED` | 401 | 최초 로그인 기준 14일 절대 만료로 인증 세션 종료 |
 | `ACCESS_DENIED` | 403 | 역할/권한 부족 |
+| `EMAIL_VERIFICATION_REQUIRED` | 403 | 이메일 소유 확인 근거 없는 계정의 업무 API·외부 AI 접근 차단 |
+| `EMAIL_VERIFICATION_TOKEN_INVALID` | 400 | 이메일 확인 링크의 만료·재사용·탈퇴·현재 이메일 불일치·유효하지 않은 토큰을 동일 처리 |
 | `RESOURCE_NOT_FOUND` | 404 | 일반 리소스 없음 |
 | `RATE_LIMIT_EXCEEDED` | 429 | 호출 제한 초과 |
 | `AI_QUOTA_EXCEEDED` | 429 | 사용자별 일일 AI 호출 횟수 한도 초과 |
@@ -91,7 +94,8 @@
 | `USER_INACTIVE` | 403 | 비활성/삭제 계정 |
 | `USER_NOT_FOUND` | 404 | 사용자 없음 |
 | `POLICY_NOT_FOUND` | 404 | 요청한 유형·버전의 정책 문서 없음 |
-| `POLICY_CONSENT_REQUIRED` | 400 | 가입 동의 필수 설정 시 누락, 또는 제출한 이용약관·개인정보처리방침 배열의 누락·중복·버전 불일치 |
+| `SIGNUP_POLICY_NOT_READY` | 503 | 가입 동의 필수 설정에서 현재 유효한 `requiresConsent=true` 문서가 하나도 없음. 신규 LOCAL·Google 계정·토큰·동의·메일 작업 생성 전 중단. 기존 로그인에는 적용하지 않음 |
+| `POLICY_CONSENT_REQUIRED` | 400 | 유효한 동의 대상이 준비된 경우, 필수 설정의 동의 누락 또는 제출 배열의 필수 대상 누락·중복·현재 버전 불일치 |
 | `POLICY_VERSION_MISMATCH` | 400 | 기존 사용자가 현재 유효 버전이 아닌 정책에 동의 시도 |
 | `POLICY_VERSION_EXISTS` | 409 | 같은 유형·버전의 정책 문서 중복 등록 |
 
@@ -237,3 +241,10 @@ FE는 `message` 문자열을 파싱하지 않고 `code`로 분기합니다.
 - 서버 로그에는 `traceId`, 사용자/세션의 안전한 식별자, 에러 코드, 처리 구간을 남깁니다.
 - 비밀번호, JWT, Grok(xAI) API Key, 전체 PDF 텍스트, 학생 답안 원문은 기본 오류 로그에 남기지 않습니다.
 - AI 원문 로깅이 꼭 필요하면 마스킹, 접근 통제, 보관 기간을 먼저 결정합니다.
+
+
+#478/#519 use AGE_VERIFICATION_REQUIRED (403) for guardian-cohort or missing-DOB NEW_SIGNUP UNKNOWN and GUARDIAN_VERIFICATION_PENDING (403) for MANUAL_PENDING. KST current-year minus birth-year ≥15 requires no guardian. EMAIL_VERIFICATION_REQUIRED still takes precedence when email evidence is missing. Account/role/resource errors and LEGACY_EXEMPT remain. LOCAL missing/future DOB uses VALIDATION_FAILED (400); new Google DOB missing uses SIGNUP_REQUIRED (409). BIRTHDATE_CORRECTION_PENDING (409) means a different date is already pending; BIRTHDATE_CORRECTION_NOT_FOUND (404) means an admin requested an absent intake. Correction submissions cannot change DOB or eligibility. [Current policy and request contract](birthdate-policy-and-correction.md).
+
+#491 adds GUARDIAN_VERIFICATION_UNAVAILABLE (503: disabled, incomplete notice/configuration or disconnected provider), GUARDIAN_LINK_INVALID (400: invalid/expired/revoked/inactive link), GUARDIAN_STATE_CONFLICT (409: consumed/in-flight/unsuitable state or legacy exemption), GUARDIAN_NOTICE_CHANGED (409: pinned notice changed, reissue required). Invalid self-declaration/phone/code uses VALIDATION_FAILED, throttling uses RATE_LIMIT_EXCEEDED. Exception reasons expose categories only, never provider response/phone/OTP. [Guardian contract](guardian-web-sms-intake.md).
+
+#526은 GUARDIAN_TEAM_UNAVAILABLE(503: 비활성/미준비), GUARDIAN_TEAM_REQUEST_NOT_FOUND(404), GUARDIAN_TEAM_CONFIGURATION_CHANGED(409: 신청 당시 정책 변경), GUARDIAN_CONSENT_CHANGED(409: 이전 AI/SSE 세대), GUARDIAN_AI_CONSENT_REQUIRED(403: 선택 외부 AI 동의 없음)를 추가한다. 일반 업무 경계의 정책 불일치·만료 승인은 AGE_VERIFICATION_REQUIRED로 차단한다. [상태·FE 계약](guardian-team-review-fe-contract.md).

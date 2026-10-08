@@ -1,5 +1,6 @@
 package io.edupilot.classroom;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -8,12 +9,23 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import jakarta.persistence.LockModeType;
 
 public interface ClassroomRepository extends JpaRepository<Classroom, Long> {
+
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+		update Classroom classroom
+		set classroom.status = io.edupilot.classroom.ClassroomStatus.COMPLETED,
+		    classroom.updatedAt = :now
+		where classroom.instructor.id = :instructorId
+		  and classroom.status = io.edupilot.classroom.ClassroomStatus.ACTIVE
+		""")
+	int completeAllActiveByInstructorId(@Param("instructorId") Long instructorId, @Param("now") Instant now);
 
 	boolean existsByInviteCode(String inviteCode);
 

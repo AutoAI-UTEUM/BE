@@ -108,7 +108,7 @@ class QuizSubmissionAccessJpaTest {
 	@BeforeEach
 	void configureStubs() {
 		when(clock.instant()).thenReturn(NOW);
-		when(postGrading.onGraded(any())).thenReturn(List.of(UiAction.moveNextPage()));
+		when(postGrading.onGraded(any())).thenReturn(new QuizPostGradingHookResult(List.of(UiAction.moveNextPage()), null));
 	}
 
 	@ParameterizedTest
@@ -314,7 +314,7 @@ class QuizSubmissionAccessJpaTest {
 			assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
 			assertThat(submissionCount(f)).isEqualTo(1);
 			revoke(f);
-			return List.of(UiAction.moveNextPage());
+			return new QuizPostGradingHookResult(List.of(UiAction.moveNextPage()), null);
 		});
 
 		assertDenied(() -> service.submit(f.learner(), f.quiz(), request()));
@@ -381,8 +381,8 @@ class QuizSubmissionAccessJpaTest {
 	private Fixture fixture(QuizType type, boolean materialOwner) {
 		return new TransactionTemplate(transactionManager).execute(status -> {
 			String suffix = UUID.randomUUID().toString();
-			User instructor = users.saveAndFlush(User.create(suffix + "-teacher@example.com", "hash", "Teacher", UserRole.INSTRUCTOR));
-			User learner = users.saveAndFlush(User.create(suffix + "-student@example.com", "hash", "Student", UserRole.LEARNER));
+			User instructor = users.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(suffix + "-teacher@example.com", "hash", "Teacher", UserRole.INSTRUCTOR)));
+			User learner = users.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(suffix + "-student@example.com", "hash", "Student", UserRole.LEARNER)));
 			LearningMaterial material = LearningMaterial.create(materialOwner ? learner : instructor, "Fixture", "materials/" + suffix + ".pdf");
 			material.markReady(2);
 			materials.saveAndFlush(material);

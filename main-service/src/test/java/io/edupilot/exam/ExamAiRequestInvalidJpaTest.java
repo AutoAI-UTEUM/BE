@@ -61,12 +61,12 @@ class ExamAiRequestInvalidJpaTest {
 
 	@Test
 	void recordsFailedSubmissionWhenAsyncRequestViolatesAiContract() throws Exception {
-		User instructor = userRepository.save(User.create(
+		User instructor = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"invalid-instructor@example.com", "hash", "Instructor", UserRole.INSTRUCTOR
-		));
-		User learner = userRepository.save(User.create(
+		)));
+		User learner = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"invalid-learner@example.com", "hash", "Learner", UserRole.LEARNER
-		));
+		)));
 		Classroom classroom = classroomRepository.save(Classroom.create(
 			instructor,
 			"Invalid request classroom",

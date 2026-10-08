@@ -28,6 +28,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 
 import io.edupilot.ai.AiClient;
@@ -41,6 +43,7 @@ import io.edupilot.classroom.ClassroomService;
 import io.edupilot.classroom.dto.PermanentDeleteClassroomRequest;
 import io.edupilot.exam.dto.ExamAnswerRequest;
 import io.edupilot.exam.dto.ExamAttemptDraftResponse;
+import io.edupilot.exam.dto.ExamAttemptDraftSaveResponse;
 import io.edupilot.exam.dto.SaveExamAttemptDraftRequest;
 import io.edupilot.exam.dto.SubmitExamRequest;
 import io.edupilot.global.error.BusinessException;
@@ -87,12 +90,106 @@ class ExamAttemptDraftJpaTest {
 	@Autowired private WebApplicationContext webContext;
 	@Autowired private TraceIdFilter traceIdFilter;
 	@Autowired private JwtTokenProvider jwtTokenProvider;
+	@Autowired private PlatformTransactionManager transactionManager;
 	@MockitoBean private AiClient aiClient;
 	@MockitoBean private Clock clock;
 
 	@BeforeEach
 	void setUp() {
 		when(clock.instant()).thenReturn(NOW);
+	}
+
+	@Test
+	void firstSavesFromTwoClientsKeepOneCommittedDraftAndReturnItsSnapshot() throws Exception {
+		Fixture fixture = fixture(true, true);
+		var ready = new CountDownLatch(2);
+		var start = new CountDownLatch(1);
+		var executor = Executors.newFixedThreadPool(2);
+		try {
+			var left = executor.submit(() -> firstSave(fixture, "left client", ready, start));
+			var right = executor.submit(() -> firstSave(fixture, "right client", ready, start));
+			assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+			start.countDown();
+			var results = List.of(left.get(10, TimeUnit.SECONDS), right.get(10, TimeUnit.SECONDS));
+			assertThat(results).filteredOn(ExamAttemptDraftSaveResponse.class::isInstance).hasSize(1);
+			assertThat(results).filteredOn(ExamDraftVersionConflictException.class::isInstance).hasSize(1);
+			var restored = draftService.get(fixture.learner().getId(), UserRole.LEARNER, fixture.exam().getId());
+			assertThat(restored.version()).isOne();
+			assertThat(restored.answers()).singleElement()
+				.satisfies(answer -> assertThat(answer.answer()).isIn("left client", "right client"));
+			var conflict = (ExamDraftVersionConflictException)results.stream()
+				.filter(ExamDraftVersionConflictException.class::isInstance).findFirst().orElseThrow();
+			assertThat(conflict.latestDraft()).isEqualTo(restored);
+		} finally {
+			start.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
+	void rolledBackUpdatePreservesCommittedAnswersVersionAndServerTimeForRetry() {
+		Fixture fixture = fixture(true, true);
+		Long userId = fixture.learner().getId();
+		Long examId = fixture.exam().getId();
+		draftService.save(userId, UserRole.LEARNER, examId, request(0, "committed"));
+		var before = draftService.get(userId, UserRole.LEARNER, examId);
+		when(clock.instant()).thenReturn(NOW.plusSeconds(5));
+		new TransactionTemplate(transactionManager).executeWithoutResult(transaction -> {
+			assertThat(draftService.save(userId, UserRole.LEARNER, examId, request(1, "rolled back")).version())
+				.isEqualTo(2);
+			transaction.setRollbackOnly();
+		});
+		assertThat(draftService.get(userId, UserRole.LEARNER, examId)).isEqualTo(before);
+		when(clock.instant()).thenReturn(NOW.plusSeconds(10));
+		var retry = draftService.save(userId, UserRole.LEARNER, examId, request(1, "retried"));
+		assertThat(retry.version()).isEqualTo(2);
+		assertThat(retry.savedAt()).isEqualTo(NOW.plusSeconds(10));
+		assertThat(draftService.get(userId, UserRole.LEARNER, examId).answers())
+			.containsExactly(new ExamAnswerRequest("q1", "retried"));
+	}
+
+	@Test
+	void staleHttpSaveReturnsCommittedSnapshotAndFreshTokenRestoresTheSameDraft() throws Exception {
+		Fixture fixture = fixture(true, true);
+		Instant tokenTime = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+		when(clock.instant()).thenReturn(tokenTime);
+		String firstToken = jwtTokenProvider.createAccessToken(fixture.learner());
+		when(clock.instant()).thenReturn(tokenTime.plusSeconds(1));
+		String secondToken = jwtTokenProvider.createAccessToken(fixture.learner());
+		assertThat(secondToken).isNotEqualTo(firstToken);
+		var mockMvc = MockMvcBuilders.webAppContextSetup(webContext)
+			.apply(springSecurity()).addFilters(traceIdFilter).build();
+		String path = "/api/exams/" + fixture.exam().getId() + "/attempts/draft";
+		draftService.save(fixture.learner().getId(), UserRole.LEARNER, fixture.exam().getId(), request(0, "initial"));
+		Instant savedAt = tokenTime.plusSeconds(5);
+		when(clock.instant()).thenReturn(savedAt);
+		draftService.save(fixture.learner().getId(), UserRole.LEARNER, fixture.exam().getId(), request(1, "committed winner"));
+		mockMvc.perform(put(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + firstToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"version\":1,\"answers\":[{\"questionId\":\"q1\",\"answer\":\"stale loser\"}]}"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.error.code").value("DRAFT_VERSION_CONFLICT"))
+			.andExpect(jsonPath("$.latestDraft.version").value(2))
+			.andExpect(jsonPath("$.latestDraft.answers[0].answer").value("committed winner"))
+			.andExpect(jsonPath("$.latestDraft.savedAt").value(savedAt.toString()));
+		mockMvc.perform(get(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + secondToken))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.version").value(2))
+			.andExpect(jsonPath("$.data.answers[0].answer").value("committed winner"))
+			.andExpect(jsonPath("$.data.savedAt").value(savedAt.toString()));
+	}
+
+	private Object firstSave(Fixture fixture, String answer, CountDownLatch ready, CountDownLatch start)
+		throws InterruptedException {
+		ready.countDown();
+		if (!start.await(10, TimeUnit.SECONDS)) {
+			throw new IllegalStateException("Concurrent first-save start timed out");
+		}
+		try {
+			return draftService.save(fixture.learner().getId(), UserRole.LEARNER, fixture.exam().getId(), request(0, answer));
+		} catch (ExamDraftVersionConflictException conflict) {
+			return conflict;
+		}
 	}
 
 	@Test
@@ -376,9 +473,9 @@ class ExamAttemptDraftJpaTest {
 	}
 
 	private User user(String prefix, UserRole role) {
-		return users.saveAndFlush(User.create(
+		return users.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			prefix + "@example.com", "hash", prefix, role
-		));
+		)));
 	}
 
 	private SaveExamAttemptDraftRequest request(Integer version, String answer) {

@@ -30,6 +30,7 @@ import io.edupilot.notification.NotificationTriggerService;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
+import io.edupilot.deletion.DeletionJournal;
 
 @Service
 public class MaterialService {
@@ -47,7 +48,7 @@ public class MaterialService {
 	private final MaterialAccessService accessService;
 	private final ClassroomWeekService weekService;
 	private final NotificationTriggerService notificationTriggerService;
-	private final MaterialXaiFileLifecycleService xaiFileLifecycleService;
+	private final DeletionJournal deletionJournal;
 
 	public MaterialService(
 		LearningMaterialRepository materialRepository,
@@ -60,7 +61,7 @@ public class MaterialService {
 		MaterialAccessService accessService,
 		ClassroomWeekService weekService,
 		NotificationTriggerService notificationTriggerService,
-		MaterialXaiFileLifecycleService xaiFileLifecycleService
+		DeletionJournal deletionJournal
 	) {
 		this.materialRepository = materialRepository;
 		this.pageRepository = pageRepository;
@@ -72,7 +73,7 @@ public class MaterialService {
 		this.accessService = accessService;
 		this.weekService = weekService;
 		this.notificationTriggerService = notificationTriggerService;
-		this.xaiFileLifecycleService = xaiFileLifecycleService;
+		this.deletionJournal = deletionJournal;
 	}
 
 	@Transactional
@@ -105,7 +106,9 @@ public class MaterialService {
 		}
 		registerRollbackCleanup(storageKey);
 		try {
-			User owner = userRepository.getReferenceById(ownerId);
+			User owner = userRepository.findByIdForUpdate(ownerId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+			if (!owner.isActive()) { throw new BusinessException(ErrorCode.USER_INACTIVE); }
 			LearningMaterial material = materialRepository.saveAndFlush(
 				LearningMaterial.create(owner, normalizedTitle, storageKey)
 			);
@@ -218,9 +221,7 @@ public class MaterialService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
 		deletionGuard.assertDeletable(materialId);
 		material.delete();
-		if (material.getXaiFileId() != null) {
-			xaiFileLifecycleService.deleteAfterCommit(material.getXaiFileId());
-		}
+		deletionJournal.recordRecoverableMaterial(material);
 	}
 
 	private void validateFile(MultipartFile file) {

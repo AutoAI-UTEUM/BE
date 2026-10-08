@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 계약 초안 |
-| 마지막 갱신 | 2026-09-21 |
+| 마지막 갱신 | 2026-10-04 |
 | 외부 호출자 | Frontend |
 | 내부 호출자 | Spring → FastAPI |
 
@@ -55,6 +55,9 @@
 | GET | `/api/auth/email-availability?email={email}` | 회원가입 이메일 중복 확인 | N | 전체 |
 | POST | `/api/auth/login` | 로그인 | N | 전체 |
 | POST | `/api/auth/google` | Google ID 토큰 로그인·가입 | N | 전체 |
+| POST | `/api/auth/email-verification/request` | 내 계정 이메일 확인 링크 재발급 | Y | 본인; 미확인 상태에서도 허용 |
+| GET | `/api/auth/email-verification/status` | 내 이메일 소유 확인 상태 | Y | 본인; 미확인 상태에서도 허용 |
+| POST | `/api/auth/email-verification/confirm` | 30분 유효·1회용 링크 확정 | N | 토큰에 연결된 현재 활성 계정만 확인 |
 | GET | `/api/policies/current` | 현재 유효한 정책 버전·요약 조회 | N | 전체 |
 | GET | `/api/policies/{type}/{version}` | 정책 버전 본문 조회 | N | 전체 |
 | GET | `/api/users/me/consents` | 내 동의 이력·현재 미동의 버전 조회 | Y | 본인 |
@@ -76,7 +79,7 @@
 | GET | `/api/users/me/notifications` | 내 인앱 알림 목록 조회 | Y | 본인 |
 | PATCH | `/api/users/me/notifications/{notificationId}/read` | 내 인앱 알림 읽음 처리 | Y | 본인 |
 | DELETE | `/api/users/me/notifications/{notificationId}` | 내 인앱 알림 삭제 | Y | 본인 |
-| DELETE | `/api/users/me` | 회원 탈퇴(논리 삭제+익명화 — DEC-028) | Y | 본인 (비밀번호 재확인) |
+| DELETE | `/api/users/me` | 회원 탈퇴(논리 삭제+익명화 — DEC-028) | Y | 본인 (LOCAL 비밀번호 / Google ID 토큰 재확인) |
 | POST | `/api/materials` | 개인 PDF 업로드 또는 강의실 주차 업로드 | Y | LEARNER, INSTRUCTOR, ADMIN; 강의실 part는 소유 INSTRUCTOR만 |
 | GET | `/api/materials` | 자료 목록 | Y | 본인 소유 자료 (DEC-026) |
 | GET | `/api/materials/{materialId}` | 자료 상세 | Y | 소유자 또는 승인 멤버의 강의실 연결 자료 |
@@ -197,6 +200,7 @@
   "password": "password123",
   "name": "홍길동",
   "role": "LEARNER",
+  "dateOfBirth": "2000-01-01",
   "affiliation": "EduPilot University",
   "learningEmailOptIn": true,
   "consents": [
@@ -216,17 +220,43 @@
   "role": "LEARNER",
   "affiliation": "EduPilot University",
   "avatarUrl": null,
-  "learningEmailOptIn": true
+  "learningEmailOptIn": true,
+  "emailVerification": "PENDING",
+  "emailVerificationRequired": true
 }
 ```
 
 `role`은 필수이며 공개 가입에서는 `LEARNER | INSTRUCTOR`만 허용합니다. `ADMIN`, 기존 `USER`, 알 수 없는 enum 값은 요청 오류로 거부합니다. `ADMIN` 계정은 운영상 필요한 경우에만 DB에서 수동 설정합니다(DEC-017, DEC-029 Accepted).
 
-`affiliation`은 선택이며 공백을 제거한 뒤 최대 100자입니다. `learningEmailOptIn`은 생략 시 `false`입니다. 가입 동의 필수 여부는 `edupilot.policy.signup-consent-required`(환경변수 `EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED`, 기본 `false`)로 제어합니다. `false`일 때 `consents` 생략·빈 배열은 가입을 허용하며 동의 이력을 만들지 않습니다. 배열을 보내면 `GET /api/policies/current` 중 `requiresConsent=true`인 현재 버전을 정확히 한 번씩 보내야 하며, 동의 버전·시각·IP·User-Agent를 가입 트랜잭션에서 저장합니다. `true`일 때는 해당 문서가 하나 이상 게시되어 있어야 하고 배열도 필수입니다. 누락·중복·버전 불일치는 `POLICY_CONSENT_REQUIRED`(400)입니다. `requiresConsent=false`인 공개 문서를 과도기 FE가 함께 보내면 가입 검증에서는 무시합니다. V48 시드 `0.9`는 **법무 검토 전 초안**이며 V49에서 동의 비대상으로 명시합니다.
+`dateOfBirth`는 신규 LOCAL 가입에 필수인 `YYYY-MM-DD` 날짜 문자열입니다. 누락/null·Asia/Seoul 오늘 이후는 `VALIDATION_FAILED`(400), 날짜 역직렬화 실패는 `MALFORMED_REQUEST`(400)입니다. 한국 현재 연도−출생 연도 ≤14는 보호자 대상, ≥15는 보호자 불필요입니다. DOB는 User/Signup 응답·AI DTO에 노출하지 않고 보호자 확인 증거를 만들지 않습니다. [승인 기준과 수정 요청](birthdate-policy-and-correction.md).
+
+`affiliation`은 선택이며 공백을 제거한 뒤 최대 100자입니다. `learningEmailOptIn`은 생략 시 `false`입니다. 가입 동의 필수 여부는 `edupilot.policy.signup-consent-required`(환경변수 `EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED`, 기본 `false`)로 제어합니다. 현재 동의 대상은 유형별 최신 시행 문서 중 `requiresConsent=true`인 항목입니다. 설정 `true`에서 이 목록이 비면 서비스 준비 미완료인 `SIGNUP_POLICY_NOT_READY`(503)로 신규 LOCAL·Google 가입을 중단하며 계정·동의 이력·이메일 확인 토큰·메일 작업·로그인 세션을 생성하지 않습니다. 제출 동의 배열로 준비 미완료를 우회할 수 없습니다.
+
+대상이 있으면 설정 `true`일 때 동의 배열이 필수이고, `false`일 때 생략·빈 배열은 가입을 허용하며 동의 이력을 만들지 않습니다. `false`에서 대상이 없는 기존 가입 동작도 유지합니다. 배열을 보내면 동의 대상 현재 버전을 정확히 한 번씩 보내야 하며 동의 버전·시각·IP·User-Agent를 가입 트랜잭션에서 저장합니다. 대상이 있는 경우의 누락·중복·버전 불일치는 사용자 동의 오류인 `POLICY_CONSENT_REQUIRED`(400)입니다. `requiresConsent=false` 문서를 함께 보내면 가입 검증에서는 무시합니다. 한 종류만 필수인 계약은 유지하며 두 종류를 모두 필수로 지정하지 않습니다. 실제 필수 여부·문구·버전의 게시와 출시 준비 완료 판단은 별도 정책 결정입니다. 위 버전 `0.9`는 과거 합성 예시이며 V48 시드의 **법무 검토 전 초안**은 V49에서 동의 비대상으로 명시했습니다. 실제 요청은 `GET /api/policies/current`의 현재 동의 대상 버전을 사용합니다.
 
 비밀번호 정책(확정): **8~64자, 영문·숫자 각 1자 이상 포함**(특수문자 허용). 위반 시 `VALIDATION_FAILED` + `details: [{ "field": "password", "reason": "..." }]`.
 
-주요 오류: `VALIDATION_FAILED`, `POLICY_CONSENT_REQUIRED`, `EMAIL_ALREADY_EXISTS`.
+주요 오류: `VALIDATION_FAILED`, `MALFORMED_REQUEST`, `SIGNUP_POLICY_NOT_READY`(503), `POLICY_CONSENT_REQUIRED`(400), `EMAIL_ALREADY_EXISTS`. LOCAL 가입 성공은 계정 생성이며 access·refresh 쿠키·로그인 세션을 발급하지 않습니다. FE는 준비 미완료를 사용자 동의 누락으로 표시하거나 가입 완료로 처리하지 않습니다.
+
+LOCAL·Google 신규 계정은 `PENDING`으로 생성하고 가입 트랜잭션에 이메일 확인 작업을 저장합니다. Google ID 토큰의 검증된 이메일도 이 변경에서는 별도의 BE 확인 링크를 사용하며 자동 `VERIFIED` 처리하지 않습니다. 기존 계정은 근거 없이 `VERIFIED`로 백필하지 않고 `UNKNOWN`으로 유지합니다. 로그인 응답의 `user` 및 `/api/users/me`에는 `emailVerification`, `emailVerificationRequired`, nullable `emailVerifiedAt`을 추가합니다. 신규 이메일 미확인 계정의 로그인·refresh·본인 계정 관리·정책 동의는 허용하지만 학습·자료·파일·SSE·노트·강의실 등 업무 API는 `EMAIL_VERIFICATION_REQUIRED`(403)으로 거부합니다. V58 이전 계정은 별도 `LEGACY_EXEMPT` cohort로 이용을 유지하고 `emailVerificationRequired=false`를 반환하며 확인 증거는 바꾸지 않습니다. 정지·탈퇴·역할·소유권 검사는 계속 적용합니다. 이메일 확인이나 기존 계정 예외는 연령·보호자 확인이나 외부 AI 동의를 대신하지 않습니다. [기존 계정 이용 정책](legacy-account-access.md).
+
+### 이메일 소유 확인 API (#471)
+
+`POST /api/auth/email-verification/request`는 Bearer 인증이 필요하며 본인에게만 링크를 발급합니다. 202와 `Cache-Control: no-store`를 반환하고 원문 토큰·수신자 존재 여부를 응답에 싣지 않습니다. 재발급은 이전 미사용 링크를 무효화합니다. 이미 확인한 계정은 새 메일 없이 202를 반환합니다. 재요청 한도는 사용자당 3회/시간, IP당 10회/시간이며 초과 시 `RATE_LIMIT_EXCEEDED`(429)입니다.
+
+`GET /api/auth/email-verification/status`와 `POST /api/auth/email-verification/confirm`의 성공 `data` 예시:
+
+```json
+{
+  "emailVerification": "VERIFIED",
+  "emailVerificationRequired": false,
+  "emailVerifiedAt": "2026-10-03T09:00:00Z"
+}
+```
+
+확정 요청은 `{"token":"43-character-base64url-value"}` 형태입니다. 32바이트 난수의 Base64URL 원문이 실제 토큰이며 예시는 유효한 토큰이 아닙니다. 익명 확정은 JWT나 세션을 발급하지 않습니다. 만료·재사용·탈퇴·현재 이메일 불일치·유효하지 않은 링크는 같은 `EMAIL_VERIFICATION_TOKEN_INVALID`(400)로 처리하고, 형식 오류는 `VALIDATION_FAILED`(400)입니다. 확정 IP 한도는 10회/15분입니다. 동시 확정은 1회만 성공하며 GET 확정은 405 `METHOD_NOT_ALLOWED`이고 상태를 바꾸지 않습니다. 성공 응답은 `no-store`입니다.
+
+기존 계정 예외·선택 재확인·FE 링크 연동·배포 경계와 백그라운드 AI 검증은 [이메일 소유 확인](email-verification.md)을 따릅니다. 요청·응답 합성 예시, 오류 우선순위, 재발급/다른 로그인 계정/탭 상태 처리와 현재 FE 누락 재현은 [FE 전달 계약](qa/fe-auth-contract/README.md)에 있습니다. 그 소비자 mock 검사는 Spring runtime·실제 FE 화면 인수 결과가 아닙니다.
 
 ### GET `/api/auth/email-availability?email={email}`
 
@@ -268,7 +298,10 @@
     "role": "LEARNER",
     "affiliation": "EduPilot University",
     "avatarUrl": "/api/users/me/avatar",
-    "learningEmailOptIn": true
+    "learningEmailOptIn": true,
+    "emailVerification": "PENDING",
+    "emailVerificationRequired": true,
+    "emailVerifiedAt": null
   },
   "session": {
     "idleTimeoutSeconds": 7200,
@@ -334,17 +367,18 @@ FE는 `EMAIL_ALREADY_EXISTS`를 토큰 오류나 `SIGNUP_REQUIRED`로 취급하�
 {
   "idToken": "google-id-token",
   "role": "LEARNER",
+  "dateOfBirth": "2000-01-01",
   "consents": [{"type": "TERMS", "version": "1.0"}],
   "learningEmailOptIn": true,
   "affiliation": "EduPilot University"
 }
 ```
 
-- 신규 가입의 `role`은 `LEARNER | INSTRUCTOR`입니다. `consents` 필수 여부는 일반 가입과 같은 설정을 따르며 현재 `requiresConsent=true`인 버전만 보냅니다. 같은 `googleSub`의 기존 계정 로그인에는 재전송하지 않아도 되며, 응답의 `pendingConsents`가 재동의 필요 여부를 나타냅니다.
+- 신규 가입의 `role`은 `LEARNER | INSTRUCTOR`이고 `dateOfBirth`도 필수입니다. 역할·DOB 검증 후 가입 동의를 검사합니다. DOB가 없으면 `SIGNUP_REQUIRED`(409)입니다. `consents`는 일반 가입과 같은 규칙의 현재 동의 대상 버전을 사용하며 위 `1.0`은 예시입니다. 필수 설정에서 유효한 동의 대상 목록이 비면 `SIGNUP_POLICY_NOT_READY`(503), 대상이 준비됐지만 동의가 누락·중복·불일치하면 `POLICY_CONSENT_REQUIRED`(400)입니다. 같은 `googleSub`의 기존 로그인에는 가입 준비 검증을 적용하지 않고 DOB·role·가입 consents를 재전송하지 않아도 되며 보낸 DOB도 기존 값을 덮어쓰지 않습니다. 응답의 `pendingConsents`가 재동의 필요 여부를 나타냅니다.
 - Google ID 토큰은 서버가 Google tokeninfo 응답의 audience, issuer, 이메일 검증 여부를 확인합니다. 검증 실패·Google 통신 실패는 `TOKEN_INVALID`(401)로 통일합니다.
 - 서버에 Google Client ID가 설정되지 않은 경우 기동은 허용하지만 요청은 `VALIDATION_FAILED`(400)로 거부하고 설정 오류만 서버 로그에 기록합니다.
 - Google 최초 가입 계정의 비밀번호 sentinel은 일반 비밀번호 검증을 통과하지 않으므로 비밀번호 로그인은 `INVALID_CREDENTIALS`입니다.
-- 주요 오류: `EMAIL_ALREADY_EXISTS`, `SIGNUP_REQUIRED`, `TOKEN_INVALID`, `ACCOUNT_SUSPENDED`, `USER_INACTIVE`, `VALIDATION_FAILED`.
+- 주요 오류: `EMAIL_ALREADY_EXISTS`, `SIGNUP_REQUIRED`, `SIGNUP_POLICY_NOT_READY`(503), `POLICY_CONSENT_REQUIRED`(400), `TOKEN_INVALID`, `ACCOUNT_SUSPENDED`, `USER_INACTIVE`, `VALIDATION_FAILED`, `MALFORMED_REQUEST`.
 - 이 차단은 신규 자동 연결 예방이며, 배포 전에 이미 연결된 계정·발급된 세션을 소급 복구하지 않습니다. 기존 연결 계정의 조사 기준과 잔여 접근 위험은 [DEC-042](decisions.md#dec-042--google-이메일-충돌-차단과-기존-연결-계정-복구)에 기록합니다.
 
 ### 정책 버전·동의 (#415)
@@ -364,7 +398,7 @@ FE는 `EMAIL_ALREADY_EXISTS`를 토큰 오류나 `SIGNUP_REQUIRED`로 취급하�
 {"message":"등록된 이메일이면 재설정 안내를 발송했습니다."}
 ```
 
-활성 `LOCAL` 계정에만 `/reset-password?token=...` 링크를 발송합니다. 링크는 30분 유효하며 재요청하면 이전 미사용 링크가 무효화됩니다. 이메일당 시간 3회, IP당 시간 10회 초과 시 내부 발송·토큰 생성만 생략합니다. 운영 감사 로그에는 이메일·토큰 원문을 남기지 않습니다. dev의 `logging` 메일 provider는 링크 확인을 위해 본문을 출력하므로 실사용자 정보를 넣지 않습니다.
+활성 `LOCAL` 계정에만 `/reset-password?token=...` 링크를 발송합니다. 링크는 30분 유효하며 재요청하면 이전 미사용 링크가 무효화됩니다. 이메일당 시간 3회, IP당 시간 10회 초과 시 내부 발송·토큰 생성만 생략합니다. 운영 감사 로그에는 이메일·토큰 원문을 남기지 않습니다. `logging` 메일 provider는 모든 프로파일에서 본문·HTML·제목·수신 주소를 출력하지 않으며 메일 종류와 모의 발송 상태만 기록합니다. 테스트는 EmailSender mock으로 메일을 확인합니다.
 
 ### POST `/api/auth/password-reset/confirm`
 
@@ -486,7 +520,17 @@ Bearer 인증 후 저장된 이미지의 실제 Media-Type으로 private/no-stor
 }
 ```
 
-회원 탈퇴(DEC-028). 비밀번호 재확인 후 `status=DELETED` 전환과 동시에 개인 식별 정보를 익명화합니다(email → `deleted_{id}`, name → 고정 문구, password_hash 무효화 — 재가입 허용). 인증 세션과 refresh token은 전부 폐기합니다. 소유 자료·학습 세션은 함께 논리 삭제하고, 퀴즈 제출·평가·메모리 레코드는 익명 상태로 보존합니다. 복구는 지원하지 않으므로 FE는 확인 모달을 거쳐 호출합니다. 주요 오류: `INVALID_CREDENTIALS`.
+LOCAL 계정은 위의 `password`를, Google 계정은 아래의 `googleIdToken`을 제출합니다. 두 자격 증명을 함께 보내거나 모두 누락하면 400 `VALIDATION_FAILED`입니다. 서버는 Google 토큰의 audience·issuer·이메일 검증·만료를 확인한 뒤 현재 계정의 `googleSub`와 검증 결과의 `sub`를 비교합니다. 이메일 문자열 일치만으로 탈퇴할 수 없습니다. 검증 중에는 삭제 DB 트랜잭션을 열지 않으며 Google 오류/만료는 `TOKEN_INVALID`, 계정 provider·sub 불일치/LOCAL 비밀번호 불일치는 `INVALID_CREDENTIALS`입니다.
+
+```json
+{"googleIdToken":"<Google가 발급한 ID 토큰>"}
+```
+
+회원 탈퇴(DEC-028). 재확인 후 사용자 행을 잠가 `status=DELETED` 전환과 동시에 개인 식별 정보를 익명화합니다(email → `deleted_{id}`, name → 고정 문구, password_hash 무효화 — 재가입 허용). 인증 세션과 refresh token은 전부 폐기하고 이후 인증 요청마다 현재 DB 역할·상태를 다시 확인합니다. 소유 자료·학습 세션은 함께 논리 삭제하고, 퀴즈 제출·평가·메모리 레코드는 익명 상태로 보존합니다. 커밋 후 기존 원본 이메일로 탈퇴 완료 메일을 요청하며 롤백 시 발송하지 않습니다. 메일은 계정 사용 종료만 안내하고 물리 파일 정리 완료를 의미하지 않습니다. 복구는 지원하지 않으므로 FE는 확인 모달을 거쳐 호출합니다.
+
+탈퇴 성공 시 현재 소유한 `ACTIVE` 강의실을 같은 DB 트랜잭션에서 `COMPLETED`로 종료합니다. 현재 계정 역할과 무관하게 실제 소유 관계를 기준으로 처리합니다. 이전에 종료한 강의실, 다른 강사의 강의실, 기존 소유자·학생 멤버·평가 이력은 유지하고 소유권을 이전하지 않습니다. 강의실 생성도 소유자 사용자 행을 잠가 탈퇴와 직렬화하므로 생성이 먼저 커밋한 새 강의실은 종료 대상에 포함되며, 탈퇴가 먼저 커밋한 계정은 생성할 수 없습니다. 사용자 삭제가 롤백되면 강의실 종료도 함께 롤백됩니다. 종료 후 관리 쓰기·신규 참여·강의실 시험 제출 차단은 기존 완료 강의실 규칙을 따릅니다. 기존 멤버의 본인 통합학습은 기존 규칙대로 유지합니다.
+
+원본·렌더·외부 파일 정리 추적/재시도와 파일 보존기간은 #477의 미완료 범위입니다. 계정·강의실 종료는 물리 파일 정리 완료를 의미하지 않습니다. 보호자/연령 확인 정책은 #478의 별도 결정입니다. 이 API 구현만으로 이 정책들의 출시 검증이 완료되었다고 간주하지 않습니다.
 
 ## 4. 자료 API
 
@@ -888,6 +932,10 @@ QA에서 나온 제안도 같은 엔드포인트를 사용하며, 실제 제안�
 동일 `requestId` 재전송 처리(확정): 기존 사용자 메시지의 `status=FAILED`이면 해당 메시지를 `COMPLETED`로 복귀시켜 재사용하고 턴을 다시 수행합니다. 질문 행은 추가하지 않습니다. 기존 메시지가 성공 또는 진행 상태이면 **`TURN_ALREADY_PROCESSED`(409)**를 유지합니다. FE는 실패 턴의 통신 재시도에 새 ID를 만들지 않고 같은 `requestId`를 다시 사용합니다.
 
 실제 AI turn 호출 직전에 사용자별 일일 쿼터를 검사합니다. KST 기준 당일 성공·실패 AI 호출을 모두 세며 역할별 한도에 도달하면 `AI_QUOTA_EXCEEDED`(429)를 반환하고 AI 요청은 전송하지 않습니다. `ADMIN`은 쿼터에서 면제됩니다.
+
+AI 호출 중 멤버십·자료 연결이 회수되거나 계정이 정지·역할 변경되면 완료/취소 결과 저장 직전에 현재 권한을 다시 검사합니다(#479). 자료 소유권이나 다른 강의실 접근권이 남으면 기존 정책대로 허용합니다. 계정 공유 잠금 → 세션 잠금 → 자료·접근 근거 잠금 순서로 저장과 회수를 직렬화하며 외부 AI 호출 동안 DB 잠금을 유지하지 않습니다. 자료 권한 회수는 `MATERIAL_NOT_FOUND`(404), 정지는 `ACCOUNT_SUSPENDED`(401), 호출 전 역할과 불일치는 `TOKEN_INVALID`(401)입니다. 실제 AI 사용량은 결과 저장 거절에도 유지합니다.
+
+저장 후에도 메모리 승격 시작 전과 POST 최종 반환 전에 새 트랜잭션으로 현재 권한을 검사합니다. 저장이 먼저 완료된 경우 보호된 응답은 차단하되 완료 기록과 동일 requestId의 `TURN_ALREADY_PROCESSED`를 유지합니다. 이미 승인해 시작한 메모리 처리·비동기 요약 작업의 중간 회수 및 HTTP 직렬화·전송 완료까지의 원자적 취소는 이 응답 계약에 포함하지 않습니다.
 
 `data`:
 
@@ -2977,7 +3025,7 @@ GET은 단일 임계값 설정을 반환하며 행이 없으면 1차 기본값�
 `attemptCount`, `createdAt`, `sentAt`을 포함합니다. `type`은
 `PASSWORD_RESET|EMAIL_VERIFY|NOTIFICATION|TEST`입니다. 본문은 이력·응답에 포함하지
 않습니다. `enabled=false`일 때는 `FAILED`/`errorSummary=DISABLED`입니다.
-prod에서 메일 provider가 `logging`이면 기동을 거부하며, `EDUPILOT_MAIL_ALLOW_LOGGING_IN_PROD=true`를 명시한 경우에만 본문을 숨긴 채 발송 없이 기동합니다.
+prod에서 메일 provider가 `logging`이면 기동을 거부하며, `EDUPILOT_MAIL_ALLOW_LOGGING_IN_PROD=true`를 명시한 경우에만 발송 없이 기동합니다. 본문·HTML·제목·수신 주소는 dev/local/test를 포함해 로그에 출력하지 않습니다.
 
 이 이슈는 발송 기반과 관리자 검증 API만 제공합니다. 비밀번호 재설정·가입 이메일 인증·
 알림 메일 연결은 후속 이슈이며, 기존 인앱 알림은 변경되지 않습니다.
@@ -3253,7 +3301,7 @@ data: {"code":"AI_SERVICE_TIMEOUT","category":"TIMEOUT","message":"AI 서비스 
   합니다.
 - 내부 completed 전체 검증과 메시지·상태 저장 트랜잭션 커밋 후
   `[ui_action] → completed → 종료` 순서로 외부 terminal을 전송합니다.
-- 내부 completed 응답 검증이 끝나면 SSE cancellation 상태와 무관하게 저장합니다. 저장 커밋 후 외부 `completed` 전송이 실패해도 저장된 턴을 실패 처리하지 않고 FE의 세션·메시지 복원 경로로 수렴합니다.
+- 내부 completed 응답 검증이 끝나면 현재 계정·자료 권한을 잠금 검사한 뒤 일반 SSE cancellation 상태와 무관하게 저장합니다. 명시적인 사용자 취소의 부분 응답도 같은 저장 권한 검사를 적용합니다. 저장 후 외부 `completed`의 일반 전송 장애는 완료 기록을 실패 처리하지 않고 POST 복구 응답을 허용합니다. 권한 회수 오류는 전송 장애로 삼키지 않으며 POST에도 원래 401/404를 반환합니다.
 - 종료 원인은 첫 종료 전이에서 고정하고, 이후 emitter callback이 덮어쓰지
   않습니다. terminal 전달 실패는 별도 `deliveryResult`로 기록합니다.
   연결·요청·AI 시도 상관 필드와 경합 검증 결과는
@@ -3272,3 +3320,46 @@ data: {"code":"AI_SERVICE_TIMEOUT","category":"TIMEOUT","message":"AI 서비스 
   재시도하지 않습니다.
 - 문항 스트림 로그의 `quizQuestionFirstMs`는 AI 시도 시작부터 첫 문항까지의 ms
   (없으면 null), `quizQuestionCount`는 중계 문항 수입니다. usage 저장은 기존대로입니다.
+
+### Mail recovery and administrator history (#473)
+
+Existing admin mail endpoints and QUEUED/SENT/FAILED/RATE_LIMITED response values remain.
+FAILED/errorSummary=DELIVERY_RESULT_UNKNOWN means provider outcome is unknown and automatic resend
+is blocked; SENT means provider acceptance, not recipient delivery. EXECUTOR_REJECTED_RETRY_PENDING
+and THROTTLED_RETRY_PENDING remain QUEUED until recovery or expiry. No payload is exposed by API.
+See [mail outbox](mail-outbox.md) for encryption, restart recovery, migration and operating limits.
+
+
+### Deletion completion boundary (#477)
+
+Existing withdrawal/material-delete response shapes are unchanged. Success means committed logical deletion with a durable cleanup intent. Owner-requested ordinary material deletion records the approved 30-day original PDF/render deadline while physical cleanup remains disabled/POLICY_PENDING. Withdrawal, legal/consent exceptions, account/avatar and external-AI periods are not inferred from that policy. Restore import and failure retry are internal maintenance services, not public HTTP endpoints. [Deletion journal](deletion-journal.md), [ordinary 30-day scope](general-file-retention.md).
+
+
+### New-signup DOB input (#478 foundation)
+
+LOCAL and new Google signup require ISO dateOfBirth and reject dates after today in Asia/Seoul. Existing Google login ignores submitted DOB and never overwrites it. The approved KST current-year minus birth-year rule includes difference ≤14 in the guardian cohort; difference ≥15 requires no guardian when other conditions hold. Protected business APIs/files/SSE/AI and locked turn persistence still require email evidence first for NEW_SIGNUP; guardian-cohort or missing-DOB UNKNOWN returns AGE_VERIFICATION_REQUIRED(403), MANUAL_PENDING returns GUARDIAN_VERIFICATION_PENDING(403). Classification does not change guardian evidence states. Authentication/self-management exceptions, mandatory signup consents and V58 LEGACY_EXEMPT remain. [Policy and correction intake](birthdate-policy-and-correction.md), [business boundary](business-eligibility-gate.md).
+
+### 생년월일 관리자 수정 요청 (#519)
+
+| Method·경로 | 계약 |
+| --- | --- |
+| `POST /api/users/me/birthdate-correction-requests` | 활성 본인 로그인; `{ "requestedDateOfBirth": "2011-12-31" }`, 이메일/보호자 대기 중에도 접수 가능 |
+| `GET /api/users/me/birthdate-correction-requests` | 본인 요청만 반환; 없으면 `data: null` |
+| `GET /api/admin/birthdate-correction-requests?page=0&size=20` | 현재 DB ADMIN; PENDING만 요청시각/ID 오름차순; size 1~100 |
+| `GET /api/admin/birthdate-correction-requests/{id}` | 현재 DB ADMIN; 없으면 `BIRTHDATE_CORRECTION_NOT_FOUND`(404) |
+
+접수/상세 data는 `{id,userId,requestedDateOfBirth,state,requestedAt}`, 목록 data는 `{requests,page,size,totalElements,totalPages}`다. 모든 성공 응답은 no-store다. 동일 날짜의 재접수는 최초 ID/시각을 반환하며, 다른 날짜의 대기 요청은 `BIRTHDATE_CORRECTION_PENDING`(409), 현재 DOB와 같은 요청·미래 날짜·누락은 `VALIDATION_FAILED`(400)이다. 타인 ID로 조회/접수하는 본인 경로는 없다. 접수는 User DOB와 업무 자격을 변경하지 않는다. 승인·수정 쓰기 API는 없고 탈퇴는 요청 DOB를 제거하고 WITHDRAWN으로 기록한다. [완료 경계와 남은 절차](birthdate-policy-and-correction.md).
+
+### Current authorization and SSE reconnect (#479)
+
+Every authenticated request reads current DB role/status without a process-local positive cache. Committed suspension returns ACCOUNT_SUSPENDED(401), while deleted/missing accounts and JWT role mismatch return TOKEN_INVALID(401). New SSE connections also require current material access after the existing owner/ACTIVE checks; removed membership, unlinked or withdrawn-owner material returns MATERIAL_NOT_FOUND(404) before emitter registration. Existing request/response fields are unchanged. [Runtime regression evidence and limits](release-runtime-regressions.md).
+
+### Guardian web consent and phone-control intake (#491)
+
+POST /api/auth/guardian-verification/link requires authentication. Public POST view/consent/verify/dispute accept the bearer token only in JSON bodies. All success responses use no-store/no-referrer; GET never records consent. The disabled default and disconnected provider return GUARDIAN_VERIFICATION_UNAVAILABLE. PHONE_CONFIRMED is phone-control evidence only, guardianRelationshipVerified remains false, and User eligibility is unchanged. [Request/response and activation boundary](guardian-web-sms-intake.md).
+
+### 보호자 팀 검토 (#526)
+
+기본 비활성인 자기 신청·fragment 링크·POST 자기신고와 지정 담당자 회신 확인·승인/반려/보완·철회 API를 추가한다. 웹 자기신고나 회신 도착은 승인이 아니다. 현재 DB ACTIVE ADMIN과 지정 ID를 결정 트랜잭션에서 검사하며 외부 AI 선택 동의·승인 세대·현재 정책 digest를 각각 확인한다. [정확한 API/FE 계약](guardian-team-review-fe-contract.md), [한국어 양식](guardian-team-review-forms.md), [구현과 활성화 경계](guardian-team-review.md).
+
+`GET /api/users/me/guardian-requests/entry`는 활성 로그인 본인에게 `{requirement,teamReviewAvailable,canStartRequest,replyChannel,request}`를 반환한다. 서버의 현재 cohort·DOB·KST 연도로 REQUIRED/NOT_REQUIRED/BIRTHDATE_REQUIRED를 판정하며, 정책 미준비에서는 신청과 수집을 열지 않는다. 이메일 미확인 본인의 조회는 허용하되 업무·파일·AI 게이트는 유지한다. 접수나 승인을 만들지 않으며 준비된 기존 신청의 만료 정리는 기존 규칙을 따른다. `View`와 `Detail`에 `replyChannel`, 지정 담당자 `Detail`에 UTC `generationStartedAt`과 배열 `declaredScopes`가 추가된다. 이 배열이 DECLARED를 승인으로 바꾸거나 EXTERNAL_AI 동의를 추정하지 않는다. 위 FE 계약이 nullable·기존 신청·재발급·기한·채널 의미의 정본이며 OpenAPI는 실제 DTO와 controller annotation에서 생성된다.

@@ -3,6 +3,7 @@ package io.edupilot.aiusage;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -23,6 +24,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ByteArrayResource;
@@ -38,6 +40,9 @@ import io.edupilot.ai.dto.ExtractResponse;
 import io.edupilot.ai.dto.ExtractedPage;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.guardian.GuardianConsentFence;
+import io.edupilot.guardian.team.GuardianTeamConfig;
+import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.material.MaterialAccessService;
 import io.edupilot.material.MaterialCaptionTaskDispatcher;
 import io.edupilot.material.MaterialExtractionPersistenceService;
@@ -50,6 +55,7 @@ import io.edupilot.material.MaterialXaiFileLifecycleService;
 import io.edupilot.material.storage.FileStorage;
 import io.edupilot.memory.LearnerMemoryPromotionService;
 import io.edupilot.session.PageStatus;
+import io.edupilot.session.LearningSessionRepository;
 import io.edupilot.session.PersistedTurn;
 import io.edupilot.session.PreparedTurn;
 import io.edupilot.session.SessionStreamService;
@@ -102,6 +108,8 @@ class TurnAiUsageIntegrationTest {
 	@MockitoBean
 	private AiClient aiClient;
 	@MockitoBean
+	private io.edupilot.auth.EmailVerificationGate emailVerificationGate;
+	@MockitoBean
 	private TurnResponseValidator responseValidator;
 	@MockitoBean
 	private TurnPersistenceService persistenceService;
@@ -111,10 +119,15 @@ class TurnAiUsageIntegrationTest {
 	private SessionStreamService streamService;
 	@MockitoBean
 	private AiClientProperties aiClientProperties;
-	@MockitoBean
+	@Autowired
 	private UserRepository userRepository;
 	@MockitoBean
+	private LearningMaterialRepository materialRepository;
+	@MockitoBean
+	private LearningSessionRepository sessionRepository;
+	@MockitoBean
 	private MaterialAccessService materialAccessService;
+	@MockitoBean private io.edupilot.session.SessionStreamAccessGuard accessGuard;
 	@MockitoBean
 	private MaterialExtractionPersistenceService extractionPersistenceService;
 	@MockitoBean
@@ -129,11 +142,14 @@ class TurnAiUsageIntegrationTest {
 	@BeforeEach
 	void setUpTurn() {
 		usageRepository.deleteAll();
+		when(accessGuard.captureAccess(1L)).thenReturn(new io.edupilot.session.SessionStreamAccessGuard.Access(
+			io.edupilot.user.UserRole.LEARNER, 0));
 		when(aiClientProperties.turnReadTimeout())
 			.thenReturn(Duration.ofSeconds(200));
-		when(userRepository.findById(1L)).thenReturn(Optional.of(
-			User.create("learner@example.com", "hash", "학습자")
-		));
+		User baseline = userRepository.findById(1L).orElseGet(() -> userRepository.saveAndFlush(
+			io.edupilot.VerifiedTestUsers.legacyVerified(User.create("synthetic-learner@example.test", "!synthetic", "합성 학습자"))));
+		assertThat(baseline.getId()).isEqualTo(1L);
+		assertThat(baseline.isLegacyAccessExempt()).isTrue();
 		when(preparationService.prepare(
 			1L,
 			100L,
@@ -152,6 +168,8 @@ class TurnAiUsageIntegrationTest {
 			.thenReturn(Optional.empty());
 		when(persistenceService.persist(
 			eq(1L),
+			any(),
+			anyLong(),
 			eq(100L),
 			eq("request-1"),
 			any(),
@@ -413,12 +431,15 @@ class TurnAiUsageIntegrationTest {
 
 	@SpringBootConfiguration
 	@EnableAutoConfiguration
-	@EnableJpaRepositories(basePackageClasses = AiUsageLogRepository.class)
+	@EnableJpaRepositories(basePackageClasses = {AiUsageLogRepository.class, UserRepository.class})
+	@EntityScan(basePackageClasses = {AiUsageLog.class, User.class})
 	@Import({
 		AiUsageService.class,
 		AiQuotaService.class,
 		SessionTurnService.class,
-		MaterialExtractionService.class
+		MaterialExtractionService.class,
+		GuardianConsentFence.class,
+		GuardianTeamConfig.class
 	})
 	static class TestApplication {
 

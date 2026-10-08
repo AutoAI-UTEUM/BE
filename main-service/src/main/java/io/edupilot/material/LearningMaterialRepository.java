@@ -33,6 +33,16 @@ public interface LearningMaterialRepository
 	@Query("select material from LearningMaterial material where material.id = :id")
 	Optional<LearningMaterial> findByIdForUpdate(@Param("id") Long id);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select material from LearningMaterial material where material.storageKey=:key")
+	Optional<LearningMaterial> findByStorageKeyForUpdate(@Param("key") String key);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select material from LearningMaterial material where material.owner.id=:ownerId and material.status=io.edupilot.material.MaterialStatus.ACTIVE order by material.id")
+	List<LearningMaterial> findOwnedActiveForUpdate(@Param("ownerId") Long ownerId);
+
+	boolean existsByXaiFileIdAndStatus(String xaiFileId,MaterialStatus status);
+
 	@Query("select material.id from LearningMaterial material "
 		+ "where material.status = io.edupilot.material.MaterialStatus.ACTIVE "
 		+ "and material.processingStatus = "

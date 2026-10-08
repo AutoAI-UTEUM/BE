@@ -1,0 +1,175 @@
+{
+  "source": {
+    "beCandidateHead": "ee69e4259b1b80871fdc1805a7b42d8628ac57e9",
+    "beUpstreamDevelopHead": "ef8f0f74a3d2d46a0adc9aabf1d9dad9577dd938",
+    "feDevelopHead": "1b6987d8472a064a080a00bd43232993e9bd41eb",
+    "syntheticOnly": true
+  },
+  "inputs": {
+    "localSignup": {
+      "email": "contract-learner@example.invalid",
+      "password": "Synthetic123!",
+      "name": "합성 학습자",
+      "role": "LEARNER",
+      "affiliation": "합성 학교",
+      "learningEmailOptIn": false,
+      "consents": [{ "type": "TERMS", "version": "synthetic-1" }],
+      "dateOfBirth": "2015-01-02"
+    },
+    "newGoogleSignup": {
+      "idToken": "synthetic-google-token-not-a-provider-credential",
+      "role": "LEARNER",
+      "consents": [{ "type": "TERMS", "version": "synthetic-1" }],
+      "learningEmailOptIn": false,
+      "affiliation": "합성 학교",
+      "dateOfBirth": "2000-01-02"
+    },
+    "existingGoogleLogin": { "idToken": "synthetic-google-token-not-a-provider-credential" },
+    "confirm": { "token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }
+  },
+  "responses": {
+    "localSignup": {
+      "method": "POST", "path": "/api/auth/signup", "status": 200, "headers": {},
+      "body": {
+        "success": true, "message": "요청이 성공했습니다.",
+        "data": {
+          "userId": 900001, "email": "contract-learner@example.invalid", "name": "합성 학습자",
+          "role": "LEARNER", "affiliation": "합성 학교", "avatarUrl": null, "learningEmailOptIn": false,
+          "emailVerification": "PENDING", "emailVerificationRequired": true
+        }
+      }
+    },
+    "loginPending": {
+      "method": "POST", "path": "/api/auth/login", "status": 200,
+      "headers": { "Set-Cookie": "edupilot_refresh=synthetic-not-a-session; HttpOnly; Path=/api/auth" },
+      "body": {
+        "success": true, "message": "요청이 성공했습니다.",
+        "data": {
+          "accessToken": "synthetic-access-not-a-jwt", "tokenType": "Bearer", "expiresIn": 3600,
+          "user": {
+            "id": 900001, "email": "contract-learner@example.invalid", "name": "합성 학습자",
+            "role": "LEARNER", "affiliation": "합성 학교", "avatarUrl": null, "learningEmailOptIn": false,
+            "emailVerification": "PENDING", "emailVerificationRequired": true, "emailVerifiedAt": null
+          },
+          "session": {
+            "absoluteExpiresAt": "2026-10-18T10:00:00Z", "idleExpiresAt": "2026-10-04T10:30:00Z", "idleTimeoutSeconds": 1800
+          },
+          "pendingConsents": []
+        }
+      }
+    },
+    "newGoogleSignup": {
+      "method": "POST", "path": "/api/auth/google", "status": 200,
+      "headers": { "Set-Cookie": "edupilot_refresh=synthetic-not-a-session; HttpOnly; Path=/api/auth" },
+      "body": {
+        "success": true, "message": "요청이 성공했습니다.",
+        "data": {
+          "accessToken": "synthetic-access-not-a-jwt", "tokenType": "Bearer", "expiresIn": 3600,
+          "user": {
+            "id": 900002, "email": "contract-google@example.invalid", "name": "합성 Google 사용자",
+            "role": "LEARNER", "affiliation": "합성 학교", "avatarUrl": null, "learningEmailOptIn": false,
+            "emailVerification": "PENDING", "emailVerificationRequired": true, "emailVerifiedAt": null
+          },
+          "session": {
+            "absoluteExpiresAt": "2026-10-18T10:00:00Z", "idleExpiresAt": "2026-10-04T10:30:00Z", "idleTimeoutSeconds": 1800
+          },
+          "pendingConsents": []
+        }
+      }
+    },
+    "meLegacy": {
+      "method": "GET", "path": "/api/users/me", "status": 200, "headers": {},
+      "body": {
+        "success": true, "message": "요청이 성공했습니다.",
+        "data": {
+          "id": 900003, "email": "contract-legacy@example.invalid", "name": "합성 기존 사용자",
+          "role": "INSTRUCTOR", "affiliation": null, "avatarUrl": null, "learningEmailOptIn": false,
+          "emailVerification": "UNKNOWN", "emailVerificationRequired": false, "emailVerifiedAt": null
+        }
+      }
+    },
+    "statusPending": {
+      "method": "GET", "path": "/api/auth/email-verification/status", "status": 200,
+      "headers": { "Cache-Control": "no-store" },
+      "body": { "success": true, "message": "요청이 성공했습니다.", "data": { "emailVerification": "PENDING", "emailVerificationRequired": true, "emailVerifiedAt": null } }
+    },
+    "statusLegacyUnknown": {
+      "method": "GET", "path": "/api/auth/email-verification/status", "status": 200,
+      "headers": { "Cache-Control": "no-store" },
+      "body": { "success": true, "message": "요청이 성공했습니다.", "data": { "emailVerification": "UNKNOWN", "emailVerificationRequired": false, "emailVerifiedAt": null } }
+    },
+    "statusNewUnknown": {
+      "method": "GET", "path": "/api/auth/email-verification/status", "status": 200,
+      "headers": { "Cache-Control": "no-store" },
+      "body": { "success": true, "message": "요청이 성공했습니다.", "data": { "emailVerification": "UNKNOWN", "emailVerificationRequired": true, "emailVerifiedAt": null } }
+    },
+    "statusLegacyPending": {
+      "method": "GET", "path": "/api/auth/email-verification/status", "status": 200,
+      "headers": { "Cache-Control": "no-store" },
+      "body": { "success": true, "message": "요청이 성공했습니다.", "data": { "emailVerification": "PENDING", "emailVerificationRequired": false, "emailVerifiedAt": null } }
+    },
+    "requestAccepted": {
+      "method": "POST", "path": "/api/auth/email-verification/request", "status": 202,
+      "headers": { "Cache-Control": "no-store" },
+      "body": { "success": true, "message": "요청이 성공했습니다.", "data": null }
+    },
+    "confirmVerified": {
+      "method": "POST", "path": "/api/auth/email-verification/confirm", "status": 200,
+      "headers": { "Cache-Control": "no-store" },
+      "body": { "success": true, "message": "요청이 성공했습니다.", "data": { "emailVerification": "VERIFIED", "emailVerificationRequired": false, "emailVerifiedAt": "2026-10-04T10:00:00Z" } }
+    },
+    "localMissingDob": {
+      "method": "POST", "path": "/api/auth/signup", "status": 400, "headers": {},
+      "body": {
+        "success": false, "error": { "code": "VALIDATION_FAILED", "message": "요청 값을 확인해 주세요.", "details": [{ "field": "dateOfBirth", "reason": "신규 가입에는 생년월일이 필요합니다." }] },
+        "traceId": "synthetic-trace", "timestamp": "2026-10-04T10:00:00Z"
+      }
+    },
+    "googleSignupRequired": {
+      "method": "POST", "path": "/api/auth/google", "status": 409, "headers": {},
+      "body": { "success": false, "error": { "code": "SIGNUP_REQUIRED", "message": "추가 정보 입력이 필요합니다.", "details": [] }, "traceId": "synthetic-trace", "timestamp": "2026-10-04T10:00:00Z" }
+    },
+    "googleEmailConflict": {
+      "method": "POST", "path": "/api/auth/google", "status": 409, "headers": {},
+      "body": { "success": false, "error": { "code": "EMAIL_ALREADY_EXISTS", "message": "이미 사용 중인 이메일입니다.", "details": [] }, "traceId": "synthetic-trace", "timestamp": "2026-10-04T10:00:00Z" }
+    },
+    "malformedDob": {
+      "method": "POST", "path": "/api/auth/signup", "status": 400, "headers": {},
+      "body": { "success": false, "error": { "code": "MALFORMED_REQUEST", "message": "요청 형식을 확인해 주세요.", "details": [] }, "traceId": "synthetic-trace", "timestamp": "2026-10-04T10:00:00Z" }
+    },
+    "policyRequired": {
+      "method": "POST", "path": "/api/auth/signup", "status": 400, "headers": {},
+      "body": { "success": false, "error": { "code": "POLICY_CONSENT_REQUIRED", "message": "현재 이용약관과 개인정보처리방침에 모두 동의해 주세요.", "details": [] }, "traceId": "synthetic-trace", "timestamp": "2026-10-04T10:00:00Z" }
+    },
+    "emailGateDenied": {
+      "method": "GET", "path": "/api/materials", "status": 403,
+      "headers": { "Cache-Control": "no-store" },
+      "body": { "success": false, "error": { "code": "EMAIL_VERIFICATION_REQUIRED", "message": "이메일 소유 확인 후 이용해 주세요.", "details": [] }, "traceId": "synthetic-trace", "timestamp": "2026-10-04T10:00:00Z" }
+    },
+    "confirmInvalid": {
+      "method": "POST", "path": "/api/auth/email-verification/confirm", "status": 400, "headers": {},
+      "body": { "success": false, "error": { "code": "EMAIL_VERIFICATION_TOKEN_INVALID", "message": "유효하지 않거나 만료된 이메일 확인 링크입니다.", "details": [] }, "traceId": "synthetic-trace", "timestamp": "2026-10-04T10:00:00Z" }
+    },
+    "confirmBadFormat": {
+      "method": "POST", "path": "/api/auth/email-verification/confirm", "status": 400, "headers": {},
+      "body": { "success": false, "error": { "code": "VALIDATION_FAILED", "message": "요청 값을 확인해 주세요.", "details": [{ "field": "token", "reason": "유효한 이메일 확인 링크가 필요합니다." }] }, "traceId": "synthetic-trace", "timestamp": "2026-10-04T10:00:00Z" }
+    },
+    "confirmGet": {
+      "method": "GET", "path": "/api/auth/email-verification/confirm", "status": 405,
+      "headers": { "Allow": "POST", "Cache-Control": "no-store" },
+      "body": { "success": false, "error": { "code": "METHOD_NOT_ALLOWED", "message": "지원하지 않는 요청 메서드입니다.", "details": [] }, "traceId": "synthetic-trace", "timestamp": "2026-10-04T10:00:00Z" }
+    },
+    "requestRateLimited": {
+      "method": "POST", "path": "/api/auth/email-verification/request", "status": 429, "headers": {},
+      "body": { "success": false, "error": { "code": "RATE_LIMIT_EXCEEDED", "message": "요청 한도를 초과했습니다.", "details": [] }, "traceId": "synthetic-trace", "timestamp": "2026-10-04T10:00:00Z" }
+    },
+    "confirmRateLimited": {
+      "method": "POST", "path": "/api/auth/email-verification/confirm", "status": 429, "headers": {},
+      "body": { "success": false, "error": { "code": "RATE_LIMIT_EXCEEDED", "message": "요청 한도를 초과했습니다.", "details": [] }, "traceId": "synthetic-trace", "timestamp": "2026-10-04T10:00:00Z" }
+    },
+    "statusAnonymous": {
+      "method": "GET", "path": "/api/auth/email-verification/status", "status": 401, "headers": {},
+      "body": { "success": false, "error": { "code": "AUTHENTICATION_REQUIRED", "message": "인증이 필요합니다.", "details": [] }, "traceId": "synthetic-trace", "timestamp": "2026-10-04T10:00:00Z" }
+    }
+  }
+}

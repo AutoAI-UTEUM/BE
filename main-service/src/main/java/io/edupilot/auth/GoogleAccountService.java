@@ -1,6 +1,7 @@
 package io.edupilot.auth;
 
 import java.util.Locale;
+import java.time.Clock;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -10,6 +11,7 @@ import io.edupilot.auth.dto.GoogleLoginRequest;
 import io.edupilot.auth.dto.SignupRole;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.guardian.BirthdatePolicy;
 import io.edupilot.policy.PolicyService;
 import io.edupilot.policy.PolicyService.SignupSelection;
 import io.edupilot.user.User;
@@ -22,10 +24,14 @@ public class GoogleAccountService {
 
 	private final UserRepository userRepository;
 	private final PolicyService policyService;
+	private final EmailVerificationService emailVerification;
+	private final Clock clock;
 
-	public GoogleAccountService(UserRepository userRepository, PolicyService policyService) {
+	public GoogleAccountService(UserRepository userRepository, PolicyService policyService, EmailVerificationService emailVerification, Clock clock) {
 		this.userRepository = userRepository;
 		this.policyService = policyService;
+		this.emailVerification = emailVerification;
+		this.clock = clock;
 	}
 
 	@Transactional
@@ -47,6 +53,8 @@ public class GoogleAccountService {
 		}
 
 		SignupRole role = requiredSignupRole(request);
+		if(request.dateOfBirth()==null) { throw new BusinessException(ErrorCode.SIGNUP_REQUIRED); }
+		BirthdatePolicy.validate(request.dateOfBirth(), clock);
 		SignupSelection consent = policyService.validateSignup(request.consents());
 		User newUser = User.createGoogle(
 			normalizedEmail,
@@ -61,12 +69,15 @@ public class GoogleAccountService {
 			profile.sub()
 		);
 		User saved;
+		newUser.recordSignupDateOfBirth(request.dateOfBirth());
 		try {
 			saved = userRepository.saveAndFlush(newUser);
 		} catch (DataIntegrityViolationException exception) {
 			throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);
 		}
 		policyService.recordSignup(saved, consent, ip, userAgent);
+		// A provider login is not used as an automatic email-ownership or guardian approval.
+		emailVerification.signup(saved, ip);
 		return saved;
 	}
 

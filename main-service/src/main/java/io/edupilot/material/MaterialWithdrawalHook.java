@@ -1,9 +1,9 @@
 package io.edupilot.material;
 
-import java.time.Clock;
-
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
+import io.edupilot.deletion.DeletionJournal;
 
 import io.edupilot.user.UserWithdrawalHook;
 
@@ -11,24 +11,23 @@ import io.edupilot.user.UserWithdrawalHook;
 public class MaterialWithdrawalHook implements UserWithdrawalHook {
 
 	private final LearningMaterialRepository materialRepository;
-	private final Clock clock;
-	private final MaterialXaiFileLifecycleService xaiFileLifecycleService;
+	private final DeletionJournal deletionJournal;
 
 	public MaterialWithdrawalHook(
 		LearningMaterialRepository materialRepository,
-		Clock clock,
-		MaterialXaiFileLifecycleService xaiFileLifecycleService
+		DeletionJournal deletionJournal
 	) {
 		this.materialRepository = materialRepository;
-		this.clock = clock;
-		this.xaiFileLifecycleService = xaiFileLifecycleService;
+		this.deletionJournal = deletionJournal;
 	}
 
 	@Override
-	@Transactional
+	@Transactional(propagation=Propagation.MANDATORY)
 	public void onWithdraw(Long userId) {
-		var xaiFiles = materialRepository.findActiveXaiFilesByOwnerId(userId);
-		materialRepository.deleteAllActiveByOwnerId(userId, clock.instant());
-		xaiFiles.forEach(xaiFileLifecycleService::deleteAfterCommit);
+		for (LearningMaterial material:materialRepository.findOwnedActiveForUpdate(userId)) {
+			material.delete();
+			deletionJournal.recordMaterial(material);
+		}
+		materialRepository.flush();
 	}
 }
