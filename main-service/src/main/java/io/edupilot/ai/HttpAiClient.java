@@ -1424,7 +1424,7 @@ public class HttpAiClient implements AiClient {
 							)) {
 							throw new AiClientException(
 								ErrorCode.AI_RESPONSE_INVALID
-							);
+							).withUsage(response == null ? null : response.usage());
 						}
 						return response;
 					}
