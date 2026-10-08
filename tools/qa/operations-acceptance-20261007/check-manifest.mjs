@@ -180,6 +180,11 @@ export function checkManifest(manifest) {
   }
   const m = data('migrations');
   if (m) {
+    for (const [index, row] of m.rows.entries()) {
+      const reviewed = EVIDENCE.migrations.find((x) => x.version === row.version);
+      require(row.checksum === reviewed?.flywayChecksum,
+        `migrations.rows[${index}].checksum`, 'MIGRATION_CHECKSUM_MISMATCH');
+    }
     const versions = new Set(m.rows.map((row) => row.version));
     require(m.rows.length === 63 && versions.size === 63 && [...versions].every((v) => v >= 1 && v <= 63)
       && m.rows.every((r) => EVIDENCE.migrations.find((x) => x.version === r.version)?.script === r.script
