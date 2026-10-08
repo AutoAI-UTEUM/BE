@@ -82,3 +82,7 @@
 - [보호자 팀 검토 API·FE 계약](guardian-team-review-fe-contract.md)
 
 - [신규 DOB·수동 보호자 접수 기반과 정책 대기 경계](birthdate-guardian-foundation.md)
+- [아동 포함 약관·처리방침1.0 후보와 공식 출처·미정 검토표](policies/launch-review-20261008.md)
+- [FE 실제 artifact/readiness·PR538/541 후속 증거 인계](qa/fe-auth-contract/FE-READINESS-20261008.md)
+- [서비스 메일 시험 중단 경로 검토·9회 조건과 미채택6회 대안](qa/mail-trial-interruption-review-20261008.md)
+- [DEV 전환·private 복구 지점의 비민감 증빙 인계](qa/dev-deployment-recovery-handoff-20261008.md)
