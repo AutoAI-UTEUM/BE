@@ -13,7 +13,8 @@ const hash = 'a'.repeat(64);
 const at = '2026-10-07T02:00:00Z';
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 
-// Every value below is invented. No Docker, DB, AWS, account, mail or AI is contacted.
+// Runtime observations below are invented; checksums are from the pinned migration scripts.
+// No Docker, DB, AWS, account, mail or AI is contacted.
 function synthetic() {
   const m = clone();
   m.provenance = 'SYNTHETIC';
@@ -26,7 +27,7 @@ function synthetic() {
     },
     migrations: {
       rows: EVIDENCE.migrations.map((x) => ({ version: x.version, script: x.script,
-        checksum: -123456789, success: true, checksumMatchesReviewed: true })),
+        checksum: x.flywayChecksum, success: true, checksumMatchesReviewed: true })),
       failedCount: 0, requiredTablesPresent: true, requiredColumnsPresent: true,
     },
     flags: {
@@ -97,6 +98,18 @@ test('operator-reported complete evidence still requires human source/freshness/
   const m = synthetic(); m.provenance = 'OPERATOR_REPORTED';
   const r = checkManifest(m);
   assert.equal(r.operatorReportedAcceptanceComplete, true);
+  assert.equal(r.liveAcceptanceVerified, false);
+  assert.equal(r.executionAuthorized, false);
+});
+
+test('caller review flag cannot approve a changed Flyway checksum', () => {
+  const m = synthetic();
+  m.sections.migrations.data.rows[0].checksum = 0;
+  m.sections.migrations.data.rows[0].checksumMatchesReviewed = true;
+  const r = checkManifest(m);
+  assert.equal(r.valid, true);
+  assert.equal(r.conditionsClear, false);
+  assert.ok(r.issues.some((x) => x.code === 'MIGRATION_CHECKSUM_MISMATCH'));
   assert.equal(r.liveAcceptanceVerified, false);
   assert.equal(r.executionAuthorized, false);
 });
@@ -279,4 +292,49 @@ test('CLI masks parse errors, filenames and canaries; exits 2 for unfilled evide
     // Delete only the exact file and empty directory created by this test, never recursively.
     unlinkSync(input); rmdirSync(directory);
   }
+});
+
+
+function signedFlywayChecksum(text) {
+  const bytes = Buffer.from(text.replace(/^\uFEFF/, '').replace(/\r\n|\r|\n/g, ''), 'utf8');
+  let crc = -1;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+  }
+  return ~crc;
+}
+
+test('trusted catalog matches signed UTF8 Flyway checksums regardless of BOM and line endings', () => {
+  for (const item of EVIDENCE.migrations) {
+    const text = readFileSync(join(root, item.path), 'utf8').replaceAll('\r\n', '\n');
+    for (const variant of [text, text.replaceAll('\n', '\r\n'), text.replaceAll('\n', '\r'), `\uFEFF${text}`]) {
+      assert.equal(signedFlywayChecksum(variant), item.flywayChecksum, item.script);
+    }
+  }
+  assert.equal(EVIDENCE.migrations[0].flywayChecksum, -65002876);
+  assert.equal(EVIDENCE.migrations.at(-1).flywayChecksum, 1429210292);
+});
+
+test('each altered numeric checksum is rejected even with a positive review flag', () => {
+  for (let index = 0; index < EVIDENCE.migrations.length; index++) {
+    const m = synthetic();
+    const row = m.sections.migrations.data.rows[index];
+    row.checksum = row.checksum === 2147483647 ? -2147483648 : row.checksum + 1;
+    const result = checkManifest(m);
+    assert.equal(result.valid, true);
+    assert.equal(result.conditionsClear, false);
+    assert.ok(result.issues.some((x) => x.path === `$.sections.migrations.rows[${index}].checksum`
+      && x.code === 'MIGRATION_CHECKSUM_MISMATCH'));
+  }
+});
+
+test('checksums swapped between valid migration versions cannot satisfy review', () => {
+  const m = synthetic();
+  const rows = m.sections.migrations.data.rows;
+  [rows[0].checksum, rows.at(-1).checksum] = [rows.at(-1).checksum, rows[0].checksum];
+  const result = checkManifest(m);
+  assert.equal(result.valid, true);
+  assert.equal(result.conditionsClear, false);
+  assert.equal(result.issues.filter((x) => x.code === 'MIGRATION_CHECKSUM_MISMATCH').length, 2);
 });

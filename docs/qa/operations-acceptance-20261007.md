@@ -82,3 +82,5 @@ exit1은 잘못된/민감 필드/모순된 입력, exit2는 누락·불일치·�
 quota의 현재 구현은 `TURN`, `DOC_CHAT`, `QUIZ_ASSESSMENT`, `DIAGNOSIS` 호출부에서 사전 검사하며, KST 자정 이후 **성공·실패 usage 전체**를 센다. ADMIN exemption/disabled flag, upload·caption·grade·report fan-out 기록은 별도 경계다. 단순 전역 집계로 사용자별 잔여 quota·provider 정확 청구·동시 요청의 엄격한 비용 상한을 증명하지 않는다. [기존 quota 구현](../../main-service/src/main/java/io/edupilot/aiusage/AiQuotaService.java)과 [feature 범위](../../main-service/src/main/java/io/edupilot/aiusage/AiFeature.java)를 함께 대조한다.
 
 실서버·계정·메일·유료 AI·운영 데이터·권한/보안 설정 변경, 백업 생성/복구/삭제, develop/main merge·배포는 이 실행안에 포함하지 않는다. feature push와 draft PR만 게시한다. 현재 C가 검증한 새 runtime 결함은 없으며, runtime 수정이 필요해지면 위치와 최소 수정안을 부모에게 먼저 전달한다.
+
+Numeric migration checksum review (2026-10-08): the checker now compares each observed signed Flyway checksum to the pinned script catalog, in addition to the operator review flag. Catalog values were cross-checked against Flyway 12.4.0 ChecksumCalculator for all 63 versioned scripts; this does not run migrations or attest a deployed schema. LF/CRLF/CR and an initial UTF-8 BOM yield the same checksum.

@@ -71,7 +71,7 @@ public class ExamAiGradingService {
 				aiUsageService.record(
 					prepared.userId(),
 					AiFeature.GRADE,
-					null,
+					exception.usage(),
 					false
 				);
 				if ("AI_REQUEST_INVALID".equals(exception.upstreamCode())) {
