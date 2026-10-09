@@ -9,6 +9,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 public final class GuardianTeamDtos {
 	private GuardianTeamDtos() { }
@@ -55,7 +56,10 @@ public final class GuardianTeamDtos {
 	public record View(Status status, String noticeUrl, List<String> requiredScopes, String optionalAiScope,
 		String replyChannel, Map<String, String> forms) { }
 	public record Detail(Status status, Long userId, String guardianName, String guardianContact, GuardianTeamRequest.ContactOrigin contactOrigin,
-		Instant generationStartedAt, Set<String> declaredScopes, String replyChannel,
+		Instant generationStartedAt, Set<String> declaredScopes,
+		@Schema(description = "현재 신청 고지와 전체 정책 설정이 일치할 때의 필수 선택 범위. stale이면 빈 배열이며 선언·승인을 의미하지 않습니다.") List<String> requiredScopes,
+		@Schema(description = "현재 신청 고지와 전체 정책 설정이 일치하고 선택 AI가 설정된 경우의 범위. 미설정·stale은 null이며 승인을 의미하지 않습니다.", allowableValues = {"EXTERNAL_AI"}, nullable = true) String optionalAiScope,
+		String replyChannel,
 		GuardianTeamRequest.Relationship relationship, GuardianTeamRequest.ConfirmationMethod confirmationMethod,
 		String evidenceReference, List<Event> events, Map<String, String> forms) {
 		@Override public String toString() { return "GuardianTeamDetail[REDACTED]"; }
