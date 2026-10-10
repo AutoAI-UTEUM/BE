@@ -34,7 +34,7 @@ public class GuardianTeamAdminController {
 	}
 	@GetMapping("/{id}")
 	@AdminAction("GUARDIAN_TEAM_DETAIL")
-	@Operation(summary = "보호자 확인 검토 상세", description = "기한 내 최소 연락처·확인 수단·증거 참조와 감사 이벤트를 조회합니다. 회신 원문이나 신분증·주민등록번호를 수집하지 않습니다.")
+	@Operation(summary = "보호자 확인 검토 상세", description = "기한 내 최소 연락처·확인 수단·증거 참조와 감사 이벤트를 조회합니다. requiredScopes·optionalAiScope는 같은 status의 현재 고지에 따른 선택지이며 declaredScopes 및 serviceApproved·externalAiApproved와 별개입니다. stale이면 선택지는 빈 배열/null이고 기능 미준비는 503입니다. 회신 원문이나 신분증·주민등록번호를 수집하지 않습니다.")
 	public ResponseEntity<ApiResponse<GuardianTeamDtos.Detail>> detail(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable String id) {
 		return GuardianTeamSelfController.privateResponse(service.detail(user.userId(), id));
 	}
