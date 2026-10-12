@@ -168,9 +168,15 @@ FE는 로그인 뒤 `/entry`를 조회하며 DOB·브라우저 연도·`ageVerif
 | `EXPIRED` | `expired` | 신청·확인 또는 승인 기한 만료 |
 | `WITHDRAWN` | `revoked` | 계정 탈퇴에 따른 종료 |
 
-현재 안내 설정과 신청 설정이 다르면 `currentNotice:false`, `noticeUrl:null`, `forms:{}`가 될 수 있다. 이전 동의문으로 진행 버튼을 열거나 FE에서 새 버전을 자동 대입하지 않는다.
+현재 안내 설정과 신청 설정이 다르면 `currentNotice:false`, `noticeUrl:null`, `requiredScopes:[]`, `optionalAiScope:null`, `forms:{}`다. 이전 동의문으로 진행 버튼을 열거나 FE에서 새 버전을 자동 대입하지 않는다. 현재 고지에서도 선택 AI 범위가 null/Java blank이면 `optionalAiScope:null`이며 선택지가 없다.
 
 `Detail`은 `status`, 담당자 전용 `userId`, 기한 내 `guardianName`·`guardianContact`, `contactOrigin`, `generationStartedAt`, `declaredScopes`, `replyChannel`, `relationship`, `confirmationMethod`, `evidenceReference`, `events`, 전체 `forms`를 반환한다. `generationStartedAt`은 해당 차수 시작의 ISO-8601 UTC이며 재발급으로 이동하지 않는다. `declaredScopes`는 현재 차수의 구조화된 문자열 배열이며 아직 신고·수동 확인이 없거나 파기됐다면 `[]`다. `status.webDeclaredAt`이 있으면 웹 신고 범위이고, 웹 신고 없이 담당자가 확인을 등록했다면 그 확인 범위다. 웹 신고 이후 다른 범위로 confirmation을 등록하면 서버가 409를 반환한다. 따라서 배열만으로 웹 신고나 선택 동의의 출처를 추정하지 않고 시각·상태도 대조한다. 재발급·철회·새 차수는 이전 선언 범위를 되살리지 않는다.
+
+`Detail.requiredScopes`와 `Detail.optionalAiScope`는 별도의 **현재 정책 선택지**다. 현재 고지와 신청의 전체 설정 digest가 일치하면 필수 범위는 `["SERVICE"]`, 설정된 선택 AI 범위는 `"EXTERNAL_AI"`다. 선택 AI가 없거나 blank이면 `null`이다. stale이면 두 값은 `[]`/`null`이며 `status.currentNotice:false`, `replyChannel:null`, `forms:{}`와 함께 쓰기를 닫는다. 기능 OFF·정책 미승인·설정 미준비에서는 상세를 반환하지 않고 기존 503 `GUARDIAN_TEAM_UNAVAILABLE`을 유지한다. fields/양식/과거 캐시에서 없는 범위를 추가하거나 DECLARED를 승인으로 해석하지 않는다.
+
+선택지는 같은 응답의 `status.requestId`·`generation`·`revision`·`noticeVersion`·`noticeDigest`에 묶인다. revision은 신청 수정번호이고 숫자 정책 버전이 아니다. 고지 버전이 같아도 선택 AI·목적·보유 안내 등 전체 설정이 바뀌면 stale이다. 재조회·재발급·차수 변경·계정/권한 변경은 기존 선택지·입력/체크를 폐기하고 같은 최신 Detail로 다시 고정한다. 다른 Detail·Entry·View의 정책과 신청 번호를 합치지 않는다.
+
+웹 선언이 있으면 실제 회신 등록 범위·관계가 그 선언과 정확히 일치해야 하며 현재 AI 선택지가 있어도 선언하지 않은 AI를 추가할 수 없다. 웹 선언이 없는 실제 명시적 회신만 현재 선택지 내에서 담당자가 수동 확인할 수 있다. 신청/승인 기한 만료나 종료 상태에서는 현재 정책 선택지가 보이더라도 쓰기·이용을 허용하지 않는다. 확인 전/DECLARED/REVIEW_PENDING에는 승인 flag가 false이며 최종 표시·이용은 `serviceApproved`와 `externalAiApproved`를 각각 따른다. 필수 SERVICE 확인·승인으로 선택 AI 승인을 추정하지 않는다. 이 추가 필드는 기능 활성화나 운영 정책 확정이 아니다.
 
 `userId`, 세대 시작 시각과 선언 범위는 지정 관리자 상세에만 있으며 본인·공개 `View`나 `Status`에는 없다. 공개 화면에 복사하거나 분석 이벤트로 전송하지 않는다. 보호자 정보가 파기되면 해당 값은 `null`이며 FE가 이전 캐시에서 되살리지 않는다. `events`는 `{generation,revision,type,state,actorId,at}`의 최소 감사 이벤트다. 전체 양식 중 완료 상태 안내는 담당자의 미리 보기임을 표시하고 현재 신청의 상태와 구분한다.
 

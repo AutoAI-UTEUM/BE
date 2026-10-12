@@ -157,8 +157,10 @@ public class GuardianTeamService {
 
 	public GuardianTeamDtos.Detail detail(Long reviewerId, String id) {
 		requireReady(); var row = lockReviewer(reviewerId, id); expireDue(row);
-		return new GuardianTeamDtos.Detail(status(row), row.userId(), row.guardianName(), row.guardianContact(), row.contactOrigin(),
-			row.generationStartedAt(), scopeSet(row.declaredScopes()), row.configurationDigest().equals(configurationDigest()) ? policy.replyChannel() : null,
+		var status = status(row); boolean current = status.currentNotice();
+		return new GuardianTeamDtos.Detail(status, row.userId(), row.guardianName(), row.guardianContact(), row.contactOrigin(),
+			row.generationStartedAt(), scopeSet(row.declaredScopes()), current ? policy.requiredScopes() : List.of(), optionalAiScope(current),
+			current ? policy.replyChannel() : null,
 			row.relationship(), row.confirmationMethod(), row.evidenceReference(),
 			events.findByRequestIdOrderByRecordedAtAscIdAsc(row.id(), PageRequest.of(0, 200)).stream()
 				.map(e -> new GuardianTeamDtos.Event(e.generation(), e.revision(), e.eventType(), e.state(), e.actorId(), e.recordedAt())).toList(),
@@ -371,10 +373,14 @@ public class GuardianTeamService {
 			row.configurationDigest().equals(configurationDigest()), approved, approved && row.user().isGuardianAiConsentAllowed(), row.reasonCode());
 	}
 	private GuardianTeamDtos.View viewOf(GuardianTeamRequest row) {
-		boolean current = row.configurationDigest().equals(configurationDigest());
-		return new GuardianTeamDtos.View(status(row), current ? policy.noticeUrl() : null, policy.requiredScopes(), policy.optionalAiScope(),
+		var status = status(row); boolean current = status.currentNotice();
+		return new GuardianTeamDtos.View(status, current ? policy.noticeUrl() : null, current ? policy.requiredScopes() : List.of(), optionalAiScope(current),
 			current ? policy.replyChannel() : null,
 			current ? applicableForms(row) : Map.of());
+	}
+	private String optionalAiScope(boolean current) {
+		String scope = policy.optionalAiScope();
+		return current && scope != null && !scope.isBlank() ? scope : null;
 	}
 	private Map<String, String> applicableForms(GuardianTeamRequest row) {
 		Map<String, String> all = forms(row);

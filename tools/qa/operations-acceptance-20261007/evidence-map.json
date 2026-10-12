@@ -176,7 +176,7 @@
         },
         {
           "path": "infra/nginx/edupilot.conf",
-          "sha256": "0b931f16de93a797668992f1afe400b88c83d5f571eb11bd2f2b0c370a9ec158"
+          "sha256": "d044b34a24a758c6ee1fd43df016ceb60ad96101f7ab03efa483ff7c141e65cb"
         },
         {
           "path": "main-service/src/main/java/io/edupilot/auth/SecurityConfig.java",

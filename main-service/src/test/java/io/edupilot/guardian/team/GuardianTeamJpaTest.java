@@ -182,11 +182,16 @@ class GuardianTeamJpaTest {
 			.andExpect(jsonPath("$.data.declaredScopes").doesNotExist()).andExpect(jsonPath("$.data.userId").doesNotExist());
 		var empty = service.detail(1L, issued.status().requestId());
 		assertThat(empty.generationStartedAt()).isEqualTo(baseline); assertThat(empty.declaredScopes()).isEmpty();
+		assertThat(empty.requiredScopes()).containsExactly("SERVICE"); assertThat(empty.optionalAiScope()).isEqualTo("EXTERNAL_AI");
+		assertThat(empty.status().generation()).isEqualTo(issued.status().generation());
+		assertThat(empty.status().revision()).isEqualTo(issued.status().revision());
 		var declaration = service.consent(consent(raw, issued.status(), "structured-declare", Set.of("SERVICE", "EXTERNAL_AI")), ip());
 		mvc.perform(get("/api/admin/guardian-requests/" + declaration.requestId()).header("Authorization", bearer(reviewer)))
 			.andExpect(status().isOk()).andExpect(jsonPath("$.data.replyChannel").value("EMAIL_REPLY"))
 			.andExpect(jsonPath("$.data.generationStartedAt").value(baseline.toString()))
 			.andExpect(jsonPath("$.data.declaredScopes", org.hamcrest.Matchers.containsInAnyOrder("SERVICE", "EXTERNAL_AI")))
+			.andExpect(jsonPath("$.data.requiredScopes", org.hamcrest.Matchers.contains("SERVICE")))
+			.andExpect(jsonPath("$.data.optionalAiScope").value("EXTERNAL_AI"))
 			.andExpect(jsonPath("$.data.status.state").value("DECLARED"))
 			.andExpect(jsonPath("$.data.status.serviceApproved").value(false))
 			.andExpect(jsonPath("$.data.status.externalAiApproved").value(false));
@@ -213,13 +218,42 @@ class GuardianTeamJpaTest {
 		assertThat(nextDetail.declaredScopes()).isEmpty(); verifyNoInteractions(ai, mail);
 	}
 
-	@Test void aChangedPolicyDoesNotAdvertiseItsReplyMethodAsBelongingToAnOldCase() {
+	@Test void aChangedPolicyDoesNotAdvertiseItsReplyMethodAsBelongingToAnOldCase() throws Exception {
 		User child = child(); var first = intake(child, false);
 		jdbc.update("update guardian_team_requests set configuration_digest=? where id=?", "b".repeat(64), first.status().requestId());
 		var view = service.self(child.getId()); var detail = service.detail(1L, first.status().requestId());
 		assertThat(view.status().currentNotice()).isFalse(); assertThat(view.replyChannel()).isNull(); assertThat(view.forms()).isEmpty();
 		assertThat(detail.replyChannel()).isNull(); assertThat(detail.forms()).isEmpty();
+		assertThat(view.requiredScopes()).isEmpty(); assertThat(view.optionalAiScope()).isNull();
+		assertThat(detail.requiredScopes()).isEmpty(); assertThat(detail.optionalAiScope()).isNull();
+		mvc.perform(get("/api/admin/guardian-requests/" + first.status().requestId()).header("Authorization", bearer(reviewer)))
+			.andExpect(status().isOk()).andExpect(jsonPath("$.data.status.currentNotice").value(false))
+			.andExpect(jsonPath("$.data.requiredScopes").isEmpty())
+			.andExpect(jsonPath("$.data.optionalAiScope").value(org.hamcrest.Matchers.nullValue()));
 		assertThat(service.entry(child.getId()).canStartRequest()).isFalse(); verifyNoInteractions(ai, mail);
+	}
+
+	@Test void anAvailableAiOptionCannotExpandTheActualWebDeclaration() {
+		User child = child(); var first = intake(child, false); var issued = link(child, first.status());
+		var declared = service.consent(consent(issued.url().split("#token=", 2)[1], issued.status(), "service-only-declaration", Set.of("SERVICE")), ip());
+		var detail = service.detail(1L, declared.requestId());
+		assertThat(detail.optionalAiScope()).isEqualTo("EXTERNAL_AI"); assertThat(detail.declaredScopes()).containsExactly("SERVICE");
+		assertThat(detail.status().serviceApproved()).isFalse(); assertThat(detail.status().externalAiApproved()).isFalse();
+		assertError(() -> confirm(declared, Set.of("SERVICE", "EXTERNAL_AI")), ErrorCode.GUARDIAN_STATE_CONFLICT);
+		assertThat(service.detail(1L, declared.requestId()).declaredScopes()).containsExactly("SERVICE");
+		verifyNoInteractions(ai, mail);
+	}
+
+	@Test void currentPolicyOptionsCannotMakeAnExpiredRequestWritableOrApproved() {
+		User child = child(); var first = intake(child, false);
+		when(clock.instant()).thenReturn(baseline.plus(Duration.ofDays(5)));
+		var detail = service.detail(1L, first.status().requestId());
+		assertThat(detail.status().state()).isEqualTo(GuardianTeamRequest.State.EXPIRED);
+		assertThat(detail.status().currentNotice()).isTrue(); assertThat(detail.requiredScopes()).containsExactly("SERVICE");
+		assertThat(detail.optionalAiScope()).isEqualTo("EXTERNAL_AI");
+		assertThat(detail.status().serviceApproved()).isFalse(); assertThat(detail.status().externalAiApproved()).isFalse();
+		assertError(() -> confirm(detail.status(), Set.of("SERVICE", "EXTERNAL_AI")), ErrorCode.GUARDIAN_STATE_CONFLICT);
+		verifyNoInteractions(ai, mail);
 	}
 
 	@Test void webDeclarationAndExplicitResponseRemainSeparateFromHumanApproval() {
