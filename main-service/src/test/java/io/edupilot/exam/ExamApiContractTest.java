@@ -2,8 +2,10 @@ package io.edupilot.exam;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -53,6 +55,7 @@ import io.edupilot.exam.dto.ExamSubmissionResponse;
 import io.edupilot.exam.dto.ExamSubmissionSummaryResponse;
 import io.edupilot.exam.dto.InstructorExamAnswerResultResponse;
 import io.edupilot.exam.dto.InstructorExamSubmissionResponse;
+import io.edupilot.exam.dto.ManualScoreAdjustmentRequest;
 import io.edupilot.exam.dto.StudentExamDetailResponse;
 import io.edupilot.exam.dto.StudentExamListItemResponse;
 import io.edupilot.exam.dto.StudentExamListResponse;
@@ -408,8 +411,40 @@ class ExamApiContractTest {
 			.andExpect(jsonPath("$.data.items[0].adjustedAt").value(NOW.toString()));
 
 		verify(instructorExamService).adjustAnswerScore(
-			eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), eq(10L), eq("q1"), any()
+			eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), eq(10L), eq("q1"),
+			eq(new ManualScoreAdjustmentRequest(new BigDecimal("8.00")))
 		);
+	}
+
+	@Test
+	void optionalReasonAcceptsMaximumLengthAndAppearsOnlyInInstructorDetail() throws Exception {
+		String reason = "가".repeat(500);
+		when(instructorExamService.adjustAnswerScore(
+			eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), eq(10L), eq("q1"), any()
+		)).thenReturn(instructorSubmission(reason));
+
+		manualScorePatch(instructorToken, 10L, objectMapper.writeValueAsString(
+			new ManualScoreAdjustmentRequest(new BigDecimal("8.00"), reason)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items[0].manualScoreReason").value(reason));
+		verify(instructorExamService).adjustAnswerScore(
+			eq(1L), eq(UserRole.INSTRUCTOR), eq(30L), eq(10L), eq("q1"),
+			argThat(request -> reason.equals(request.reason())));
+		when(instructorExamService.submissionDetail(1L, UserRole.INSTRUCTOR, 30L, 10L))
+			.thenReturn(instructorSubmission(reason));
+		mockMvc.perform(get("/api/exams/30/submissions/10")
+				.header(HttpHeaders.AUTHORIZATION, bearer(instructorToken)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items[0].manualScoreReason").value(reason));
+	}
+
+	@Test
+	void oversizedReasonIsRejectedBeforeTheScoreService() throws Exception {
+		manualScorePatch(instructorToken, 10L, objectMapper.writeValueAsString(
+			new ManualScoreAdjustmentRequest(new BigDecimal("8.00"), "가".repeat(501))))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+		verify(instructorExamService, never()).adjustAnswerScore(any(), any(), any(), any(), any(), any());
 	}
 
 	@Test
@@ -557,6 +592,10 @@ class ExamApiContractTest {
 	}
 
 	private InstructorExamSubmissionResponse instructorSubmission() {
+		return instructorSubmission(null);
+	}
+
+	private InstructorExamSubmissionResponse instructorSubmission(String reason) {
 		return new InstructorExamSubmissionResponse(
 			10L,
 			1,
@@ -574,6 +613,7 @@ class ExamApiContractTest {
 				Verdict.PARTIAL,
 				"피드백",
 				new BigDecimal("8.00"),
+				reason,
 				NOW
 			))
 		);

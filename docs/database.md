@@ -43,7 +43,7 @@ V60은 DOB 관리자 수정 요청 접수 테이블만 생성하며 기존 users
 | `exam_attempt_starts` | id, exam_id, user_id, started_at | `FK(exam_id)`, `FK(user_id)`, `UK(exam_id,user_id)` |
 | `exam_attempt_drafts` | id, exam_id, user_id, answers(JSON), version, created_at, updated_at | `FK(exam_id)`, `FK(user_id)`, `UK(exam_id,user_id)`, `IDX(updated_at)` |
 | `exam_submissions` | id, exam_id, user_id, attempt_no, request_id, status, started_at(nullable), duration_seconds(nullable), submitted_at, graded_at(nullable), score(nullable), max_score, normalized_score(nullable), grading_lease_token(nullable), grading_lease_until, grading_retry_count, timestamps | `FK(exam_id)`, `FK(user_id)`, 시도·멱등 UK, 상태·점수·소요 시간·재시도 CHECK, 상태+lease·제출시각 인덱스 |
-| `exam_answers` | id, submission_id, question_id, answer(nullable), score(nullable), manual_score(nullable), adjusted_by(nullable), adjusted_at(nullable), max_score, verdict(nullable), feedback(nullable), timestamps | `FK(submission_id)`, `FK(question_id)`, `UK(submission_id,question_id)`, 원점수·수동점수·판정 CHECK |
+| `exam_answers` | id, submission_id, question_id, answer(nullable), score(nullable), manual_score(nullable), manual_score_reason(nullable VARCHAR(500)), adjusted_by(nullable), adjusted_at(nullable), max_score, verdict(nullable), feedback(nullable), timestamps | `FK(submission_id)`, `FK(question_id)`, `UK(submission_id,question_id)`, 원점수·수동점수·판정 CHECK |
 | `report_criteria` | id, classroom_id, criterion_key, name, description(nullable), rubric_json, allowed_sources_json, min_evidence, weight, version, active, timestamps | `FK(classroom_id)`, `UK(classroom_id,criterion_key,version)`, `IDX(classroom_id,active)`, 최소 근거·weight·version CHECK |
 | `report_generations` | id, classroom_id, student_id, requested_by, request_id, scope_type, week_number(nullable), scope_hash, snapshot_hash(nullable), criterion_catalog_json(nullable), policy_version, source_data_as_of(nullable), status, failure_code(nullable), model(nullable), prompt_version(nullable), generation lease, timestamps | 강의실·학생·요청자 FK, `UK(classroom_id,student_id,request_id)`, status+lease·학생별 상태 인덱스, 범위·주차·상태 CHECK |
 | `student_reports` | id, generation_id, classroom_id, student_id, scope_key, version, previous_report_id(nullable), overall_score(nullable), overall_stage(nullable), summary(nullable), data_quality_json, model, prompt_version, timestamps | generation·강의실·학생·이전 리포트 FK, `UK(generation_id)`, `UK(classroom_id,student_id,scope_key,version)`, scope key·version·점수 CHECK |
@@ -324,3 +324,9 @@ V59 adds guardian_web_requests with hashed single-use link binding, pinned conse
 ### 보호자 팀 검토 (#526)
 
 V61은 사용자당 현재 guardian_team_requests와 세대별 guardian_team_events/guardian_team_operations를 추가한다. V62는 users.guardian_approved_until, guardian_ai_consent_allowed, guardian_consent_epoch, guardian_approval_policy_digest와 승인 증거 제약을 추가한다. V63은 목적별 guardian_team_mail_bindings FK와 메일 타입 CHECK를 확장한다. 기존 DOB·이메일 증거·cohort를 보존하며 기존 계정을 승인하지 않는다. [스키마·개인정보 기한·rollback 경계](guardian-team-review.md).
+
+### 수동 점수 변경의 선택 사유
+
+`V64__exam_answer_manual_score_reason.sql`은 `exam_answers.manual_score_reason VARCHAR(500) NULL`만 추가한다. 기존 행은 null이며 원점수·수동 점수·조정자·조정 시각을 백필하거나 변경하지 않는다. 현재 사유만 점수 수정 트랜잭션에서 교체하며 전체 이력 보존 정책을 새로 만들지 않는다. 애플리케이션은 UTF-16 길이 500 이하를 검증하므로 supplementary Unicode 문자 입력의 상한이 DB 문자 수보다 엄격할 수 있다.
+
+새 코드 시작 전에 V64가 필요하다. 이전 코드로 돌아가도 nullable 추가 컬럼을 그대로 두면 기존 SQL·매핑과 호환된다. rollback을 위해 컬럼을 삭제하면 저장된 사유를 잃으므로 자동 down migration을 추가하지 않는다. 실제 DEV/PROD 적용은 별도 배포 절차에서 DB 스냅샷·migration 이력·실제 실행 영향 확인 후 진행하며 로컬 H2 MySQL-mode 검증과 구분한다.

@@ -252,6 +252,7 @@ erDiagram
 - grade의 `AI_REQUEST_INVALID`은 Spring 계약 결함입니다. 비동기 worker는 재시도하지 않고 `GRADING_FAILED`로 종결하며 ERROR 로그로 일반 AI 실패와 구분합니다.
 - AI 대상 답안은 채점 완료 전·실패 시 점수와 판정이 없습니다. 미응답 문항만 `answer=null`, 0점, `WRONG`으로 즉시 확정하며 AI 호출에서 제외합니다.
 - 강사는 `GRADED` 제출의 문항 점수만 수동 조정할 수 있습니다. AI 원점수는 보존하고 `manualScore`가 있으면 이를 유효 점수로 사용하며, 총점·정규화 점수와 해당 문항 판정(`0=WRONG`, `maxScore=CORRECT`, 그 외 `PARTIAL`)을 같은 규칙으로 재계산합니다. 조정 강사와 시각은 내부 감사 필드이고 학습자에게 노출하지 않습니다.
+- 선택 사유 `manualScoreReason`은 현재 수동 점수·조정 강사·시각과 함께 제출 행 잠금 아래 같은 트랜잭션에서 저장합니다. 원문 최대 500 UTF-16 길이 단위, 앞뒤 공백 제거, 생략·null·공백이면 null이며 재수정 시 교체합니다. 소유 강사 상세에만 반환하고 학생 결과·제출 응답과 감사 로그에는 원문을 포함하지 않습니다. 전체 사유 이력·필수 사유·학생 공개는 별도 정책 결정 대기입니다.
 - `allowRetake=false`이면 기존 제출은 실패도 포함해 새 requestId 제출을 차단하며 `submittable=false`입니다. 학생 실패 복구는 최신 제출의 저장 답안·submissionId·attemptNo·requestId를 유지한 재채점으로만 진행합니다. 학생 재채점 반복 호출은 SUBMITTED/202 또는 GRADED/200의 같은 제출을 반환합니다. `allowRetake=true`이면 terminal 상태에서 새 requestId로 새 attempt를 허용하며, SUBMITTED인 최신 시도는 항상 새 제출을 차단합니다.
 - worker는 조건부 lease claim과 token 일치 결과 반영을 사용합니다. `SUBMITTED.updatedAt`은 마지막 채점 시도 시작 시각입니다. scheduler는 30초마다 마지막 시도 후 30분이 지난 제출을 첫 두 번 재큐잉하고 세 번째 컷오프에서 `GRADING_FAILED`로 종결하며, 강사와 승인 멤버인 본인은 실패 제출을 저장 답안으로 재채점해 카운트를 초기화할 수 있습니다. 이 복구는 CLOSED·완료 강의실에서도 기존 제출에 한해 허용하며 새 응시가 아닙니다.
 - 본인 결과의 정답·해설 공개 여부는 `exam.status == CLOSED || (!exam.allowRetake && submission.status == GRADED)`로만 계산합니다. 비공개 시 `correctAnswer`, `explanation` 키 자체를 생략합니다.

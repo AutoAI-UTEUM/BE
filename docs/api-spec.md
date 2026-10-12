@@ -1391,7 +1391,8 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 
 ```json
 {
-  "score": 8.00
+  "score": 8.00,
+  "reason": "풀이 근거를 다시 검토함"
 }
 ```
 
@@ -1416,6 +1417,7 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
       "verdict": "PARTIAL",
       "feedback": "AI 채점 피드백",
       "manualScore": 8.00,
+      "manualScoreReason": "풀이 근거를 다시 검토함",
       "adjustedAt": "2026-08-03T00:00:00Z"
     }
   ]
@@ -1423,6 +1425,8 @@ MVP의 제출 후 파이프라인은 동기 방식입니다. Spring은 제출·�
 ```
 
 - `score`는 소수 둘째 자리까지 허용하며 `0 <= score <= 문항 maxScore`입니다. 범위를 벗어나면 `SCORE_OUT_OF_RANGE`(400)입니다.
+- `reason`은 선택 문자열이며 입력 원문 기준 최대 500 Java 문자열 길이 단위(UTF-16 code unit)를 허용합니다. 초과하면 `VALIDATION_FAILED`(400)입니다. 앞뒤 공백은 제거하고 생략·null·공백 전용이면 사유 없음으로 저장합니다. 기존 `{score}` 요청도 허용합니다.
+- `manualScoreReason`은 현재 수동 점수에 대응하는 사유로 소유 강사의 수정 응답·제출 상세 GET에만 반환하며, 사유가 없으면 null입니다. 재수정은 사유를 점수·조정자·시각과 같은 트랜잭션에서 교체하고 사유를 생략하면 이전 사유를 지웁니다. 과거 사유 목록은 저장하지 않습니다. 감사 로그에는 `reasonProvided` 여부만 추가하고 사유 원문은 기록하지 않습니다.
 - `GRADED` 상태에서만 수정할 수 있습니다. `SUBMITTED`·`GRADING_FAILED`는 `SUBMISSION_NOT_ADJUSTABLE`(409)이며 FE는 "채점 진행 중, 완료 후 재시도"로 안내합니다.
 - AI 원점수는 보존하고 `manualScore`가 있으면 이를 유효 점수로 사용합니다. 재수정은 최신 `manualScore`를 교체하며 총점·`normalizedScore`·해당 문항 `verdict`를 다시 계산합니다.
 - 수동 수정은 `EXAM_GRADED` 알림을 다시 생성하지 않습니다. `adjustedBy`는 감사용 내부 필드로 API에 노출하지 않습니다.
@@ -1619,10 +1623,10 @@ FE는 응시 화면 진입 시 GET하고 204이면 `sessionStorage` 답안을 �
 | 제출 score·normalizedScore·gradedAt | null | null(완전한 채점 미완료) |
 | 문항 score·verdict·feedback | 모두 null | 저장된 부분 결과 반환, 미채점은 null |
 | correctAnswer·explanation | 키 생략 | 본인 결과 GET의 기존 복습 정책으로 공개(제출 POST에는 없음) |
-| manualScore·adjustedBy·adjustedAt·비공개 정답 원본/rubric | 항상 제외 | 항상 제외 |
+| manualScore·manualScoreReason·adjustedBy·adjustedAt·비공개 정답 원본/rubric | 항상 제외 | 항상 제외 |
 
 - 학생 목록·상세와 POST 제출 응답에는 `correctAnswer`, `explanation`을 포함하지 않습니다. 본인 결과 GET도 명시적 `correctAnswer`, `explanation` 외에 `answerChoiceId`, `answerValue`, `referenceAnswer`, `modelAnswer`, `rubric`, `privateAnswer`, `isCorrect` 키를 포함하지 않습니다.
-- 강사가 점수를 수동 조정한 문항은 학습자 결과의 문항 `score`와 제출 총점·정규화 점수에 유효 점수로 반영합니다. `manualScore`, `adjustedBy`, `adjustedAt`은 학습자 응답에 포함하지 않습니다. `reviewAvailable` 판정식은 변하지 않습니다.
+- 강사가 점수를 수동 조정한 문항은 학습자 결과의 문항 `score`와 제출 총점·정규화 점수에 유효 점수로 반영합니다. `manualScore`, `manualScoreReason`, `adjustedBy`, `adjustedAt`은 학습자 응답에 포함하지 않습니다. `reviewAvailable` 판정식은 변하지 않습니다. 사유 필수화·학생에게 공개할 별도 사유·전체 조정 이력 보존은 정책 결정 대기입니다.
 - POST가 `SUBMITTED`를 반환하면 기존 `GET /api/exams/{examId}/submissions/me`를 2초 간격으로 polling하고, 30초 뒤 5초 간격으로 전환합니다. `GRADED | GRADING_FAILED`에서 즉시 중단합니다. 31분을 넘기면 채점 지연 안내를 표시하되 polling은 유지하고, 세 번의 30분 채점 창과 scheduler 지연을 포함한 91분을 넘겨도 `SUBMITTED`이면 마지막 조회 후 중단하고 문의 안내를 표시합니다.
 
 #### 채점·실패 계약

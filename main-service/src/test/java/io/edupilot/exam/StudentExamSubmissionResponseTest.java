@@ -9,6 +9,8 @@ import java.time.Instant;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -97,8 +99,9 @@ class StudentExamSubmissionResponseTest {
 		assertThat(json.toString()).doesNotContain("rubric");
 	}
 
-	@Test
-	void manualAdjustmentUsesEffectiveScoreWithoutExposingAdjustmentMetadata() {
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	void manualAdjustmentUsesEffectiveScoreWithoutExposingAdjustmentMetadata(boolean reviewAvailable) {
 		ExamSubmission submission = submission();
 		when(submission.getScore()).thenReturn(new BigDecimal("8.00"));
 		when(submission.getNormalizedScore()).thenReturn(new BigDecimal("80.00"));
@@ -109,19 +112,20 @@ class StudentExamSubmissionResponseTest {
 			new ExamPrivateAnswer(null, null, null, "참고 답안", null, List.of())
 		);
 		answer.recordManualScore(
-			new BigDecimal("8.00"), 1L, Instant.parse("2026-09-09T02:00:00Z")
+			new BigDecimal("8.00"), 1L, Instant.parse("2026-09-09T02:00:00Z"), "강사 전용 검토 사유"
 		);
 
 		JsonNode json = objectMapper.valueToTree(
-			StudentExamSubmissionResponse.from(submission, List.of(answer), true)
+			StudentExamSubmissionResponse.from(submission, List.of(answer), reviewAvailable)
 		);
 
 		assertThat(json.at("/score").decimalValue()).isEqualByComparingTo("8.00");
-		assertThat(json.at("/reviewAvailable").booleanValue()).isTrue();
+		assertThat(json.at("/reviewAvailable").booleanValue()).isEqualTo(reviewAvailable);
 		assertThat(json.at("/items/0/score").decimalValue()).isEqualByComparingTo("8.00");
 		assertThat(json.at("/items/0/verdict").textValue()).isEqualTo("PARTIAL");
 		assertThat(json.toString())
 			.doesNotContain("manualScore")
+			.doesNotContain("강사 전용 검토 사유")
 			.doesNotContain("adjustedBy")
 			.doesNotContain("adjustedAt");
 	}
