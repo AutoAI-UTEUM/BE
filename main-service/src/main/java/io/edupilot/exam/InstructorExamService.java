@@ -294,10 +294,15 @@ public class InstructorExamService {
 		if (newScore.signum() < 0 || newScore.compareTo(answer.getMaxScore()) > 0) {
 			throw new BusinessException(ErrorCode.SCORE_OUT_OF_RANGE);
 		}
+		String reason = request.reason();
+		if (reason != null && reason.length() > ManualScoreAdjustmentRequest.MAX_REASON_LENGTH) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+		}
+		reason = reason == null || reason.isBlank() ? null : reason.strip();
 
 		BigDecimal beforeScore = answer.effectiveScore();
 		Instant adjustedAt = clock.instant();
-		answer.recordManualScore(newScore, userId, adjustedAt);
+		answer.recordManualScore(newScore, userId, adjustedAt, reason);
 		ExamSubmissionScoreCalculator.Result result = scoreCalculator.calculate(
 			submission, answers
 		);
@@ -313,6 +318,7 @@ public class InstructorExamService {
 			.addKeyValue("beforeScore", beforeScore)
 			.addKeyValue("afterScore", newScore)
 			.addKeyValue("adjustedAt", adjustedAt)
+			.addKeyValue("reasonProvided", reason != null)
 			.log("Instructor manually adjusted an exam answer score");
 		return InstructorExamSubmissionResponse.from(submission, answers);
 	}

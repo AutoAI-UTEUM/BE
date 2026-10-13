@@ -43,6 +43,9 @@ public class ExamAnswer {
 	@Column(name = "manual_score", precision = 10, scale = 2)
 	private BigDecimal manualScore;
 
+	@Column(name = "manual_score_reason", length = 500)
+	private String manualScoreReason;
+
 	@Column(name = "adjusted_by")
 	private Long adjustedBy;
 
@@ -102,7 +105,17 @@ public class ExamAnswer {
 		Long adjustedBy,
 		Instant adjustedAt
 	) {
+		recordManualScore(manualScore, adjustedBy, adjustedAt, null);
+	}
+
+	public void recordManualScore(
+		BigDecimal manualScore,
+		Long adjustedBy,
+		Instant adjustedAt,
+		String reason
+	) {
 		this.manualScore = manualScore;
+		this.manualScoreReason = reason;
 		this.adjustedBy = adjustedBy;
 		this.adjustedAt = adjustedAt;
 		this.verdict = Verdict.fromScore(manualScore, maxScore);
@@ -123,6 +136,7 @@ public class ExamAnswer {
 	public String getAnswer() { return answer; }
 	public BigDecimal getScore() { return score; }
 	public BigDecimal getManualScore() { return manualScore; }
+	public String getManualScoreReason() { return manualScoreReason; }
 	public Long getAdjustedBy() { return adjustedBy; }
 	public Instant getAdjustedAt() { return adjustedAt; }
 	public BigDecimal getMaxScore() { return maxScore; }
