@@ -495,7 +495,7 @@ class MaterialApiContractTest {
 			.andExpect(header().string(HttpHeaders.CONTENT_TYPE, "application/pdf"))
 			.andExpect(header().string(
 				HttpHeaders.CACHE_CONTROL,
-				"private, max-age=3600, immutable"
+				"no-store, private"
 			))
 			.andExpect(header().string(
 				HttpHeaders.CONTENT_DISPOSITION,

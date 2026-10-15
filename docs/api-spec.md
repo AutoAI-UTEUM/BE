@@ -667,7 +667,7 @@ ADMIN이 ACTIVE·READY 자료의 개요를 수동 재생성 큐에 넣습니다.
 
 ### GET `/api/materials/{materialId}/file`
 
-Spring이 인증된 PDF 스트림을 반환합니다. 자료 상세와 같은 소유자·강의실 승인 멤버 권한을 적용하며, S3 전환 시 presigned URL 방식으로 변경합니다(DEC-005).
+Spring이 인증된 PDF 스트림을 반환합니다. 자료 상세와 같은 소유자·강의실 승인 멤버 권한을 적용하며, S3 전환 시 presigned URL 방식으로 변경합니다(DEC-005). 응답은 `Cache-Control: no-store, private`로 브라우저·중간 캐시 저장을 금지합니다. FE의 새 파일 조회도 Fetch `cache: 'no-store'`를 지정하여 이전 버전이 저장한 응답 대신 현재 권한을 검사합니다. 요청의 `Accept: application/pdf, application/json`은 PDF 성공 응답과 공통 JSON 오류 응답을 모두 허용하며, FE는 성공 응답의 PDF Content-Type을 별도로 검사합니다. 이미 전달된 Blob·다운로드 파일의 회수나 발급된 access token의 즉시 폐기를 의미하지 않습니다.
 
 ### DELETE `/api/materials/{materialId}`
 
@@ -2281,7 +2281,7 @@ URL은 trim 후 최대 2048자이며 `http` 또는 `https` 프로토콜과 호�
 
 ### GET `/api/resources/{resourceId}/file`
 
-FILE 원본을 인증 응답으로 제공합니다. 이미지·PDF는 `Content-Disposition:inline`, 나머지는 `attachment`이고 원본 파일명은 RFC 5987 UTF-8 형식으로 인코딩합니다. `Cache-Control: private, max-age=3600, immutable`을 사용하며 공유 캐시는 금지합니다. LINK에 파일 요청을 보내거나 자료가 없으면 `RESOURCE_NOT_FOUND`(404)입니다.
+FILE 원본을 인증 응답으로 제공합니다. 이미지·PDF는 `Content-Disposition:inline`, 나머지는 `attachment`이고 원본 파일명은 RFC 5987 UTF-8 형식으로 인코딩합니다. `Cache-Control: no-store, private`로 브라우저·중간 캐시 저장을 금지합니다. FE의 새 파일 조회도 Fetch `cache: 'no-store'`를 지정하여 이전 버전이 저장한 응답 대신 현재 권한을 검사합니다. 이미 전달된 Blob·다운로드 파일의 회수나 발급된 access token의 즉시 폐기를 의미하지 않습니다. LINK에 파일 요청을 보내거나 자료가 없으면 `RESOURCE_NOT_FOUND`(404)입니다.
 
 ### DELETE `/api/resources/{resourceId}`
 
