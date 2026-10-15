@@ -23,7 +23,7 @@
 | 로그인 | Google 로그인 | `POST /api/auth/google` | 같은 `googleSub`의 기존 계정은 DOB 재입력 없이 로그인. 비충돌 신규는 role·필수DOB·필요한 현재 동의를 받고 같은 유효 ID 토큰으로 재요청. 신규 로그인 성공 후에도 이메일 PENDING 확인 안내. 이메일 충돌은 기존 로그인 방식 선택 또는 지원 문의 | `SIGNUP_REQUIRED`409, 동의400이 DOB누락보다 먼저일 수 있음; `EMAIL_ALREADY_EXISTS`409, Google 토큰 오류, 비활성 계정 |
 | 로그인 직후 | 미동의 정책 확인·재동의 | 로그인 `pendingConsents`, `GET·POST /api/users/me/consents`, `GET /api/policies/{type}/{version}` | 현재 `requiresConsent=true`인 정책의 pending이 있으면 FE 동의 화면으로 이동. 동의 후 pending 빈 배열 확인; 서버는 미동의 API 차단을 하지 않음 | `POLICY_VERSION_MISMATCH` 시 current 재조회 |
 | 정책 본문 | 현재 이용약관·개인정보 처리방침 표시 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}` | 공개 `/terms`, `/privacy`에서 현재 버전의 본문과 시행일 표시. 0.9는 법무 검토 전 초안이므로 정식 1.0 게시 전 운영 정보·법률 검토 필요 | 없는 버전 404 |
-| 비밀번호 찾기 | 이메일 제출 | `POST /api/auth/password-reset/request` | 202면 가입 여부와 무관하게 "등록된 이메일이면 재설정 안내를 발송했습니다." 표시 | 요청 상한·미가입·비활성 계정도 동일 202 |
+| 비밀번호 찾기 | 이메일 제출 | `POST /api/auth/password-reset/request` | 202면 가입 여부와 무관하게 "등록된 이메일이면 재설정 안내를 발송했습니다." 표시 | 요청 상한·미가입·비활성 계정·메일 저장 롤백도 동일 202 |
 | 비밀번호 재설정 | `/reset-password?token=` 링크에서 새 비밀번호 제출 | `POST /api/auth/password-reset/confirm` | 성공 시 보유 access 삭제 후 로그인 화면 이동 | `RESET_TOKEN_INVALID` 400은 "링크가 만료되었거나 유효하지 않습니다 — 다시 요청" 단일 문구; 비밀번호 정책 오류와 429 구분 |
 | 앱 초기 진입 | 인증 상태 확인 | `GET /api/users/me` | 사용자 정보/권한 반영 | 토큰 만료 |
 | 앱 공통 인증 | 실제 pointer/key/touch/scroll 활동을 탭 전체 기준 최대 5분에 한 번 기록 | `POST /api/auth/session/activity` (Bearer + credentials 포함) | token 회전 없이 응답의 `idleExpiresAt` 갱신·탭 간 전파. background polling은 호출 근거가 아님 | cookie 누락·사용자 불일치 `TOKEN_INVALID`, idle·절대 만료 시 전체 탭 로그인 이동 |

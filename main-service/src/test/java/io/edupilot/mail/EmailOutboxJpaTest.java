@@ -3,6 +3,7 @@ package io.edupilot.mail;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -14,6 +15,9 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -26,6 +30,10 @@ import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import software.amazon.awssdk.services.sesv2.SesV2Client;
+import software.amazon.awssdk.services.sesv2.model.SendEmailRequest;
+import software.amazon.awssdk.services.sesv2.model.SendEmailResponse;
 
 @SpringBootTest(properties = {
 	"spring.datasource.url=jdbc:h2:mem:mail-outbox;MODE=MySQL;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000",
@@ -103,6 +111,35 @@ class EmailOutboxJpaTest {
 		assertThat(deliveries.findAll().stream().filter(delivery -> delivery.getStatus() == EmailDeliveryStatus.SENT)).hasSize(5);
 		assertThat(ids.stream().map(this::job).filter(job -> "RATE_LIMITED".equals(job.getLastErrorCode()))).hasSize(1);
 		verify(sender, times(5)).send(any());
+	}
+
+	@ParameterizedTest
+	@NullAndEmptySource
+	@ValueSource(strings = {" ", "\u2003"})
+	void missingSesReceiptPersistsUnknownAndCannotBeAutomaticallyResent(String receipt) {
+		SesV2Client client = mock(SesV2Client.class);
+		when(client.sendEmail(any(SendEmailRequest.class)))
+			.thenReturn(SendEmailResponse.builder().messageId(receipt).build());
+		EmailSender ses = new SesEmailSender(client, properties);
+		EmailOutboxWorker worker = new EmailOutboxWorker(outbox, history, ses, properties, Runnable::run);
+		Long id = queued();
+
+		worker.kick(id);
+		assertThat(job(id).getStatus()).isEqualTo(EmailOutboxStatus.UNKNOWN);
+		assertThat(job(id).getLastErrorCode()).isEqualTo("DELIVERY_RESULT_UNKNOWN");
+		EmailDelivery delivery = deliveries.findById(id).orElseThrow();
+		assertThat(delivery.getStatus()).isEqualTo(EmailDeliveryStatus.FAILED);
+		assertThat(delivery.getProviderMessageId()).isNull();
+		assertThat(delivery.getSentAt()).isNull();
+		assertPayloadRemoved(id);
+
+		worker.recoverPending();
+		worker.kick(id);
+		new EmailOutboxWorker(outbox, history, ses, properties, Runnable::run).recoverPending();
+		assertThat(job(id).getStatus()).isEqualTo(EmailOutboxStatus.UNKNOWN);
+		assertThat(job(id).getAttemptCount()).isEqualTo(1);
+		verify(client, times(1)).sendEmail(any(SendEmailRequest.class));
+		verify(sender, never()).send(any());
 	}
 
 	@Test void oldBacklogConcurrentWorkersShareTheRecipientQuota() throws Exception {
