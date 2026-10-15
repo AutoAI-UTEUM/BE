@@ -1,5 +1,6 @@
 package io.edupilot.material;
 
+import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -190,7 +191,10 @@ public class MaterialController {
 	}
 
 	@GetMapping("/{materialId}/file")
-	@Operation(summary = "학습 자료 PDF 조회")
+	@Operation(
+		summary = "학습 자료 PDF 조회",
+		description = "현재 자료 접근 권한을 확인하고 Cache-Control: no-store, private로 반환합니다."
+	)
 	public ResponseEntity<org.springframework.core.io.Resource> file(
 		@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
 		@PathVariable Long materialId
@@ -201,10 +205,7 @@ public class MaterialController {
 		);
 		return ResponseEntity.ok()
 			.contentType(MediaType.APPLICATION_PDF)
-			.header(
-				HttpHeaders.CACHE_CONTROL,
-				"private, max-age=3600, immutable"
-			)
+			.cacheControl(CacheControl.noStore().cachePrivate())
 			.header(
 				HttpHeaders.CONTENT_DISPOSITION,
 				ContentDisposition.inline()

@@ -54,8 +54,8 @@
 | 주차·자료 | 주차 목록·생성·수정·삭제·상태·순서 변경 | `GET·POST /api/classrooms/{id}/weeks`, `PATCH·DELETE .../weeks/{weekNumber}`, `PATCH .../weeks/{weekId}/status`, `PATCH .../weeks/reorder` | `weekId`로 상태 변경, `displayOrder`로 정렬하며 `weekNumber`는 유지. 학습자는 상태와 관계없이 전체 주차 메타와 연결 자료를 표시 | 전체 주차 ID 집합 검증, 주차 중복·범위·소유권·완료 상태, 비멤버 자료 접근 404 유지 |
 | 주차·자료 | 기존 자료 연결·해제 | `POST·DELETE /api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}` | 주차 자료 목록 갱신 | 자료 중복 연결, 자료·강의실 소유권 |
 | 강의실 자료 업로드 | PDF와 강의실·주차 part 제출 | `POST /api/materials` | 처리 중 자료를 해당 주차에 즉시 표시 | INSTRUCTOR 소유권, part 조합·파일 오류 |
-| 강의실 자료 학습 | 연결 자료 열기·통합학습 시작 | `GET /api/materials/{materialId}`, `GET .../file`, `POST /api/sessions` | 주차 상태와 관계없이 PDF 뷰어와 사용자×자료 공유 세션으로 이동 | 연결 해제·멤버십 |
-| 강의실 일반 자료 | 파일·링크 등록, 전체/주차별 목록, 제목·주차 수정, 파일 열기·다운로드, 삭제 | `GET·POST /api/classrooms/{id}/resources`, `PATCH·DELETE /api/resources/{resourceId}`, `GET .../file` | FILE과 LINK를 구분해 표시하고 이미지·PDF는 inline, 나머지는 attachment로 제공. 일반 자료에는 AI 추출·학습 시작을 연결하지 않음 | 생성·수정·삭제는 소유 강사와 ACTIVE 상태, 조회·다운로드는 승인 멤버, 형식·주차 범위 검증 |
+| 강의실 자료 학습 | 연결 자료 열기·통합학습 시작 | `GET /api/materials/{materialId}`, `GET .../file`, `POST /api/sessions` | 주차 상태와 관계없이 PDF 뷰어와 사용자×자료 공유 세션으로 이동. 새 파일 요청은 Fetch `cache:'no-store'`, 파일 응답은 `no-store, private` | 연결 해제·멤버십 |
+| 강의실 일반 자료 | 파일·링크 등록, 전체/주차별 목록, 제목·주차 수정, 파일 열기·다운로드, 삭제 | `GET·POST /api/classrooms/{id}/resources`, `PATCH·DELETE /api/resources/{resourceId}`, `GET .../file` | FILE과 LINK를 구분해 표시하고 이미지·PDF는 inline, 나머지는 attachment로 제공. 새 파일 요청은 Fetch `cache:'no-store'`, 파일 응답은 `no-store, private`. 일반 자료에는 AI 추출·학습 시작을 연결하지 않음 | 생성·수정·삭제는 소유 강사와 ACTIVE 상태, 조회·다운로드는 승인 멤버, 형식·주차 범위 검증 |
 | 공지 | 목록·즉시/예약 게시·수정·삭제 | `GET·POST /api/classrooms/{id}/notices`, `PATCH·DELETE .../notices/{noticeId}` | 전체/주차 공지를 표시. 강사는 예약 포함 전체, 학습자는 게시 시각이 도래한 공지만 표시 | 강사 권한, 주차 범위, 완료 상태 |
 | 캘린더 | 기간·강의실 필터 조회, 개인 일정 생성·수정·삭제 | `GET·POST /api/users/me/schedule`, `PATCH·DELETE /api/users/me/schedule/{scheduleId}` | 주차 공개·공지·본인 개인 일정을 시간순 표시하고 개인 일정만 편집 | 날짜·시간 범위, 강의실 접근권, 개인 일정 소유권 |
 | 시험 관리 | 시험 생성·목록·상세·수정 | `POST·GET /api/classrooms/{classroomId}/exams`, `GET·PATCH /api/exams/{examId}` | DRAFT 편집기와 전체 상태 목록 및 nullable `dueAt` 표시. rubric 편집기는 기본 접힘·미입력 상태 | 강사 권한, 완료 강의실, DRAFT 편집 상태, 과거 `dueAt` 입력 |
@@ -87,7 +87,7 @@
 | PDF 뷰어 문서 질문 | 질문 전송·대화 이어가기 | `POST /api/materials/{materialId}/doc-chat` | 최근 대화 최대 50개를 보내고 응답 `answer`와 `warnings` 표시. 서버는 최근 10개만 AI에 전달 | 자료 없음/권한, 자료 처리 중·실패, AI 오류·429 |
 | 퀴즈 결과 복습 질문 | 질문 전송·대화 이어가기 | `POST /api/materials/{materialId}/quiz-chat` | 본인 제출 퀴즈와 관련 페이지를 근거로 답변 표시 | 자료 없음/권한, 본인 제출 없음, 자료 처리 중·실패, AI 오류·429 |
 | 자료 목록/상세 | 제목 수정 | `PATCH /api/materials/{materialId}` | trim된 새 제목과 갱신된 자료 상세 반영 | 소유자 전용, 빈 제목·255자 초과, 비소유·삭제 자료 404 |
-| PDF 뷰어 | 자료 원본 표시 | `GET /api/materials/{materialId}/file` | 인증된 PDF 스트림 표시 | 자료 없음/권한 |
+| PDF 뷰어 | 자료 원본 표시 | `GET /api/materials/{materialId}/file` | 새 요청은 Fetch `cache:'no-store'`로 현재 권한을 확인하고, `no-store, private` 응답을 Blob으로 표시. 이미 받은 Blob 회수와는 별도 | 자료 없음/권한 |
 | 자료 목록/상세 | 삭제 버튼 → 확인 모달 | `DELETE /api/materials/{materialId}` | 목록에서 제외 | 활성 세션 존재(409 — 세션 정리 안내) |
 | (dev 전용) PDF 디버깅 | 페이지 추출 텍스트 확인 | `GET /api/materials/{materialId}/pages/{pageNumber}` | 페이지 보조 정보 반영 | 운영 비노출(DEC-025) — dev/디버깅 프로파일 한정 |
 | 학습 시작 | 시작 버튼 | `POST /api/sessions` | 세션 화면 이동, 초기 선택 UI 표시 | 자료 준비 안 됨 |

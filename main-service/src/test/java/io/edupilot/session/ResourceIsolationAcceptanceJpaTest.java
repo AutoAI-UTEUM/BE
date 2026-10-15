@@ -485,7 +485,7 @@ class ResourceIsolationAcceptanceJpaTest {
 		} else {
 			assertThat(result.getContentAsByteArray()).isEqualTo(
 				(target.marker() + (route == FileRoute.PDF ? " PDF" : " attachment")).getBytes(StandardCharsets.UTF_8));
-			assertThat(result.getHeader(HttpHeaders.CACHE_CONTROL)).isEqualTo("private, max-age=3600, immutable");
+			assertThat(result.getHeader(HttpHeaders.CACHE_CONTROL)).isEqualTo("no-store, private");
 		}
 	}
 

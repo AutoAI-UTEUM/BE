@@ -55,6 +55,26 @@ Swagger UI: http://localhost:8080/swagger-ui.html
 
 테스트 프로필은 DB/JPA/Flyway 자동 설정을 제외하여 공통 Web 계약 테스트가 로컬 MySQL에 의존하지 않게 합니다. Flyway 호환성은 빈 MySQL 스키마에서 local 프로필을 기동해 별도로 확인합니다.
 
+### 보호 파일 HTTP 캐시 회귀
+
+`ProtectedFileCacheHttpTest`는 임시 H2·합성 성인 계정·격리 파일 저장소를 사용해 실제 loopback HTTP 로그인과 PDF/첨부파일 GET·HEAD·Range, 동일 토큰의 멤버십 철회, 다른 계정의 404를 검증합니다. AI·메일·전화·Google 공급자는 mock이며 호출이 없어야 합니다.
+
+```powershell
+.\gradlew.bat test --tests io.edupilot.material.ProtectedFileCacheHttpTest --no-daemon
+```
+
+FE의 `playwright.file-cache.config.ts`가 포함된 checkout과 설치된 Chromium이 있으면 선택적인 교차 저장소 브라우저 테스트도 실행합니다. 기본 BE CI에서는 이 브라우저 메서드만 건너뛰며, FE CI는 같은 브라우저 suite를 합성 HTTP 서버로 실행합니다.
+
+```powershell
+$env:FILE_CACHE_FE_ROOT='C:\work\FE'
+# 필요할 때만 Node 또는 기존 Chrome 실행 파일의 절대 경로를 지정합니다.
+$env:FILE_CACHE_NODE='C:\Program Files\nodejs\node.exe'
+$env:PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH='C:\Program Files\Google\Chrome\Application\chrome.exe'
+.\gradlew.bat test --tests io.edupilot.material.ProtectedFileCacheHttpTest --no-daemon
+```
+
+교차 저장소 모드는 실제 Spring 인증·인가·파일 응답을 loopback proxy로 전달합니다. 캐시를 채우는 단계에서만 proxy가 구 버전의 `private, max-age=3600, immutable` 헤더를 재현합니다. 캐시 적중을 먼저 확인한 뒤 현재 응답 헤더로 전환하며, 권한 철회·계정 전환 후 새 FE repository 요청의 404와 허용 사용자 원본 바이트를 검증합니다. 요청 interception·캐시 삭제·cache-busting query를 사용하지 않습니다. 이미 받은 Blob이나 파일의 회수, 배포 환경·다른 브라우저의 검증은 포함하지 않습니다.
+
 ## 인증 흐름
 
 회원가입은 `role`에 `LEARNER` 또는 `INSTRUCTOR`를 필수로 받으며 `ADMIN` 공개 가입은 허용하지 않습니다. 로그인하면 access token은 응답 body로, refresh token은 `edupilot_refresh` HttpOnly 쿠키로 발급됩니다. access 만료 시 `/api/auth/refresh`가 쿠키를 회전하며 로그아웃과 탈퇴는 저장된 refresh를 폐기합니다.
