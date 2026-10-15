@@ -8,6 +8,9 @@ import static org.mockito.Mockito.when;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -58,6 +61,21 @@ class EmailSenderTest {
 		}
 		assertThat(output).contains("Mail delivery simulated; content suppressed")
 			.doesNotContain("person@example.com", "secret-token", "html-secret", "textBody", "htmlBody");
+	}
+
+	@ParameterizedTest
+	@NullAndEmptySource
+	@ValueSource(strings = {" ", "\t", "\u2003"})
+	void sesMissingReceiptIsUncertainRatherThanSuccessful(String receipt) {
+		when(client.sendEmail(any(SendEmailRequest.class)))
+			.thenReturn(SendEmailResponse.builder().messageId(receipt).build());
+		SesEmailSender sender = new SesEmailSender(client, new MailProperties(
+			true, "ses", "no-reply@uteum.com", "", "https://dev.uteum.com", "ap-northeast-2"));
+
+		assertThatThrownBy(() -> sender.send(message()))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessage("Mail provider receipt is missing");
+		verify(client).sendEmail(any(SendEmailRequest.class));
 	}
 
 	@Test

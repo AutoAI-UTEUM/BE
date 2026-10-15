@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import stat
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -117,12 +118,28 @@ def test_private_files_no_overwrite_or_repo_output(tmp_path: Path) -> None:
         make_output(repository / "out", [repository])
     output = make_output(tmp_path / "outside", [repository])
     write_json(output / "private.json", {"input": "private"})
-    assert stat.S_IMODE(output.stat().st_mode) == 0o700
-    assert stat.S_IMODE((output / "private.json").stat().st_mode) == 0o600
     with pytest.raises(FileExistsError):
         write_json(output / "private.json", {})
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows ACLs are not POSIX mode bits")
+def test_private_output_has_owner_only_posix_permissions(tmp_path: Path) -> None:
+    output = make_output(tmp_path / "outside", [])
+    write_json(output / "private.json", {"input": "private"})
+    assert stat.S_IMODE(output.stat().st_mode) == 0o700
+    assert stat.S_IMODE((output / "private.json").stat().st_mode) == 0o600
+
+
+def test_private_output_refuses_existing_symlink(tmp_path: Path) -> None:
+    output = make_output(tmp_path / "outside", [])
+    write_json(output / "private.json", {"input": "private"})
     link = output / "link.json"
-    link.symlink_to(output / "private.json")
+    try:
+        link.symlink_to(output / "private.json")
+    except OSError:
+        if os.name != "nt":
+            raise
+        pytest.skip("Windows symlink creation is unavailable for this account")
     with pytest.raises(FileExistsError):
         write_json(link, {})
 
@@ -449,8 +466,10 @@ async def test_supervisor_stops_preserves_artifacts_and_closes_workers(
     assert len(rows) == len(sent) == turns
     assert closed == [True, True]
     assert all(case == suite["cases"][0] for case in sent)
-    assert "NOT_REVIEWED" in (output / "private/quality-review.json").read_text()
-    public = (output / "report.md").read_text() + json.dumps(manifest) + json.dumps(rows)
+    assert "NOT_REVIEWED" in (output / "private/quality-review.json").read_text(encoding="utf-8")
+    public = (
+        (output / "report.md").read_text(encoding="utf-8") + json.dumps(manifest) + json.dumps(rows)
+    )
     assert "file-private" not in public
     assert "PRIVATE ANSWER" not in public
     assert "PRIVATE CLEANUP ERROR" not in public
