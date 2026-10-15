@@ -14,12 +14,16 @@ SES의 요청 수락은 수신함 도착 확인이 아니다. 실제 수신·IAM
 | RETRY | SES 429처럼 거절이 확정된 경우만 제한 재시도한다. |
 | SENT | provider 수락 이력을 기록했다. 본문을 제거한다. |
 | FAILED | 만료·복호화 실패·거절·시도 한도 초과 등. 본문을 제거한다. |
-| UNKNOWN | SENDING 중 프로세스 종료, 통신 오류 또는 수락 후 이력 저장 실패. 본문을 제거하고 자동 재발송을 막는다. |
+| UNKNOWN | SENDING 중 프로세스 종료, 통신 오류, 비어 있는 provider 수락 ID 또는 수락 후 이력 저장 실패. 본문을 제거하고 자동 재발송을 막는다. |
 
 SES `SendEmail`에는 요청 멱등 키가 없으므로 통신 오류·5xx·발송 후 프로세스 종료의
 수락 여부를 BE만으로 확정할 수 없다. 이를 성공으로 간주하거나 자동 재발송하지 않는다.
 같은 fencing token의 실행이 뒤늦게 확정된 수락 ID를 가져온 경우만 UNKNOWN에서 SENT로
 이력을 정정할 수 있다. SDK 내부 재시도는 `maxAttempts=1`로 제한한다.
+
+성공 결과의 provider ID는 null·빈 문자열·공백 전용일 수 없다. 해당 응답은 수락 여부 불확실로
+취급하여 UNKNOWN으로 종결하며, 기존 worker·새 worker의 회수·직접 kick으로 다시 발송하지 않는다.
+수신함 도착을 의미하는 추가 상태나 새로운 재시도 정책을 만들지 않는다.
 [SES API](https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendEmail.html),
 [SDK retry 설정](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/retry-strategy.html).
 
