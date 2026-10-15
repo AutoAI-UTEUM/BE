@@ -28,7 +28,7 @@ test.after(() => {
   rmSync(target, { recursive: true });
 });
 
-function compose({ dev = true, provider = 'ses', dispatch = 'NORMAL' } = {}) {
+function compose({ dev = true, provider = 'ses', dispatch = 'NORMAL', pins = false } = {}) {
   const envFile = join(fixture, 'synthetic.env');
   writeFileSync(envFile, [
     'MYSQL_ROOT_PASSWORD=synthetic-root-password',
@@ -49,6 +49,14 @@ function compose({ dev = true, provider = 'ses', dispatch = 'NORMAL' } = {}) {
   ].join('\n'));
   const args = [...prefix, '--env-file', envFile, '-f', 'docker-compose.yml', '-f', 'docker-compose.prod.yml'];
   if (dev) args.push('-f', 'docker-compose.dev.yml');
+  if (pins) {
+    const override = join(fixture, 'reviewed-images.json');
+    const services = Object.fromEntries(['main-service', 'ai-service', 'mysql', 'nginx'].map((name) => [
+      name, { image: `${name.endsWith('-service') ? `ghcr.io/autoai-uteum/${name}` : name}@sha256:${'a'.repeat(64)}` },
+    ]));
+    writeFileSync(override, JSON.stringify({ services }));
+    args.push('-f', override);
+  }
   args.push('config', '--format', 'json');
   const result = spawnSync(executable, args, {
     cwd: root, env: executionEnv, encoding: 'utf8', timeout: 15000,
@@ -69,6 +77,7 @@ for (const dispatch of ['NORMAL', 'ISOLATED_TRIAL', 'PAUSED']) {
       assert.equal(env[key], 'false');
     }
     assert.equal(env.EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED, 'true');
+    assert.equal(env.EDUPILOT_SIGNUP_PAUSED, undefined);
     assert.equal(config.services.nginx.environment.EDUPILOT_SIGNUP_PAUSED, 'true');
     assert.equal(config.services['main-service'].image, 'ghcr.io/autoai-uteum/main-service:local-validation');
     assert.equal(config.services['main-service'].environment.SPRING_PROFILES_ACTIVE, 'dev');
@@ -84,14 +93,26 @@ test('the production Compose combination retains its input provider and dispatch
   assert.equal(env.EDUPILOT_MAIL_OUTBOX_DISPATCH_MODE, 'NORMAL');
 });
 
-test('every DEV Compose operation uses and copies the final DEV override', () => {
-  const workflow = readFileSync(join(root, '.github/workflows/deploy-dev.yml'), 'utf8').replace(/\\\r?\n\s*/g, ' ');
-  assert.match(workflow, /source: [^\r\n]*docker-compose\.dev\.yml/);
-  const commands = workflow.split(/\r?\n/).filter((line) => /docker .*compose --env-file \.env/.test(line));
-  assert.ok(commands.length > 0);
-  for (const command of commands) {
-    assert.match(command, /-f docker-compose\.yml -f docker-compose\.prod\.yml -f docker-compose\.dev\.yml /);
+test('DEV uses reviewed digest pins while retaining the last DEV policy override', () => {
+  const config = compose({ pins: true });
+  for (const name of ['main-service', 'ai-service', 'mysql', 'nginx']) {
+    assert.match(config.services[name].image, /@sha256:[a-f0-9]{64}$/);
   }
+  assert.equal(config.services['main-service'].environment.EDUPILOT_MAIL_PROVIDER, 'logging');
+  assert.equal(config.services['main-service'].environment.EDUPILOT_MAIL_OUTBOX_DISPATCH_MODE, 'PAUSED');
+  assert.equal(config.services['main-service'].environment.EDUPILOT_POLICY_SIGNUP_CONSENT_REQUIRED, 'true');
+  assert.equal(config.services.nginx.environment.EDUPILOT_SIGNUP_PAUSED, 'true');
+});
+
+test('DEV delegates to the manual Main-only helper without overwriting existing configuration', () => {
+  const workflow = readFileSync(join(root, '.github/workflows/deploy-dev.yml'), 'utf8');
+  const helper = readFileSync(join(root, 'scripts/deploy/dev_main_only.py'), 'utf8');
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.doesNotMatch(workflow, /^  push:/m);
+  assert.match(workflow, /dev_main_only\.py --prepare/);
+  assert.match(workflow, /script_path:.*dev-main-only\.sh/);
+  assert.doesNotMatch(workflow, /appleboy\/scp-action/);
+  assert.match(helper, /"-f", "docker-compose\.yml", "-f", "docker-compose\.prod\.yml", "-f", "docker-compose\.dev\.yml", "-f", str\(override\)/);
   assert.doesNotMatch(readFileSync(join(root, '.github/workflows/deploy-prod.yml'), 'utf8'), /docker-compose\.dev\.yml/);
 });
 

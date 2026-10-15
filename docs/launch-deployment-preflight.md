@@ -1,5 +1,9 @@
 # 출시 BE 후보의 배포 사전 점검과 복구 (#479)
 
+**2026-10-15 현재 DEV 경로:** [Main 한정 수동 배포](qa/dev-main-only-deployment.md)는
+develop 자동 배포를 제거하고 현재 V64·컨테이너·digest·복구본·예산의 검토를 요구한다.
+아래 Main·AI 동시 교체/Nginx 재시작 설명은 이전 경로의 기록이다. PROD 경로는 변경하지 않는다.
+
 **2026-10-06 현재 기준:** [PR532·V61–V63 TEAM 운영 준비](launch-team-operational-readiness.md)를 먼저 사용한다. 업체 없는 보호자 팀 확인이 현재 결정이며 아래 웹/SMS·V60 이전 기록은 당시 근거다. 현재 후보의 정리 hook·동의 epoch/digest와 TEAM enum reader를 보존해야 한다. 현재 source 준비는 실제 배포·권한·발송 승인이 아니다.
 
 **2026-10-05 후속 기준:** [FE·메일·V60 운영 준비](launch-operational-readiness.md)는 BE521 `0a8f7bd`와 최신 FE `f1ad9d9`의 source/settings/artifact manifest, 승인된 KST 정책, SES 실제 검증·수신 1주소 범위와 V60 정리 hook 복구를 구체화한다. 아래 이전 후보/FE229/V53–V59 기록은 당시 근거로 보존한다. 현재 검토 대상은 V60을 포함하며 이전 Main 자동 rollback/실메일 활성화의 실행 근거로 이 문서를 사용하지 않는다.
