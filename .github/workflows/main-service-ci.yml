@@ -87,4 +87,5 @@ jobs:
           path: |
             main-service/build/reports/tests/
             main-service/build/test-results/
+            main-service/build/mail-scheduled-recovery/*.json
           if-no-files-found: warn
