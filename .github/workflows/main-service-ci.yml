@@ -72,6 +72,9 @@ jobs:
       - name: Validate DEV deployment preservation without operations
         run: node --test scripts/qa/dev-deploy-preservation.test.mjs
 
+      - name: Validate Main-only DEV deployment guards without operations
+        run: python3 -I -S -B scripts/deploy/test_dev_main_only.py
+
       - name: Validate isolated SES trial guards without sending
         if: steps.changes.outputs.service == 'true'
         run: |
