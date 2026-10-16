@@ -67,21 +67,15 @@ jobs:
           tags: ghcr.io/autoai-uteum/main-service:${{ github.sha }}
 
       - name: Verify current DEV and replace Main only
-        uses: appleboy/ssh-action@v1
+        shell: bash
         env:
           NEW_MAIN_DIGEST: ghcr.io/autoai-uteum/main-service@${{ steps.main_image.outputs.digest }}
           DEV_DEPLOY_PATH: ${{ vars.DEV_DEPLOY_PATH }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USERNAME: ${{ github.actor }}
-        with:
-          host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USER }}
-          key: ${{ secrets.DEV_SSH_KEY }}
-          passphrase: ${{ secrets.DEV_SSH_PASSPHRASE }}
-          fingerprint: ${{ inputs.verified_host_fingerprint }}
-          envs: NEW_MAIN_DIGEST,DEV_DEPLOY_PATH,GHCR_TOKEN,GHCR_USERNAME
-          script_path: ${{ runner.temp }}/dev-main-only.sh
-          command_timeout: 8m
-          debug: false
-          allenvs: false
-          request_pty: false
+          DEV_SSH_HOST: ${{ secrets.DEV_SSH_HOST }}
+          DEV_SSH_USER: ${{ secrets.DEV_SSH_USER }}
+          DEV_SSH_KEY: ${{ secrets.DEV_SSH_KEY }}
+          DEV_SSH_PASSPHRASE: ${{ secrets.DEV_SSH_PASSPHRASE }}
+          VERIFIED_HOST_FINGERPRINT: ${{ inputs.verified_host_fingerprint }}
+        run: python3 -I -S -B scripts/deploy/dev_ssh_ed25519.py --script "$RUNNER_TEMP/dev-main-only.sh"
