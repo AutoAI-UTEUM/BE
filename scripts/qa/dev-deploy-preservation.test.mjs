@@ -110,7 +110,7 @@ test('DEV delegates to the manual Main-only helper without overwriting existing 
   assert.match(workflow, /workflow_dispatch:/);
   assert.doesNotMatch(workflow, /^  push:/m);
   assert.match(workflow, /dev_main_only\.py --prepare/);
-  assert.match(workflow, /script_path:.*dev-main-only\.sh/);
+  assert.match(workflow, /dev_ssh_ed25519\.py --script "\$RUNNER_TEMP\/dev-main-only\.sh"/);
   assert.doesNotMatch(workflow, /appleboy\/scp-action/);
   assert.match(helper, /"-f", "docker-compose\.yml", "-f", "docker-compose\.prod\.yml", "-f", "docker-compose\.dev\.yml", "-f", str\(override\)/);
   assert.doesNotMatch(readFileSync(join(root, '.github/workflows/deploy-prod.yml'), 'utf8'), /docker-compose\.dev\.yml/);
