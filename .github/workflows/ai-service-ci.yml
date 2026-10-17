@@ -33,7 +33,7 @@ jobs:
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: '0.11.32'
-          enable-cache: true
+          enable-cache: ${{ github.head_ref != 'feature/guardian-mysql-isolated-20261017' }}
           cache-dependency-glob: |
             ai-service/pyproject.toml
             ai-service/uv.lock

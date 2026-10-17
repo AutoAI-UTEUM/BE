@@ -7,7 +7,6 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.when;
 
-import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
@@ -44,6 +43,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import io.edupilot.admin.AdminUserService;
 import io.edupilot.ai.AiClient;
+import io.edupilot.testsupport.IsolatedMysql;
 import io.edupilot.auth.RefreshTokenService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
@@ -58,10 +58,8 @@ import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceContext;
 
 /** Real services, canonical MySQL indexes and disposable synthetic accounts only. */
-@EnabledIfEnvironmentVariable(named = "GUARDIAN_ADMIN_LOCK_MYSQL_URL",
-	matches = "^jdbc:mysql://127\\.0\\.0\\.1:33316/guardian_admin_lock_jpa_synthetic(?:\\?.*)?$")
+@EnabledIfEnvironmentVariable(named = "GUARDIAN_MYSQL_ISOLATED", matches = "true")
 @SpringBootTest(properties = {
-	"spring.datasource.username=root", "spring.datasource.password=",
 	"spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver", "spring.flyway.enabled=true",
 	"spring.jpa.hibernate.ddl-auto=none", "spring.jpa.show-sql=false",
 	"logging.level.org.hibernate.SQL=DEBUG",
@@ -69,6 +67,7 @@ import jakarta.persistence.PersistenceContext;
 	"edupilot.ai.internal-token=synthetic-internal-token",
 	"edupilot.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
 	"edupilot.storage.root-directory=build/test-storage/guardian-admin-lock-mysql", "edupilot.mail.enabled=false",
+	"edupilot.mail.provider=logging", "edupilot.ai.quota.enabled=false",
 	"edupilot.guardian.team.recovery-initial-delay-ms=3600000",
 	"edupilot.guardian.team.enabled=true", "edupilot.guardian.team.policy-confirmed=true",
 	"edupilot.guardian.team.portal-base-url=https://guardian.example.invalid",
@@ -111,25 +110,14 @@ class GuardianAdminLockMysqlTest {
 
 	@DynamicPropertySource
 	static void ownedSyntheticDatabase(DynamicPropertyRegistry registry) throws SQLException {
-		String url = System.getenv("GUARDIAN_ADMIN_LOCK_MYSQL_URL");
-		String serverUrl = "jdbc:mysql://127.0.0.1:33316/";
-		try (var connection = DriverManager.getConnection(serverUrl, "root", ""); var sql = connection.createStatement()) {
-			try (var identity = sql.executeQuery("select @@port,@@datadir")) {
-				assertThat(identity.next()).isTrue(); assertThat(identity.getInt(1)).isEqualTo(33316);
-				assertThat(identity.getString(2).replace('\\', '/').replaceAll("/+$", ""))
-					.isEqualTo("C:/Users/russe/Documents/Codex/2026-10-03/task-2/mysql-isolated");
-			}
-			sql.execute("create database if not exists " + DATABASE);
-		}
-		registry.add("spring.datasource.url", () -> url);
+		IsolatedMysql.configure(registry, DATABASE);
 	}
 
 	@BeforeEach
 	void committedSyntheticFixture() {
 		now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
 		when(clock.instant()).thenReturn(now); when(clock.getZone()).thenReturn(ZoneOffset.UTC);
-		assertThat(jdbc.queryForObject("select database()", String.class)).isEqualTo(DATABASE);
-		assertThat(jdbc.queryForObject("select @@port", Integer.class)).isEqualTo(33316);
+		IsolatedMysql.assertIdentity(jdbc, DATABASE);
 		jdbc.update("delete from guardian_team_operations"); jdbc.update("delete from guardian_team_events");
 		jdbc.update("delete from guardian_team_requests"); jdbc.update("delete from users");
 		jdbc.execute("alter table users auto_increment=1");
@@ -344,7 +332,7 @@ class GuardianAdminLockMysqlTest {
 	@ValueSource(ints = {TransactionDefinition.ISOLATION_REPEATABLE_READ, TransactionDefinition.ISOLATION_READ_COMMITTED})
 	void exactActorAndTargetLocksDoNotScanOrWaitOnAnAlreadyLockedUnrelatedUser(int isolation) throws Exception {
 		CountDownLatch pairReady = new CountDownLatch(1), releasePair = new CountDownLatch(1);
-		try (var busyConnection = DriverManager.getConnection(System.getenv("GUARDIAN_ADMIN_LOCK_MYSQL_URL"), "root", "");
+		try (var busyConnection = IsolatedMysql.open(DATABASE);
 			var sql = busyConnection.createStatement(); var pool = Executors.newSingleThreadExecutor()) {
 			busyConnection.setAutoCommit(false);
 			try (var busy = sql.executeQuery("select id from users where id=1500 for update")) {

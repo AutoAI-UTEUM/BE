@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 
@@ -22,6 +21,7 @@ import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.test.context.ContextConfiguration;
 
 import io.edupilot.MainServiceApplication;
+import io.edupilot.testsupport.IsolatedMysql;
 
 @JdbcTest(properties = {
 	"spring.datasource.url=jdbc:h2:mem:guardian-team-access-migration;MODE=MySQL;DB_CLOSE_DELAY=-1",
@@ -51,36 +51,28 @@ class GuardianTeamFullMigrationTest {
 	}
 
 	@Test
-	@EnabledIfEnvironmentVariable(named = "GUARDIAN_TEAM_MYSQL_URL",
-		matches = "^jdbc:mysql://127\\.0\\.0\\.1:33316/guardian_team_synthetic(?:\\?.*)?$")
-	void canonicalMysqlMigratesV1ThroughV63WithoutApprovingExistingAccounts() throws Exception {
-		String url = "jdbc:mysql://127.0.0.1:33316/guardian_team_full_migration_synthetic";
-		try (Connection connection = DriverManager.getConnection(url, "root", ""); Statement sql = connection.createStatement()) {
-			try (var identity = sql.executeQuery("select @@port,database(),@@datadir")) {
-				assertThat(identity.next()).isTrue();
-				assertThat(identity.getInt(1)).isEqualTo(33316);
-				assertThat(identity.getString(2)).isEqualTo("guardian_team_full_migration_synthetic");
-				assertThat(identity.getString(3).replace('\\', '/').replaceAll("/+$", ""))
-					.isEqualTo("C:/Users/russe/Documents/Codex/2026-10-03/task-2/mysql-isolated");
-			}
-		}
+	@EnabledIfEnvironmentVariable(named = "GUARDIAN_MYSQL_ISOLATED", matches = "true")
+	void canonicalMysqlMigratesV1ThroughV64WithoutApprovingExistingAccounts() throws Exception {
+		String schema = "guardian_team_full_migration_synthetic";
+		String url = IsolatedMysql.url(schema);
+		try (var ignored = IsolatedMysql.open(schema)) { /* Identity before Flyway clean/migrate. */ }
 		// The verified, dedicated synthetic schema is reset so reruns still exercise the V60 -> V63 transition.
-		Flyway before = Flyway.configure().dataSource(url, "root", "").locations("classpath:db/migration")
+		Flyway before = Flyway.configure().dataSource(url, IsolatedMysql.USER, IsolatedMysql.PASSWORD).locations("classpath:db/migration")
 			.target("60").cleanDisabled(false).load();
 		before.clean();
 		before.migrate();
 		assertThat(before.validateWithResult().validationSuccessful).isTrue();
-		try (Connection connection = DriverManager.getConnection(url, "root", ""); Statement sql = connection.createStatement()) {
+		try (Connection connection = IsolatedMysql.open(schema); Statement sql = connection.createStatement()) {
 			sql.execute("insert into users(id,email,password_hash,name,role,status,date_of_birth,access_cohort,"
 				+ "age_verification_state,email_verification_state,email_verified_at) values"
 				+ "(1,'legacy-migration@example.invalid','synthetic','Synthetic legacy','LEARNER','ACTIVE','2012-12-31','LEGACY_EXEMPT','MANUAL_PENDING','UNKNOWN',null),"
 				+ "(2,'child-migration@example.invalid','synthetic','Synthetic child','LEARNER','ACTIVE','2012-01-01','NEW_SIGNUP','UNKNOWN','VERIFIED','2026-10-06 00:00:00')");
 		}
-		Flyway after = Flyway.configure().dataSource(url, "root", "").locations("classpath:db/migration").load();
+		Flyway after = Flyway.configure().dataSource(url, IsolatedMysql.USER, IsolatedMysql.PASSWORD).locations("classpath:db/migration").load();
 		after.migrate();
 		assertThat(after.validateWithResult().validationSuccessful).isTrue();
-		assertThat(after.info().current().getVersion().getVersion()).isEqualTo("63");
-		try (Connection connection = DriverManager.getConnection(url, "root", ""); Statement sql = connection.createStatement()) {
+		assertThat(after.info().current().getVersion().getVersion()).isEqualTo("64");
+		try (Connection connection = IsolatedMysql.open(schema); Statement sql = connection.createStatement()) {
 			assertExistingEvidence(sql);
 			assertApprovalConstraints(sql);
 			assertThatThrownBy(() -> sql.execute("insert into guardian_team_requests(id,user_id,generation,revision,state,"

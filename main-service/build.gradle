@@ -53,3 +53,20 @@ tasks.named('test') {
 	maxHeapSize = '2g'
 	systemProperty 'it.ai', System.getProperty('it.ai', 'false')
 }
+
+// Resolve/compile while online; the actual integration JVM runs offline on an internal Docker network.
+tasks.register('guardianMysqlPrepare') {
+	dependsOn testClasses
+	doLast { configurations.testRuntimeClasspath.files }
+}
+
+tasks.register('guardianMysqlTest', Test) {
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform()
+	maxHeapSize = '2g'
+	maxParallelForks = 1
+	include '**/GuardianConsentFenceMysqlTest.class', '**/GuardianAdminLockMysqlTest.class',
+		'**/GuardianTeamFullMigrationTest.class', '**/TurnPersistenceConsentMysqlTest.class'
+	systemProperty 'it.ai', 'false'
+}
