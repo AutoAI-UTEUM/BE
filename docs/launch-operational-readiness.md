@@ -1,6 +1,22 @@
 # FE·메일·V60 운영 준비 (#479, #515, #519)
 
-**2026-10-06 현재 기준은 [PR532·V61–V63 TEAM 운영 준비](launch-team-operational-readiness.md)다.** 아래는 2026-10-05 BE521/V60 당시 기록이며 현재 웹/SMS 정책·미실행 SDK 시험 상태로 재사용하지 않는다. 공용 예제 manifest와 점검기는 v2 TEAM 조건으로 갱신됐다. 실제 SDK identity 1회/TEST 수신 1건은 완료·예산 소진, 서비스 가입/reset/탈퇴 메일과 운영 활성화는 미실행이다.
+**현재 준비 검사 기준은 아래 V64 갱신이다. [PR532·V61–V63 TEAM 운영 준비](launch-team-operational-readiness.md)는 고정된 과거 검토 기록으로 보존한다.** 아래는 2026-10-05 BE521/V60 당시 기록이며 현재 웹/SMS 정책·미실행 SDK 시험 상태로 재사용하지 않는다. 공용 예제 manifest와 점검기의 현재 조건은 아래 2026-10-17 V64 갱신을 따른다. 이전 v2 TEAM은 당시 이력이다. 실제 SDK identity 1회/TEST 수신 1건은 완료·예산 소진, 서비스 가입/reset/탈퇴 메일과 운영 활성화는 미실행이다.
+
+## V64 준비 검사 갱신 · 2026-10-17
+
+[현재 예제](qa/launch-ops/readiness-manifest.example.json)와 `scripts/qa/launch-ops/check-manifest.mjs`는 `launch-ops-v3-v64`를 사용한다. TEAM 정책의 검토 기준 #532는 그대로 두고, 예제의 BE source·CI 참조와 source file hash를 `d4b8c85cff81af4aee870efa0f9803189ad79c77`에 맞췄다. V60–V64 source hash와 reopen 시 V64 적용·script·정수 checksum 검토·성공 여부를 요구한다. V64는 `exam_answers.manual_score_reason`의 nullable column이며 전체 변경 이력이나 학생 공개 사유 정책을 새로 결정하지 않는다.
+
+V63-only 적용 이력과 이전 `launch-ops-v2-team` 기록은 현재 V64 준비 증거를 대신할 수 없다. 기존 V60–V63 guardian cleanup hook을 가리키는 recovery strategy 값과 정책·계정·메일·FE 조건은 유지한다. 이 갱신은 선택된 로컬 JSON의 metadata 검사이며 DB·Docker·메일·배포·복원을 실행하지 않는다. 미확인 runtime/메일/정책 값은 계속 null/false이며, 합성 검사가 통과해도 `executionAuthorized:false`다.
+
+예제의 Main CI `38866306904`는 경로 감지 후 배포 가드를 실행한 성공 기록이며 Java 전체 재실행이 아니다. 실제 Java 검증은 이전 통합 Main CI `38774846356`의 별도 근거를 따른다. 10월 16일 DEV 배포는 이미 완료된 기록으로 보존하고, 새 배포나 guardian 활성화 조건을 충족했다고 표시하지 않는다.
+
+```bash
+node --test scripts/qa/launch-ops/check-manifest.test.mjs
+node scripts/qa/launch-ops/check-manifest.mjs PRIVATE_MANIFEST prepare
+node scripts/qa/launch-ops/check-manifest.mjs PRIVATE_MANIFEST reopen
+```
+
+아래 2026-10-05 설명과 별도 TEAM 문서의 #532/V63·SDK 실행 설명은 당시 이력이다. 고정된 [10월 7일 운영 증거 도구](qa/operations-acceptance-20261007.md)의 baseline/catalog 및 그 도구가 hash로 참조하는 TEAM 문서는 변경하지 않는다. 실제 source·CI·서버/FE snapshot·메일 수신·복구/경보·정책 인수와 실행 승인은 각각 별도다.
 
 브랜치 한 줄: `feature/479-launch-ops-readiness` — FE ON manifest, SES 최소 조회·발송 인수와 V60 정리 hook을 보존하는 전환·복구 조건을 준비한다.
 

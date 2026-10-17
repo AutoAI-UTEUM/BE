@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -162,8 +163,8 @@ function syntheticReopen() {
   const m = syntheticComplete();
   m.be.runningImages = Object.fromEntries(['main', 'ai'].map(name => [name,
     { sourceSha: m.be.sourceSha, repoDigest: `sha256:${'5'.repeat(64)}`, readbackEvidence: 'synthetic-image' }]));
-  m.be.flyway = { latestVersion: '63', failedCount: 0, checksumMatched: true, evidence: 'synthetic-flyway',
-    migrations: m.be.sourceFileHashes.filter(file => /V6[0-3]__/.test(file.path)).map(file =>
+  m.be.flyway = { latestVersion: '64', failedCount: 0, checksumMatched: true, evidence: 'synthetic-flyway',
+    migrations: m.be.sourceFileHashes.filter(file => /V6[0-4]__/.test(file.path)).map(file =>
       ({ version: file.path.match(/V(\d+)__/)[1], script: file.path.split('/').at(-1),
         checksum: 123, checksumMatched: true, success: true })) };
   m.fe.served = { indexSha256: m.fe.artifact.indexSha256, entrySha256: m.fe.artifact.entrySha256,
@@ -234,4 +235,65 @@ test('CLI reads only the selected local manifest and blocks the unfilled example
   const result = spawnSync(process.execPath, [script, fixture], { encoding: 'utf8' });
   assert.equal(result.status, 2);
   assert.equal(JSON.parse(result.stdout).executionAuthorized, false);
+});
+
+
+// Current V64 source/runtime metadata must not be interpreted as the old V63 release.
+function currentV64Reopen() {
+  const m = syntheticReopen();
+  m.version = 'launch-ops-v3-v64';
+  const path = 'main-service/src/main/resources/db/migration/V64__exam_answer_manual_score_reason.sql';
+  if (!m.be.sourceFileHashes.some(file => file.path === path)) {
+    m.be.sourceFileHashes.push({ path, sha256: 'a'.repeat(64) });
+  }
+  m.be.flyway.latestVersion = '64';
+  if (!m.be.flyway.migrations.some(row => row.version === '64')) {
+    m.be.flyway.migrations.push({ version: '64', script: path.split('/').at(-1),
+      checksum: 123, checksumMatched: true, success: true });
+  }
+  return m;
+}
+
+test('current V64 source and runtime metadata can be reviewed without authorizing execution', () => {
+  const result = checkManifest(currentV64Reopen(), 'reopen');
+  assert.equal(result.metadataComplete, true);
+  assert.equal(result.executionAuthorized, false);
+});
+
+test('a V63-only database cannot satisfy current reopen metadata', () => {
+  const m = currentV64Reopen();
+  m.be.flyway.latestVersion = '63';
+  m.be.flyway.migrations = m.be.flyway.migrations.filter(row => row.version !== '64');
+  assert.ok(checkManifest(m, 'reopen').missing.includes('be.flyway'));
+});
+
+test('the historical v2 record cannot substitute for current V64 metadata', () => {
+  const m = syntheticComplete();
+  m.version = 'launch-ops-v2-team';
+  assert.ok(checkManifest(m).missing.includes('version'));
+});
+
+test('current preparation requires the V64 source file hash', () => {
+  const m = currentV64Reopen();
+  m.be.sourceFileHashes = m.be.sourceFileHashes.filter(file => !file.path.includes('V64__'));
+  assert.ok(checkManifest(m).missing.includes('be.migrationSourceHashes'));
+});
+
+for (const [name, corrupt] of [
+  ['V64 checksum unreviewed', row => { row.checksumMatched = false; }],
+  ['V64 failed migration', row => { row.success = false; }],
+  ['V64 version with another script', row => { row.script = 'V63__guardian_team_mail_binding.sql'; }],
+]) test(`current reopen rejects ${name}`, () => {
+  const m = currentV64Reopen();
+  corrupt(m.be.flyway.migrations.find(row => row.version === '64'));
+  const result = checkManifest(m, 'reopen');
+  assert.ok(result.missing.includes('be.flyway'));
+  assert.equal(result.executionAuthorized, false);
+});
+
+test('example V64 source hash matches the immutable migration bytes', () => {
+  const path = 'main-service/src/main/resources/db/migration/V64__exam_answer_manual_score_reason.sql';
+  const source = readFileSync(new URL(`../../../${path}`, import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+  assert.equal(template.be.sourceFileHashes.find(file => file.path === path)?.sha256,
+    createHash('sha256').update(source, 'utf8').digest('hex'));
 });
