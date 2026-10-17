@@ -11,6 +11,7 @@ const MIGRATIONS = {
   '61': 'V61__guardian_team_review.sql',
   '62': 'V62__guardian_team_access_generation.sql',
   '63': 'V63__guardian_team_mail_binding.sql',
+  '64': 'V64__exam_answer_manual_score_reason.sql',
 };
 const GUARDIAN_FE_CHECKS = ['intake', 'fragmentView', 'explicitDeclaration', 'currentGenerationReply',
   'adminReview', 'scopeSeparation', 'revocationAndExpiry'];
@@ -28,7 +29,7 @@ export function checkManifest(manifest, phase = 'prepare') {
   const missing = [];
   const need = (condition, name) => { if (!condition) missing.push(name); };
   need(['prepare', 'reopen'].includes(phase), 'phase');
-  need(manifest?.version === 'launch-ops-v2-team', 'version');
+  need(manifest?.version === 'launch-ops-v3-v64', 'version');
   need(manifest?.environment === 'dev', 'environment');
   const be = manifest?.be ?? {};
   const fe = manifest?.fe ?? {};
@@ -129,7 +130,7 @@ export function checkManifest(manifest, phase = 'prepare') {
       need(image?.sourceSha === be.sourceSha && DIGEST.test(image?.repoDigest ?? '')
         && text(image?.readbackEvidence), `be.runningImages.${name}`);
     }
-    need(be.flyway?.latestVersion === '63' && be.flyway?.failedCount === 0
+    need(be.flyway?.latestVersion === '64' && be.flyway?.failedCount === 0
       && be.flyway?.checksumMatched === true && text(be.flyway?.evidence)
       && Array.isArray(be.flyway?.migrations) && Object.entries(MIGRATIONS).every(([version, script]) =>
         be.flyway.migrations.some(row => row?.version === version && row?.script === script

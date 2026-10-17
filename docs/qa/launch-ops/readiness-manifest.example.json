@@ -1,10 +1,10 @@
 {
-  "version": "launch-ops-v2-team",
+  "version": "launch-ops-v3-v64",
   "environment": "dev",
   "status": "PREPARATION_ONLY",
   "be": {
     "reviewedBaselineSha": "3343e608fa80dd6bdb5888454ad6fac5b09461ad",
-    "sourceSha": "3343e608fa80dd6bdb5888454ad6fac5b09461ad",
+    "sourceSha": "d4b8c85cff81af4aee870efa0f9803189ad79c77",
     "containsReviewedBaseline": true,
     "sourceFileHashes": [
       {
@@ -17,7 +17,7 @@
       },
       {
         "path": "infra/nginx/edupilot.conf",
-        "sha256": "0b931f16de93a797668992f1afe400b88c83d5f571eb11bd2f2b0c370a9ec158"
+        "sha256": "d044b34a24a758c6ee1fd43df016ceb60ad96101f7ab03efa483ff7c141e65cb"
       },
       {
         "path": "main-service/src/main/resources/db/migration/V53__note_source_idempotency.sql",
@@ -64,20 +64,24 @@
         "sha256": "33a16be463afb8b33c2df8d3d81ada180b7368863b36343331a43063459e6a96"
       },
       {
+        "path": "main-service/src/main/resources/db/migration/V64__exam_answer_manual_score_reason.sql",
+        "sha256": "9c849e86a553b5d22faa0fd2fd27c877bab54a53c3f6b64369b3d8da9117b7b7"
+      },
+      {
         "path": "main-service/src/main/java/io/edupilot/guardian/team/GuardianTeamProperties.java",
         "sha256": "2d7be49108c2c9a269afb85fa33e9599d5993ac1232f52ca67665b788084ecec"
       }
     ],
     "ci": {
       "main": {
-        "headSha": "3343e608fa80dd6bdb5888454ad6fac5b09461ad",
+        "headSha": "d4b8c85cff81af4aee870efa0f9803189ad79c77",
         "conclusion": "success",
-        "url": "https://github.com/AutoAI-UTEUM/BE/actions/runs/37435819039"
+        "url": "https://github.com/AutoAI-UTEUM/BE/actions/runs/38866306904"
       },
       "ai": {
-        "headSha": "3343e608fa80dd6bdb5888454ad6fac5b09461ad",
+        "headSha": "d4b8c85cff81af4aee870efa0f9803189ad79c77",
         "conclusion": "success",
-        "url": "https://github.com/AutoAI-UTEUM/BE/actions/runs/37435818992"
+        "url": "https://github.com/AutoAI-UTEUM/BE/actions/runs/38866306926"
       }
     },
     "runningImages": {
