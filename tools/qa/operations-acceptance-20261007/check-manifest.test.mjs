@@ -230,13 +230,28 @@ test('catalog pins six bundles and keeps persistence tests owned by A', () => {
   assert.deepEqual(EVIDENCE.migrations.map((x) => x.version), Array.from({ length: 63 }, (_, i) => i + 1));
 });
 
-test('all 46 existing evidence references and 63 migrations match pinned file SHA-256', () => {
+test('current fixture binding preserves the historical catalog and links separate synthetic CI evidence', () => {
+  assert.equal(EVIDENCE.currentSourceBindings.length, 1);
+  const [binding] = EVIDENCE.currentSourceBindings;
+  assert.equal(binding.path, 'main-service/src/test/java/io/edupilot/guardian/team/GuardianTeamFullMigrationTest.java');
+  const historical = EVIDENCE.bundles.flatMap((b) => b.sources).find((x) => x.path === binding.path);
+  assert.equal(historical.sha256, 'f852e0a51adc241346f12d4a32178f01361e4294ffd74932652a69c375546170');
+  assert.equal(binding.baselineSha256, historical.sha256);
+  assert.equal(binding.sourceSha, '987a82b270ae6e0cd3f502a451899376dce4462b');
+  assert.equal(binding.sha256, 'd7fae60c9387d611ce342ec5a019068d025eaf651ff95a9cb4caa0b442f2117d');
+  assert.equal(binding.ciRunUrl, 'https://github.com/AutoAI-UTEUM/BE/actions/runs/39030416865/job/117389571371');
+  assert.equal(binding.scope, 'synthetic-fixture-maintenance;not-live-acceptance');
+});
+
+test('all 46 evidence references and 63 migrations match historical or reviewed current source SHA-256', () => {
   const sources = [...EVIDENCE.bundles.flatMap((b) => b.sources), ...EVIDENCE.migrations];
   assert.equal(sources.length, 109);
   for (const x of sources) {
     const canonical = readFileSync(join(root, x.path), 'utf8').replaceAll('\r\n', '\n');
     const observed = createHash('sha256').update(canonical).digest('hex');
-    assert.equal(observed, x.sha256, x.path);
+    const current = EVIDENCE.currentSourceBindings.find((binding) => binding.path === x.path);
+    if (current) assert.equal(current.baselineSha256, x.sha256, 'historical binding must remain intact');
+    assert.equal(observed, current?.sha256 ?? x.sha256, x.path);
   }
 });
 

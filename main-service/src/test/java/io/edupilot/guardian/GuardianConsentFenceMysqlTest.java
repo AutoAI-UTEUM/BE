@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
@@ -43,6 +42,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import io.edupilot.ai.AiClient;
+import io.edupilot.testsupport.IsolatedMysql;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.guardian.team.GuardianTeamProperties;
@@ -54,10 +54,9 @@ import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceContext;
 
 /** Opt-in canonical MySQL migrations, disposable synthetic approvals and outputs only. */
-@EnabledIfEnvironmentVariable(named = "GUARDIAN_CONSENT_FENCE_MYSQL_URL",
-	matches = "^jdbc:mysql://127\\.0\\.0\\.1:33316/guardian_consent_fence_mysql_synthetic(?:\\?.*)?$")
+@EnabledIfEnvironmentVariable(named = "GUARDIAN_MYSQL_ISOLATED", matches = "true")
 @SpringBootTest(properties = {
-	"spring.datasource.username=root", "spring.datasource.password=", "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver",
+	"spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver",
 	"spring.flyway.enabled=true", "spring.jpa.hibernate.ddl-auto=none", "spring.jpa.show-sql=false",
 	"logging.level.org.hibernate.SQL=DEBUG",
 	"edupilot.cors.allowed-origins=http://localhost:5173", "edupilot.ai.base-url=http://localhost:8000",
@@ -83,7 +82,6 @@ import jakarta.persistence.PersistenceContext;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class GuardianConsentFenceMysqlTest {
 	private static final String DATABASE = "guardian_consent_fence_mysql_synthetic";
-	private static final String DATADIR = "C:/Users/russe/Documents/Codex/2026-10-03/task-2/mysql-isolated";
 	@Autowired private UserRepository users;
 	@Autowired private GuardianConsentFence fence;
 	@Autowired private GuardianTeamProperties policy;
@@ -98,18 +96,7 @@ class GuardianConsentFenceMysqlTest {
 
 	@DynamicPropertySource
 	static void ownedSyntheticDatabase(DynamicPropertyRegistry registry) throws SQLException {
-		String url = System.getenv("GUARDIAN_CONSENT_FENCE_MYSQL_URL");
-		assertThat(url).matches("^jdbc:mysql://127\\.0\\.0\\.1:33316/guardian_consent_fence_mysql_synthetic(?:\\?.*)?$");
-		try (var connection = DriverManager.getConnection("jdbc:mysql://127.0.0.1:33316/", "root", "");
-			var sql = connection.createStatement()) {
-			try (var identity = sql.executeQuery("select @@port,@@datadir")) {
-				assertThat(identity.next()).isTrue();
-				assertThat(identity.getInt(1)).isEqualTo(33316);
-				assertThat(identity.getString(2).replace('\\', '/').replaceAll("/+$", "")).isEqualTo(DATADIR);
-			}
-			sql.execute("create database if not exists " + DATABASE);
-		}
-		registry.add("spring.datasource.url", () -> url);
+		IsolatedMysql.configure(registry, DATABASE);
 	}
 
 	@BeforeEach
@@ -117,9 +104,7 @@ class GuardianConsentFenceMysqlTest {
 		now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
 		when(clock.instant()).thenReturn(now);
 		when(clock.getZone()).thenReturn(ZoneOffset.UTC);
-		assertThat(jdbc.queryForObject("select database()", String.class)).isEqualTo(DATABASE);
-		assertThat(jdbc.queryForObject("select @@port", Integer.class)).isEqualTo(33316);
-		assertThat(jdbc.queryForObject("select @@datadir", String.class).replace('\\', '/').replaceAll("/+$", "")).isEqualTo(DATADIR);
+		IsolatedMysql.assertIdentity(jdbc, DATABASE);
 		assertThat(policy.ready()).isTrue();
 		jdbc.execute("create table if not exists guardian_fence_mysql_outputs (output_id varchar(36) primary key, case_id varchar(36) not null, payload varchar(100) not null) engine=InnoDB");
 		caseId = UUID.randomUUID().toString();

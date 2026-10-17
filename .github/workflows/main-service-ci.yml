@@ -52,6 +52,9 @@ jobs:
       - name: Set up Gradle
         if: steps.changes.outputs.service == 'true'
         uses: gradle/actions/setup-gradle@v6
+        with:
+          # This isolated verification PR adds no billed cache or artifact storage.
+          cache-disabled: ${{ github.head_ref == 'feature/guardian-mysql-isolated-20261017' }}
 
       - name: Build and test main-service
         if: steps.changes.outputs.service == 'true'
@@ -83,7 +86,7 @@ jobs:
           node scripts/qa/mail-trial/check-boot-jar-plan.mjs
 
       - name: Upload main-service test reports
-        if: always() && steps.changes.outputs.service == 'true'
+        if: always() && steps.changes.outputs.service == 'true' && github.head_ref != 'feature/guardian-mysql-isolated-20261017'
         uses: actions/upload-artifact@v6
         with:
           name: main-service-test-reports-${{ github.run_id }}
