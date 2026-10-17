@@ -45,7 +45,7 @@ PY
 mkdir -p "$gradle_home"
 docker pull "$image"
 # Resolve dependencies while online, without executing tests or passing any app credentials.
-docker run --rm --cap-drop ALL --security-opt no-new-privileges \
+docker run --rm --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges \
   --mount "type=bind,src=$GITHUB_WORKSPACE/main-service,dst=/workspace" \
   --mount "type=bind,src=$gradle_home,dst=/gradle-home" \
   --env GRADLE_USER_HOME=/gradle-home --workdir /workspace "$image" \
@@ -73,7 +73,7 @@ docker exec --env MYSQL_PWD=guardian-job-only "$MYSQL_SERVICE_ID" mysql -uroot -
 echo "GUARDIAN_IDENTITY server_uuid=$server_uuid datadir=/var/lib/mysql/ server_port=3306 schemas=4"
 
 # No host networking, Docker socket, home directory, secrets, tokens or env-file is mounted/passed.
-docker create --name "$test_container" --network "$network" \
+docker create --name "$test_container" --network "$network" --user "$(id -u):$(id -g)" \
   --cap-drop ALL --security-opt no-new-privileges \
   --mount "type=bind,src=$GITHUB_WORKSPACE/main-service,dst=/workspace" \
   --mount "type=bind,src=$gradle_home,dst=/gradle-home" \
