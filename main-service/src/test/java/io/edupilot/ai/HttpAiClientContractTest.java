@@ -8,6 +8,7 @@ import java.net.ServerSocket;
 import java.net.URI;
 import java.time.Duration;
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.MDC;
 import org.slf4j.LoggerFactory;
@@ -47,6 +49,8 @@ import okhttp3.mockwebserver.RecordedRequest;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 class HttpAiClientContractTest {
 
@@ -1241,13 +1245,10 @@ class HttpAiClientContractTest {
 		assertThat(response.usage()).isNull();
 	}
 
-	@Test
-	void reportAcceptsSnakeCaseUsage() {
-		String snakeCaseUsage = reportSuccessBody()
-			.replace("inputTokens", "input_tokens")
-			.replace("outputTokens", "output_tokens")
-			.replace("reasoningTokens", "reasoning_tokens");
-		server.enqueue(jsonResponse(200, snakeCaseUsage));
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	void reportAcceptsLegacyUsageWithoutCost(boolean snakeCase) {
+		server.enqueue(jsonResponse(200, reportSuccessBody(reportUsage(snakeCase))));
 
 		var response = client(Duration.ofSeconds(1))
 			.generateReport(reportRequest());
@@ -1255,6 +1256,93 @@ class HttpAiClientContractTest {
 		assertThat(response.usage()).isEqualTo(
 			new io.edupilot.ai.dto.AiUsage("test-model", 10L, 20L, null)
 		);
+	}
+
+	@Test
+	void reportAcceptsNullUsage() {
+		server.enqueue(jsonResponse(200, reportSuccessBody(null)));
+
+		var response = client(Duration.ofSeconds(1))
+			.generateReport(reportRequest());
+
+		assertThat(response.usage()).isNull();
+	}
+
+	@ParameterizedTest
+	@CsvSource(value = {
+		"false, null", "false, 0", "false, 37756001",
+		"true, null", "true, 0", "true, 37756001"
+	}, nullValues = "null")
+	void reportAcceptsOptionalUsageCostTicks(boolean snakeCase, Long costTicks) {
+		Map<String, Object> usage = reportUsage(snakeCase);
+		usage.put("cost_usd_ticks", costTicks);
+		server.enqueue(jsonResponse(200, reportSuccessBody(usage)));
+
+		var response = client(Duration.ofSeconds(1))
+			.generateReport(reportRequest());
+
+		assertThat(response.usage()).isEqualTo(
+			new io.edupilot.ai.dto.AiUsage("test-model", 10L, 20L, null, costTicks)
+		);
+		assertThat(response.reportId()).isEqualTo("report-1");
+		assertThat(response.criterionResults()).hasSize(1);
+		assertThat(response.summary().overview()).isEqualTo("요약");
+	}
+
+	@ParameterizedTest
+	@CsvSource({
+		"false, model", "false, inputTokens", "false, outputTokens", "false, reasoningTokens",
+		"true, model", "true, input_tokens", "true, output_tokens", "true, reasoning_tokens"
+	})
+	void reportRejectsUsageMissingRequiredFieldWithOptionalCost(boolean snakeCase, String field) {
+		Map<String, Object> usage = reportUsage(snakeCase);
+		usage.remove(field);
+		usage.put("cost_usd_ticks", 1L);
+		server.enqueue(jsonResponse(200, reportSuccessBody(usage)));
+
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).generateReport(reportRequest()))
+			.isInstanceOfSatisfying(AiClientException.class, exception -> {
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.AI_RESPONSE_INVALID);
+				assertThat(exception.category()).isEqualTo(AiFailureCategory.SCHEMA);
+				assertThat(exception.retryable()).isFalse();
+			});
+	}
+
+	@ParameterizedTest
+	@CsvSource({
+		"false, false, unexpected", "false, true, unexpected",
+		"true, false, unexpected", "true, true, unexpected",
+		"false, false, costUsdTicks", "false, true, costUsdTicks",
+		"true, false, costUsdTicks", "true, true, costUsdTicks"
+	})
+	void reportRejectsUnknownUsageField(boolean snakeCase, boolean includeCost, String field) {
+		Map<String, Object> usage = reportUsage(snakeCase);
+		if (includeCost) {
+			usage.put("cost_usd_ticks", 1L);
+		}
+		usage.put(field, 1L);
+		server.enqueue(jsonResponse(200, reportSuccessBody(usage)));
+
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).generateReport(reportRequest()))
+			.isInstanceOfSatisfying(AiClientException.class, exception -> {
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.AI_RESPONSE_INVALID);
+				assertThat(exception.category()).isEqualTo(AiFailureCategory.SCHEMA);
+				assertThat(exception.retryable()).isFalse();
+			});
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	void reportRejectsMixedTokenNamingWithOptionalCost(boolean snakeCase) {
+		Map<String, Object> usage = reportUsage(snakeCase);
+		Object inputTokens = usage.remove(snakeCase ? "input_tokens" : "inputTokens");
+		usage.put(snakeCase ? "inputTokens" : "input_tokens", inputTokens);
+		usage.put("cost_usd_ticks", 1L);
+		server.enqueue(jsonResponse(200, reportSuccessBody(usage)));
+
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).generateReport(reportRequest()))
+			.isInstanceOfSatisfying(AiClientException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.AI_RESPONSE_INVALID));
 	}
 
 	@Test
@@ -1416,6 +1504,22 @@ class HttpAiClientContractTest {
 			)),
 			null
 		);
+	}
+
+	private Map<String, Object> reportUsage(boolean snakeCase) {
+		Map<String, Object> usage = new LinkedHashMap<>();
+		usage.put("model", "test-model");
+		usage.put(snakeCase ? "input_tokens" : "inputTokens", 10L);
+		usage.put(snakeCase ? "output_tokens" : "outputTokens", 20L);
+		usage.put(snakeCase ? "reasoning_tokens" : "reasoningTokens", null);
+		return usage;
+	}
+
+	private String reportSuccessBody(Map<String, Object> usage) {
+		JsonMapper mapper = JsonMapper.builder().build();
+		ObjectNode response = (ObjectNode)mapper.readTree(reportSuccessBody());
+		response.set("usage", mapper.valueToTree(usage));
+		return response.toString();
 	}
 
 	private String reportSuccessBody() {
