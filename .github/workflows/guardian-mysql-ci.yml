@@ -2,7 +2,7 @@ name: Isolated Guardian MySQL
 
 on:
   pull_request:
-    branches: [develop]
+    branches: [develop, main]
     paths:
       - '.github/workflows/guardian-mysql-ci.yml'
       - 'scripts/qa/guardian-mysql/**'

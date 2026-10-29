@@ -47,6 +47,20 @@ workflow. Existing Main/AI CI still execute all their checks; only cache writes
 and report uploads are disabled for the dedicated verification PR branch
 `feature/guardian-mysql-isolated-20261017` to avoid unverified storage costs.
 
+The workflow is triggered by pull requests targeting either `develop` or `main`
+when the workflow, its scripts or `main-service` changes. The MySQL job runs only
+when the PR head repository matches this repository; fork PRs skip the job. A release PR
+from `develop` to `main` therefore verifies the integrated PR revision with the
+same four MySQL suites and separate H2 case. A successful run on an earlier
+`develop` revision does not replace that release PR's result. Inspect its actual
+`GUARDIAN_JUNIT_SUMMARY` and cleanup result before considering this check complete.
+The job does not run on push and does not dispatch a deployment.
+
+`python3 -I -S -B scripts/qa/guardian-mysql/test_workflow.py` checks the trigger
+matrix and preserved source guards offline. Main CI includes it for PR runs without
+a path condition; it executes after preceding steps succeed and is not `always()`.
+It does not execute GitHub events or replace the actual MySQL release PR run.
+
 Both deploy workflows require explicit `workflow_dispatch`; creating this PR
 does not dispatch either workflow. This validation does not authorize merge,
 deployment, real mail/AI use, or access to any existing database.
