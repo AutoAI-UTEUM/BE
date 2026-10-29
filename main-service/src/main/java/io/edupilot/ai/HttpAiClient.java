@@ -1496,7 +1496,9 @@ public class HttpAiClient implements AiClient {
 			throw new IllegalArgumentException("usage response object required");
 		}
 		@SuppressWarnings("unchecked")
-		Set<String> fields = objectMapper.convertValue(usage, Map.class).keySet();
+		Map<String, Object> usageFields = objectMapper.convertValue(usage, Map.class);
+		usageFields.remove("cost_usd_ticks");
+		Set<String> fields = usageFields.keySet();
 		Set<String> camelCase = Set.of(
 			"model", "inputTokens", "outputTokens", "reasoningTokens"
 		);
