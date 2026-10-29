@@ -8,11 +8,23 @@ import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.query.Param;
 
 public interface AiUsageLogRepository extends JpaRepository<AiUsageLog, Long> {
 
 	long countByUserIdAndCreatedAtGreaterThanEqual(Long userId, Instant since);
+
+	@Modifying
+	@Query("""
+		update AiUsageLog log set log.success = false
+		where log.userId = :userId and log.feature = :feature and log.requestId = :executionId
+		""")
+	int markRejected(
+		@Param("userId") Long userId,
+		@Param("feature") AiFeature feature,
+		@Param("executionId") String executionId
+	);
 
 	// Token SUMs intentionally keep SQL null semantics: null samples are excluded,
 	// and the aggregate remains null when every sample in the group is null.

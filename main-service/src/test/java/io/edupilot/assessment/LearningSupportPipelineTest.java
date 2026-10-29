@@ -62,6 +62,9 @@ class LearningSupportPipelineTest {
 	@Mock
 	private LearnerMemoryRepository memoryRepository;
 
+	@Mock
+	private io.edupilot.material.MaterialAccessService materialAccessService;
+
 	@BeforeEach
 	void setUpUser() {
 		org.mockito.Mockito.lenient()
@@ -86,7 +89,7 @@ class LearningSupportPipelineTest {
 				)
 			);
 
-		List<UiAction> actions = pipeline().onGraded(context);
+		List<UiAction> actions = pipeline().onGraded(context).uiActions();
 
 		assertThat(actions).containsExactly(UiAction.moveNextPage());
 		verify(aiClient, never()).diagnosis(any());
@@ -114,7 +117,7 @@ class LearningSupportPipelineTest {
 		when(diagnosisPersistenceService.savePending(context, diagnosis))
 			.thenReturn(Optional.of(action));
 
-		List<UiAction> actions = pipeline().onGraded(context);
+		List<UiAction> actions = pipeline().onGraded(context).uiActions();
 
 		assertThat(actions).containsExactly(action);
 		ArgumentCaptor<io.edupilot.ai.dto.DiagnosisRequest> request =
@@ -137,7 +140,7 @@ class LearningSupportPipelineTest {
 		when(aiClient.quizAssessment(any()))
 			.thenThrow(new AiClientException(ErrorCode.AI_SERVICE_TIMEOUT));
 
-		List<UiAction> actions = pipeline().onGraded(context(false));
+		List<UiAction> actions = pipeline().onGraded(context(false)).uiActions();
 
 		assertThat(actions).containsExactly(UiAction.moveNextPage());
 		verify(aiClient, never()).diagnosis(any());
@@ -160,7 +163,7 @@ class LearningSupportPipelineTest {
 		when(aiClient.diagnosis(any()))
 			.thenThrow(new AiClientException(ErrorCode.AI_SERVICE_TIMEOUT));
 
-		assertThat(pipeline().onGraded(context))
+		assertThat(pipeline().onGraded(context).uiActions())
 			.containsExactly(UiAction.moveNextPage());
 		verify(assessmentPersistenceService).save(context, assessment);
 	}
@@ -180,7 +183,7 @@ class LearningSupportPipelineTest {
 				)
 			);
 
-		assertThat(pipeline().onGraded(context))
+		assertThat(pipeline().onGraded(context).uiActions())
 			.containsExactly(UiAction.moveNextPage());
 		verify(aiClient, never()).diagnosis(any());
 	}
@@ -203,7 +206,7 @@ class LearningSupportPipelineTest {
 				)
 			);
 
-		assertThat(pipeline().onGraded(context))
+		assertThat(pipeline().onGraded(context).uiActions())
 			.containsExactly(UiAction.moveNextPage());
 		verify(aiClient, never()).diagnosis(any());
 	}
@@ -330,8 +333,21 @@ class LearningSupportPipelineTest {
 			userRepository,
 			assessmentPersistenceService,
 			diagnosisPersistenceService,
-			memoryRepository
+			memoryRepository,
+			materialAccessService, io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
+	}
+
+	@Test
+	void assessmentAccessDenialStopsDiagnosisInsteadOfReturningFallback() {
+		when(aiClient.quizAssessment(any())).thenReturn(assessmentResponse());
+		when(assessmentPersistenceService.save(any(), any()))
+			.thenThrow(new io.edupilot.global.error.BusinessException(io.edupilot.global.error.ErrorCode.MATERIAL_NOT_FOUND));
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> pipeline().onGraded(context(false)))
+			.isInstanceOfSatisfying(io.edupilot.global.error.BusinessException.class,
+				error -> assertThat(error.errorCode()).isEqualTo(io.edupilot.global.error.ErrorCode.MATERIAL_NOT_FOUND));
+		verify(aiClient, never()).diagnosis(any());
 	}
 
 	private QuizPostGradingContext context(boolean passed) {

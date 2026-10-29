@@ -86,11 +86,24 @@ Spring의 `edupilot.ai.page-quiz-plan.enabled`는 기본 `false`다. 활성화 �
 `context.pageQuizDecision`을 넣는다. 해당 페이지 번호가 다르거나 현재 페이지를
 포함하지 않는 질문이면 필드를 완전히 생략한다(`null`·`suggestQuiz=false` 대체 금지).
 스냅샷은 AI 호출·재시도 동안 고정하고 저장 시점 DB 상태로 다시 계산하지 않는다.
-이 단계는 `capabilities`를 보내지 않는다. TURN 사용량의 `quizDecisionSource=PLAN`
+페이지별 계획 단계 자체는 `capabilities`를 보내지 않는다. 별도로
+`edupilot.ai.capabilities.qa-quiz-proposal=true`인 `USER_QUESTION` 요청만 최상위
+`capabilities={qaQuizProposal:true,quizQuestionStream:false}`를 보낸다. 기본값은
+`false`이며 꺼져 있거나 다른 eventType이면 QA capability를 보내지 않는다.
+별도 `edupilot.ai.capabilities.quiz-question-stream`(환경변수
+`EDUPILOT_AI_QUIZ_QUESTION_STREAM_ENABLED`, 기본 `false`)이 켜진
+`QUIZ_TYPE_SELECTED` **NDJSON 요청에만**
+`capabilities={qaQuizProposal:<QA 플래그>,quizQuestionStream:true}`를 보낸다.
+퀴즈 JSON fallback에서는 capabilities를 생략하며, 설명·질문 등 다른 이벤트에는
+`quizQuestionStream:true`를 보내지 않는다. capability는 요청 스냅샷 기준으로 고정한다.
+TURN 사용량의 `quizDecisionSource=PLAN`
 은 해당 필드 전달, `PLANNER`는 미전달을 뜻하며 실제 Planner 호출 횟수의 확증은
 AI의 `planSource`·`plannerAttempts` 로그로 확인한다.
 AI 구버전은 새 필드를 거부할 수 있으므로 DEC-041 합의 및 AI 수용 버전 배포를
 확인한 뒤 dev에서 먼저 활성화하고, prod 플래그는 별도 검증 후 켠다.
+별도 `edupilot.ai.page-quiz-plan.backfill-enabled`(기본 `false`)는 기존 READY
+개요의 계획 누락분 자동 재생성만 제어한다. 이 값이 꺼져 있어도 `enabled=true`이고
+계획이 저장돼 있다면 현재 페이지 `pageQuizDecision`은 전달된다.
 
 ```json
 {
@@ -203,10 +216,18 @@ AI 구버전은 새 필드를 거부할 수 있으므로 DEC-041 합의 및 AI �
 
 ### 3.3.1 uiActions allowlist (`quizProposal`, `moveNextPage`, `noteProposal`)
 
-> DEC-041 연동 초안: 아래 기본 설명 제안과 별도로 `capabilities.qaQuizProposal=true`인
-> USER_QUESTION에서 ANSWER_QUESTION 뒤 동일 exact 퀴즈 제안을 허용하는 AI 경로가 있다.
-> Spring의 QA/FOLLOW_UP 완료 allowlist·세션 상태 게이트 지원 전에는 옵션을 보내지 않는다.
-> 사전 false는 대화 기반 추가 제안을 금지하지 않으며, 실제 생성은 사용자 동의 이후다.
+> DEC-041: `capabilities.qaQuizProposal=true`인 `USER_QUESTION`(일반·후속 질문)에서
+> ANSWER_QUESTION 뒤 동일 exact 퀴즈 제안을 허용한다. Spring은 QA 메시지와 기존
+> statePatch를 보존하며 exact 제안 1건만 정본 `UiAction.quizProposal()`로 치환한다.
+> 진행 중 퀴즈·진단, 반복 거절 억제 중, capability OFF이면 제안만 필터하고 턴은
+> 정상 완료한다. capability OFF 수신은 WARN으로 기록한다. 사전 false는 대화 기반
+> 추가 제안을 금지하지 않으며 실제 퀴즈 생성은 사용자 동의·유형 선택 이후다.
+
+QA 반복 거절은 같은 세션에서 2회면 이후 완료 턴 5회 동안 제안을 숨긴다
+(`edupilot.ai.qa-quiz-proposal.rejection-threshold`,
+`edupilot.ai.qa-quiz-proposal.suppression-turns`, 기본 2/5). 수락 후
+`QUIZ_TYPE_SELECTED`가 완료되면 억제 상태를 초기화한다. 이 상태는 인메모리여서
+프로세스 재시작 시 초기화되며, DB·AI 계약은 변경하지 않는다.
 
 PDF가 첨부된 `EXPLAIN_CURRENT_PAGE` Plan에서 현재 페이지가 전체 학습 흐름의 의미 있는
 개념·가정·모델·공식 해석·예제 단위를 독립적으로 점검할 수 있게 도입하거나 완성하면
@@ -349,7 +370,9 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 
 ## 4. 멱등성 · 타임아웃 · 재시도 (v0.4 확정 — DEC-002 §5 이관분)
 
-- **멱등성 책임 분리**: 멱등의 원천은 Spring의 `requestId`(UK(session_id, request_id)) — FastAPI는 무상태이므로 자체 멱등 저장을 하지 않는다. `turnId`는 Spring이 턴마다 새로 발급하는 추적 ID이며, **재시도 시에도 새 turnId 발급**(같은 requestId → Spring이 저장 단계에서 중복 차단). 이로써 v2 패널 지적(재시도 vs DUPLICATE_TURN 충돌)은 구조적으로 해소.
+- **멱등성 책임 분리**: 클라이언트 `requestId`는 Spring의 세션·메시지·claim 키(UK(session_id, request_id))로 유지하며 FastAPI는 자체 멱등 저장을 하지 않는다. `turnId`는 Spring이 실제 AI 요청 시도마다 발급하고 서버 TURN 사용량 기록의 멱등 키로도 사용한다. 실제 재시도는 같은 외부 requestId여도 새 turnId·새 기록이며, 동일 실행의 기록 재저장만 중복 제거한다(DEC-047).
+- TURN 사용량은 호출 시작 후 최종적으로 한 행만 기록한다. 응답 검증 거부·실패·취소는 실패로 집계하고, HTTP 클라이언트가 이미 파싱한 usage도 내부 예외로 보존한다. 파싱 불가·미확인 값은 null이며 외부 FE 응답에는 내부 usage를 추가하지 않는다. KST·역할별 한도와 기존 429/409 계약을 유지한다. Spring의 시도 수는 요청 내부 개별 provider 호출 수나 정확한 과금 원장과 같지 않다.
+- 저장 트랜잭션의 AI 응답 정책 거부는 같은 사용자·TURN·서버 실행 ID 행의 성공 표시만 실패로 정정한다. 비용·시각·행 수를 바꾸거나 두 번째 실패 행을 추가하지 않는다. 정상 저장 후 메모리 승격·FE 전송 실패에는 이 정정을 적용하지 않는다.
 - **타임아웃 (확정 — env로 관리, extract는 #5 실측 후 조정 여지)**:
 
 | 엔드포인트 | 제안 timeout | 근거 |
@@ -379,7 +402,8 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 
 기본 내부 NDJSON 이벤트는 다음 6종입니다. DEC-041의 명시적
 `capabilities.quizQuestionStream=true` + `QUIZ_TYPE_SELECTED` + NDJSON에만 임시
-`quiz_question`을 추가하는 AI 구현이 있다. Spring·FE 수용 전 이 옵션을 보내지 않는다.
+`quiz_question`을 추가한다. Spring은 아래 공개 DTO로 중계하며 기본 OFF다.
+FE 미리보기 지원·AI 실모델 형식 준수 검증 후 dev부터 활성화한다.
 문항의 공개 필드만 미리 보내며 최종 completed 전 저장·제출하지 않는다.
 오류·연결 중단 시 임시 문항은 폐기한다. [이벤트 구조 및 연동 경계](ai-quiz-latency-handoff.md#4-문항-선전달-외부-표시-준비가-된-뒤-활성화).
 
@@ -389,8 +413,28 @@ Policy/Verifier는 Plan을 다음 범위에서만 결정적으로 보정합니�
 | `thought_summary` | `text` | 파이프라인이 만드는 결정적 한국어 진행 문구. 모델 원시 추론이 아니며 저장하지 않음 |
 | `content_delta` | `text` | 학습자에게 보여 줄 Markdown 본문 청크 |
 | `heartbeat` | 없음 | 10초 동안 다른 이벤트가 없을 때 연결 유지용으로 발행 |
+| `quiz_question` (opt-in) | `type, generationId, quizType, title, coverage, questionIndex, questionCount, provisional, question` | 공개 문항 미리보기, 아래 화이트리스트만 중계 |
 | `completed` | `result` | 최종 `TurnResponse` 전체 — 정확히 1회, 마지막 |
 | `error` | `code, category, message, retryable` | 실패 종료 — `completed`와 상호 배타이며 정확히 1회, 마지막 |
+
+Spring 수용 조건·화이트리스트(#459):
+
+- 정본은 `ai-service/src/edupilot_ai/models/quiz_preview.py`의
+  `QuizQuestionStreamEvent`/`PublicQuizQuestion`과 상속한 공개 필드다.
+  `coverage={startPage,endPage}`, `question={questionId,questionText,points,choices?}`,
+  `choices[]={choiceId,text}`만 명시적 record 매핑한다. `type`은
+  `quiz_question` 상수, `questionIndex=1..5`, `questionCount=5`, `provisional=true`다.
+  `choices`는 MCQ에서만 포함하고 OX/SHORT/ESSAY에서는 필드 자체를 생략한다.
+- 원본 Map/JsonNode나 private 문항 DTO는 SSE로 전달하지 않는다. 루트와 모든
+  중첩 객체의 알 수 없는 필드(정답·해설·루브릭·채점 힌트 등)는 버린다.
+  공개 문자열 필드에 객체가 들어오는 등 타입 오류는 거부한다.
+- capability OFF/다른 이벤트, 중복·역순 인덱스, 다른 generationId의 미리보기는
+  무시하고 내용 없는 사유·순번만 WARN으로 기록한다. 임시 문항은 저장하지 않는다.
+- 문항 수·마지막 순번이 completed 문항 수와 다르면 WARN을 남기되 completed가
+  정본이다. 기존 전체 퀴즈 검증·저장·quizId 발급은 변경하지 않는다.
+- 퀴즈 턴의 `content_delta`는 완료 검증 전에도 중계하지 않고 거부한다.
+  미리보기 전송 후에는 자동 재시도하지 않는다. 턴 로그에
+  `quizQuestionFirstMs`(문항 없으면 null), `quizQuestionCount`를 기록하며 usage는 변경하지 않는다.
 
 - 첫 이벤트는 `status`를 포함해
   `TURN_FIRST_EVENT_TIMEOUT_SECONDS`(기본 30초) 안에 발행합니다.
@@ -433,10 +477,15 @@ DEC-041 opt-in QuizAgent는 기존 text stream에서 JSON 객체 하나를 받�
 
 - Spring은 내부 NDJSON의 `status`, `thought_summary`, `content_delta`,
   `completed`, `error`를 같은 이름의 외부 SSE 이벤트로 변환합니다.
+- opt-in `quiz_question`은 위 화이트리스트 record만 외부 `quiz_question` data로
+  직렬화합니다. FE는 제출을 비활성화한 미리보기만 렌더링하고, 완료 후
+  `completed.result.state.activeQuizId`로 정본 문항을 조회해 교체합니다.
+  error/취소/close 시 미리보기를 폐기하고 세션·퀴즈 목록을 재조회합니다.
+  `generationId`는 quizId가 아니며, 미리보기만 보고 POST를 자동 재실행하지 않습니다.
 - 내부 `{"type":"heartbeat"}`는 외부 SSE comment 라인으로 변환하며 FE는
   무시합니다.
 - **외부 `ui_action` (확정)**: 외부 SSE에는 내부에 없는 `ui_action` 이벤트가
-  추가됩니다(api-spec §9, DEC-013 — 외부 어휘 6종 유지). AI Service는 발행하지
+  추가됩니다(api-spec §9, DEC-013 — 기본 이벤트 유지, 문항 미리보기는 opt-in). AI Service는 발행하지
   않으며, Spring이 내부 `completed`를 검증·저장한 뒤 api-spec §5의 위젯 규칙
   (W1~W7)으로 생성합니다. 발행 순서는 **[위젯이 있으면 `ui_action`] →
   `completed` → 스트림 종료**이며, `completed`는 외부에서도 정확히 1회·마지막
@@ -458,6 +507,12 @@ DEC-041 opt-in QuizAgent는 기존 text stream에서 JSON 객체 하나를 받�
 모든 JSON 성공 응답은 최상위 선택 `usage`를 가집니다. 한 요청의 LLM 호출(재생성 포함)은 §3.3.2에 따라 토큰·비용을 집계하며, 미확인 값을 0으로 대체하지 않습니다. 토큰 합계도 불완전하고 비용도 미확인이면 `usage=null`로 반환하며 본 기능 결과는 유지합니다. LLM 토큰 호출이 없는 extract·xAI Files upload는 항상 `usage=null`이고, DELETE의 204 응답에는 body가 없습니다. QuizGeneration은 독립 endpoint가 아니라 turn 산물이므로 turn 최상위 `usage`만 사용합니다.
 
 ### 6.1 POST /internal/ai/extract
+
+- PDF parser 전체는 요청별 별도 프로세스에서 실행한다. 앱 프로세스당 활성 worker 기본 2개, 추가 접수 기본 2개이며 접수 용량은 handler의 named-file 스테이징부터 선택적 업로드까지 점유한다. FastAPI가 handler 이전에 수행하는 multipart spooling 전체를 제한하는 것은 아니다. `EXTRACT_MAX_CONCURRENT`·`EXTRACT_MAX_WAITING`으로 조정하며 여러 Uvicorn worker·replica의 총 동시성은 합산한다.
+- 실행 슬롯 대기는 `EXTRACT_QUEUE_TIMEOUT_SECONDS` 기본 10초, 슬롯 획득 뒤 기동·파싱·결과 회수는 `EXTRACT_TIMEOUT_SECONDS` 기본 120초다. 과부하·대기 만료는 `EXTRACTION_BUSY`(503, INTERNAL), 추출 또는 handler 전체 기한 초과는 `EXTRACTION_TIMEOUT`(504, TIMEOUT), 예상하지 못한 worker 실패는 `EXTRACTION_FAILED`(500, INTERNAL)이며 모두 `retryable=false`다. 기존 parser 자원/출력 제한의 `EXTRACTION_FAILED`(400, INTERNAL)는 유지한다. Spring은 자동 재추출하지 않고 외부 자료 상태와 `failureReason=EXTRACTION_FAILED`로 처리한다.
+- 취소·HTTP 연결 종료·앱 종료에서 해당 worker를 종료·회수한다. `EXTRACT_CLEANUP_TIMEOUT_SECONDS` 기본 5초 안에 종료를 확인하지 못하면 late-start/reaper와 임시 파일 소유권을 보존하고 새 작업을 접수하지 않는다. 늦은 정상 회수 후 접수를 재개하며 정리 실패는 안전한 운영 코드로만 기록한다. Windows는 venv launcher의 자식까지 해당 프로세스 트리만 종료하고 `SYSTEMROOT` 외 서비스 환경을 전달하지 않는다.
+- handler 진입 후 스테이징·대기·추출·업로드에는 `EXTRACT_TOTAL_TIMEOUT_SECONDS` 기본 190초의 단조 시계 예산을 적용한다. 텍스트 완료 후 업로드는 기존 최대 60초와 남은 예산 중 작은 값만 사용하고, 만료 시 기존 `FILE_UPLOAD_FAILED` 경고와 HTTP 200·페이지 결과를 유지한다. 읽기 thread가 정리 중이면 임시 파일 삭제를 미룬다. Spring read timeout 기본 200초에 맞추되 multipart 전송·framework 직렬화·네트워크 여유와 실제 운영 설정은 배포 전 확인한다.
+- Linux worker의 기존 주소 공간 512MiB·CPU 시간·core dump 금지와 전체 텍스트 8,000,000자 상한을 유지한다. Windows 로컬은 시간·출력·프로세스 종료 검증이며 Linux RLIMIT 강제의 증거가 아니다. 같은 호스트/컨테이너의 총 CPU·메모리는 별도 운영 예산으로 검증한다. 프로세스 격리는 파일/네트워크 권한 샌드박스를 뜻하지 않으며 의존 parser의 원문 진단은 로그에 전달하지 않는다.
 
 - 요청: multipart PDF (≤45MB — DEC-016).
 - 응답: `{ "schemaVersion": "1.0", "pageCount": 42, "pages": [{ "pageNumber": 1, "text": "..." }], "xaiFileId": "file-...", "warnings": [] }`. `xaiFileId`는 nullable이며 `warnings[]` 항목은 `{type,message}` 형식입니다.
@@ -612,9 +667,13 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
   보내지 않는다. 유효한 계획은 해당 자료의 `material_overviews.outline_json` 안에
   개요와 함께 저장한다(별도 계획 테이블 없음). 누락·중복·순서·범위·reason 위반은
   개요 실패가 아니라 계획만 absent로 강등하고 위반 유형만 WARN으로 남긴다.
-- 기존 ACTIVE·READY 자료의 계획 없는 READY 개요는 기존 bounded outline 백필의
-  남은 batch 슬롯에서 재생성한다. 실패·계획 부재 시 최소 24시간 후 다시 후보가
-  되며 기존 `quizCheckpoints` 백필 규칙은 유지한다. 계획이 없으면 턴은 기존 경로다.
+- `page-quiz-plan.enabled=true`와 별도 `page-quiz-plan.backfill-enabled=true`가
+  모두 설정됐을 때만 기존 ACTIVE·READY 자료의 계획 없는 READY 개요를 기존 bounded
+  outline 백필의 남은 batch 슬롯에서 재생성한다. 계획이 없으면 턴은 기존 경로다.
+  모든 개요 생성·재생성 실패(`AI_SERVICE_TIMEOUT`, `AI_RESPONSE_INVALID` 포함)는
+  자료별 24시간 백오프와 누적 3회 상한을 적용한다. 계획·checkpoint 산출물 부재도
+  재생성 관점의 실패로 센다. 배치 내 동일 자료는 한 번만 제출하며, 3회 실패한
+  자료는 ADMIN 수동 재생성이 카운터를 초기화하기 전까지 자동 후보에서 제외한다.
   새 자료 업로드는 새 material ID를 만들고, 개요를 재생성하면 같은 overview 행의
   계획도 함께 교체한다. 삭제·미준비 자료 또는 페이지 수가 바뀐 개요의 계획은 보내지 않는다.
 

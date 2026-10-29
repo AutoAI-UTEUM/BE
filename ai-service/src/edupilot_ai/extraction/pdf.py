@@ -1,11 +1,40 @@
 """Pure, persistence-free PDF text extraction."""
 
+import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from threading import RLock
 
 from pypdf import PdfReader
-from pypdf.errors import FileNotDecryptedError, PdfReadError
+from pypdf.errors import FileNotDecryptedError, LimitReachedError, PdfReadError
+
+MAX_EXTRACTED_CHARS = 8_000_000
+_PARSER_LOG_LOCK = RLock()
+
+
+@contextmanager
+def _private_parser_logs() -> Iterator[None]:
+    """pypdf diagnostics can contain document bytes, including in child handlers."""
+    with _PARSER_LOG_LOCK:
+        parent = logging.getLogger("pypdf")
+        loggers = [parent] + [
+            value
+            for name, value in tuple(logging.Logger.manager.loggerDict.items())
+            if name.startswith("pypdf.") and isinstance(value, logging.Logger)
+        ]
+        previous = [(item, item.disabled, item.level) for item in loggers]
+        try:
+            for item in loggers:
+                item.disabled = True
+                item.setLevel(logging.CRITICAL + 1)
+            yield
+        finally:
+            for item, disabled, level in previous:
+                item.disabled = disabled
+                item.setLevel(level)
 
 
 class PdfFailureReason(StrEnum):
@@ -14,6 +43,7 @@ class PdfFailureReason(StrEnum):
     CORRUPTED = "CORRUPTED"
     ENCRYPTED = "ENCRYPTED"
     NO_TEXT = "NO_TEXT"
+    RESOURCE_LIMIT = "RESOURCE_LIMIT"
 
 
 class PdfExtractionError(Exception):
@@ -65,28 +95,33 @@ def extract_pdf(
     max_pages: int,
     min_chars_per_page: int,
     min_meaningful_page_ratio: float,
+    max_text_chars: int = MAX_EXTRACTED_CHARS,
 ) -> ExtractedDocument:
     """Extract all page text or raise one of the contract-safe domain errors."""
     try:
-        reader = PdfReader(path, strict=False)
-        if reader.is_encrypted:
-            raise PdfExtractionError(PdfFailureReason.ENCRYPTED)
+        with _private_parser_logs(), PdfReader(path, strict=False) as reader:
+            if reader.is_encrypted:
+                raise PdfExtractionError(PdfFailureReason.ENCRYPTED)
 
-        page_count = len(reader.pages)
-        if page_count > max_pages:
-            raise PdfPageLimitError(page_count=page_count, max_pages=max_pages)
+            page_count = len(reader.pages)
+            if page_count > max_pages:
+                raise PdfPageLimitError(page_count=page_count, max_pages=max_pages)
 
-        pages = tuple(
-            ExtractedPageData(
-                page_number=index,
-                text=clean_page_text(page.extract_text() or ""),
-            )
-            for index, page in enumerate(reader.pages, start=1)
-        )
+            extracted = []
+            total_chars = 0
+            for index, page in enumerate(reader.pages, start=1):
+                text = clean_page_text(page.extract_text() or "")
+                total_chars += len(text)
+                if total_chars > max_text_chars:
+                    raise PdfExtractionError(PdfFailureReason.RESOURCE_LIMIT)
+                extracted.append(ExtractedPageData(page_number=index, text=text))
+            pages = tuple(extracted)
     except PdfExtractionError, PdfPageLimitError:
         raise
     except FileNotDecryptedError as exception:
         raise PdfExtractionError(PdfFailureReason.ENCRYPTED) from exception
+    except (MemoryError, LimitReachedError) as exception:
+        raise PdfExtractionError(PdfFailureReason.RESOURCE_LIMIT) from exception
     except (OSError, PdfReadError, TypeError, ValueError) as exception:
         raise PdfExtractionError(PdfFailureReason.CORRUPTED) from exception
 

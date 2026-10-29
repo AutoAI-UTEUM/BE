@@ -5,9 +5,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +17,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,21 +46,104 @@ import jakarta.persistence.EntityManager;
 @ActiveProfiles("jpa-context")
 @Transactional
 class MaterialFailureJpaTest {
+	@DynamicPropertySource
+	static void isolatedMysql(DynamicPropertyRegistry registry) {
+		if (!"true".equals(System.getenv("RUNTIME_REGRESSIONS_MYSQL"))) { return; }
+		registry.add("spring.datasource.url", () -> "jdbc:mysql://127.0.0.1:33316/runtime_material_synthetic");
+		registry.add("spring.datasource.username", () -> "root");
+		registry.add("spring.datasource.password", () -> "");
+		registry.add("spring.datasource.driver-class-name", () -> "com.mysql.cj.jdbc.Driver");
+	}
+	@Autowired private io.edupilot.deletion.DeletionJournalLockRepository deletionLocks;
+	@BeforeEach
+	void seedDeletionJournal() {
+		if ("true".equals(System.getenv("RUNTIME_REGRESSIONS_MYSQL"))) {
+			assertThat(jdbcTemplate.queryForObject("select @@port", Integer.class)).isEqualTo(33316);
+			assertThat(jdbcTemplate.queryForObject("select database()", String.class)).isEqualTo("runtime_material_synthetic");
+		}
+		// create-drop omits V56's migration-created mutex; production still requires the migration.
+		if(!deletionLocks.existsById(1)) { deletionLocks.saveAndFlush(io.edupilot.deletion.DeletionJournalLock.initial()); }
+	}
 
 	@Autowired private UserRepository userRepository;
 	@Autowired private LearningMaterialRepository materialRepository;
 	@Autowired private MaterialExtractionPersistenceService persistenceService;
+	@Autowired private MaterialCaptionPersistenceService captionPersistenceService;
+	@Autowired private MaterialPageRepository pageRepository;
 	@Autowired private JdbcTemplate jdbcTemplate;
 	@Autowired private EntityManager entityManager;
 	@MockitoBean private MaterialExtractionRecoveryScheduler recoveryScheduler;
 
+	@ParameterizedTest
+	@EnumSource(CaptionFailureReason.class)
+	void permanentCaptionFailureStaysReadyAndIsExcludedFromBackfill(CaptionFailureReason reason) {
+		LearningMaterial material = material(owner(), "caption-rejection");
+		material.markReady(1);
+		pageRepository.saveAndFlush(MaterialPage.create(material, 1, "original text"));
+		Instant completedAt = Instant.parse("2026-09-30T00:00:00Z");
+
+		assertThat(captionPersistenceService.markPermanentlyFailed(material.getId(), reason, completedAt))
+			.isTrue();
+		entityManager.flush();
+		entityManager.clear();
+
+		LearningMaterial stored = materialRepository.findById(material.getId()).orElseThrow();
+		assertThat(stored.isReady()).isTrue();
+		assertThat(stored.isActive()).isTrue();
+		assertThat(stored.getCaptionFailureReason()).isEqualTo(reason);
+		assertThat(stored.getCaptionsCompletedAt()).isEqualTo(completedAt);
+		assertThat(stored.getFailureReason()).isNull();
+		assertThat(stored.getFailureTraceId()).isNull();
+		assertThat(captionPersistenceService.snapshot(material.getId())).isEmpty();
+		assertThat(captionPersistenceService.findBackfillCandidates(100)).doesNotContain(material.getId());
+		assertThat(captionPersistenceService.markCompleted(material.getId(), completedAt.plusSeconds(1)))
+			.isFalse();
+		captionPersistenceService.applyCaptions(material.getId(), Map.of(1, "late caption"));
+		entityManager.flush();
+		entityManager.clear();
+		MaterialPage storedPage = pageRepository.findByMaterial_IdOrderByPageNumberAsc(material.getId())
+			.getFirst();
+		assertThat(storedPage.getTextContent()).isEqualTo("original text");
+		assertThat(storedPage.getCaption()).isNull();
+	}
+
+	@Test
+	void captionReasonAlonePreventsAutomaticRetryAndPendingReadyMaterialRemainsEligible() {
+		User owner = owner();
+		LearningMaterial rejected = material(owner, "caption-guard");
+		rejected.markReady(1);
+		rejected.failCaptionGeneration(CaptionFailureReason.INVALID_PAGE_DIMENSIONS, Instant.now());
+		LearningMaterial pending = material(owner, "caption-pending");
+		pending.markReady(1);
+		LearningMaterial deleted = material(owner, "caption-deleted");
+		deleted.markReady(1);
+		deleted.delete();
+		LearningMaterial processing = material(owner, "caption-processing");
+		LearningMaterial failed = material(owner, "caption-failed");
+		failed.markFailed(MaterialFailureReason.EXTRACTION_FAILED, null);
+		LearningMaterial finished = material(owner, "caption-finished");
+		finished.markReady(1);
+		finished.completeCaptionGeneration(Instant.now());
+		entityManager.flush();
+		jdbcTemplate.update("update learning_materials set captions_completed_at = null where id = ?",
+			rejected.getId());
+		entityManager.clear();
+
+		assertThat(captionPersistenceService.snapshot(rejected.getId())).isEmpty();
+		assertThat(captionPersistenceService.findBackfillCandidates(100))
+			.contains(pending.getId())
+			.doesNotContain(rejected.getId(), deleted.getId(), processing.getId(), failed.getId(), finished.getId());
+		assertThat(materialRepository.findById(pending.getId()).orElseThrow().getCaptionFailureReason())
+			.isNull();
+	}
+
 	@Test
 	void persistsFailureMetadataWithFailedMaterial() {
-		User owner = userRepository.saveAndFlush(User.create(
+		User owner = userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"material-failure@example.com",
 			"hash",
 			"owner"
-		));
+		)));
 		LearningMaterial material = materialRepository.saveAndFlush(
 			LearningMaterial.create(
 				owner,
@@ -279,11 +366,11 @@ class MaterialFailureJpaTest {
 	}
 
 	private User owner() {
-		return userRepository.saveAndFlush(User.create(
+		return userRepository.saveAndFlush(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"material-recovery-" + UUID.randomUUID() + "@example.com",
 			"hash",
 			"owner"
-		));
+		)));
 	}
 
 	private LearningMaterial material(User owner, String name) {

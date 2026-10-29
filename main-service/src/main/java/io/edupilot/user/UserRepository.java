@@ -24,6 +24,21 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
 	long countByStatus(UserStatus status);
 
+	@Transactional(readOnly = true)
+	@Query("select new io.edupilot.user.UserAccessState(account.role, account.status) from User account where account.id = :userId")
+	Optional<UserAccessState> findAccessStateById(@Param("userId") Long userId);
+
+	@Transactional(readOnly = true)
+	@Query("""
+		select new io.edupilot.user.UserBusinessAccessState(
+			account.role, account.status, account.emailVerificationState, account.emailVerifiedAt,
+			account.accessCohort, account.ageVerificationState, account.dateOfBirth,
+			account.guardianApprovedUntil, account.guardianAiConsentAllowed, account.guardianConsentEpoch,
+			account.guardianApprovalPolicyDigest)
+		from User account where account.id = :userId
+		""")
+	Optional<UserBusinessAccessState> findBusinessAccessStateById(@Param("userId") Long userId);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select account from User account where account.email = :email")
 	Optional<User> findByEmailForUpdate(@Param("email") String email);
@@ -31,6 +46,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select account from User account where account.id = :userId")
 	Optional<User> findByIdForUpdate(@Param("userId") Long userId);
+
+	@Lock(LockModeType.PESSIMISTIC_READ)
+	@Query("select account from User account where account.id = :userId")
+	Optional<User> findByIdForBusinessAccess(@Param("userId") Long userId);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""

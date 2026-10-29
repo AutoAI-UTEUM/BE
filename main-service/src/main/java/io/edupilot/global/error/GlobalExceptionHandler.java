@@ -11,6 +11,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
@@ -68,8 +69,22 @@ public class GlobalExceptionHandler {
 	}
 
 	@ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+
 	public ResponseEntity<ErrorResponse> handleUnsupportedMediaType(HttpServletRequest request) {
 		return errorResponse(ErrorCode.UNSUPPORTED_MEDIA_TYPE, List.of(), request);
+	}
+
+	@ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+	public ResponseEntity<ErrorResponse> handleUnsupportedMethod(HttpRequestMethodNotSupportedException exception,
+		HttpServletRequest request) {
+		var result = errorResponse(ErrorCode.METHOD_NOT_ALLOWED, List.of(), request);
+		HttpHeaders headers = new HttpHeaders();
+		headers.putAll(result.getHeaders());
+		if (exception.getSupportedHttpMethods() != null) {
+			headers.setAllow(exception.getSupportedHttpMethods());
+		}
+		headers.setCacheControl("no-store");
+		return new ResponseEntity<>(result.getBody(), headers, result.getStatusCode());
 	}
 
 	@ExceptionHandler(MaxUploadSizeExceededException.class)

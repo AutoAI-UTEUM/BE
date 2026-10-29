@@ -756,7 +756,7 @@ class ClassroomApiContractTest {
 	}
 
 	@Test
-	void classroomResourceDownloadUsesPrivateCacheAndDispositionContract()
+	void classroomResourceDownloadForbidsStorageAndPreservesDispositionContract()
 		throws Exception {
 		when(classroomResourceService.file(2L, UserRole.LEARNER, 70L))
 			.thenReturn(new ClassroomResourceFile(
@@ -771,7 +771,7 @@ class ClassroomApiContractTest {
 			.andExpect(status().isOk())
 			.andExpect(header().string(
 				HttpHeaders.CACHE_CONTROL,
-				"private, max-age=3600, immutable"
+				"no-store, private"
 			))
 			.andExpect(header().string(
 				HttpHeaders.CONTENT_TYPE,
@@ -807,7 +807,13 @@ class ClassroomApiContractTest {
 			).exists())
 			.andExpect(jsonPath(
 				"$.paths['/api/classrooms/{classroomId}/resources'].post.requestBody.content['application/json']"
-			).exists());
+			).exists())
+			.andExpect(jsonPath(
+				"$.paths['/api/materials/{materialId}/file'].get.description"
+			).value(org.hamcrest.Matchers.containsString("Cache-Control: no-store, private")))
+			.andExpect(jsonPath(
+				"$.paths['/api/resources/{resourceId}/file'].get.description"
+			).value(org.hamcrest.Matchers.containsString("Cache-Control: no-store, private")));
 	}
 
 	private ClassroomDetailResponse detailResponse() {

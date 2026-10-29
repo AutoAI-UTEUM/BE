@@ -100,15 +100,16 @@ public class PasswordResetService {
 		}
 
 		Instant now = clock.instant();
+		Instant expiresAt = now.plus(Duration.ofMinutes(EXPIRY_MINUTES));
 		tokenRepository.useAllUnusedByUserId(user.getId(), now);
 		String rawToken = generateToken();
 		tokenRepository.saveAndFlush(PasswordResetToken.create(
-			user, hash(rawToken), now.plus(Duration.ofMinutes(EXPIRY_MINUTES)), ip, now
+			user, hash(rawToken), expiresAt, ip, now
 		));
 		try {
 			emailService.sendAsync(emailTemplates.passwordReset(
 				"/reset-password?token=" + rawToken, EXPIRY_MINUTES
-			).to(user.getEmail()));
+			).to(user.getEmail()), expiresAt);
 		} catch (RuntimeException exception) {
 			log.atWarn()
 				.addKeyValue("userId", user.getId())

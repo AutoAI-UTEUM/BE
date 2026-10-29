@@ -66,7 +66,7 @@ class MaterialServiceTest {
 	@Mock
 	private NotificationTriggerService notificationTriggerService;
 	@Mock
-	private MaterialXaiFileLifecycleService xaiFileLifecycleService;
+	private io.edupilot.deletion.DeletionJournal deletionJournal;
 
 	private MaterialService materialService;
 	private User owner;
@@ -84,7 +84,7 @@ class MaterialServiceTest {
 			accessService,
 			weekService,
 			notificationTriggerService,
-			xaiFileLifecycleService
+			deletionJournal
 		);
 		owner = User.create("owner@example.com", "hash", "소유자");
 		ReflectionTestUtils.setField(owner, "id", 1L);
@@ -95,7 +95,7 @@ class MaterialServiceTest {
 		MockMultipartFile file = pdf("%PDF-valid");
 		when(fileStorage.store(any(InputStream.class)))
 			.thenReturn("materials/00000000-0000-0000-0000-000000000001.pdf");
-		when(userRepository.getReferenceById(1L)).thenReturn(owner);
+		when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(owner));
 		when(materialRepository.saveAndFlush(any(LearningMaterial.class))).thenAnswer(invocation -> {
 			LearningMaterial material = invocation.getArgument(0);
 			ReflectionTestUtils.setField(material, "id", 10L);
@@ -153,7 +153,7 @@ class MaterialServiceTest {
 	void classroomUploadLinksMaterialAndRequiresBothTargetParts() {
 		MockMultipartFile file = pdf("%PDF-valid");
 		when(fileStorage.store(any(InputStream.class))).thenReturn("materials/class.pdf");
-		when(userRepository.getReferenceById(1L)).thenReturn(owner);
+		when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(owner));
 		when(materialRepository.saveAndFlush(any(LearningMaterial.class)))
 			.thenAnswer(invocation -> {
 				LearningMaterial saved = invocation.getArgument(0);
@@ -188,7 +188,7 @@ class MaterialServiceTest {
 	void classroomLinkFailureCompensatesStoredFileOutsideTransactionProxy() {
 		MockMultipartFile file = pdf("%PDF-valid");
 		when(fileStorage.store(any(InputStream.class))).thenReturn("materials/class.pdf");
-		when(userRepository.getReferenceById(1L)).thenReturn(owner);
+		when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(owner));
 		when(materialRepository.saveAndFlush(any(LearningMaterial.class)))
 			.thenAnswer(invocation -> {
 				LearningMaterial saved = invocation.getArgument(0);
@@ -294,7 +294,7 @@ class MaterialServiceTest {
 		InOrder order = inOrder(materialRepository, deletionGuard);
 		order.verify(materialRepository).findByIdForUpdate(10L);
 		order.verify(deletionGuard).assertDeletable(10L);
-		verify(xaiFileLifecycleService).deleteAfterCommit("file-10");
+		verify(deletionJournal).recordRecoverableMaterial(material);
 	}
 
 	@Test
@@ -310,7 +310,7 @@ class MaterialServiceTest {
 		materialService.delete(1L, 10L);
 
 		assertThat(material.getStatus()).isEqualTo(MaterialStatus.DELETED);
-		verifyNoInteractions(xaiFileLifecycleService);
+		verify(deletionJournal).recordRecoverableMaterial(material);
 	}
 
 	@Test

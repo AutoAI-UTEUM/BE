@@ -1,0 +1,16 @@
+// #456 bounded local raster probe; does not configure the production JVM heap.
+allprojects {
+    plugins.withId('java') {
+        tasks.register('pdfRenderBudgetTest', Test) {
+            testClassesDirs = sourceSets.test.output.classesDirs
+            classpath = sourceSets.test.runtimeClasspath
+            useJUnitPlatform()
+            maxHeapSize = '256m'
+            maxParallelForks = 1
+            filter {
+                includeTestsMatching 'io.edupilot.material.PageImageRendererTest.rendersMixedDocumentsWithFourConcurrentTasks'
+            }
+            testLogging.showStandardStreams = true
+        }
+    }
+}

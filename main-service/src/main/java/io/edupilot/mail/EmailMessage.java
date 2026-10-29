@@ -7,4 +7,8 @@ public record EmailMessage(
 	String htmlBody,
 	EmailDeliveryType type
 ) {
+	@Override
+	public String toString() {
+		return "EmailMessage[type=" + type + "]";
+	}
 }

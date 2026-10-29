@@ -15,15 +15,19 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.ai.dto.ReportGenerateResponse;
 import io.edupilot.classroom.Classroom;
 import io.edupilot.classroom.ClassroomRepository;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.global.error.BusinessException;
 import io.edupilot.user.UserRepository;
 import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class ReportGenerationPersistenceService {
+	private final GuardianConsentFence consentFence;
+
 	private static final String UNKNOWN_AI_MODEL = "unknown";
 	private static final List<ReportGenerationStatus> ACTIVE_STATUSES = List.of(
 		ReportGenerationStatus.PENDING,
@@ -53,8 +57,10 @@ public class ReportGenerationPersistenceService {
 		StudentReportRepository reportRepository,
 		ReportCriterionResultRepository resultRepository,
 		ReportScoreCalculator scoreCalculator,
-		ObjectMapper objectMapper
+		ObjectMapper objectMapper,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
 		this.generationRepository = generationRepository;
 		this.evidenceRepository = evidenceRepository;
 		this.classroomRepository = classroomRepository;
@@ -83,17 +89,26 @@ public class ReportGenerationPersistenceService {
 		) == 1;
 	}
 
-	@Transactional
 	public boolean applyGeneratedReport(
 		Long generationId,
 		String leaseToken,
 		ReportAiGenerationService.GeneratedReport generated
 	) {
+		return consentFence.complete(List.of(generated.requesterConsent(), generated.studentConsent()),
+			() -> applyCurrentGeneratedReport(generationId, leaseToken, generated));
+	}
+
+	private boolean applyCurrentGeneratedReport(Long generationId, String leaseToken,
+		ReportAiGenerationService.GeneratedReport generated) {
 		ReportGeneration generation = generationRepository
 			.findByIdForUpdate(generationId)
 			.orElse(null);
 		if (generation == null || !generation.hasGenerationLease(leaseToken)) {
 			return false;
+		}
+		if (!generation.getRequestedById().equals(generated.requesterConsent().userId())
+			|| !generation.getStudentId().equals(generated.studentConsent().userId())) {
+			throw new BusinessException(ErrorCode.GUARDIAN_CONSENT_CHANGED);
 		}
 		FrozenInput input = objectMapper.convertValue(
 			generation.getGenerationInput(),

@@ -1,0 +1,12 @@
+{
+  "feHead": "5592042cb7a25c2fc797e557a20643061b84e273",
+  "fePrHead": "114f4cf4bd13ef531f7396747ef1abdb6e104804",
+  "historicalFe231": "21f4ad2d30f13bafd05bfcc289515c2caac98810",
+  "beReviewedCandidate": "e949fbecbe8f6cd414ee9f18605d1a15dca2fa6e",
+  "beGeneratedLinkAtReviewedHead": "query",
+  "feAcceptedLink": "fragment-only",
+  "syntheticReadiness": "be-auth-ee69e425-v1",
+  "syntheticOnly": true,
+  "deploymentOrActivationApproved": false,
+  "jointBackendTransition": "pending-core-and-operations"
+}

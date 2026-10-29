@@ -17,4 +17,6 @@ public interface FileStorage {
 	Resource load(String storageKey);
 
 	void delete(String storageKey);
+
+	void deleteMaterialRenders(String originalPdfKey);
 }

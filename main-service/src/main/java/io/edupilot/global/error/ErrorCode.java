@@ -3,9 +3,24 @@ package io.edupilot.global.error;
 import org.springframework.http.HttpStatus;
 
 public enum ErrorCode {
+	GUARDIAN_TEAM_UNAVAILABLE("GUARDIAN_TEAM_UNAVAILABLE", HttpStatus.SERVICE_UNAVAILABLE, "보호자 팀 검토가 준비되지 않았습니다."),
+	GUARDIAN_TEAM_REQUEST_NOT_FOUND("GUARDIAN_TEAM_REQUEST_NOT_FOUND", HttpStatus.NOT_FOUND, "보호자 검토 신청을 찾을 수 없습니다."),
+	GUARDIAN_TEAM_CONFIGURATION_CHANGED("GUARDIAN_TEAM_CONFIGURATION_CHANGED", HttpStatus.CONFLICT, "보호자 동의 안내가 변경되었습니다. 새 신청 상태를 확인해 주세요."),
+	GUARDIAN_CONSENT_CHANGED("GUARDIAN_CONSENT_CHANGED", HttpStatus.CONFLICT, "보호자 동의 상태가 변경되었습니다. 새 요청을 시작해 주세요."),
+	GUARDIAN_AI_CONSENT_REQUIRED("GUARDIAN_AI_CONSENT_REQUIRED", HttpStatus.FORBIDDEN, "외부 AI 처리에 대한 보호자 동의가 필요합니다."),
+	BIRTHDATE_CORRECTION_PENDING("BIRTHDATE_CORRECTION_PENDING", HttpStatus.CONFLICT, "이미 대기 중인 생년월일 수정 요청이 있습니다."),
+	BIRTHDATE_CORRECTION_NOT_FOUND("BIRTHDATE_CORRECTION_NOT_FOUND", HttpStatus.NOT_FOUND, "생년월일 수정 요청을 찾을 수 없습니다."),
+	GUARDIAN_VERIFICATION_UNAVAILABLE("GUARDIAN_VERIFICATION_UNAVAILABLE", HttpStatus.SERVICE_UNAVAILABLE,
+		"보호자 문자 확인이 준비되지 않았습니다."),
+	GUARDIAN_LINK_INVALID("GUARDIAN_LINK_INVALID", HttpStatus.BAD_REQUEST, "유효하지 않거나 만료된 보호자 확인 링크입니다."),
+	GUARDIAN_STATE_CONFLICT("GUARDIAN_STATE_CONFLICT", HttpStatus.CONFLICT, "현재 보호자 확인 상태에서는 처리할 수 없습니다."),
+	GUARDIAN_NOTICE_CHANGED("GUARDIAN_NOTICE_CHANGED", HttpStatus.CONFLICT, "보호자 동의문이 변경되었습니다. 새 링크를 요청해 주세요."),
+	AGE_VERIFICATION_REQUIRED("AGE_VERIFICATION_REQUIRED", HttpStatus.FORBIDDEN, "연령 확인이 필요합니다."),
+	GUARDIAN_VERIFICATION_PENDING("GUARDIAN_VERIFICATION_PENDING", HttpStatus.FORBIDDEN, "보호자 확인이 대기 중입니다."),
 
 	VALIDATION_FAILED("VALIDATION_FAILED", HttpStatus.BAD_REQUEST, "요청 값을 확인해 주세요."),
 	MALFORMED_REQUEST("MALFORMED_REQUEST", HttpStatus.BAD_REQUEST, "요청 형식을 확인해 주세요."),
+	METHOD_NOT_ALLOWED("METHOD_NOT_ALLOWED", HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 요청 메서드입니다."),
 	UNSUPPORTED_MEDIA_TYPE(
 		"UNSUPPORTED_MEDIA_TYPE",
 		HttpStatus.UNSUPPORTED_MEDIA_TYPE,
@@ -89,6 +104,10 @@ public enum ErrorCode {
 		HttpStatus.CONFLICT,
 		"이미 사용 중인 이메일입니다."
 	),
+	EMAIL_VERIFICATION_REQUIRED("EMAIL_VERIFICATION_REQUIRED", HttpStatus.FORBIDDEN,
+		"이메일 소유 확인 후 이용해 주세요."),
+	EMAIL_VERIFICATION_TOKEN_INVALID("EMAIL_VERIFICATION_TOKEN_INVALID", HttpStatus.BAD_REQUEST,
+		"유효하지 않거나 만료된 이메일 확인 링크입니다."),
 	SIGNUP_REQUIRED(
 		"SIGNUP_REQUIRED",
 		HttpStatus.CONFLICT,
@@ -120,9 +139,13 @@ public enum ErrorCode {
 		"마지막 활성 관리자는 정지하거나 강등할 수 없습니다."
 	),
 	POLICY_NOT_FOUND("POLICY_NOT_FOUND", HttpStatus.NOT_FOUND, "정책 버전을 찾을 수 없습니다."),
+	SIGNUP_POLICY_NOT_READY(
+		"SIGNUP_POLICY_NOT_READY", HttpStatus.SERVICE_UNAVAILABLE,
+		"가입에 필요한 정책이 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요."
+	),
 	POLICY_CONSENT_REQUIRED(
 		"POLICY_CONSENT_REQUIRED", HttpStatus.BAD_REQUEST,
-		"현재 이용약관과 개인정보처리방침에 모두 동의해 주세요."
+		"현재 필수 동의 대상 정책의 버전에 모두 동의해 주세요."
 	),
 	POLICY_VERSION_MISMATCH(
 		"POLICY_VERSION_MISMATCH", HttpStatus.BAD_REQUEST,

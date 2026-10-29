@@ -32,6 +32,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import io.edupilot.ai.AiStreamCancellation;
+import io.edupilot.ai.QuizQuestionStreamFixtures;
 import io.edupilot.ai.TurnStreamEvent;
 import io.edupilot.global.security.TraceIdFilter;
 import io.edupilot.session.dto.MessageResponse;
@@ -40,13 +41,107 @@ import io.edupilot.session.dto.TurnResponse;
 import io.edupilot.session.dto.TurnStateResponse;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 
 class SessionStreamConnectionTest {
 
+	private final Runnable accessCheck = mock(Runnable.class);
+
 	private final ObjectMapper objectMapper = new ObjectMapper();
+
+	@ParameterizedTest
+	@ValueSource(strings = {"MCQ", "OX", "SHORT", "ESSAY"})
+	void privateFieldsAtEveryDepthNeverReachSerializedSsePayload(String quizType) throws Exception {
+		CapturingSseEmitter emitter = new CapturingSseEmitter();
+		SessionStreamConnection connection = new SessionStreamConnection(1L, 100L, accessCheck, () -> {}, emitter);
+		AiStreamCancellation cancellation = new AiStreamCancellation();
+		connection.begin(cancellation);
+		ObjectNode preview = (ObjectNode) objectMapper.valueToTree(
+			QuizQuestionStreamFixtures.preview(1, quizType));
+		ObjectNode question = (ObjectNode) preview.get("question");
+		ObjectNode coverage = (ObjectNode) preview.get("coverage");
+		List<String> privateKeys = List.of(
+			"answer", "answerChoiceId", "answerValue", "correctChoice", "correctAnswer",
+			"explanation", "referenceAnswer", "modelAnswer", "rubric", "gradingCriteria",
+			"scoringHint", "solution", "score", "maxScore"
+		);
+		for (String key : privateKeys) {
+			preview.put(key, "private-root-" + key);
+			question.put(key, "private-question-" + key);
+			coverage.put(key, "private-coverage-" + key);
+		}
+		question.set("internal", objectMapper.readTree(
+			"{\"nested\":[{\"answer\":\"private-nested-answer\"}]}"));
+		if ("MCQ".equals(quizType)) {
+			for (var choice : question.get("choices")) {
+				for (String key : privateKeys) {
+					((ObjectNode) choice).put(key, "private-choice-" + key);
+				}
+			}
+		} else {
+			question.set("choices", objectMapper.readTree(
+				"[{\"answer\":\"private-non-mcq-choice\"}]"));
+		}
+
+		try (MockWebServer server = new MockWebServer()) {
+			server.start();
+			server.enqueue(new MockResponse().setHeader("Content-Type", "application/x-ndjson")
+				.setBody(objectMapper.writeValueAsString(preview) + "\n"
+					+ QuizQuestionStreamFixtures.completedJson("turn-quiz", quizType)));
+			QuizQuestionStreamFixtures.client(server).executeTurnStream(
+				new io.edupilot.ai.dto.TurnRequest("1.0", "turn-quiz",
+					Map.of("sessionId", 100L), Map.of("eventType", "QUIZ_TYPE_SELECTED"), Map.of(),
+					Map.of("qaQuizProposal", false, "quizQuestionStream", true)),
+				connection::send, cancellation, java.time.Duration.ofSeconds(3)
+			);
+		}
+
+		assertThat(emitter.eventNames()).containsExactly("quiz_question");
+		String serialized = objectMapper.writeValueAsString(emitter.payload(0));
+		for (String key : privateKeys) {
+			assertThat(serialized).doesNotContain("\"" + key + "\"");
+		}
+		assertThat(serialized).doesNotContain("private-", "internal");
+		JsonNode publicEvent = objectMapper.readTree(serialized);
+		assertThat(publicEvent.get("questionIndex").intValue()).isEqualTo(1);
+		assertThat(publicEvent.get("question").get("questionText").textValue()).isEqualTo("문항 1");
+		assertThat(publicEvent.get("question").has("choices")).isEqualTo("MCQ".equals(quizType));
+	}
+
+	@Test
+	void fiveQuestionStreamEndsWithPublicCompletedOnlyAndSavedQuizId() throws Exception {
+		CapturingSseEmitter emitter = new CapturingSseEmitter();
+		SessionStreamConnection connection = new SessionStreamConnection(1L, 100L, accessCheck, () -> {}, emitter);
+		AiStreamCancellation cancellation = new AiStreamCancellation();
+		connection.begin(cancellation);
+		String previews = java.util.stream.IntStream.rangeClosed(1, 5)
+			.mapToObj(QuizQuestionStreamFixtures::previewJson)
+			.collect(java.util.stream.Collectors.joining("\n"));
+		try (MockWebServer server = new MockWebServer()) {
+			server.start();
+			server.enqueue(new MockResponse().setHeader("Content-Type", "application/x-ndjson")
+				.setBody(previews + "\n" + QuizQuestionStreamFixtures.completedJson("turn-quiz")));
+			var completed = QuizQuestionStreamFixtures.client(server).executeTurnStream(
+				new io.edupilot.ai.dto.TurnRequest("1.0", "turn-quiz", Map.of("sessionId", 100L),
+					Map.of("eventType", "QUIZ_TYPE_SELECTED"), Map.of(),
+					Map.of("qaQuizProposal", false, "quizQuestionStream", true)),
+				connection::send, cancellation, java.time.Duration.ofSeconds(3));
+			assertThat(completed.quiz().questions()).hasSize(5);
+			assertThat(emitter.eventNames()).containsExactly(
+				"quiz_question", "quiz_question", "quiz_question", "quiz_question", "quiz_question");
+		}
+		connection.sendCompleted("request-quiz", new TurnResponse("turn-quiz", 100L, List.of(), List.of(),
+			new TurnStateResponse(3, PageStatus.QUIZ_READY, 50L)));
+		assertThat(emitter.eventNames()).containsExactly(
+			"quiz_question", "quiz_question", "quiz_question", "quiz_question", "quiz_question", "completed");
+		assertThat(objectMapper.writeValueAsString(emitter.payload(5)))
+			.contains("\"activeQuizId\":50").doesNotContain("비공개", "answerChoiceId", "explanation", "statePatch");
+	}
 
 	@Test
 	void emitsExactExternalOrderAndPublicPayloads() throws Exception {
@@ -54,7 +149,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			emitter
 		);
@@ -99,7 +194,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			emitter,
 			clock::get
@@ -133,7 +228,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			cleanupCount::incrementAndGet,
+			accessCheck, cleanupCount::incrementAndGet,
 			failingEmitter
 		);
 
@@ -156,7 +251,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			emitter
 		);
@@ -181,7 +276,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			emitter
 		);
@@ -212,7 +307,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			emitter
 		);
@@ -238,7 +333,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			failingEmitter
 		);
@@ -264,7 +359,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			}
 		);
 		AiStreamCancellation cancellation = new AiStreamCancellation();
@@ -283,7 +378,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			emitter,
 			clock::get
@@ -311,7 +406,7 @@ class SessionStreamConnectionTest {
 		ControllableSseEmitter emitter = new ControllableSseEmitter();
 		AtomicInteger cleanup = new AtomicInteger();
 		SessionStreamConnection connection = new SessionStreamConnection(
-			1L, 100L, cleanup::incrementAndGet, emitter
+			1L, 100L, accessCheck, cleanup::incrementAndGet, emitter
 		);
 		Object stateLock = ReflectionTestUtils.getField(connection, "lifecycleLock");
 		AiStreamCancellation cancellation = new AiStreamCancellation();
@@ -338,7 +433,7 @@ class SessionStreamConnectionTest {
 		ControllableSseEmitter emitter = new ControllableSseEmitter();
 		AtomicInteger cleanup = new AtomicInteger();
 		SessionStreamConnection connection = new SessionStreamConnection(
-			1L, 100L, cleanup::incrementAndGet, emitter
+			1L, 100L, accessCheck, cleanup::incrementAndGet, emitter
 		);
 		Object stateLock = ReflectionTestUtils.getField(connection, "lifecycleLock");
 		AiStreamCancellation cancellation = new AiStreamCancellation();
@@ -372,7 +467,7 @@ class SessionStreamConnectionTest {
 		emitter.failingEvent = event;
 		AtomicInteger cleanup = new AtomicInteger();
 		SessionStreamConnection connection = new SessionStreamConnection(
-			1L, 100L, cleanup::incrementAndGet, emitter
+			1L, 100L, accessCheck, cleanup::incrementAndGet, emitter
 		);
 		ScheduledFuture<?> heartbeat = mock(ScheduledFuture.class);
 		connection.heartbeatTask(heartbeat);
@@ -409,7 +504,7 @@ class SessionStreamConnectionTest {
 		ControllableSseEmitter emitter = new ControllableSseEmitter();
 		AtomicInteger cleanup = new AtomicInteger();
 		SessionStreamConnection connection = new SessionStreamConnection(
-			1L, 100L, cleanup::incrementAndGet, emitter
+			1L, 100L, accessCheck, cleanup::incrementAndGet, emitter
 		);
 		AiStreamCancellation cancellation = new AiStreamCancellation();
 		connection.begin(cancellation);
@@ -430,7 +525,7 @@ class SessionStreamConnectionTest {
 		ControllableSseEmitter emitter = new ControllableSseEmitter();
 		AtomicInteger cleanup = new AtomicInteger();
 		SessionStreamConnection connection = new SessionStreamConnection(
-			1L, 100L, cleanup::incrementAndGet, emitter
+			1L, 100L, accessCheck, cleanup::incrementAndGet, emitter
 		);
 		AiStreamCancellation cancellation = new AiStreamCancellation();
 		connection.begin(cancellation);
@@ -455,7 +550,7 @@ class SessionStreamConnectionTest {
 		emitter.failingEvent = "completed";
 		AtomicInteger cleanup = new AtomicInteger();
 		SessionStreamConnection connection = new SessionStreamConnection(
-			1L, 100L, cleanup::incrementAndGet, emitter
+			1L, 100L, accessCheck, cleanup::incrementAndGet, emitter
 		);
 		AiStreamCancellation cancellation = new AiStreamCancellation();
 		connection.begin(cancellation, "request-terminal", "turn-trace");
@@ -494,7 +589,7 @@ class SessionStreamConnectionTest {
 		try {
 			MDC.put(TraceIdFilter.TRACE_ID_MDC_KEY, "connect-trace");
 			ControllableSseEmitter emitter = new ControllableSseEmitter();
-			SessionStreamConnection connection = new SessionStreamConnection(1L, 100L, () -> {}, emitter);
+			SessionStreamConnection connection = new SessionStreamConnection(1L, 100L, accessCheck, () -> {}, emitter);
 			connection.sendReady(Instant.now());
 			connection.begin(new AiStreamCancellation(), "request-log", "turn-trace");
 			connection.aiAttempt("attempt-turn", 2);
@@ -532,7 +627,7 @@ class SessionStreamConnectionTest {
 		SessionStreamConnection connection = new SessionStreamConnection(
 			1L,
 			100L,
-			() -> {
+			accessCheck, () -> {
 			},
 			emitter
 		);

@@ -1,0 +1,10 @@
+# Keep DEV in the approved, paused validation phase across ordinary deployments.
+# Activating real mail or guardian intake requires a separate reviewed change.
+services:
+  main-service:
+    environment:
+      EDUPILOT_MAIL_PROVIDER: logging
+      EDUPILOT_MAIL_OUTBOX_DISPATCH_MODE: PAUSED
+      EDUPILOT_GUARDIAN_TEAM_ENABLED: "false"
+      EDUPILOT_GUARDIAN_TEAM_POLICY_CONFIRMED: "false"
+      EDUPILOT_GUARDIAN_WEB_ENABLED: "false"

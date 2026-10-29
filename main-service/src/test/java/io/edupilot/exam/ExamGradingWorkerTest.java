@@ -45,7 +45,7 @@ class ExamGradingWorkerTest {
 
 	@Test
 	void appliesResultOnlyAfterClaimingLease() {
-		ExamAiGradingOutcome outcome = new ExamAiGradingOutcome(Map.of(), false);
+		ExamAiGradingOutcome outcome = new ExamAiGradingOutcome(Map.of(), false, new io.edupilot.guardian.GuardianConsentFence.Snapshot(1L, 0));
 		when(persistenceService.claimGradingLease(eq(10L), any(), eq(NOW), eq(NOW.plusSeconds(300))))
 			.thenReturn(true);
 		when(aiGradingService.grade(10L)).thenReturn(outcome);

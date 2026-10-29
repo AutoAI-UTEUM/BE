@@ -1,6 +1,7 @@
 package io.edupilot.exam;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -9,6 +10,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,6 +32,8 @@ import io.edupilot.classroom.ClassroomMember;
 import io.edupilot.classroom.ClassroomMemberRepository;
 import io.edupilot.classroom.ClassroomRepository;
 import io.edupilot.exam.dto.ManualScoreAdjustmentRequest;
+import io.edupilot.global.error.BusinessException;
+import io.edupilot.global.error.ErrorCode;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
@@ -81,18 +87,18 @@ class ExamManualScoreAdjustmentJpaTest {
 	void setUp() {
 		when(clock.instant()).thenReturn(ADJUSTED_AT);
 		String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
-		instructor = userRepository.save(User.create(
+		instructor = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"manual-instructor-" + suffix + "@example.com",
 			"hash",
 			"Instructor",
 			UserRole.INSTRUCTOR
-		));
-		learner = userRepository.save(User.create(
+		)));
+		learner = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
 			"manual-learner-" + suffix + "@example.com",
 			"hash",
 			"Learner",
 			UserRole.LEARNER
-		));
+		)));
 		Classroom classroom = classroomRepository.save(Classroom.create(
 			instructor,
 			"Manual score classroom",
@@ -152,7 +158,7 @@ class ExamManualScoreAdjustmentJpaTest {
 			exam.getId(),
 			submission.getId(),
 			"q1",
-			new ManualScoreAdjustmentRequest(new BigDecimal("8.00"))
+			new ManualScoreAdjustmentRequest(new BigDecimal("8.00"), "  설명 근거 재검토  ")
 		);
 		entityManager.clear();
 
@@ -164,6 +170,7 @@ class ExamManualScoreAdjustmentJpaTest {
 			.orElseThrow();
 		assertThat(storedAnswer.getScore()).isEqualByComparingTo("4.00");
 		assertThat(storedAnswer.getManualScore()).isEqualByComparingTo("8.00");
+		assertThat(storedAnswer.getManualScoreReason()).isEqualTo("설명 근거 재검토");
 		assertThat(storedAnswer.getAdjustedBy()).isEqualTo(instructor.getId());
 		assertThat(storedAnswer.getAdjustedAt()).isEqualTo(ADJUSTED_AT);
 		assertThat(storedAnswer.getVerdict()).isEqualTo(Verdict.PARTIAL);
@@ -171,6 +178,9 @@ class ExamManualScoreAdjustmentJpaTest {
 		assertThat(storedSubmission.getNormalizedScore()).isEqualByComparingTo("80.00");
 		assertThat(instructorResponse.items().getFirst().manualScore())
 			.isEqualByComparingTo("8.00");
+		assertThat(instructorExamService.submissionDetail(
+			instructor.getId(), UserRole.INSTRUCTOR, exam.getId(), submission.getId()
+		).items().getFirst().manualScoreReason()).isEqualTo("설명 근거 재검토");
 
 		var learnerResponse = studentExamService.mySubmission(
 			learner.getId(), UserRole.LEARNER, exam.getId(), null
@@ -185,10 +195,96 @@ class ExamManualScoreAdjustmentJpaTest {
 			.toString();
 		assertThat(learnerJson)
 			.doesNotContain("manualScore")
+			.doesNotContain("설명 근거 재검토")
 			.doesNotContain("adjustedBy")
 			.doesNotContain("adjustedAt");
 		assertThat(jdbcTemplate.queryForObject(
 			"select count(*) from notifications", Long.class
 		)).isEqualTo(notificationsBefore);
+	}
+
+	@Test
+	void readjustmentPersistsTheLatestReasonAndLegacyRequestClearsIt() {
+		adjust("8.00", "첫 검토");
+		adjust("7.00", "다시 검토");
+		assertThat(storedAnswer().getManualScoreReason()).isEqualTo("다시 검토");
+		assertThat(storedAnswer().getManualScore()).isEqualByComparingTo("7.00");
+
+		instructorExamService.adjustAnswerScore(instructor.getId(), UserRole.INSTRUCTOR,
+			exam.getId(), submission.getId(), "q1", new ManualScoreAdjustmentRequest(new BigDecimal("6.00")));
+		ExamAnswer stored = storedAnswer();
+		assertThat(stored.getManualScoreReason()).isNull();
+		assertThat(stored.getManualScore()).isEqualByComparingTo("6.00");
+		assertThat(stored.getScore()).isEqualByComparingTo("4.00");
+		assertThat(submissionRepository.findById(submission.getId()).orElseThrow().getScore())
+			.isEqualByComparingTo("6.00");
+	}
+
+	@Test
+	void invalidReasonAndUnauthorizedCallersCannotReplacePersistedAdjustment() {
+		adjust("8.00", "기존 검토 사유");
+		assertThatThrownBy(() -> adjust("7.00", "가".repeat(501)))
+			.isInstanceOfSatisfying(BusinessException.class, error ->
+				assertThat(error.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+		assertThatThrownBy(() -> instructorExamService.adjustAnswerScore(
+			learner.getId(), UserRole.LEARNER, exam.getId(), submission.getId(), "q1",
+			new ManualScoreAdjustmentRequest(BigDecimal.ONE, "허용되지 않은 사유")))
+			.isInstanceOfSatisfying(BusinessException.class, error ->
+				assertThat(error.errorCode()).isEqualTo(ErrorCode.ACCESS_DENIED));
+		User other = userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(
+			"other-instructor-" + UUID.randomUUID() + "@example.com", "hash", "Other", UserRole.INSTRUCTOR)));
+		assertThatThrownBy(() -> instructorExamService.adjustAnswerScore(
+			other.getId(), UserRole.INSTRUCTOR, exam.getId(), submission.getId(), "q1",
+			new ManualScoreAdjustmentRequest(BigDecimal.ONE, "타인 변경 사유")))
+			.isInstanceOfSatisfying(BusinessException.class, error ->
+				assertThat(error.errorCode()).isEqualTo(ErrorCode.CLASSROOM_NOT_FOUND));
+		assertThatThrownBy(() -> instructorExamService.submissionDetail(
+			other.getId(), UserRole.INSTRUCTOR, exam.getId(), submission.getId()))
+			.isInstanceOfSatisfying(BusinessException.class, error ->
+				assertThat(error.errorCode()).isEqualTo(ErrorCode.CLASSROOM_NOT_FOUND));
+		ExamAnswer stored = storedAnswer();
+		assertThat(stored.getManualScore()).isEqualByComparingTo("8.00");
+		assertThat(stored.getManualScoreReason()).isEqualTo("기존 검토 사유");
+		assertThat(submissionRepository.findById(submission.getId()).orElseThrow().getScore())
+			.isEqualByComparingTo("8.00");
+	}
+
+	@Test
+	void concurrentAdjustmentsKeepScoreAndReasonFromTheSameCommittedRequest() throws Exception {
+		CyclicBarrier start = new CyclicBarrier(2);
+		try (var executor = Executors.newFixedThreadPool(2)) {
+			var first = executor.submit(() -> {
+				start.await(5, TimeUnit.SECONDS);
+				adjust("6.00", "6점 검토 사유");
+				return null;
+			});
+			var second = executor.submit(() -> {
+				start.await(5, TimeUnit.SECONDS);
+				adjust("8.00", "8점 검토 사유");
+				return null;
+			});
+			first.get(20, TimeUnit.SECONDS);
+			second.get(20, TimeUnit.SECONDS);
+		}
+		ExamAnswer stored = storedAnswer();
+		assertThat(stored.getManualScore().intValueExact()).isIn(6, 8);
+		assertThat(stored.getManualScoreReason())
+			.isEqualTo(stored.getManualScore().intValueExact() + "점 검토 사유");
+		ExamSubmission updated = submissionRepository.findById(submission.getId()).orElseThrow();
+		assertThat(updated.getScore()).isEqualByComparingTo(stored.getManualScore());
+		assertThat(updated.getNormalizedScore())
+			.isEqualByComparingTo(stored.getManualScore().multiply(BigDecimal.TEN));
+		assertThat(stored.getScore()).isEqualByComparingTo("4.00");
+		assertThat(stored.getAdjustedBy()).isEqualTo(instructor.getId());
+	}
+
+	private void adjust(String score, String reason) {
+		instructorExamService.adjustAnswerScore(instructor.getId(), UserRole.INSTRUCTOR,
+			exam.getId(), submission.getId(), "q1", new ManualScoreAdjustmentRequest(new BigDecimal(score), reason));
+	}
+
+	private ExamAnswer storedAnswer() {
+		entityManager.clear();
+		return answerRepository.findBySubmission_IdOrderByQuestion_Id(submission.getId()).getFirst();
 	}
 }

@@ -22,6 +22,8 @@ _PLAN_ASSESSMENT_FIELDS = {
     "weaknesses",
 }
 
+type PlanSource = Literal["DETERMINISTIC", "LLM"]
+
 
 class AgentContext(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -48,6 +50,8 @@ class AgentContext(BaseModel):
     page_quiz_decision: PageQuizDecision | None = None
     qa_quiz_proposal_enabled: bool = False
     quiz_question_stream_enabled: bool = False
+    # Internal provenance, set only by TurnService after planning; never from the wire.
+    plan_source: PlanSource | None = None
 
     @property
     def page_attached(self) -> bool:

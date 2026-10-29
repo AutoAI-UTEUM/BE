@@ -87,6 +87,17 @@ public class AiUsageService {
 		}
 	}
 
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void markTurnPolicyRejected(Long userId, String executionId) {
+		try {
+			repository.markRejected(userId, AiFeature.TURN, executionId);
+		} catch (RuntimeException exception) {
+			rollbackIfActive();
+			log.atWarn().addKeyValue("userId", userId).addKeyValue("feature", AiFeature.TURN)
+				.log("Failed to mark rejected AI turn usage");
+		}
+	}
+
 	private String normalizeRequestId(String requestId) {
 		if (requestId == null || requestId.isBlank() || requestId.length() > 64) {
 			return null;

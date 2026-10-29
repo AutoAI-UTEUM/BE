@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.ai.dto.QuizAssessmentResponse;
 import io.edupilot.material.LearningMaterial;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.memory.LearnerMemoryCandidate;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
@@ -29,6 +30,7 @@ public class AssessmentPersistenceService {
 	private final LearnerMemoryCandidateRepository candidateRepository;
 	private final UserRepository userRepository;
 	private final LearningMaterialRepository materialRepository;
+	private final MaterialAccessService materialAccessService;
 
 	public AssessmentPersistenceService(
 		LearningSessionRepository sessionRepository,
@@ -36,7 +38,8 @@ public class AssessmentPersistenceService {
 		QuizAssessmentRepository assessmentRepository,
 		LearnerMemoryCandidateRepository candidateRepository,
 		UserRepository userRepository,
-		LearningMaterialRepository materialRepository
+		LearningMaterialRepository materialRepository,
+		MaterialAccessService materialAccessService
 	) {
 		this.sessionRepository = sessionRepository;
 		this.submissionRepository = submissionRepository;
@@ -44,6 +47,7 @@ public class AssessmentPersistenceService {
 		this.candidateRepository = candidateRepository;
 		this.userRepository = userRepository;
 		this.materialRepository = materialRepository;
+		this.materialAccessService = materialAccessService;
 	}
 
 	@Transactional
@@ -59,6 +63,7 @@ public class AssessmentPersistenceService {
 		if (session == null || session.getStatus() != SessionStatus.ACTIVE) {
 			return AssessmentSaveResult.discarded();
 		}
+		materialAccessService.requireAccessibleForUpdate(context.userId(), session.getMaterialId());
 		QuizAssessment existing = assessmentRepository
 			.findBySubmission_Id(context.submissionId())
 			.orElse(null);

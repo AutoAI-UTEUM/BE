@@ -9,13 +9,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.diagnosis.DiagnosisService;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
+import io.edupilot.guardian.team.GuardianTeamProperties;
 import io.edupilot.material.LearningMaterialRepository;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.memory.LearnerMemoryCandidate;
 import io.edupilot.memory.LearnerMemoryCandidateRepository;
 import io.edupilot.memory.MemoryEvidenceRef;
@@ -25,9 +30,19 @@ import io.edupilot.session.dto.MessageResponse;
 import io.edupilot.session.dto.NoteDraft;
 import io.edupilot.session.dto.TurnStateResponse;
 import io.edupilot.user.UserRepository;
+import io.edupilot.user.User;
+import io.edupilot.user.UserBusinessAccessState;
+import io.edupilot.user.UserCurrentStateRefresh;
+import io.edupilot.user.UserRole;
+import io.edupilot.user.UserStatus;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 
 @Service
 public class TurnPersistenceService {
+	private static final Logger log = LoggerFactory.getLogger(
+		TurnPersistenceService.class
+	);
 
 	private final LearningSessionRepository sessionRepository;
 	private final SessionPageRecordRepository pageRecordRepository;
@@ -43,6 +58,13 @@ public class TurnPersistenceService {
 	private final UiActionResolver uiActionResolver;
 	private final ConversationSummaryDispatcher summaryDispatcher;
 	private final Clock clock;
+	private final QaQuizProposalProperties qaQuizProposalProperties;
+	private final QaQuizProposalSuppression qaQuizProposalSuppression;
+	private final MaterialAccessService materialAccessService;
+	private final EntityManager entityManager;
+	// 기존 직접 생성과 좁은 테스트 구성은 정책이 없으면 팀 승인을 허용하지 않는다.
+	@Autowired(required = false)
+	private GuardianTeamProperties guardianTeamPolicy;
 
 	public TurnPersistenceService(
 		LearningSessionRepository sessionRepository,
@@ -58,7 +80,11 @@ public class TurnPersistenceService {
 		DiagnosisService diagnosisService,
 		UiActionResolver uiActionResolver,
 		ConversationSummaryDispatcher summaryDispatcher,
-		Clock clock
+		Clock clock,
+		QaQuizProposalProperties qaQuizProposalProperties,
+		QaQuizProposalSuppression qaQuizProposalSuppression,
+		MaterialAccessService materialAccessService,
+		EntityManager entityManager
 	) {
 		this.sessionRepository = sessionRepository;
 		this.pageRecordRepository = pageRecordRepository;
@@ -74,11 +100,16 @@ public class TurnPersistenceService {
 		this.uiActionResolver = uiActionResolver;
 		this.summaryDispatcher = summaryDispatcher;
 		this.clock = clock;
+		this.qaQuizProposalProperties = qaQuizProposalProperties;
+		this.qaQuizProposalSuppression = qaQuizProposalSuppression;
+		this.materialAccessService = materialAccessService;
+		this.entityManager = entityManager;
 	}
 
 	@Transactional
 	public PersistedTurn persist(
 		Long userId,
+		UserRole expectedRole,
 		Long sessionId,
 		String requestId,
 		TurnEventType eventType,
@@ -87,18 +118,26 @@ public class TurnPersistenceService {
 		boolean xaiFileAttached,
 		io.edupilot.ai.dto.TurnResponse aiResponse
 	) {
-		LearningSession session = sessionRepository.findOwnedForUpdate(
-				sessionId,
-				userId
-			)
-			.orElseThrow(() ->
-				new BusinessException(ErrorCode.SESSION_NOT_FOUND));
-		if (session.getStatus() != SessionStatus.ACTIVE) {
-			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
-		}
-		if (!requestId.equals(session.getActiveTurnRequestId())) {
-			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
-		}
+		// 기존 호출은 초기 세대만 저장할 수 있다. 비동기 작업은 캡처한 동의 세대를 전달해야 한다.
+		return persist(userId, expectedRole, 0, sessionId, requestId, eventType, diagnosisId,
+			userMessageId, xaiFileAttached, aiResponse);
+	}
+
+	@Transactional
+	public PersistedTurn persist(
+		Long userId,
+		UserRole expectedRole,
+		long expectedGuardianConsentEpoch,
+		Long sessionId,
+		String requestId,
+		TurnEventType eventType,
+		Long diagnosisId,
+		Long userMessageId,
+		boolean xaiFileAttached,
+		io.edupilot.ai.dto.TurnResponse aiResponse
+	) {
+		LearningSession session = lockAccessibleSession(userId, expectedRole,
+			expectedGuardianConsentEpoch, sessionId, requestId);
 		// Persisted direct-note responses have no content delta by contract.
 		boolean directNote = aiResponse.isDirectNote(eventType.name(), 0);
 		if (eventType == TurnEventType.USER_QUESTION
@@ -206,6 +245,10 @@ public class TurnPersistenceService {
 					nextPageStatus,
 					uiActions,
 					pageStatusChanged
+						|| (eventType == TurnEventType.USER_QUESTION
+							&& (uiActions.equals(List.of(UiAction.quizProposal()))
+								|| session.getLastUiActions().contains(
+									UiAction.quizProposal())))
 				);
 			}
 			if (eventType == TurnEventType.EXPLAIN_CURRENT_PAGE
@@ -246,29 +289,36 @@ public class TurnPersistenceService {
 			session.getMaterialId()
 		);
 		summaryDispatcher.dispatchAfterCommit(sessionId);
+		qaQuizProposalSuppression.turnCompletedAfterCommit(
+			sessionId, eventType
+		);
 		return persisted;
 	}
 
 	@Transactional
 	public PersistedTurn persistCancelled(
 		Long userId,
+		UserRole expectedRole,
 		Long sessionId,
 		String requestId,
 		String turnId,
 		String content
 	) {
-		LearningSession session = sessionRepository.findOwnedForUpdate(
-				sessionId,
-				userId
-			)
-			.orElseThrow(() ->
-				new BusinessException(ErrorCode.SESSION_NOT_FOUND));
-		if (session.getStatus() != SessionStatus.ACTIVE) {
-			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
-		}
-		if (!requestId.equals(session.getActiveTurnRequestId())) {
-			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
-		}
+		return persistCancelled(userId, expectedRole, 0, sessionId, requestId, turnId, content);
+	}
+
+	@Transactional
+	public PersistedTurn persistCancelled(
+		Long userId,
+		UserRole expectedRole,
+		long expectedGuardianConsentEpoch,
+		Long sessionId,
+		String requestId,
+		String turnId,
+		String content
+	) {
+		LearningSession session = lockAccessibleSession(userId, expectedRole,
+			expectedGuardianConsentEpoch, sessionId, requestId);
 
 		ChatMessage message = messageRepository.save(
 			ChatMessage.ai(session, content)
@@ -292,12 +342,83 @@ public class TurnPersistenceService {
 		return persisted;
 	}
 
+	private LearningSession lockAccessibleSession(
+		Long userId, UserRole expectedRole, long expectedGuardianConsentEpoch,
+		Long sessionId, String requestId
+	) {
+		User user = userRepository.findByIdForBusinessAccess(userId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID));
+		// Keep the account lock ahead of session/material locks, and force a current read
+		// even when the managed account already carries the same or a stronger lock mode.
+		UserCurrentStateRefresh.refreshLocked(entityManager, user, LockModeType.PESSIMISTIC_READ);
+		if (user.getStatus() == UserStatus.SUSPENDED) {
+			throw new BusinessException(ErrorCode.ACCOUNT_SUSPENDED);
+		}
+		if (!user.isActive() || user.getRole() != expectedRole) {
+			throw new BusinessException(ErrorCode.TOKEN_INVALID);
+		}
+		if (user.getGuardianConsentEpoch() != expectedGuardianConsentEpoch) {
+			throw new BusinessException(ErrorCode.GUARDIAN_CONSENT_CHANGED);
+		}
+		// Apply eligibility under the same current-read account lock, before any AI result writes.
+		boolean policyReady = guardianTeamPolicy != null && guardianTeamPolicy.ready();
+		String expectedPolicyDigest = policyReady ? guardianTeamPolicy.configurationDigest() : null;
+		ErrorCode eligibilityFailure = UserBusinessAccessState.from(user)
+			.aiEligibilityFailure(clock, policyReady, expectedPolicyDigest);
+		if (eligibilityFailure != null) throw new BusinessException(eligibilityFailure);
+		LearningSession session = sessionRepository.findOwnedForUpdate(sessionId, userId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
+		if (session.getStatus() != SessionStatus.ACTIVE) {
+			throw new BusinessException(ErrorCode.SESSION_NOT_ACTIVE);
+		}
+		if (!requestId.equals(session.getActiveTurnRequestId())) {
+			throw new BusinessException(ErrorCode.SESSION_STATE_CONFLICT);
+		}
+		materialAccessService.requireAccessibleForUpdate(userId, session.getMaterialId());
+		return session;
+	}
+
 	private List<UiAction> applyAllowedAiUiAction(
 		TurnEventType eventType,
 		LearningSession session,
 		List<UiAction> resolvedUiActions,
 		io.edupilot.ai.dto.TurnResponse aiResponse
 	) {
+		if (eventType == TurnEventType.USER_QUESTION) {
+			List<Map<String, Object>> quizProposals =
+				aiResponse.uiActions().stream()
+					.filter(TurnResponseValidator::isQuizProposal)
+					.toList();
+			String filtered = qaQuizProposalFilterReason(
+				session,
+				aiResponse,
+				quizProposals.size()
+			);
+			boolean passed = quizProposals.size() == 1
+				&& filtered == null;
+			log.atInfo()
+				.addKeyValue("sessionId", session.getId())
+				.addKeyValue("turnId", aiResponse.turnId())
+				.addKeyValue("qaQuizProposalPresent", !quizProposals.isEmpty())
+				.addKeyValue("qaQuizProposalPassed", passed)
+				.addKeyValue("qaQuizProposalFiltered", filtered)
+				.log("QA quiz proposal evaluated");
+			if ("CAPABILITY_OFF".equals(filtered)) {
+				log.atWarn()
+					.addKeyValue("sessionId", session.getId())
+					.addKeyValue("turnId", aiResponse.turnId())
+					.addKeyValue("qaQuizProposalFiltered", filtered)
+					.log("Ignored QA quiz proposal without capability");
+			}
+			if (passed) {
+				return List.of(UiAction.quizProposal());
+			}
+			if (filtered != null) {
+				resolvedUiActions = resolvedUiActions.stream()
+					.filter(action -> !action.equals(UiAction.quizProposal()))
+					.toList();
+			}
+		}
 		List<Map<String, Object>> moveNextPageProposals =
 			aiResponse.uiActions().stream()
 				.filter(TurnResponseValidator::isMoveNextPageProposal)
@@ -341,6 +462,37 @@ public class TurnPersistenceService {
 			));
 		}
 		return List.copyOf(accepted);
+	}
+
+	private String qaQuizProposalFilterReason(
+		LearningSession session,
+		io.edupilot.ai.dto.TurnResponse aiResponse,
+		int proposalCount
+	) {
+		if (proposalCount == 0) {
+			return null;
+		}
+		if (!qaQuizProposalProperties.enabled()) {
+			return "CAPABILITY_OFF";
+		}
+		if (proposalCount != 1 || aiResponse.uiActions().size() != 1) {
+			return "MULTIPLE_ACTIONS";
+		}
+		if (aiResponse.messages().size() != 1
+			|| !"QA".equals(
+				aiResponse.messages().getFirst().get("messageType"))) {
+			return "NON_QA_SHAPE";
+		}
+		if (session.getActiveQuizId() != null) {
+			return "ACTIVE_QUIZ";
+		}
+		if (session.getPendingDiagnosisId() != null) {
+			return "PENDING_DIAGNOSIS";
+		}
+		if (qaQuizProposalSuppression.isSuppressed(session.getId())) {
+			return "SUPPRESSED";
+		}
+		return null;
 	}
 
 	private boolean hasSingleQuizProposal(

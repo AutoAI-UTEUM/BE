@@ -61,6 +61,21 @@ public interface ClassroomWeekMaterialRepository
 		@Param("materialId") Long materialId
 	);
 
+	// Lock the grant rows themselves: a material lock alone cannot stop membership removal.
+	@Query(value = """
+		select member.id
+		from classroom_week_materials link
+		join classroom_weeks week on week.id = link.week_id
+		join classroom_members member on member.classroom_id = week.classroom_id
+		where link.material_id = :materialId and member.user_id = :userId
+		order by member.id, link.id
+		for update
+		""", nativeQuery = true)
+	List<Long> lockAccessGrants(
+		@Param("userId") Long userId,
+		@Param("materialId") Long materialId
+	);
+
 	@EntityGraph(attributePaths = {"week", "material"})
 	@Query("""
 		select link

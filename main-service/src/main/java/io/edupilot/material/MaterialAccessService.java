@@ -43,7 +43,11 @@ public class MaterialAccessService {
 		LearningMaterial material = materialRepository.findByIdForUpdate(materialId)
 			.filter(LearningMaterial::isActive)
 			.orElseThrow(() -> new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
-		return assertAccessible(userId, material);
+		if (!material.getOwnerId().equals(userId)
+			&& weekMaterialRepository.lockAccessGrants(userId, materialId).isEmpty()) {
+			throw new BusinessException(ErrorCode.MATERIAL_NOT_FOUND);
+		}
+		return material;
 	}
 
 	@Transactional(readOnly = true)

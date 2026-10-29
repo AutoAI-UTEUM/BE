@@ -352,6 +352,23 @@ class TurnResponseValidatorTest {
 	}
 
 	@Test
+	void acceptsExactQaQuizProposalWithoutChangingQaShapeValidation() {
+		validator.validate(
+			response(
+				List.of(Map.of("messageType", "QA", "content", "답변")),
+				Map.of("qaThread", Map.of("mode", "START_NEW")),
+				List.of(Map.of(
+					"type", "BINARY_DECISION",
+					"content", "퀴즈를 진행할까요?",
+					"yesEvent", "SHOW_QUIZ_TYPE_SELECT",
+					"noEvent", "WAIT"
+				))
+			),
+			"turn-1", null, TurnEventType.USER_QUESTION, null, Set.of()
+		);
+	}
+
+	@Test
 	void rejectsQuizPresenceTypeCountCoverageAndSchemaViolations() {
 		assertInvalidQuiz(
 			response(List.of(), Map.of()),

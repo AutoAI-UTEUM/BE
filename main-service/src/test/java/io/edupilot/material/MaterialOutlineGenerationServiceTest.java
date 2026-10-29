@@ -2,6 +2,7 @@ package io.edupilot.material;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,12 +40,15 @@ class MaterialOutlineGenerationServiceTest {
 
 	@BeforeEach
 	void setUp() {
+		lenient().when(persistenceService.claimAutomaticGeneration(10L))
+			.thenReturn(true);
 		generationService = new MaterialOutlineGenerationService(
 			persistenceService,
 			renderer,
 			aiClient,
 			aiUsageService,
-			new PageQuizPlanProperties(false)
+			new PageQuizPlanProperties(false, false),
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 	}
 
@@ -93,10 +97,12 @@ class MaterialOutlineGenerationServiceTest {
 	}
 
 	@Test
-	void enabledPlanFlagSendsAllPagesAndStoresDecision() {
+	void enabledPlanWithBackfillDisabledStillRequestsAllPagesAndStoresDecision() {
 		generationService = new MaterialOutlineGenerationService(
 			persistenceService, renderer, aiClient, aiUsageService,
-			new PageQuizPlanProperties(true));
+			new PageQuizPlanProperties(true, false),
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
+		);
 		OutlineSnapshot snapshot = snapshot();
 		OutlineRequest request = new OutlineRequest("1.0", snapshot.xaiFileId(),
 			2, snapshot.pages(), true);
@@ -115,7 +121,9 @@ class MaterialOutlineGenerationServiceTest {
 	void incompletePagesDoNotRequestPlanEvenWhenEnabled() {
 		generationService = new MaterialOutlineGenerationService(
 			persistenceService, renderer, aiClient, aiUsageService,
-			new PageQuizPlanProperties(true));
+			new PageQuizPlanProperties(true, false),
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
+		);
 		OutlineSnapshot incomplete = new OutlineSnapshot(1L, 2,
 			"file-outline-phase-five", List.of(new OutlineRequest.Page(1, "첫 페이지")));
 		OutlineRequest request = request(incomplete);
@@ -134,7 +142,9 @@ class MaterialOutlineGenerationServiceTest {
 	void invalidPlanStillStoresReadyOverviewWithoutPlan() {
 		generationService = new MaterialOutlineGenerationService(
 			persistenceService, renderer, aiClient, aiUsageService,
-			new PageQuizPlanProperties(true));
+			new PageQuizPlanProperties(true, false),
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
+		);
 		OutlineSnapshot snapshot = snapshot();
 		OutlineRequest request = new OutlineRequest("1.0", snapshot.xaiFileId(),
 			2, snapshot.pages(), true);
@@ -181,6 +191,29 @@ class MaterialOutlineGenerationServiceTest {
 
 		verify(aiClient, never()).outline(org.mockito.ArgumentMatchers.any());
 		verify(persistenceService, never()).markFailed(10L);
+	}
+
+	@Test
+	void deniedAutomaticClaimSkipsAiCall() {
+		when(persistenceService.claimAutomaticGeneration(10L)).thenReturn(false);
+
+		generationService.generate(10L);
+
+		verify(aiClient, never()).outline(org.mockito.ArgumentMatchers.any());
+		verify(persistenceService, never()).snapshot(10L);
+	}
+
+	@Test
+	void manualRegenerationBypassesAutomaticClaimAndCountsFailureOnce() {
+		when(persistenceService.snapshotForManual(10L))
+			.thenReturn(Optional.of(snapshot()));
+		when(aiClient.outline(request(snapshot())))
+			.thenThrow(new AiClientException(ErrorCode.AI_SERVICE_TIMEOUT));
+
+		generationService.generateManual(10L);
+
+		verify(persistenceService, never()).claimAutomaticGeneration(10L);
+		verify(persistenceService).markFailed(10L);
 	}
 
 	@Test

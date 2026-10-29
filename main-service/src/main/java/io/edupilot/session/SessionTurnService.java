@@ -10,6 +10,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
 import org.slf4j.Logger;
@@ -25,6 +27,7 @@ import io.edupilot.ai.AiClientProperties;
 import io.edupilot.ai.AiFailureCategory;
 import io.edupilot.ai.AiStreamCancellation;
 import io.edupilot.ai.TurnStreamEvent;
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.aiusage.AiFeature;
 import io.edupilot.aiusage.AiQuotaService;
 import io.edupilot.aiusage.AiUsageService;
@@ -32,6 +35,7 @@ import io.edupilot.aiusage.QuizDecisionSource;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 import io.edupilot.global.security.TraceIdFilter;
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.memory.LearnerMemoryPromotionService;
 import io.edupilot.material.MaterialAccessService;
 import io.edupilot.session.dto.TurnRequest;
@@ -82,6 +86,7 @@ public class SessionTurnService {
 	private final UserRepository userRepository;
 	private final LongSupplier nanoTime;
 	private final MaterialAccessService materialAccessService;
+	private final SessionStreamAccessGuard accessGuard;
 
 	@Autowired
 	public SessionTurnService(
@@ -97,7 +102,8 @@ public class SessionTurnService {
 		SessionStreamService streamService,
 		AiClientProperties aiClientProperties,
 		UserRepository userRepository,
-		MaterialAccessService materialAccessService
+		MaterialAccessService materialAccessService,
+		SessionStreamAccessGuard accessGuard
 	) {
 		this(
 			claimService,
@@ -113,6 +119,7 @@ public class SessionTurnService {
 			aiClientProperties,
 			userRepository,
 			materialAccessService,
+			accessGuard,
 			System::nanoTime
 		);
 	}
@@ -131,6 +138,7 @@ public class SessionTurnService {
 		AiClientProperties aiClientProperties,
 		UserRepository userRepository,
 		MaterialAccessService materialAccessService,
+		SessionStreamAccessGuard accessGuard,
 		LongSupplier nanoTime
 	) {
 		this.claimService = claimService;
@@ -146,6 +154,7 @@ public class SessionTurnService {
 		this.aiClientProperties = aiClientProperties;
 		this.userRepository = userRepository;
 		this.materialAccessService = materialAccessService;
+		this.accessGuard = accessGuard;
 		this.nanoTime = nanoTime;
 	}
 
@@ -155,6 +164,7 @@ public class SessionTurnService {
 		TurnRequest request
 	) {
 		materialAccessService.assertSessionAccessible(userId, sessionId);
+		SessionStreamAccessGuard.Access access = accessGuard.captureAccess(userId);
 		TurnEventType eventType = parseEventType(request.eventType());
 		ValidatedPayload payload = validatePayload(
 			userId,
@@ -164,6 +174,8 @@ public class SessionTurnService {
 		claimService.claim(userId, sessionId, request.requestId());
 		SessionStreamConnection streamConnection = null;
 		Long userMessageId = null;
+		boolean persistenceCompleted = false;
+		String persistingExecutionId = null;
 		try {
 			PreparedTurn prepared;
 			try {
@@ -186,14 +198,16 @@ public class SessionTurnService {
 				);
 			}
 			userMessageId = prepared.userMessageId();
-			TurnSnapshot snapshot = eventType == TurnEventType.QUIZ_TYPE_SELECTED
-				? snapshotService.buildQuiz(userId, sessionId, userMessageId)
-				: snapshotService.build(
-					userId,
-					sessionId,
-					userMessageId,
-					payload.includeCurrentPage()
-				);
+			TurnSnapshot snapshot = switch (eventType) {
+				case QUIZ_TYPE_SELECTED -> snapshotService.buildQuiz(
+					userId, sessionId, userMessageId);
+				case USER_QUESTION -> snapshotService.buildQuestion(
+					userId, sessionId, userMessageId,
+					payload.includeCurrentPage());
+				default -> snapshotService.build(
+					userId, sessionId, userMessageId,
+					payload.includeCurrentPage());
+			};
 			AiStreamCancellation cancellation = new AiStreamCancellation();
 			Optional<SessionStreamConnection> activeStream =
 				streamService.beginTurn(
@@ -203,20 +217,23 @@ public class SessionTurnService {
 					cancellation
 				);
 			streamConnection = activeStream.orElse(null);
-			UserRole role = userRole(userId);
+			UserRole role = access.role();
 			PersistedTurn persisted;
 			if (streamConnection == null) {
 				io.edupilot.ai.dto.TurnResponse aiResponse = executeAiTurn(
 						userId,
 						sessionId,
-						role,
+						access,
 						request,
 						eventType,
 						payload.aiPayload(),
 						snapshot
 					);
+				persistingExecutionId = aiResponse.turnId();
 				persisted = persistenceService.persist(
 					userId,
+					role,
+					access.guardianConsentEpoch(),
 					sessionId,
 					request.requestId(),
 					eventType,
@@ -228,7 +245,7 @@ public class SessionTurnService {
 			} else {
 				StreamExecution execution = executeAiTurnStream(
 						userId,
-						role,
+						access,
 						request,
 						eventType,
 						payload.aiPayload(),
@@ -236,9 +253,12 @@ public class SessionTurnService {
 						streamConnection,
 						cancellation
 					);
+				persistingExecutionId = execution.turnId();
 				persisted = execution.cancelled()
 					? persistenceService.persistCancelled(
 						userId,
+						role,
+						access.guardianConsentEpoch(),
 						sessionId,
 						request.requestId(),
 						execution.turnId(),
@@ -246,6 +266,8 @@ public class SessionTurnService {
 					)
 					: persistenceService.persist(
 						userId,
+						role,
+						access.guardianConsentEpoch(),
 						sessionId,
 						request.requestId(),
 						eventType,
@@ -255,7 +277,10 @@ public class SessionTurnService {
 						execution.response()
 					);
 			}
-			promoteMemory(userId, persisted);
+			persistenceCompleted = true;
+			persistingExecutionId = null;
+			accessGuard.assertAccessible(userId, sessionId, access);
+			promoteMemory(userId, persisted, access.guardianConsentEpoch());
 			TurnResponse response = persisted.response();
 			if (streamConnection != null) {
 				completeStream(
@@ -265,13 +290,19 @@ public class SessionTurnService {
 					request.requestId()
 				);
 			}
+			accessGuard.assertAccessible(userId, sessionId, access);
 			return response;
 		} catch (RuntimeException exception) {
-			markFailedMessage(
-				userMessageId,
-				sessionId,
-				request.requestId()
-			);
+			if (!persistenceCompleted && persistingExecutionId != null
+				&& exception instanceof BusinessException business
+				&& (business.errorCode() == ErrorCode.AI_POLICY_REJECTED
+					|| business.errorCode() == ErrorCode.AI_RESPONSE_INVALID)) {
+				// Refine the same execution row after transactional policy rejection, never insert again.
+				aiUsageService.markTurnPolicyRejected(userId, persistingExecutionId);
+			}
+			if (!persistenceCompleted) {
+				markFailedMessage(userMessageId, sessionId, request.requestId());
+			}
 			if (streamConnection != null) {
 				streamService.fail(streamConnection, exception);
 			}
@@ -313,6 +344,13 @@ public class SessionTurnService {
 		try {
 			streamService.complete(streamConnection, requestId, response);
 		} catch (RuntimeException exception) {
+			if (exception.getCause() instanceof BusinessException failure) {
+				throw failure;
+			}
+			if (exception instanceof BusinessException failure
+				&& !(exception instanceof AiClientException)) {
+				throw failure;
+			}
 			log.atWarn()
 				.addKeyValue("sessionId", sessionId)
 				.addKeyValue("requestId", requestId)
@@ -328,7 +366,7 @@ public class SessionTurnService {
 
 	private StreamExecution executeAiTurnStream(
 		Long userId,
-		UserRole role,
+		SessionStreamAccessGuard.Access access,
 		TurnRequest request,
 		TurnEventType eventType,
 		Map<String, Object> payload,
@@ -347,9 +385,15 @@ public class SessionTurnService {
 				turnId,
 				eventType,
 				payload,
-				snapshot
+				snapshot,
+				true
 			);
 			boolean aiCallStarted = false;
+			boolean aiCallSucceeded = false;
+			AiUsage usage = null;
+			long attemptStartedNanos = nanoTime.getAsLong();
+			AtomicInteger quizQuestionCount = new AtomicInteger();
+			AtomicLong quizQuestionFirstMs = new AtomicLong(-1);
 			try {
 				long remainingNanos = deadlineNanos - nanoTime.getAsLong();
 				if (remainingNanos <= 0) {
@@ -359,7 +403,7 @@ public class SessionTurnService {
 						null
 					);
 				}
-				aiQuotaService.checkQuota(userId, role);
+				aiQuotaService.checkQuota(userId, access.role());
 				if (cancellation.isCancelled()) {
 					throw new AiClientException(
 						ErrorCode.AI_STREAM_INTERRUPTED,
@@ -373,29 +417,37 @@ public class SessionTurnService {
 					streamConnection.sessionId(), streamConnection,
 					request.requestId(), turnId, attempt, quizDecisionSource
 				);
+				accessGuard.assertAccessible(userId, streamConnection.sessionId(), access);
+				streamService.assertAccessible(streamConnection);
 				aiCallStarted = true;
 				io.edupilot.ai.dto.TurnResponse response =
 					aiClient.executeTurnStream(
 						aiRequest,
 						event -> {
+							accessGuard.assertAccessible(userId, streamConnection.sessionId(), access);
 							if (event.type()
 								== TurnStreamEvent.Type.CONTENT_DELTA) {
 								contentForwarded.set(true);
 								partialContent.append(event.text());
+							}
+							if (event.type() == TurnStreamEvent.Type.QUIZ_QUESTION) {
+								if (!aiRequest.streamsQuizQuestions()) {
+									return;
+								}
+								// 미리보기를 보낸 뒤 재시도하면 서로 다른 생성 결과가 섞인다.
+								contentForwarded.set(true);
+								quizQuestionCount.incrementAndGet();
+								quizQuestionFirstMs.compareAndSet(-1, Math.max(
+									0, (nanoTime.getAsLong() - attemptStartedNanos) / 1_000_000
+								));
 							}
 							streamConnection.send(event);
 						},
 						cancellation,
 						Duration.ofNanos(remainingNanos)
 					);
-				aiUsageService.record(
-					userId,
-					AiFeature.TURN,
-					response == null ? null : response.usage(),
-					true,
-					request.requestId(),
-					quizDecisionSource
-				);
+				usage = response == null ? null : response.usage();
+				accessGuard.assertAccessible(userId, streamConnection.sessionId(), access);
 				responseValidator.validate(
 					response,
 					turnId,
@@ -404,18 +456,14 @@ public class SessionTurnService {
 					expectedQuizType(eventType, payload),
 					availableQuizPages(eventType, snapshot)
 				);
+				logQuizQuestionStream(request, aiRequest, quizQuestionCount.get(), quizQuestionFirstMs.get());
+				aiCallSucceeded = true;
 				return StreamExecution.completed(response);
 			} catch (AiClientException exception) {
-				if (aiCallStarted) {
-					aiUsageService.record(
-						userId,
-						AiFeature.TURN,
-						null,
-						false,
-						null,
-						quizDecisionSource
-					);
+				if (usage == null) {
+					usage = exception.usage();
 				}
+				logQuizQuestionStream(request, aiRequest, quizQuestionCount.get(), quizQuestionFirstMs.get());
 				if (cancellation.isUserCancelled()) {
 					if (partialContent.isEmpty()) {
 						throw new BusinessException(
@@ -444,6 +492,11 @@ public class SessionTurnService {
 					continue;
 				}
 				throw exception;
+			} finally {
+				if (aiCallStarted) {
+					aiUsageService.record(userId, AiFeature.TURN, usage, aiCallSucceeded,
+						turnId, quizDecisionSource);
+				}
 			}
 		}
 		throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
@@ -476,7 +529,7 @@ public class SessionTurnService {
 	private io.edupilot.ai.dto.TurnResponse executeAiTurn(
 		Long userId,
 		Long sessionId,
-		UserRole role,
+		SessionStreamAccessGuard.Access access,
 		TurnRequest request,
 		TurnEventType eventType,
 		Map<String, Object> payload,
@@ -491,9 +544,12 @@ public class SessionTurnService {
 				turnId,
 				eventType,
 				payload,
-				snapshot
+				snapshot,
+				false
 			);
 			boolean aiCallStarted = false;
+			boolean aiCallSucceeded = false;
+			AiUsage usage = null;
 			try {
 				Duration remaining = remainingTurnBudget(deadlineNanos);
 				Duration readTimeout = remaining.compareTo(
@@ -501,22 +557,17 @@ public class SessionTurnService {
 				) < 0
 					? remaining
 					: aiClientProperties.turnReadTimeout();
-				aiQuotaService.checkQuota(userId, role);
+				aiQuotaService.checkQuota(userId, access.role());
 				logAttemptStart(
 					sessionId, null, request.requestId(), turnId, attempt,
 					quizDecisionSource
 				);
+				accessGuard.assertAccessible(userId, sessionId, access);
 				aiCallStarted = true;
 				io.edupilot.ai.dto.TurnResponse response =
 					aiClient.executeTurn(aiRequest, readTimeout);
-				aiUsageService.record(
-					userId,
-					AiFeature.TURN,
-					response == null ? null : response.usage(),
-					true,
-					request.requestId(),
-					quizDecisionSource
-				);
+				usage = response == null ? null : response.usage();
+				accessGuard.assertAccessible(userId, sessionId, access);
 				responseValidator.validate(
 					response,
 					turnId,
@@ -525,17 +576,11 @@ public class SessionTurnService {
 					expectedQuizType(eventType, payload),
 					availableQuizPages(eventType, snapshot)
 				);
+				aiCallSucceeded = true;
 				return response;
 			} catch (AiClientException exception) {
-				if (aiCallStarted) {
-					aiUsageService.record(
-						userId,
-						AiFeature.TURN,
-						null,
-						false,
-						null,
-						quizDecisionSource
-					);
+				if (usage == null) {
+					usage = exception.usage();
 				}
 				logAttemptFailure(
 					sessionId,
@@ -551,6 +596,11 @@ public class SessionTurnService {
 					continue;
 				}
 				throw exception;
+			} finally {
+				if (aiCallStarted) {
+					aiUsageService.record(userId, AiFeature.TURN, usage, aiCallSucceeded,
+						turnId, quizDecisionSource);
+				}
 			}
 		}
 		throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
@@ -572,15 +622,34 @@ public class SessionTurnService {
 		String turnId,
 		TurnEventType eventType,
 		Map<String, Object> payload,
-		TurnSnapshot snapshot
+		TurnSnapshot snapshot,
+		boolean streaming
 	) {
 		return new io.edupilot.ai.dto.TurnRequest(
 			SCHEMA_VERSION,
 			turnId,
 			snapshot.session(),
 			eventData(eventType, payload),
-			snapshot.context()
+			snapshot.context(),
+			!streaming && eventType == TurnEventType.QUIZ_TYPE_SELECTED
+				? null : snapshot.capabilities()
 		);
+	}
+
+	private void logQuizQuestionStream(
+		TurnRequest request,
+		io.edupilot.ai.dto.TurnRequest aiRequest,
+		int count,
+		long firstMs
+	) {
+		if (aiRequest.streamsQuizQuestions()) {
+			log.atInfo()
+				.addKeyValue("requestId", request.requestId())
+				.addKeyValue("turnId", aiRequest.turnId())
+				.addKeyValue("quizQuestionFirstMs", firstMs < 0 ? null : firstMs)
+				.addKeyValue("quizQuestionCount", count)
+				.log("AI quiz question stream finished");
+		}
 	}
 
 	private QuizDecisionSource quizDecisionSource(TurnSnapshot snapshot) {
@@ -700,7 +769,7 @@ public class SessionTurnService {
 			: Set.of();
 	}
 
-	private void promoteMemory(Long userId, PersistedTurn persisted) {
+	private void promoteMemory(Long userId, PersistedTurn persisted, long expectedGuardianConsentEpoch) {
 		if (persisted.memoryWrite() == null) {
 			return;
 		}
@@ -708,9 +777,13 @@ public class SessionTurnService {
 			memoryPromotionService.promoteMemory(
 				userId,
 				persisted.materialId(),
-				persisted.memoryWrite()
+				persisted.memoryWrite(),
+				expectedGuardianConsentEpoch
 			);
 		} catch (RuntimeException exception) {
+			if (exception instanceof BusinessException failure && GuardianConsentFence.isConsentFailure(failure)) {
+				throw failure;
+			}
 			log.atWarn()
 				.addKeyValue("userId", userId)
 				.addKeyValue("materialId", persisted.materialId())
@@ -847,15 +920,6 @@ public class SessionTurnService {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}
 		return user.getAiAnswerStyle().detailLevel();
-	}
-
-	private UserRole userRole(Long userId) {
-		User user = userRepository.findById(userId)
-			.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-		if (!user.isActive()) {
-			throw new BusinessException(ErrorCode.USER_INACTIVE);
-		}
-		return user.getRole();
 	}
 
 	private String requiredText(JsonNode payload, String field) {

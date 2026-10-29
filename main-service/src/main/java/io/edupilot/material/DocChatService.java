@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.DocChatRequest.ContextDocument;
@@ -22,6 +23,8 @@ import io.edupilot.user.UserRepository;
 
 @Service
 public class DocChatService {
+
+	private final GuardianConsentFence consentFence;
 
 	private static final Logger log = LoggerFactory.getLogger(DocChatService.class);
 	private static final String SCHEMA_VERSION = "1.0";
@@ -40,8 +43,10 @@ public class DocChatService {
 		AiQuotaService aiQuotaService,
 		UserRepository userRepository,
 		MaterialDocChatContextService materialContextService,
-		QuizDocChatContextService quizContextService
+		QuizDocChatContextService quizContextService,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
 		this.aiClient = aiClient;
 		this.aiUsageService = aiUsageService;
 		this.aiQuotaService = aiQuotaService;
@@ -101,6 +106,7 @@ public class DocChatService {
 			throw new BusinessException(ErrorCode.USER_INACTIVE);
 		}
 		aiQuotaService.checkQuota(userId, user.getRole());
+		GuardianConsentFence.Snapshot consent = consentFence.capture(userId);
 		io.edupilot.ai.dto.DocChatResponse response;
 		try {
 			response = aiClient.docChat(aiRequest);
@@ -114,6 +120,7 @@ public class DocChatService {
 			aiUsageService.record(userId, AiFeature.DOC_CHAT, null, false);
 			throw exception;
 		}
+		consentFence.assertCurrent(consent);
 		if (response.warnings().stream()
 			.anyMatch(warning -> "CONTEXT_TRUNCATED".equals(warning.type()))) {
 			log.info(

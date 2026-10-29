@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.ArgumentMatchers.eq;
@@ -86,7 +87,8 @@ class AuthServiceTest {
 			userActivityTracker,
 			loginAttemptLimiter,
 			policyService,
-			Clock.fixed(NOW, ZoneOffset.UTC)
+			Clock.fixed(NOW, ZoneOffset.UTC),
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationService.class)
 		);
 		lenient().when(policyService.validateSignup(any())).thenReturn(
 			new SignupSelection("0.9", "0.9", NOW)
@@ -108,7 +110,7 @@ class AuthServiceTest {
 			" 홍길동 ",
 			SignupRole.LEARNER,
 			null, false, consentChoices()
-		));
+		, java.time.LocalDate.of(2000,1,1)));
 
 		assertThat(response.userId()).isEqualTo(1L);
 		assertThat(response.email()).isEqualTo("user@example.com");
@@ -137,7 +139,7 @@ class AuthServiceTest {
 			" EduPilot University ",
 			true,
 			consentChoices()
-		));
+		, java.time.LocalDate.of(2000,1,1)));
 
 		assertThat(response.affiliation()).isEqualTo("EduPilot University");
 		assertThat(response.learningEmailOptIn()).isTrue();
@@ -169,7 +171,7 @@ class AuthServiceTest {
 				null,
 				false,
 				List.of(new PolicyConsentChoice(PolicyType.TERMS, "0.9"))
-			)),
+			, java.time.LocalDate.of(2000,1,1))),
 			ErrorCode.POLICY_CONSENT_REQUIRED
 		);
 		assertBusinessError(
@@ -182,7 +184,7 @@ class AuthServiceTest {
 				false,
 				List.of(new PolicyConsentChoice(PolicyType.TERMS, "1.0"),
 					new PolicyConsentChoice(PolicyType.PRIVACY, "1.0"))
-			)),
+			, java.time.LocalDate.of(2000,1,1))),
 			ErrorCode.POLICY_CONSENT_REQUIRED
 		);
 	}
@@ -202,7 +204,7 @@ class AuthServiceTest {
 			"강사",
 			SignupRole.INSTRUCTOR,
 			null, false, consentChoices()
-		));
+		, java.time.LocalDate.of(2000,1,1)));
 
 		assertThat(response.role()).isEqualTo(UserRole.INSTRUCTOR);
 	}
@@ -217,7 +219,7 @@ class AuthServiceTest {
 				"홍길동",
 				SignupRole.LEARNER,
 				null, false, consentChoices()
-			)),
+			, java.time.LocalDate.of(2000,1,1))),
 			ErrorCode.EMAIL_ALREADY_EXISTS
 		);
 
@@ -231,7 +233,7 @@ class AuthServiceTest {
 				"홍길동",
 				SignupRole.LEARNER,
 				null, false, consentChoices()
-			)),
+			, java.time.LocalDate.of(2000,1,1))),
 			ErrorCode.EMAIL_ALREADY_EXISTS
 		);
 	}
@@ -249,7 +251,7 @@ class AuthServiceTest {
 				"홍길동",
 				SignupRole.LEARNER,
 				null, false, consentChoices()
-			)),
+			, java.time.LocalDate.of(2000,1,1))),
 			ErrorCode.EMAIL_ALREADY_EXISTS
 		);
 
@@ -292,7 +294,7 @@ class AuthServiceTest {
 			null,
 			null,
 			null
-		);
+		, java.time.LocalDate.of(2000,1,1));
 		GoogleProfile profile = new GoogleProfile(
 			"google-subject",
 			"user@example.com",
@@ -318,6 +320,20 @@ class AuthServiceTest {
 		assertThat(result.refreshToken()).isEqualTo("refresh-token");
 		verify(googleIdTokenVerifier).verify("id-token");
 		verify(googleAccountService).resolve(request, profile, "192.0.2.1", "test-agent");
+	}
+
+	@Test
+	void googleEmailCollisionDoesNotIssueAccessRefreshOrAuthSession() {
+		GoogleLoginRequest request = new GoogleLoginRequest("id-token", null, null, null, null, java.time.LocalDate.of(2000,1,1));
+		GoogleProfile profile = new GoogleProfile("new-subject", "user@example.com", "Google user");
+		when(googleIdTokenVerifier.verify("id-token")).thenReturn(profile);
+		when(googleAccountService.resolve(request, profile, "192.0.2.1", "test-agent"))
+			.thenThrow(new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS));
+
+		assertBusinessError(() -> authService.googleLogin(request, "192.0.2.1", "test-agent"),
+			ErrorCode.EMAIL_ALREADY_EXISTS);
+
+		verifyNoInteractions(jwtTokenProvider, refreshTokenService);
 	}
 
 	@Test

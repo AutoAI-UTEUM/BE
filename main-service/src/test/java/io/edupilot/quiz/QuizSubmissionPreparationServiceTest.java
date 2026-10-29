@@ -34,6 +34,9 @@ class QuizSubmissionPreparationServiceTest {
 	private QuizRepository quizRepository;
 
 	@Mock
+	private io.edupilot.material.MaterialAccessService materialAccessService;
+
+	@Mock
 	private MaterialPageRepository materialPageRepository;
 
 	private QuizSubmissionPreparationService service;
@@ -44,7 +47,8 @@ class QuizSubmissionPreparationServiceTest {
 		service = new QuizSubmissionPreparationService(
 			quizRepository,
 			materialPageRepository,
-			new MaterialPageTextMerger()
+			new MaterialPageTextMerger(),
+			materialAccessService
 		);
 		User owner = User.create("owner@example.com", "hash", "소유자");
 		ReflectionTestUtils.setField(owner, "id", 1L);
@@ -157,5 +161,19 @@ class QuizSubmissionPreparationServiceTest {
 				assertThat(exception.errorCode())
 					.isEqualTo(ErrorCode.INVALID_QUIZ_ANSWER)
 			);
+	}
+
+	@Test
+	void revokedAccessIsRejectedBeforePrivateQuestionsAndPageContextAreUsed() {
+		Quiz observedQuiz = org.mockito.Mockito.spy(quiz);
+		when(quizRepository.findOwned(50L, 1L)).thenReturn(Optional.of(observedQuiz));
+		org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.MATERIAL_NOT_FOUND))
+			.when(materialAccessService).assertSessionAccessible(1L, 100L);
+
+		assertThatThrownBy(() -> service.prepare(1L, 50L, null))
+			.isInstanceOfSatisfying(BusinessException.class,
+				error -> assertThat(error.errorCode()).isEqualTo(ErrorCode.MATERIAL_NOT_FOUND));
+		org.mockito.Mockito.verify(observedQuiz, org.mockito.Mockito.never()).getPrivateQuestions();
+		org.mockito.Mockito.verifyNoInteractions(materialPageRepository);
 	}
 }

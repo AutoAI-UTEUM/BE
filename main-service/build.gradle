@@ -35,6 +35,7 @@ dependencies {
 	implementation 'software.amazon.awssdk:cloudwatch'
 	implementation 'software.amazon.awssdk:costexplorer'
 	implementation 'software.amazon.awssdk:sesv2'
+	implementation 'software.amazon.awssdk:sts'
 	implementation 'software.amazon.awssdk:url-connection-client'
 	runtimeOnly 'com.mysql:mysql-connector-j'
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.13.0'
@@ -51,4 +52,21 @@ tasks.named('test') {
 	useJUnitPlatform()
 	maxHeapSize = '2g'
 	systemProperty 'it.ai', System.getProperty('it.ai', 'false')
+}
+
+// Resolve/compile while online; the actual integration JVM runs offline on an internal Docker network.
+tasks.register('guardianMysqlPrepare') {
+	dependsOn testClasses
+	doLast { configurations.testRuntimeClasspath.files }
+}
+
+tasks.register('guardianMysqlTest', Test) {
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform()
+	maxHeapSize = '2g'
+	maxParallelForks = 1
+	include '**/GuardianConsentFenceMysqlTest.class', '**/GuardianAdminLockMysqlTest.class',
+		'**/GuardianTeamFullMigrationTest.class', '**/TurnPersistenceConsentMysqlTest.class'
+	systemProperty 'it.ai', 'false'
 }

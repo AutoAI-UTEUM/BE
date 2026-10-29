@@ -1,5 +1,6 @@
 package io.edupilot.ai;
 
+import io.edupilot.ai.dto.AiUsage;
 import io.edupilot.global.error.BusinessException;
 import io.edupilot.global.error.ErrorCode;
 
@@ -8,6 +9,7 @@ public class AiClientException extends BusinessException {
 	private final AiFailureCategory category;
 	private final boolean retryable;
 	private final String upstreamCode;
+	private final AiUsage usage;
 
 	public AiClientException(ErrorCode errorCode) {
 		this(errorCode, false, null);
@@ -41,10 +43,22 @@ public class AiClientException extends BusinessException {
 		String upstreamCode,
 		Throwable cause
 	) {
+		this(errorCode, category, retryable, upstreamCode, cause, null);
+	}
+
+	private AiClientException(
+		ErrorCode errorCode,
+		AiFailureCategory category,
+		boolean retryable,
+		String upstreamCode,
+		Throwable cause,
+		AiUsage usage
+	) {
 		super(errorCode);
 		this.category = category;
 		this.retryable = retryable;
 		this.upstreamCode = upstreamCode;
+		this.usage = usage;
 		if (cause != null) {
 			initCause(cause);
 		}
@@ -60,6 +74,15 @@ public class AiClientException extends BusinessException {
 
 	public String upstreamCode() {
 		return upstreamCode;
+	}
+
+	public AiUsage usage() {
+		return usage;
+	}
+
+	public AiClientException withUsage(AiUsage knownUsage) {
+		return knownUsage == null ? this : new AiClientException(
+			errorCode(), category, retryable, upstreamCode, getCause(), knownUsage);
 	}
 
 	private static AiFailureCategory categoryFor(ErrorCode errorCode) {

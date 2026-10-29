@@ -36,7 +36,7 @@ jobs:
           if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
             echo "service=true" >> "$GITHUB_OUTPUT"
           elif git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- \
-            main-service .github/workflows/main-service-ci.yml; then
+            main-service scripts/qa/mail-trial .github/workflows/main-service-ci.yml; then
             echo "service=false" >> "$GITHUB_OUTPUT"
           else
             echo "service=true" >> "$GITHUB_OUTPUT"
@@ -52,18 +52,49 @@ jobs:
       - name: Set up Gradle
         if: steps.changes.outputs.service == 'true'
         uses: gradle/actions/setup-gradle@v6
+        with:
+          # This isolated verification PR adds no billed cache or artifact storage.
+          cache-disabled: ${{ github.head_ref == 'feature/guardian-mysql-isolated-20261017' }}
 
       - name: Build and test main-service
         if: steps.changes.outputs.service == 'true'
         working-directory: main-service
         run: ./gradlew build --no-daemon
 
+      - name: Set up Node for offline QA guards
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Validate launch readiness metadata without operations
+        run: node --test scripts/qa/launch-ops/check-manifest.test.mjs
+
+      - name: Validate operations acceptance metadata without operations
+        run: node --test tools/qa/operations-acceptance-20261007/check-manifest.test.mjs
+
+      - name: Validate Guardian MySQL workflow triggers without operations
+        run: python3 -I -S -B scripts/qa/guardian-mysql/test_workflow.py
+
+      - name: Validate DEV deployment preservation without operations
+        run: node --test scripts/qa/dev-deploy-preservation.test.mjs
+
+      - name: Validate Main-only DEV deployment guards without operations
+        run: python3 -I -S -B scripts/deploy/test_dev_main_only.py
+
+      - name: Validate isolated SES trial guards without sending
+        if: steps.changes.outputs.service == 'true'
+        run: |
+          bash -n scripts/qa/mail-trial/run-once.sh
+          node --test scripts/qa/mail-trial/run-once.test.mjs
+          node scripts/qa/mail-trial/check-boot-jar-plan.mjs
+
       - name: Upload main-service test reports
-        if: always() && steps.changes.outputs.service == 'true'
+        if: always() && steps.changes.outputs.service == 'true' && github.head_ref != 'feature/guardian-mysql-isolated-20261017'
         uses: actions/upload-artifact@v6
         with:
           name: main-service-test-reports-${{ github.run_id }}
           path: |
             main-service/build/reports/tests/
             main-service/build/test-results/
+            main-service/build/mail-scheduled-recovery/*.json
           if-no-files-found: warn

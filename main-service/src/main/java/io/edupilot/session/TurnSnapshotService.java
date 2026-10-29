@@ -9,6 +9,7 @@ import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,6 +62,8 @@ public class TurnSnapshotService {
 	private final DiagnosisRepository diagnosisRepository;
 	private final RepairResultRepository repairRepository;
 	private final PageQuizPlanProperties pageQuizPlanProperties;
+	private final QaQuizProposalProperties qaQuizProposalProperties;
+	private final boolean quizQuestionStreamEnabled;
 
 	public TurnSnapshotService(
 		LearningSessionRepository sessionRepository,
@@ -75,7 +78,10 @@ public class TurnSnapshotService {
 		LearnerMemoryCandidateRepository candidateRepository,
 		DiagnosisRepository diagnosisRepository,
 		RepairResultRepository repairRepository,
-		PageQuizPlanProperties pageQuizPlanProperties
+		PageQuizPlanProperties pageQuizPlanProperties,
+		QaQuizProposalProperties qaQuizProposalProperties,
+		@Value("${edupilot.ai.capabilities.quiz-question-stream:false}")
+		boolean quizQuestionStreamEnabled
 	) {
 		this.sessionRepository = sessionRepository;
 		this.pageRepository = pageRepository;
@@ -90,6 +96,8 @@ public class TurnSnapshotService {
 		this.diagnosisRepository = diagnosisRepository;
 		this.repairRepository = repairRepository;
 		this.pageQuizPlanProperties = pageQuizPlanProperties;
+		this.qaQuizProposalProperties = qaQuizProposalProperties;
+		this.quizQuestionStreamEnabled = quizQuestionStreamEnabled;
 	}
 
 	@Transactional(readOnly = true)
@@ -104,7 +112,25 @@ public class TurnSnapshotService {
 			sessionId,
 			currentRequestMessageId,
 			includeCurrentPage,
+			false,
 			false
+		);
+	}
+
+	@Transactional(readOnly = true)
+	public TurnSnapshot buildQuestion(
+		Long userId,
+		Long sessionId,
+		Long currentRequestMessageId,
+		boolean includeCurrentPage
+	) {
+		return build(
+			userId,
+			sessionId,
+			currentRequestMessageId,
+			includeCurrentPage,
+			false,
+			true
 		);
 	}
 
@@ -114,7 +140,7 @@ public class TurnSnapshotService {
 		Long sessionId,
 		Long currentRequestMessageId
 	) {
-		return build(userId, sessionId, currentRequestMessageId, true, true);
+		return build(userId, sessionId, currentRequestMessageId, true, true, false);
 	}
 
 	private TurnSnapshot build(
@@ -122,7 +148,8 @@ public class TurnSnapshotService {
 		Long sessionId,
 		Long currentRequestMessageId,
 		boolean includeCurrentPage,
-		boolean includeQuizContext
+		boolean includeQuizContext,
+		boolean questionTurn
 	) {
 		LearningSession session = sessionRepository
 			.findByIdAndUser_Id(sessionId, userId)
@@ -243,7 +270,15 @@ public class TurnSnapshotService {
 			sessionData,
 			context,
 			materialId,
-			xaiFileAttached
+			xaiFileAttached,
+			questionTurn && qaQuizProposalProperties.enabled()
+				? Map.of("qaQuizProposal", true, "quizQuestionStream", false)
+				: includeQuizContext && quizQuestionStreamEnabled
+					? Map.of(
+						"qaQuizProposal", qaQuizProposalProperties.enabled(),
+						"quizQuestionStream", true
+					)
+					: null
 		);
 	}
 

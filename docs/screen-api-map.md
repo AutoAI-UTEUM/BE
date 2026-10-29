@@ -3,20 +3,27 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 초안 |
-| 마지막 갱신 | 2026-09-21 |
+| 마지막 갱신 | 2026-10-04 |
 | 대상 | Frontend · Spring Backend |
 
 ## 1. 화면별 매핑
 
+강사 탈퇴 확인 화면은 소유한 진행 중 강의실도 탈퇴와 함께 종료된다고 안내합니다. 서버는 해당 강의실을 `COMPLETED`로 전환하며 기존 학생·평가 이력과 소유 관계는 보존합니다. 다른 강사의 강의실은 유지합니다. 기존 완료 강의실의 조회·쓰기 제한을 따르며, 탈퇴 완료 응답·메일을 물리 파일 삭제 완료로 표시하지 않습니다.
+
 | 화면/영역 | 사용자 행동/시점 | API | 성공 시 UI | 주요 오류 |
 | --- | --- | --- | --- | --- |
 | 회원가입 | 이메일 입력 중 중복 확인 | `GET /api/auth/email-availability?email={email}` | 사용 가능 여부 표시 | 이메일 누락·형식 오류 |
-| 회원가입 | 역할·선택 소속·수신 동의 제출; 현재 이용약관 동의와 개인정보 처리방침 열람 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}`, `POST /api/auth/signup` | `requiresConsent=true`인 현재 정책만 `consents`로 제출하고 이력 저장. 개인정보 처리방침 등 동의 비대상 문서는 전문 열람 제공; 로그인 화면 이동 | 필수 설정 시 동의 누락 또는 제출 배열 오류 `POLICY_CONSENT_REQUIRED`, 유효성, 이메일 중복 |
-| 로그인 | 제출 | `POST /api/auth/login` | access와 역할별 `session` 메타를 메모리에 보존한 뒤 자료 목록 이동. refresh는 HttpOnly cookie | 자격 증명 실패, 정지 계정 `ACCOUNT_SUSPENDED` 안내, 429 `LOGIN_RATE_LIMITED`는 `Retry-After` 초 표시 |
-| 로그인 | Google 로그인 | `POST /api/auth/google` | 기존·연동 계정은 access·`session`·`pendingConsents`를 받아 로그인 완료. 신규 계정은 `SIGNUP_REQUIRED` 시 역할·선택 정보와, 필수 설정 시 현재 정책 동의를 받은 뒤 같은 ID 토큰으로 재요청 | Google 토큰 오류, 추가 정보 필요, 비활성 계정 |
+| 회원가입 | 생년월일·역할·선택 소속·수신 동의 제출; 현재 동의 대상 정책 선택과 비대상 문서 열람 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}`, `POST /api/auth/signup` | 신규 필수 `dateOfBirth`와 `requiresConsent=true`인 현재 버전만 제출. DOB 저장/200 가입은 연령·이메일 승인이나 로그인 grant가 아니며 로그인 화면 이동 | DOB 누락400 `VALIDATION_FAILED`, 날짜형식400 `MALFORMED_REQUEST`, 필수 설정에서 유효한 동의 대상이 없는 `SIGNUP_POLICY_NOT_READY`503은 가입 준비 미완료 안내; 대상이 준비된 경우의 동의 누락·배열 오류 `POLICY_CONSENT_REQUIRED`400, 이메일 중복 |
+| 로그인 | 제출 | `POST /api/auth/login` | access와 역할별 `session` 메타를 메모리에 보존. `user.emailVerificationRequired=true`이면 이메일 확인 화면. 이메일 확인 후에도 신규 연령·보호자 제한은 별도 처리하며 자료 이용 성공으로 표시하지 않음. refresh는 HttpOnly cookie | 자격 증명 실패, 정지 계정 `ACCOUNT_SUSPENDED` 안내, 429 `LOGIN_RATE_LIMITED`는 `Retry-After` 초 표시 |
+| 이메일 확인 | 신규 가입 후 확인 안내 또는 기존 예외 계정의 선택 확인 | `GET /api/auth/email-verification/status`, `POST /api/auth/email-verification/request` | 로그인한 본인 계정에 30분 링크 안내; 202는 실제 수신 완료를 뜻하지 않음. LOCAL·Google 신규 가입 모두 BE 확인 링크 사용. UNKNOWN/PENDING+required=false는 확인 성공 표시가 아님 | 인증 누락 401, `RATE_LIMIT_EXCEEDED` 429; 이메일 제한에는 정확한 Retry-After 없음 |
+| 이메일 확인 | `/verify-email#token=`에서 사용자의 확정 동작 | `POST /api/auth/email-verification/confirm` | FE232 계약에 따라 진입 시 주소를 정리하고 메모리 토큰을 명시적 POST body로 전달. URL 열기만으로 소비하지 않음. 구 query 링크는 재발급 안내. status/me는 로그인한 본인 상태를 재조회하며 익명 확정은 자동 로그인하지 않음 | `EMAIL_VERIFICATION_TOKEN_INVALID` 400은 만료·재사용 등을 같은 안내로 처리; 형식 오류 400; GET 확정 405 |
+| 앱 공통 접근 | 신규 계정의 학습·자료·파일·SSE·노트·강의실 호출 | 기존 업무 API | 이메일 확인 필요와 보호자 대상의 UNKNOWN/MANUAL_PENDING 403을 구분. KST 현재 연도−출생 연도 ≥15는 보호자 불필요, ≤14·DOB 미확인은 차단. 세션·본인 관리·동의·탈퇴·로그인·refresh와 V58 기존 이용 예외 유지. 입력·전화 확인·접수를 보호자 승인 성공으로 표시하지 않음 | `EMAIL_VERIFICATION_REQUIRED` → 대상인 경우 `AGE_VERIFICATION_REQUIRED` 또는 `GUARDIAN_VERIFICATION_PENDING`; [현재 BE 경계](business-eligibility-gate.md) |
+| 생년월일 수정 요청 | 관리자에게 정정 요청·본인 상태 조회 | `POST`, `GET /api/users/me/birthdate-correction-requests` | 이메일/보호자 대기 계정도 접수 가능. User DOB는 그대로이며 요청 PENDING을 보호자 승인이나 변경 완료로 표시하지 않음. 동일 날짜 재접수 멱등 | 미래일/현재 DOB 동일400 `VALIDATION_FAILED`, 다른 날짜 대기 요청409 `BIRTHDATE_CORRECTION_PENDING` |
+| 관리자 생년월일 요청 | 대기 목록·상세 조회 | `GET /api/admin/birthdate-correction-requests`, `GET /api/admin/birthdate-correction-requests/{id}` | 현재 DB ADMIN, page 0부터 size 1~100. 승인·수정 버튼의 BE API는 미제공. 탈퇴 후 요청 DOB는 null | 권한 거부, 없는 요청404 `BIRTHDATE_CORRECTION_NOT_FOUND`; [접수 계약](birthdate-policy-and-correction.md) |
+| 로그인 | Google 로그인 | `POST /api/auth/google` | 같은 `googleSub`의 기존 계정은 DOB 재입력 없이 로그인. 비충돌 신규는 role·필수DOB·필요한 현재 동의를 받고 같은 유효 ID 토큰으로 재요청. 신규 로그인 성공 후에도 이메일 PENDING 확인 안내. 이메일 충돌은 기존 로그인 방식 선택 또는 지원 문의 | `SIGNUP_REQUIRED`409, 동의400이 DOB누락보다 먼저일 수 있음; `EMAIL_ALREADY_EXISTS`409, Google 토큰 오류, 비활성 계정 |
 | 로그인 직후 | 미동의 정책 확인·재동의 | 로그인 `pendingConsents`, `GET·POST /api/users/me/consents`, `GET /api/policies/{type}/{version}` | 현재 `requiresConsent=true`인 정책의 pending이 있으면 FE 동의 화면으로 이동. 동의 후 pending 빈 배열 확인; 서버는 미동의 API 차단을 하지 않음 | `POLICY_VERSION_MISMATCH` 시 current 재조회 |
 | 정책 본문 | 현재 이용약관·개인정보 처리방침 표시 | `GET /api/policies/current`, `GET /api/policies/{type}/{version}` | 공개 `/terms`, `/privacy`에서 현재 버전의 본문과 시행일 표시. 0.9는 법무 검토 전 초안이므로 정식 1.0 게시 전 운영 정보·법률 검토 필요 | 없는 버전 404 |
-| 비밀번호 찾기 | 이메일 제출 | `POST /api/auth/password-reset/request` | 202면 가입 여부와 무관하게 "등록된 이메일이면 재설정 안내를 발송했습니다." 표시 | 요청 상한·미가입·비활성 계정도 동일 202 |
+| 비밀번호 찾기 | 이메일 제출 | `POST /api/auth/password-reset/request` | 202면 가입 여부와 무관하게 "등록된 이메일이면 재설정 안내를 발송했습니다." 표시 | 요청 상한·미가입·비활성 계정·메일 저장 롤백도 동일 202 |
 | 비밀번호 재설정 | `/reset-password?token=` 링크에서 새 비밀번호 제출 | `POST /api/auth/password-reset/confirm` | 성공 시 보유 access 삭제 후 로그인 화면 이동 | `RESET_TOKEN_INVALID` 400은 "링크가 만료되었거나 유효하지 않습니다 — 다시 요청" 단일 문구; 비밀번호 정책 오류와 429 구분 |
 | 앱 초기 진입 | 인증 상태 확인 | `GET /api/users/me` | 사용자 정보/권한 반영 | 토큰 만료 |
 | 앱 공통 인증 | 실제 pointer/key/touch/scroll 활동을 탭 전체 기준 최대 5분에 한 번 기록 | `POST /api/auth/session/activity` (Bearer + credentials 포함) | token 회전 없이 응답의 `idleExpiresAt` 갱신·탭 간 전파. background polling은 호출 근거가 아님 | cookie 누락·사용자 불일치 `TOKEN_INVALID`, idle·절대 만료 시 전체 탭 로그인 이동 |
@@ -47,21 +54,22 @@
 | 주차·자료 | 주차 목록·생성·수정·삭제·상태·순서 변경 | `GET·POST /api/classrooms/{id}/weeks`, `PATCH·DELETE .../weeks/{weekNumber}`, `PATCH .../weeks/{weekId}/status`, `PATCH .../weeks/reorder` | `weekId`로 상태 변경, `displayOrder`로 정렬하며 `weekNumber`는 유지. 학습자는 상태와 관계없이 전체 주차 메타와 연결 자료를 표시 | 전체 주차 ID 집합 검증, 주차 중복·범위·소유권·완료 상태, 비멤버 자료 접근 404 유지 |
 | 주차·자료 | 기존 자료 연결·해제 | `POST·DELETE /api/classrooms/{id}/weeks/{weekNumber}/materials/{materialId}` | 주차 자료 목록 갱신 | 자료 중복 연결, 자료·강의실 소유권 |
 | 강의실 자료 업로드 | PDF와 강의실·주차 part 제출 | `POST /api/materials` | 처리 중 자료를 해당 주차에 즉시 표시 | INSTRUCTOR 소유권, part 조합·파일 오류 |
-| 강의실 자료 학습 | 연결 자료 열기·통합학습 시작 | `GET /api/materials/{materialId}`, `GET .../file`, `POST /api/sessions` | 주차 상태와 관계없이 PDF 뷰어와 사용자×자료 공유 세션으로 이동 | 연결 해제·멤버십 |
-| 강의실 일반 자료 | 파일·링크 등록, 전체/주차별 목록, 제목·주차 수정, 파일 열기·다운로드, 삭제 | `GET·POST /api/classrooms/{id}/resources`, `PATCH·DELETE /api/resources/{resourceId}`, `GET .../file` | FILE과 LINK를 구분해 표시하고 이미지·PDF는 inline, 나머지는 attachment로 제공. 일반 자료에는 AI 추출·학습 시작을 연결하지 않음 | 생성·수정·삭제는 소유 강사와 ACTIVE 상태, 조회·다운로드는 승인 멤버, 형식·주차 범위 검증 |
+| 강의실 자료 학습 | 연결 자료 열기·통합학습 시작 | `GET /api/materials/{materialId}`, `GET .../file`, `POST /api/sessions` | 주차 상태와 관계없이 PDF 뷰어와 사용자×자료 공유 세션으로 이동. 새 파일 요청은 Fetch `cache:'no-store'`, 파일 응답은 `no-store, private` | 연결 해제·멤버십 |
+| 강의실 일반 자료 | 파일·링크 등록, 전체/주차별 목록, 제목·주차 수정, 파일 열기·다운로드, 삭제 | `GET·POST /api/classrooms/{id}/resources`, `PATCH·DELETE /api/resources/{resourceId}`, `GET .../file` | FILE과 LINK를 구분해 표시하고 이미지·PDF는 inline, 나머지는 attachment로 제공. 새 파일 요청은 Fetch `cache:'no-store'`, 파일 응답은 `no-store, private`. 일반 자료에는 AI 추출·학습 시작을 연결하지 않음 | 생성·수정·삭제는 소유 강사와 ACTIVE 상태, 조회·다운로드는 승인 멤버, 형식·주차 범위 검증 |
 | 공지 | 목록·즉시/예약 게시·수정·삭제 | `GET·POST /api/classrooms/{id}/notices`, `PATCH·DELETE .../notices/{noticeId}` | 전체/주차 공지를 표시. 강사는 예약 포함 전체, 학습자는 게시 시각이 도래한 공지만 표시 | 강사 권한, 주차 범위, 완료 상태 |
 | 캘린더 | 기간·강의실 필터 조회, 개인 일정 생성·수정·삭제 | `GET·POST /api/users/me/schedule`, `PATCH·DELETE /api/users/me/schedule/{scheduleId}` | 주차 공개·공지·본인 개인 일정을 시간순 표시하고 개인 일정만 편집 | 날짜·시간 범위, 강의실 접근권, 개인 일정 소유권 |
 | 시험 관리 | 시험 생성·목록·상세·수정 | `POST·GET /api/classrooms/{classroomId}/exams`, `GET·PATCH /api/exams/{examId}` | DRAFT 편집기와 전체 상태 목록 및 nullable `dueAt` 표시. rubric 편집기는 기본 접힘·미입력 상태 | 강사 권한, 완료 강의실, DRAFT 편집 상태, 과거 `dueAt` 입력 |
 | 시험 관리 | 자료 기반 AI 문항 초안 | `POST /api/classrooms/{classroomId}/exams/{examId}/draft-questions` | 보조 버튼으로 초안을 받아 편집기에 채우되 자동 저장하지 않음. `truncated=true`면 30페이지 제한 안내 | 소유 강사, DRAFT 상태, READY 자료, AI 오류 |
 | 시험 관리 | 공개·마감·DRAFT 삭제 | `POST /api/exams/{examId}/publish`, `POST .../close`, `DELETE /api/exams/{examId}` | 상태 배지와 응시 가능 여부 갱신 | `EXAM_NOT_EDITABLE`, `EXAM_NOT_PUBLISHED` |
 | 시험 결과 관리 | 학생별 최신 제출·특정 시도 조회 | `GET /api/exams/{examId}/submissions`, `GET .../submissions/{submissionId}` | 운영 화면은 전체 상태의 최신 attempt를 표시. 성적·리포트 대표값은 최신 GRADED attempt | 시험 소유권, 페이지네이션 |
-| 시험 결과 관리 | 문항 점수 수동 조정 | `PATCH /api/exams/{examId}/submissions/{submissionId}/answers/{questionId}/score` | `{score}` 전송 후 반환된 제출 상세 전체로 화면 갱신. `manualScore != null`이면 수동 조정 표시 | 소유 강사·GRADED만 허용, 범위 400, 채점 중·실패 409 |
+| 시험 결과 관리 | 문항 점수 수동 조정 | `PATCH /api/exams/{examId}/submissions/{submissionId}/answers/{questionId}/score` | `{score, reason?}` 전송 후 제출 상세 전체로 갱신. 선택 사유는 최대 500 UTF-16 길이 단위, 강사 상세의 `manualScoreReason`으로만 표시. 생략·null·공백은 사유 없음이며 재수정 시 이전 사유를 지움. `manualScore != null`이면 수동 조정 표시 | 소유 강사·GRADED만 허용, 점수 범위·사유 길이 400, 채점 중·실패 409; 학생 응답에 사유 없음 |
 | 시험 결과 관리 | 실패 제출 재채점 | `POST /api/exams/{examId}/submissions/{submissionId}/regrade` | `GRADING_FAILED`에만 버튼 노출. 202/SUBMITTED 후 결과 조회로 전환하며 저장 답안을 재사용 | 비소유·부재 404, 상태 충돌 409. executor 포화는 202 후 scheduler 회수 |
 | 시험 응시 | 공개·마감 시험 목록과 상세 조회 | `GET /api/classrooms/{classroomId}/exams`, `GET /api/exams/{examId}` | PUBLISHED는 응시 UI, CLOSED는 읽기 전용 결과 UI. `dueAt`은 표시용이며 경과 자체로 응시를 막지 않음 | DRAFT는 `EXAM_NOT_FOUND`로 은닉 |
 | 시험 응시 | 응시 화면 진입 | `POST /api/exams/{examId}/attempts/start` | 화면 진입 시 1회 호출하고 반환된 `startedAt`을 표시 기준으로 사용. 새로고침·재진입도 같은 미소비 시각 반환 | 비멤버·강사·DRAFT/CLOSED·완료 강의실 |
-| 시험 응시 | 답안 임시저장·다른 기기 이어풀기 | `GET·PUT /api/exams/{examId}/attempts/draft` | 진입 시 GET(204면 sessionStorage 폴백), 응시 시작 후 답안 변경 2초 디바운스+30초 주기 PUT. 버전 409 시 `latestDraft`와 로컬 답안 선택 후 재시도. 제출 시 별도 삭제 불필요 | 승인 학습자·PUBLISHED·미소비 시작 기록 필수; `allowRetake=true` 재응시의 새 시작 기록은 허용, `allowRetake=false` 제출 완료 후 409; 256KB/분당 30회 상한 |
-| 시험 응시 | 답안 제출·통신 재시도·재응시 | `POST /api/exams/{examId}/submissions` | 응답 `status`로 분기. 같은 제출 재시도는 같은 `requestId`, 재응시·GRADING_FAILED 재제출은 새 `requestId` | CLOSED, SUBMITTED 중복, 재응시 불가, 답안 형식 오류 |
-| 시험 결과 | 내 최신 또는 지정 시도 조회 | `GET /api/exams/{examId}/submissions/me?attemptNo=` | `reviewAvailable`로 정답·해설 영역을 토글하고 `durationSeconds=null`은 `-`로 표시. SUBMITTED는 2초 polling→30초 뒤 5초, terminal에서 중단. 31분부터 지연 안내, 최대 3개 채점 창을 반영해 91분 초과 시 마지막 조회 후 문의 안내 | 접근 권한, 시도 없음 |
+| 시험 응시 | 답안 임시저장·다른 기기 이어풀기 | `GET·PUT /api/exams/{examId}/attempts/draft` | 진입 시 GET(204면 sessionStorage 폴백), 응시 시작 후 답안 변경 2초 디바운스+30초 주기 PUT. 버전 409 시 `latestDraft`와 로컬 답안 선택 후 재시도. 제출 시 별도 삭제 불필요. 설정된 origin의 PUT preflight 허용 | 승인 학습자·PUBLISHED·미소비 시작 기록 필수; `allowRetake=true` 재응시의 새 시작 기록은 허용, `allowRetake=false` 제출 완료 후 409; 256KB/분당 30회 상한 |
+| 시험 응시 | 답안 제출·통신 재시도·재응시 | `POST /api/exams/{examId}/submissions` | 응답 `status`로 분기. 같은 제출 재시도는 같은 `requestId`, 새 응시는 `allowRetake=true`에서만 새 `requestId`. 최종 미응답은 문항 생략, 명시한 null·공백은 400. 거절 시 draft·start 보존 | CLOSED, SUBMITTED 중복, 재응시 불가(실패 포함), `INVALID_EXAM_ANSWER` |
+| 시험 결과 | 내 최신 또는 지정 시도 조회 | `GET /api/exams/{examId}/submissions/me?attemptNo=` | PUBLISHED의 GRADING_FAILED는 이전 attempt도 점수·판정·피드백을 숨김. `reviewAvailable`로 정답·해설 영역을 토글하고 `durationSeconds=null`은 `-`로 표시. SUBMITTED는 2초 polling→30초 뒤 5초, terminal에서 중단. 31분부터 지연 안내, 최대 3개 채점 창을 반영해 91분 초과 시 마지막 조회 후 문의 안내 | 접근 권한, 시도 없음 |
+| 시험 결과 | 저장 답안 재채점 | `POST /api/exams/{examId}/submissions/me/regrade` | GRADING_FAILED에서 본문 없이 호출. 답안·attempt 고정, 202면 동일 제출 polling 재개, 이미 GRADED이면 멱등 200. `allowRetake=false`의 실패에서 답안 편집·새 제출 금지(`submittable=false`); 허용 시험의 새 응시 동선은 별개 | 승인 LEARNER 멤버·본인 최신 제출, DRAFT/부재 404, 비멤버 404, 역할 403. CLOSED·완료 강의실의 저장 답안 복구 허용 |
 | 리포트 학생 선택 `/classrooms/:classroomId/reports` | 수강생 목록·검색·정렬·제외 | `GET·DELETE /api/classrooms/{classroomId}/students[/{studentId}]` | 프로필·가입일·최근 학습 시각·평균 진도·최근 7일 AI 질문 수 표시. 이름 검색과 최근 활동/이름/낮은 진도 정렬 지원 | 강의실 관리 권한, 잘못된 정렬값, 제외된 학생 404 |
 | 학생 리포트 `/classrooms/:classroomId/students/:studentId/reports` | 버전 목록 조회·FULL/WEEK 생성 | `GET·POST /api/classrooms/{classroomId}/students/{studentId}/reports` | 202의 `reportId`를 유지하고 `pollAfterSeconds` 간격으로 상세 polling | 범위·주차 검증, 학생 소속, 강의실 관리 권한 |
 | 리포트 상세 `/reports/:reportId` | 생성 상태·실패 fallback·완료 결과 조회 | `GET /api/reports/{reportId}` | PROCESSING 표시, FAILED 사실 요약, COMPLETED 점수·단계·trend·근거 표시. 근거의 선택 `metrics`는 label/value로 표시하고 필드가 없으면 수치 영역을 숨김. trend는 같은 scope(FULL 또는 같은 주차 WEEK)의 직전 버전 대비이며 null score는 데이터 부족으로 표시 | `REPORT_NOT_FOUND`, AI failureCode |
@@ -70,15 +78,16 @@
 | 전역 | access 만료 5분 전 최근 실제 활동이 있거나 일반 요청의 최초 401 시 | `POST /api/auth/refresh` (credentials 포함) | 탭 전체 single-flight로 같은 세션의 access/refresh를 1회 회전하고 원 요청은 최대 1회 재시도. `absoluteExpiresAt`은 유지 | `TOKEN_INVALID`, `AUTH_SESSION_IDLE_EXPIRED`, `AUTH_SESSION_ABSOLUTE_EXPIRED`, `USER_INACTIVE`, `ACCOUNT_SUSPENDED` → 전체 탭 로그인 이동; 5xx·통신 오류는 강제 로그아웃 금지 |
 | 헤더/메뉴 | 로그아웃 버튼 | `POST /api/auth/logout` | 현재 기기 인증 세션만 폐기하고 메모리 access 삭제 후 로그인 화면 | 없음(멱등) |
 | 계정 설정 | 현재·새 비밀번호 입력 후 변경 | `PATCH /api/users/me/password` | 성공 시 `reauthenticationRequired=true`를 확인하고 access 삭제 후 로그인 화면 이동 | GOOGLE 계정·동일 비밀번호 409, 현재 비밀번호 불일치·정책 위반 400, 5회 실패 후 429 |
-| 계정 설정 | 탈퇴 버튼 → 비밀번호 확인 모달 | `DELETE /api/users/me` | 토큰 정리 후 로그인 화면 이동 | 비밀번호 불일치 (DEC-028) |
+| 계정 설정 | 탈퇴 확인 → LOCAL 비밀번호 / Google ID 토큰 재인증 | `DELETE /api/users/me` | password·googleIdToken 중 해당 provider 증명 하나만 제출, 성공 후 토큰 정리·로그인 이동 | 누락/중복 증명, provider·sub 불일치, Google 만료/검증 실패 (DEC-028); 파일 보존·강사 강의실 정책은 #477 별도 |
 | 자료 목록 | 화면 진입/페이지 이동 | `GET /api/materials` | 자료 카드 목록. FAILED는 `failureReason`별 안내, null이면 일반 실패 문구, `traceId`가 있으면 문의 정보로 표시 | 권한, 네트워크 |
 | 자료 업로드 | 파일 제출 | `POST /api/materials` | 처리 상태 표시 후 목록 반영 | 파일 형식/크기/처리 실패 |
 | 자료 상세 | 화면 진입 | `GET /api/materials/{materialId}` | 제목, 페이지 수, 학습 시작 가능 여부. FAILED는 사유 코드와 업로드 traceId 표시 | 자료 없음/권한 |
 | 자료 개요 탭 | 탭 진입·상태 갱신 | `GET /api/materials/{materialId}/overview` | 추출 완료 후 비동기 생성. 행이 없거나 PENDING이면 준비 중, READY면 개요, FAILED면 실패 상태 표시 | 자료 없음/권한, 개요 준비·실패 |
+| 관리자 자료 개요 수동 복구 | 운영자가 재생성 요청·상태 확인 | `POST /api/admin/materials/{id}/overview/regenerate`, `GET /api/materials/{id}/overview` | 202는 큐 접수이며 생성 완료가 아님. 자료별 분당 1회, 실패 카운터 초기화 후 비동기 재생성 | 비ADMIN 403, 미준비·없는 자료 404, 1분 제한 429, 큐 실패 503 |
 | PDF 뷰어 문서 질문 | 질문 전송·대화 이어가기 | `POST /api/materials/{materialId}/doc-chat` | 최근 대화 최대 50개를 보내고 응답 `answer`와 `warnings` 표시. 서버는 최근 10개만 AI에 전달 | 자료 없음/권한, 자료 처리 중·실패, AI 오류·429 |
 | 퀴즈 결과 복습 질문 | 질문 전송·대화 이어가기 | `POST /api/materials/{materialId}/quiz-chat` | 본인 제출 퀴즈와 관련 페이지를 근거로 답변 표시 | 자료 없음/권한, 본인 제출 없음, 자료 처리 중·실패, AI 오류·429 |
 | 자료 목록/상세 | 제목 수정 | `PATCH /api/materials/{materialId}` | trim된 새 제목과 갱신된 자료 상세 반영 | 소유자 전용, 빈 제목·255자 초과, 비소유·삭제 자료 404 |
-| PDF 뷰어 | 자료 원본 표시 | `GET /api/materials/{materialId}/file` | 인증된 PDF 스트림 표시 | 자료 없음/권한 |
+| PDF 뷰어 | 자료 원본 표시 | `GET /api/materials/{materialId}/file` | 새 요청은 Fetch `cache:'no-store'`로 현재 권한을 확인하고, `no-store, private` 응답을 Blob으로 표시. 이미 받은 Blob 회수와는 별도 | 자료 없음/권한 |
 | 자료 목록/상세 | 삭제 버튼 → 확인 모달 | `DELETE /api/materials/{materialId}` | 목록에서 제외 | 활성 세션 존재(409 — 세션 정리 안내) |
 | (dev 전용) PDF 디버깅 | 페이지 추출 텍스트 확인 | `GET /api/materials/{materialId}/pages/{pageNumber}` | 페이지 보조 정보 반영 | 운영 비노출(DEC-025) — dev/디버깅 프로파일 한정 |
 | 학습 시작 | 시작 버튼 | `POST /api/sessions` | 세션 화면 이동, 초기 선택 UI 표시 | 자료 준비 안 됨 |
@@ -88,7 +97,7 @@
 | 학습 세션 | 채팅 이력 복원 | `GET /api/sessions/{sessionId}/messages` | 이전 메시지 표시 | 페이지네이션 오류 |
 | 학습 세션 | 대화 새로 시작 | `POST /api/sessions/{sessionId}/conversations` | 기존 화면 이력은 유지하고 이후 AI 대화 문맥만 새 경계로 시작 | 진행 중 턴·비활성 세션·소유권 |
 | 학습 세션 | 퀴즈 제안 "아니요" 선택 | `POST /api/sessions/{sessionId}/quiz-decline` | 응답 `uiActions`로 교체 렌더하고 복원 시 다음 학습 제안 유지 | 비활성 세션·소유권 |
-| 학습 세션 | 노트 작성 | `POST /api/sessions/{sessionId}/notes` | 현재 자료 노트 목록에 추가 | 세션 소유권, 내용·페이지·메시지 참조 오류 |
+| 학습 세션 | 노트 작성 | `POST /api/sessions/{sessionId}/notes` | 현재 자료 노트 목록에 추가; sourceMessageId가 같으면 기존 노트 재사용·수정내용 보존 | 세션 소유권, 내용·페이지·메시지 참조 오류 |
 | 학습 세션 | 자료 노트 진입·페이지 이동 | `GET /api/materials/{materialId}/notes?page&size` 또는 `GET /api/sessions/{sessionId}/notes?page&size` | 같은 자료 범위 노트를 최신순으로 표시 | 자료·세션 소유권, 페이지네이션 오류 |
 | 학습 세션 | 노트 내용 수정 | `PATCH /api/notes/{noteId}` | 수정된 내용·시각 반영 | `NOTE_NOT_FOUND`, 내용 길이 오류 |
 | 학습 세션 | 노트 삭제 | `DELETE /api/notes/{noteId}` | 목록에서 제거 | `NOTE_NOT_FOUND` |
@@ -96,17 +105,17 @@
 | 오답 노트 | 퀴즈 제출 문항을 노트로 저장·조회·수정·삭제 | `GET·POST /api/wrong-answer-notes`, `PATCH·DELETE /api/wrong-answer-notes/{noteId}` | 제출 결과의 `submissionId:questionId`로 등록하고 서버 snapshot을 표시 | 타인·부재 결과 404, 중복 결과는 기존 항목 200 |
 | 최초 로그인 | 로컬 수동·오답 노트 1회 이관 | `POST /api/user-notes/import` | imported·skipped 항목만 로컬에서 제거하고 failed는 사유 표시 후 재시도 | 배열당 200건, 분당 5회, 항목별 부분 성공 |
 | PDF 뷰어 | 다음/이전/번호 입력 | `PATCH /api/sessions/{sessionId}/page` | 응답 페이지로 뷰어 동기화, 설명 여부 UI | 페이지 범위/상태 충돌 |
-| 채팅 | 스트림 선연결 | `GET /api/sessions/{sessionId}/stream` | fetch+Bearer로 현재 연결의 ready 수신 후 turns 호출, 이전 연결 callback은 새 연결과 격리 | 실행 중 중복 연결 409/AI 스트림 중단 |
+| 채팅 | 스트림 선연결 | `GET /api/sessions/{sessionId}/stream` | fetch+Bearer로 현재 연결의 ready 수신 후 turns 호출, 이전 연결 callback은 새 연결과 격리. 새 연결마다 현재 자료 접근 재검사 | 자료 접근 회수 404/정지·탈퇴·역할 변경 401/실행 중 중복 연결 409/AI 스트림 중단 |
 | 채팅 | 설명 시작 선택 | `POST /api/sessions/{sessionId}/turns` | 설명 스트림/메시지 표시 | AI timeout/스키마 오류/일일 AI 쿼터 429 |
 | 채팅 | 답변 생성 중지 | `POST /api/sessions/{sessionId}/turns/cancel` | 수신한 텍스트가 있으면 부분 답변을 저장하고 completed 처리, 없으면 `TURN_CANCELLED` 표시 | 인증, 실행 중 턴 없음은 `cancelled:false` 멱등 응답 |
-| 채팅 | 질문 전송 | 같은 turns API | QA 답변과 후속 질문 문맥 반영 | 빈 질문/AI 오류/일일 AI 쿼터 429 |
+| 채팅 | 질문 전송 | 같은 turns API | QA 답변과 후속 질문 문맥 반영. 서버 플래그 활성화 시 응답 `uiActions`에 기존 퀴즈 제안 위젯이 올 수 있으며 기존 수락·유형 선택 UI 재사용 | 빈 질문/AI 오류/일일 AI 쿼터 429 |
 | 채팅 | 노트 제안 수락 | 같은 turns API (`NOTE_REQUESTED`, `payload: {}`) | `noteDraft`를 편집 UI에 표시하고 확정 시 기존 노트 API로 저장 | 잘못된 초안/AI 오류 |
 | 채팅 | 진단 답변 제출 | 같은 turns API | 오개념 교정 답변 표시 | 진단 상태 충돌 |
-| 퀴즈 유형 선택 | MCQ/OX/SHORT/ESSAY 선택 | 같은 turns API | 응답의 `state.activeQuizId`로 퀴즈 문항 조회 후 UI 열기 | 지원하지 않는 타입 |
+| 퀴즈 유형 선택 | MCQ/OX/SHORT/ESSAY 선택 | 같은 turns API | opt-in `quiz_question`은 제출 비활성 미리보기로 표시, completed의 `state.activeQuizId`로 정본 문항 조회·교체 | 지원하지 않는 타입, error/close 시 미리보기 폐기·재조회 |
 | 퀴즈 풀이 | 문항 표시/새로고침 복원 | `GET /api/quizzes/{quizId}` | 공개 문항 렌더링 | 퀴즈 없음/세션 권한 |
-| 퀴즈 풀이 | 제출 | `POST /api/quizzes/{quizId}/submit` | 동기 채점·평가 결과, 기준 미달이면 `DIAGNOSIS_QUESTION` 표시 | 중복 제출/답안 오류/평가·진단 일일 AI 쿼터 429. 그 외 제출 후 AI 파이프라인 실패는 기본 이동 액션으로 격리 |
-| 퀴즈 결과 | 과거 제출 결과 진입 | `GET /api/quizzes/{quizId}/submission` | 제출 답안·문항별 판정·점수·피드백과 정답·해설 표시 | 미제출·비소유·없는 퀴즈는 `QUIZ_NOT_FOUND` 404로 은닉 |
-| 학습 기록 | 퀴즈 탭 진입 | `GET /api/sessions/{sessionId}/quizzes` | 퀴즈/점수 요약 | 세션 권한 |
+| 퀴즈 풀이 | 제출 | `POST /api/quizzes/{quizId}/submit` | 동기 채점·평가 결과, 기준 미달이면 `DIAGNOSIS_QUESTION` 표시 | 신규·재시도 모두 현재 자료 접근권 필요. 회수 시 `MATERIAL_NOT_FOUND` 404로 결과 표시·자동 재제출 중단. 중복 제출/답안 오류/평가·진단 일일 AI 쿼터 429. 접근 거절·쿼터 초과 외 파이프라인 실패만 기본 이동 액션으로 격리 |
+| 퀴즈 결과 | 과거 제출 결과 진입 | `GET /api/quizzes/{quizId}/submission` | 제출 답안·문항별 판정·점수·피드백과 정답·해설 표시 | 미제출·비소유·없는 퀴즈는 `QUIZ_NOT_FOUND` 404. 마지막 자료 접근권 회수는 `MATERIAL_NOT_FOUND` 404로 결과 표시 중단 |
+| 학습 기록 | 퀴즈 탭 진입·더 보기 | `GET /api/sessions/{sessionId}/quizzes?page=0&size=100` | 기존 quizzes/점수 요약과 page·size·totalElements·totalPages·hasNext; 최신순, size 최대 100 | 세션 권한·삭제세션 404·잘못된 page/size 400 |
 | 학습 분석 | 메모리 화면 진입 | `GET /api/users/me/memory?materialId={materialId}` | 해당 자료의 공개 가능한 개인화 요약 | 데이터 없음 |
 | 학습 세션 | 종료 버튼 | `POST /api/sessions/{sessionId}/complete` | 완료 화면/목록 이동 | 이미 완료/상태 충돌 |
 
@@ -124,9 +133,13 @@ callback·reader 종료는 새 연결 시도의 ready 상태를 변경하지 않
 
 ## 2. 학습 화면 상태 동기화
 
-> DEC-041 연동 대기: AI 내부의 opt-in `quiz_question`은 **생성 중 공개 문항 미리보기**다.
-> 현재 외부 화면 기능으로 배포된 것으로 간주하지 않는다. Spring 외부 이벤트 매핑과 FE 지원
-> 완료 뒤에만 활성화하며, 완료 검증·저장된 정본 quizId 확인 전 제출은 금지한다.
+PDF 추출의 자원 제한·용량 소진·시간 초과는 AI 내부 실패로 종결되며 부분 문서를 READY로 노출하지 않는다. 화면은 기존 자료 상세의 PROCESSING/READY/FAILED를 재조회한다. AI 내부 `retryable=true`를 근거로 FE가 업로드를 자동 재전송하지 않는다. 현재 Spring의 추출 재시도는 별도 구현되지 않았으며 내부 경계는 `ai-integration-contract.md` §6.1을 따른다.
+
+> DEC-041: opt-in `quiz_question`은 **생성 중 공개 문항 미리보기**다.
+> Spring은 화이트리스트 DTO로 중계하며 `EDUPILOT_AI_QUIZ_QUESTION_STREAM_ENABLED`는
+> 기본 false다. FE 지원·AI 실모델 검증 후 활성화하며, 외부 화면 배포 완료로 간주하지 않는다.
+> 공개 스키마는 [api-spec §9.2](api-spec.md#92-외부-sse-data-스키마)를 따르고,
+> 완료 검증·저장된 정본 quizId 확인 전 제출은 금지한다. generationId는 quizId가 아니다.
 > error/취소/재연결에서는 임시 문항을 폐기하고 서버 결과를 재조회한다.
 > QA 추가 제안은 사용자 동의 뒤 기존 유형 선택 흐름을 재사용한다.
 > [연동 작업과 회귀 기준](ai-quiz-latency-handoff.md).
@@ -185,3 +198,33 @@ turn 응답의 `state.activeQuizId`는 nullable입니다. 퀴즈 생성 턴에�
 - 오류별 사용자 문구와 재시도 버튼 정책
 - 타 사용자 아바타가 필요한 Epic 10 강의실 범위에서 공개 또는 사용자 ID 기반 아바타 endpoint 검토
 - 강의실 색상은 `BLUE | GREEN | PURPLE | ORANGE | RED | GRAY`와 DEC-030의 고정 hex 매핑을 사용
+
+Mail history (#473): keep existing admin endpoints and status fields. Show uncertain delivery
+(FAILED/DELIVERY_RESULT_UNKNOWN) as requiring investigation; do not show it as received or offer
+an automatic replay. Body/token data is never provided. [Recovery contract](mail-outbox.md).
+
+
+Withdrawal and material-delete completion must not be presented as physical-file purge completion. These APIs commit logical deletion plus a retention-gated cleanup intent; retention remains pending. See [deletion journal](deletion-journal.md).
+
+
+New LOCAL/Google signup screens must provide dateOfBirth; existing Google login has no DOB reentry requirement. Saving DOB is not approval. Full age/access-state UI and global protection binding await policy. [Foundation](birthdate-guardian-foundation.md).
+
+Migration-defined legacy accounts retain access without DOB reentry. emailVerificationRequired=false can coexist with UNKNOWN/PENDING email evidence and must not be displayed as verified. New-account email requirements and all suspension/ownership checks remain. [Legacy access](legacy-account-access.md).
+
+Guardian SMS consent page contract (#491): use the fragment token in POST bodies to view/consent/verify/dispute. Issuance requires login. PHONE_CONFIRMED is phone-control evidence, never signup/age/guardian approval. Show 503 as unavailable and REVIEW_REQUIRED as exception intake. Team review uses the separate request and reviewer APIs below. FE implementation and live SMS verification remain separate. [SMS contract](guardian-web-sms-intake.md).
+
+## 보호자 직접 확인 화면·API 매핑 (TEAM_REVIEW, #526)
+
+TEAM_REVIEW는 기본 OFF이며 실제 관계 확인 기준·동의문/수집항목/목적/선택 범위·지정 담당자·증거 보존기간·승인 유효기간이 미정이면 발급·승인을 차단한다. FE 화면 구현과 운영 활성화는 별도 작업이다. 상세 필드, 오류 code, 한국어 문구는 [FE 계약](guardian-team-review-fe-contract.md)과 [회신 양식 10종](guardian-team-review-forms.md)을 따른다.
+
+| 화면 | 행동 | Spring API | 표시·처리 기준 |
+| --- | --- | --- | --- |
+| 본인 보호자 최초 진입 | 서버 대상·준비 여부·기존 신청 판정 | `GET /api/users/me/guardian-requests/entry` | `requirement`, `teamReviewAvailable`, `canStartRequest`, `request`로 진입을 판단한다. DOB를 FE에서 추론하지 않으며 정책 미준비면 수집을 열지 않는다. 최초 회신 방법은 `replyChannel`로 받는다. |
+| 본인 보호자 신청·상태 | 접수·조회 | `POST`, `GET /api/users/me/guardian-requests` | 신청번호·신청 차수와 현재 상태를 표시한다. 접수나 보완 요청을 이용 승인으로 표시하지 않는다. 최초 수집일 기준 만료를 재발급으로 연장하지 않는다. |
+| 본인 보호자 신청 | 안내 링크 발급·재발급, 신청 철회 | `POST /api/users/me/guardian-requests/{id}/link`, `POST /api/users/me/guardian-requests/{id}/withdraw` | 만료·재발급 후 이전 링크 무효화를 안내한다. 토큰을 로그나 영구 저장소에 남기지 않는다. 본인 신청 경로의 예외를 학습·파일·AI 접근 허용으로 해석하지 않는다. |
+| 보호자 안내·의사 표시 | 현재 안내 조회·동의 의사 접수 | `POST /api/auth/guardian-team/view`, `POST /api/auth/guardian-team/consent` | 실제 동의문 버전·신청 차수와 필수/선택 의사를 구분한다. 웹 의사 표시(DECLARED), 링크 클릭, 메일 도착은 담당자의 실제 확인·승인 완료가 아니다. |
+| 담당자 신청 목록·상세 | 검토 대상 조회 | `GET /api/admin/guardian-requests`, `GET /api/admin/guardian-requests/{id}` | 현재 지정된 ADMIN만 담당 경로를 사용한다. `generationStartedAt`·배열 `declaredScopes`·`replyChannel`을 회신 시각·범위·수단과 대조한다. 별도 `requiredScopes`·`optionalAiScope`는 같은 status의 세대/수정번호/고지에 묶인 현재 정책 선택지다. null·stale·503이면 AI 선택/쓰기를 닫고, 웹 선언의 범위를 늘리지 않으며 DECLARED·선택지를 승인으로 표시하지 않는다. 만료 상태와 serviceApproved/externalAiApproved를 따로 따른다. 공개·본인 화면에 담당 상세의 연락처·감사 정보나 아동의 전체 프로필을 복사하지 않는다. |
+| 담당자 회신 확인·결정 | 실제 회신 수동 등록, 승인·반려·보완 요청 | `POST /api/admin/guardian-requests/{id}/confirmation`, `POST /api/admin/guardian-requests/{id}/decision` | 현재 신청 차수·동의문과 실제 명시 회신·확인 근거를 대조한다. 설정된 확인 방법을 따르고 원문 회신·민감 증거 업로드를 기본 요구하지 않는다. 문자열 검토 helper의 결과는 사람의 검토를 요구하며 자동 승인이 아니다. |
+| 담당자 승인 철회 | 승인 철회 | `POST /api/admin/guardian-requests/{id}/revoke` | 철회·만료를 현재 상태로 표시한다. TEAM_APPROVED 상태값만으로 이용 가능을 추정하지 않는다. 이후 학습·AI·SSE와 늦은 결과는 BE의 현재 승인 증거·동의 세대 검사에 따른다. |
+
+외부 AI 선택 동의와 서비스 이용 승인을 구분한다. 실제 오류 응답을 기존 이메일·연령·소유권 검사와 함께 처리하며, unavailable·pending·needs information을 성공 화면으로 표시하지 않는다. 확인된 실제 회신 등록·개별 승인과 메일 송수신 연결은 운영 승인이 필요한 별도 수행이다. [구현·설정·복구 경계](guardian-team-review.md).

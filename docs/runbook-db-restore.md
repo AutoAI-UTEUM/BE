@@ -144,6 +144,8 @@
 
 ## 3. prod 복구 (목표 20분)
 
+V60을 포함하는 출시 후보에서는 [V60 hook을 보존하는 복구](launch-operational-readiness.md#4-v60-정리-hook을-보존하는-복구)를 먼저 대조한다. migration 이후 기본 경로는 gate/hook 보존 roll-forward다. 이전 Main은 생년월일 수정 요청 DOB를 탈퇴 시 지우지 않으므로 자동 old-image rollback을 하지 않는다. DB restore는 별도 승인·traffic/worker 중단·최신 trusted 삭제 원장 재적용과 `deleted_user_request_dob_leaks=0` 검증이 필요하다. 아래 과거 리허설 기록은 V60/최신 삭제 재적용 인수 증거가 아니다.
+
 복구는 승인된 운영자가 수행한다. **대상 호스트와 DB가 prod인지 재확인**하고,
 서비스 쓰기를 멈춘 뒤 진행한다. 필요한 것은 관리자 로컬 AWS 읽기 권한·SSH 권한과
 서버의 Docker 권한이다. 파일 경로·계정·현재 배포 SHA는 실제 환경 값으로 바꾼다.

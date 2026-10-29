@@ -6,6 +6,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.LinkOption;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -92,6 +94,10 @@ public class LocalVolumeStorage implements FileStorage {
 	public void delete(String storageKey) {
 		Path target = resolve(storageKey);
 		try {
+			if (Files.exists(target.getParent(),LinkOption.NOFOLLOW_LINKS)
+				&& !target.getParent().toRealPath().startsWith(rootDirectory.toRealPath())) {
+				throw new StorageException("Unsafe storage parent");
+			}
 			Files.deleteIfExists(target);
 		} catch (IOException exception) {
 			throw new StorageException("저장된 파일 삭제에 실패했습니다.", exception);
@@ -105,6 +111,33 @@ public class LocalVolumeStorage implements FileStorage {
 			throw new StorageException("저장된 파일을 찾을 수 없습니다.");
 		}
 		return new FileSystemResource(target);
+	}
+
+	@Override
+	public void deleteMaterialRenders(String originalPdfKey) {
+		Path original=resolve(originalPdfKey);
+		if (!originalPdfKey.startsWith("materials/") || !originalPdfKey.endsWith(".pdf")) {
+			throw new StorageException("Invalid original PDF key");
+		}
+		Path directory=original.resolveSibling(original.getFileName().toString().replace(".pdf","-pages"));
+		try {
+			if (!Files.exists(directory,LinkOption.NOFOLLOW_LINKS)) { return; }
+			if (Files.isSymbolicLink(directory) || !Files.isDirectory(directory,LinkOption.NOFOLLOW_LINKS)
+				|| !directory.toRealPath().startsWith(rootDirectory.toRealPath())) {
+				throw new StorageException("Unsafe render directory");
+			}
+			List<Path> images;
+			try (var entries=Files.list(directory)) { images=entries.limit(1001).toList(); }
+			if(images.size()>1000) { throw new StorageException("Render directory exceeds expected limit"); }
+			for(Path image:images) {
+				if(!image.getFileName().toString().matches("[1-9][0-9]*\\.jpg") || Files.isSymbolicLink(image)
+					|| !Files.isRegularFile(image,LinkOption.NOFOLLOW_LINKS)) {
+					throw new StorageException("Unexpected render directory contents");
+				}
+			}
+			for(Path image:images) { Files.deleteIfExists(image); }
+			Files.deleteIfExists(directory);
+		} catch (IOException failure) { throw new StorageException("Failed to delete rendered pages",failure); }
 	}
 
 	private Path resolve(String storageKey) {

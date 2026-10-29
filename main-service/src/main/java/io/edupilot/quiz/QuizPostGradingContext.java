@@ -3,6 +3,7 @@ package io.edupilot.quiz;
 import java.util.List;
 
 import io.edupilot.ai.dto.GradeRequest;
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.session.UiAction;
 
 public record QuizPostGradingContext(
@@ -19,8 +20,17 @@ public record QuizPostGradingContext(
 	GradingResult gradingResult,
 	boolean passed,
 	GradeRequest.PageContext pageContext,
-	List<UiAction> defaultUiActions
+	List<UiAction> defaultUiActions,
+	GuardianConsentFence.Snapshot guardianConsent
 ) {
+	public QuizPostGradingContext(Long submissionId, Long quizId, Long sessionId, Long userId, Long materialId,
+		QuizType quizType, String schemaVersion, List<PublicQuizQuestion> publicQuestions,
+		List<PrivateQuizQuestion> privateQuestions, List<SubmittedAnswer> answers, GradingResult gradingResult,
+		boolean passed, GradeRequest.PageContext pageContext, List<UiAction> defaultUiActions) {
+		this(submissionId, quizId, sessionId, userId, materialId, quizType, schemaVersion, publicQuestions,
+			privateQuestions, answers, gradingResult, passed, pageContext, defaultUiActions, null);
+	}
+
 	public QuizPostGradingContext {
 		publicQuestions = List.copyOf(publicQuestions);
 		privateQuestions = List.copyOf(privateQuestions);

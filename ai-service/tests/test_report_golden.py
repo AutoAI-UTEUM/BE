@@ -28,7 +28,7 @@ CRITERION_NAMES = [
 
 
 def _load_golden(name: str) -> dict[str, Any]:
-    return cast(dict[str, Any], json.loads((GOLDEN_DIRECTORY / name).read_text()))
+    return cast(dict[str, Any], json.loads((GOLDEN_DIRECTORY / name).read_text(encoding="utf-8")))
 
 
 @pytest.mark.parametrize(

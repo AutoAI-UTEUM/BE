@@ -20,6 +20,8 @@ import org.slf4j.LoggerFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 
@@ -30,6 +32,8 @@ import ch.qos.logback.core.read.ListAppender;
 import io.edupilot.ai.dto.TurnRequest;
 import io.edupilot.ai.dto.TurnResponse;
 import io.edupilot.global.error.ErrorCode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -47,6 +51,173 @@ class HttpAiClientStreamTest {
 	@AfterEach
 	void tearDown() throws IOException {
 		server.shutdown();
+	}
+
+	@Test
+	void relaysFivePublicQuestionsInOrderBeforeAuthoritativeCompleted() {
+		String body = java.util.stream.IntStream.rangeClosed(1, 5)
+			.mapToObj(QuizQuestionStreamFixtures::previewJson)
+			.collect(java.util.stream.Collectors.joining("\n"));
+		server.enqueue(ndjson(body + "\n" + completedQuiz("turn-quiz")));
+		List<TurnStreamEvent> events = new ArrayList<>();
+
+		TurnResponse response = client(Duration.ofSeconds(1)).executeTurnStream(
+			quizStreamRequest(), events::add, new AiStreamCancellation(), Duration.ofSeconds(2)
+		);
+
+		assertThat(events).extracting(event -> event.quizQuestion().questionIndex())
+			.containsExactly(1, 2, 3, 4, 5);
+		assertThat(events).allMatch(event -> event.type() == TurnStreamEvent.Type.QUIZ_QUESTION);
+		assertThat(response.quiz().questions()).hasSize(5);
+		assertThat(response.quiz().questions().getFirst().answerChoiceId()).isEqualTo("a");
+	}
+
+	@Test
+	void ignoresDuplicateAndReversedIndicesAndWarnsWhenCompletedCountDiffers() {
+		Logger logger = (Logger) LoggerFactory.getLogger(HttpAiClient.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			server.enqueue(ndjson(
+				QuizQuestionStreamFixtures.previewJson(2) + "\n"
+					+ QuizQuestionStreamFixtures.previewJson(2) + "\n"
+					+ QuizQuestionStreamFixtures.previewJson(1) + "\n"
+					+ QuizQuestionStreamFixtures.previewJson(3) + "\n"
+					+ completedQuiz("turn-quiz")
+			));
+			List<TurnStreamEvent> events = new ArrayList<>();
+			TurnResponse response = client(Duration.ofSeconds(1)).executeTurnStream(
+				quizStreamRequest(), events::add, new AiStreamCancellation(), Duration.ofSeconds(2)
+			);
+			assertThat(events).extracting(event -> event.quizQuestion().questionIndex())
+				.containsExactly(2, 3);
+			assertThat(response.quiz().questions()).hasSize(5);
+			assertThat(appender.list).filteredOn(event -> event.getLevel() == ch.qos.logback.classic.Level.WARN)
+				.hasSize(3);
+			assertThat(appender.list).extracting(ILoggingEvent::getFormattedMessage)
+				.contains("Quiz preview count mismatch; completed takes precedence");
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+	}
+
+	@Test
+	void dropsQuizPreviewWhenCapabilityIsAbsentOrEventIsNotQuiz() {
+		server.enqueue(ndjson(QuizQuestionStreamFixtures.previewJson(1) + "\n"
+			+ completedQuiz("turn-quiz")));
+		List<TurnStreamEvent> events = new ArrayList<>();
+		client(Duration.ofSeconds(1)).executeTurnStream(
+			request("turn-quiz", "QUIZ_TYPE_SELECTED"), events::add,
+			new AiStreamCancellation(), Duration.ofSeconds(2)
+		);
+		assertThat(events).isEmpty();
+
+		server.enqueue(ndjson(QuizQuestionStreamFixtures.previewJson(1) + "\n"
+			+ "{\"type\":\"content_delta\",\"text\":\"답변\"}\n"
+			+ completed("turn-question", "답변")));
+		TurnRequest question = request("turn-question");
+		client(Duration.ofSeconds(1)).executeTurnStream(
+			new TurnRequest(question.schemaVersion(), question.turnId(), question.session(),
+				question.event(), question.context(), Map.of("quizQuestionStream", true)),
+			events::add, new AiStreamCancellation(), Duration.ofSeconds(2)
+		);
+		assertThat(events).extracting(TurnStreamEvent::type)
+			.containsExactly(TurnStreamEvent.Type.CONTENT_DELTA);
+	}
+
+	@Test
+	void rejectsQuizContentDeltaBeforeAnyPrivateTextCanBeForwarded() {
+		server.enqueue(ndjson("{\"type\":\"content_delta\",\"text\":\"secret-answer\"}\n"
+			+ completedQuiz("turn-quiz")));
+		List<TurnStreamEvent> events = new ArrayList<>();
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).executeTurnStream(
+			quizStreamRequest(), events::add, new AiStreamCancellation(), Duration.ofSeconds(2)
+		)).isInstanceOfSatisfying(AiClientException.class, exception ->
+			assertThat(exception.errorCode()).isEqualTo(ErrorCode.AI_RESPONSE_INVALID));
+		assertThat(events).isEmpty();
+	}
+
+	@Test
+	void rejectsMalformedPublicFieldInsteadOfStringifyingPrivateObject() {
+		String preview = QuizQuestionStreamFixtures.previewJson(1)
+			.replace("\"questionText\":\"문항 1\"", "\"questionText\":{\"answer\":\"secret\"}");
+		server.enqueue(ndjson(preview + "\n" + completedQuiz("turn-quiz")));
+		List<TurnStreamEvent> events = new ArrayList<>();
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).executeTurnStream(
+			quizStreamRequest(), events::add, new AiStreamCancellation(), Duration.ofSeconds(2)
+		)).isInstanceOf(AiClientException.class);
+		assertThat(events).isEmpty();
+	}
+
+	@Test
+	void interruptedQuizStreamNeverReturnsPartialQuizAsCompleted() {
+		server.enqueue(ndjson(QuizQuestionStreamFixtures.previewJson(1) + "\n"));
+		List<TurnStreamEvent> events = new ArrayList<>();
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).executeTurnStream(
+			quizStreamRequest(), events::add, new AiStreamCancellation(), Duration.ofSeconds(2)
+		)).isInstanceOfSatisfying(AiClientException.class, exception ->
+			assertThat(exception.errorCode()).isEqualTo(ErrorCode.AI_STREAM_INTERRUPTED));
+		assertThat(events).hasSize(1);
+	}
+
+	private TurnRequest quizStreamRequest() {
+		TurnRequest request = request("turn-quiz", "QUIZ_TYPE_SELECTED");
+		return new TurnRequest(request.schemaVersion(), request.turnId(), request.session(),
+			request.event(), request.context(), Map.of("qaQuizProposal", false, "quizQuestionStream", true));
+	}
+
+	@Test
+	void ignoresPreviewFromDifferentGenerationAndReturnsCompletedUnchanged() {
+		server.enqueue(ndjson(QuizQuestionStreamFixtures.previewJson(1) + "\n"
+			+ QuizQuestionStreamFixtures.previewJson(2).replace("generation-1", "generation-other") + "\n"
+			+ QuizQuestionStreamFixtures.previewJson(2) + "\n" + completedQuiz("turn-quiz")));
+		List<TurnStreamEvent> events = new ArrayList<>();
+		TurnResponse response = client(Duration.ofSeconds(1)).executeTurnStream(
+			quizStreamRequest(), events::add, new AiStreamCancellation(), Duration.ofSeconds(2));
+		assertThat(events).extracting(event -> event.quizQuestion().questionIndex()).containsExactly(1, 2);
+		assertThat(response.quiz().generationId()).isEqualTo("generation-1");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"index-zero", "index-six", "count-four", "not-provisional",
+		"unknown-type", "reversed-coverage", "zero-points", "choice-object-text"})
+	void rejectsInvalidPublicPreviewShapeBeforeForwarding(String invalidShape) {
+		ObjectMapper mapper = new ObjectMapper();
+		ObjectNode preview = (ObjectNode) mapper.readTree(QuizQuestionStreamFixtures.previewJson(1));
+		switch (invalidShape) {
+			case "index-zero" -> preview.put("questionIndex", 0);
+			case "index-six" -> preview.put("questionIndex", 6);
+			case "count-four" -> preview.put("questionCount", 4);
+			case "not-provisional" -> preview.put("provisional", false);
+			case "unknown-type" -> preview.put("quizType", "UNKNOWN");
+			case "reversed-coverage" -> ((ObjectNode) preview.get("coverage")).put("endPage", 1);
+			case "zero-points" -> ((ObjectNode) preview.get("question")).put("points", 0);
+			case "choice-object-text" -> ((ObjectNode) preview.get("question").get("choices").get(0))
+				.set("text", mapper.readTree("{\"answer\":\"secret-answer\"}"));
+			default -> throw new AssertionError(invalidShape);
+		}
+		server.enqueue(ndjson(mapper.writeValueAsString(preview) + "\n" + completedQuiz("turn-quiz")));
+		List<TurnStreamEvent> events = new ArrayList<>();
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).executeTurnStream(
+			quizStreamRequest(), events::add, new AiStreamCancellation(), Duration.ofSeconds(2)
+		)).isInstanceOfSatisfying(AiClientException.class, exception ->
+			assertThat(exception.errorCode()).isEqualTo(ErrorCode.AI_RESPONSE_INVALID));
+		assertThat(events).isEmpty();
+	}
+
+	@Test
+	void terminalErrorAfterPreviewDoesNotReturnCompletedQuiz() {
+		server.enqueue(ndjson(QuizQuestionStreamFixtures.previewJson(1) + "\n"
+			+ "{\"type\":\"error\",\"code\":\"AI_SERVICE_TIMEOUT\",\"category\":\"TIMEOUT\","
+			+ "\"message\":\"generation timed out\",\"retryable\":true}\n"));
+		List<TurnStreamEvent> events = new ArrayList<>();
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).executeTurnStream(
+			quizStreamRequest(), events::add, new AiStreamCancellation(), Duration.ofSeconds(2)
+		)).isInstanceOfSatisfying(AiClientException.class, exception ->
+			assertThat(exception.errorCode()).isEqualTo(ErrorCode.AI_SERVICE_TIMEOUT));
+		assertThat(events).hasSize(1);
 	}
 
 	@Test

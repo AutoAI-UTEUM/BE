@@ -20,12 +20,18 @@ public interface MaterialOverviewRepository
 		+ "io.edupilot.material.MaterialStatus.ACTIVE "
 		+ "and overview.material.processingStatus = "
 		+ "io.edupilot.material.MaterialProcessingStatus.READY "
-		+ "and overview.status = "
-		+ "io.edupilot.material.MaterialOverviewStatus.FAILED "
-		+ "and overview.updatedAt <= :cutoff "
-		+ "order by overview.updatedAt, overview.material.id")
-	List<Long> findRetryableFailedMaterialIds(
+		+ "and overview.status in ("
+		+ "io.edupilot.material.MaterialOverviewStatus.PENDING, "
+		+ "io.edupilot.material.MaterialOverviewStatus.FAILED) "
+		+ "and overview.generationFailureCount < :maxFailures "
+		+ "and (overview.generationAttemptedAt <= :cutoff "
+		+ "or (overview.generationAttemptedAt is null "
+		+ "and overview.updatedAt <= :cutoff)) "
+		+ "order by coalesce(overview.generationAttemptedAt, "
+		+ "overview.updatedAt), overview.material.id")
+	List<Long> findRetryableUnreadyMaterialIds(
 		@Param("cutoff") Instant cutoff,
+		@Param("maxFailures") int maxFailures,
 		Pageable pageable
 	);
 
@@ -36,12 +42,19 @@ public interface MaterialOverviewRepository
 		+ "io.edupilot.material.MaterialProcessingStatus.READY "
 		+ "and overview.status = "
 		+ "io.edupilot.material.MaterialOverviewStatus.READY "
+		+ "and overview.generationFailureCount < :maxFailures "
+		+ "and (overview.generationAttemptedAt is null "
+		+ "or overview.generationAttemptedAt <= :cutoff) "
 		+ "and (function('json_query', overview.outline, "
 		+ "'$.quizCheckpoints') is null "
 		+ "or cast(function('json_query', overview.outline, "
 		+ "'$.quizCheckpoints') as String) = 'null') "
 		+ "order by overview.updatedAt, overview.material.id")
-	List<Long> findReadyWithoutQuizCheckpointsMaterialIds(Pageable pageable);
+	List<Long> findReadyWithoutQuizCheckpointsMaterialIds(
+		@Param("cutoff") Instant cutoff,
+		@Param("maxFailures") int maxFailures,
+		Pageable pageable
+	);
 
 	@Query("select overview.material.id from MaterialOverview overview "
 		+ "where overview.material.status = "
@@ -50,6 +63,9 @@ public interface MaterialOverviewRepository
 		+ "io.edupilot.material.MaterialProcessingStatus.READY "
 		+ "and overview.status = "
 		+ "io.edupilot.material.MaterialOverviewStatus.READY "
+		+ "and overview.generationFailureCount < :maxFailures "
+		+ "and (overview.generationAttemptedAt is null "
+		+ "or overview.generationAttemptedAt <= :cutoff) "
 		+ "and overview.updatedAt <= :cutoff "
 		+ "and (function('json_query', overview.outline, "
 		+ "'$.pageQuizPlan') is null "
@@ -58,6 +74,7 @@ public interface MaterialOverviewRepository
 		+ "order by overview.updatedAt, overview.material.id")
 	List<Long> findReadyWithoutPageQuizPlanMaterialIds(
 		@Param("cutoff") Instant cutoff,
+		@Param("maxFailures") int maxFailures,
 		Pageable pageable
 	);
 

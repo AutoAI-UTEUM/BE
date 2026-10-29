@@ -37,6 +37,7 @@ public class SessionService {
 	private final DiagnosisService diagnosisService;
 	private final MaterialAccessService materialAccessService;
 	private final UiActionResolver uiActionResolver;
+	private final QaQuizProposalSuppression qaQuizProposalSuppression;
 
 	public SessionService(
 		LearningSessionRepository sessionRepository,
@@ -45,7 +46,8 @@ public class SessionService {
 		Clock clock,
 		DiagnosisService diagnosisService,
 		MaterialAccessService materialAccessService,
-		UiActionResolver uiActionResolver
+		UiActionResolver uiActionResolver,
+		QaQuizProposalSuppression qaQuizProposalSuppression
 	) {
 		this.sessionRepository = sessionRepository;
 		this.userRepository = userRepository;
@@ -54,6 +56,7 @@ public class SessionService {
 		this.diagnosisService = diagnosisService;
 		this.materialAccessService = materialAccessService;
 		this.uiActionResolver = uiActionResolver;
+		this.qaQuizProposalSuppression = qaQuizProposalSuppression;
 	}
 
 	@Transactional
@@ -150,6 +153,7 @@ public class SessionService {
 		);
 		if (session.declineQuizProposal(nextUiActions)) {
 			sessionRepository.flush();
+			qaQuizProposalSuppression.declinedAfterCommit(sessionId);
 		}
 		return session.getLastUiActions();
 	}

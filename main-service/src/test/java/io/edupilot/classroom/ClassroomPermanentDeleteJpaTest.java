@@ -392,7 +392,7 @@ class ClassroomPermanentDeleteJpaTest {
 	}
 
 	private User user(String email, String name, UserRole role) {
-		return userRepository.save(User.create(email, "hash", name, role));
+		return userRepository.save(io.edupilot.VerifiedTestUsers.legacyVerified(User.create(email, "hash", name, role)));
 	}
 
 	private Classroom classroom(User instructor, String name, String inviteCode) {

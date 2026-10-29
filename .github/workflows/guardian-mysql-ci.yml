@@ -1,0 +1,47 @@
+name: Isolated Guardian MySQL
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - '.github/workflows/guardian-mysql-ci.yml'
+      - 'scripts/qa/guardian-mysql/**'
+      - 'main-service/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guardian-mysql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guardian-mysql:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4.11
+        env:
+          MYSQL_ROOT_PASSWORD: guardian-job-only
+          MYSQL_ROOT_HOST: '%'
+          MYSQL_INITDB_SKIP_TZINFO: '1'
+        # No host port, bind mount, named volume or persistent database storage.
+        options: >-
+          --tmpfs /var/lib/mysql:rw,size=1073741824
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pguardian-job-only --silent"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Compile, isolate and run the four suites
+        env:
+          MYSQL_SERVICE_ID: ${{ job.services.mysql.id }}
+        run: bash scripts/qa/guardian-mysql/run.sh
+      - name: Verify every invocation and emit recoverable JUnit XML
+        if: always()
+        run: python3 -I -S -B scripts/qa/guardian-mysql/report.py

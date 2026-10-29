@@ -60,12 +60,15 @@
 | `UNSUPPORTED_GROUP_BY` | 400 | xAI 사용량의 `groupBy=API_KEY`처럼 내부 로그가 지원하지 않는 그룹 기준 |
 | `MALFORMED_REQUEST` | 400 | JSON/요청 구조 오류 |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | 지원하지 않는 콘텐츠 타입 |
+| `METHOD_NOT_ALLOWED` | 405 | 지원하지 않는 HTTP 메서드; `Allow` 반환. 이메일 확인 GET은 비소비 |
 | `AUTHENTICATION_REQUIRED` | 401 | 인증 정보 없음 |
 | `TOKEN_INVALID` | 401 | 위조/형식 오류 토큰 |
 | `TOKEN_EXPIRED` | 401 | 만료된 토큰 |
 | `AUTH_SESSION_IDLE_EXPIRED` | 401 | 역할별 idle timeout 동안 실제 사용자 활동이 없어 인증 세션 종료 |
 | `AUTH_SESSION_ABSOLUTE_EXPIRED` | 401 | 최초 로그인 기준 14일 절대 만료로 인증 세션 종료 |
 | `ACCESS_DENIED` | 403 | 역할/권한 부족 |
+| `EMAIL_VERIFICATION_REQUIRED` | 403 | 이메일 소유 확인 근거 없는 계정의 업무 API·외부 AI 접근 차단 |
+| `EMAIL_VERIFICATION_TOKEN_INVALID` | 400 | 이메일 확인 링크의 만료·재사용·탈퇴·현재 이메일 불일치·유효하지 않은 토큰을 동일 처리 |
 | `RESOURCE_NOT_FOUND` | 404 | 일반 리소스 없음 |
 | `RATE_LIMIT_EXCEEDED` | 429 | 호출 제한 초과 |
 | `AI_QUOTA_EXCEEDED` | 429 | 사용자별 일일 AI 호출 횟수 한도 초과 |
@@ -75,7 +78,7 @@
 
 | code | HTTP | 의미 |
 | --- | ---: | --- |
-| `EMAIL_ALREADY_EXISTS` | 409 | 이메일 중복 |
+| `EMAIL_ALREADY_EXISTS` | 409 | 가입 이메일 중복 또는 미연결 Google subject와 기존 계정의 이메일 충돌. Google 자동 연결·토큰/세션 발급 없이 거부하며 토큰 오류·`SIGNUP_REQUIRED`와 구분 |
 | `SIGNUP_REQUIRED` | 409 | Google 신규 가입을 위한 역할·약관 추가 정보 필요 |
 | `INVALID_CREDENTIALS` | 401 | 이메일/비밀번호 불일치 |
 | `LOGIN_RATE_LIMITED` | 429 | 계정 5회/15분 또는 IP 20회/15분 실패 후 로그인 차단, `Retry-After` 초 제공 |
@@ -91,7 +94,8 @@
 | `USER_INACTIVE` | 403 | 비활성/삭제 계정 |
 | `USER_NOT_FOUND` | 404 | 사용자 없음 |
 | `POLICY_NOT_FOUND` | 404 | 요청한 유형·버전의 정책 문서 없음 |
-| `POLICY_CONSENT_REQUIRED` | 400 | 가입 동의 필수 설정 시 누락, 또는 제출한 이용약관·개인정보처리방침 배열의 누락·중복·버전 불일치 |
+| `SIGNUP_POLICY_NOT_READY` | 503 | 가입 동의 필수 설정에서 현재 유효한 `requiresConsent=true` 문서가 하나도 없음. 신규 LOCAL·Google 계정·토큰·동의·메일 작업 생성 전 중단. 기존 로그인에는 적용하지 않음 |
+| `POLICY_CONSENT_REQUIRED` | 400 | 유효한 동의 대상이 준비된 경우, 필수 설정의 동의 누락 또는 제출 배열의 필수 대상 누락·중복·현재 버전 불일치 |
 | `POLICY_VERSION_MISMATCH` | 400 | 기존 사용자가 현재 유효 버전이 아닌 정책에 동의 시도 |
 | `POLICY_VERSION_EXISTS` | 409 | 같은 유형·버전의 정책 문서 중복 등록 |
 
@@ -99,7 +103,7 @@
 
 | code | HTTP | 의미 |
 | --- | ---: | --- |
-| `MATERIAL_NOT_FOUND` | 404 | 자료 없음 |
+| `MATERIAL_NOT_FOUND` | 404 | 자료 없음·현재 접근권 없음. 퀴즈 신규 제출·기존 결과 재응답·결과 상세 조회에도 적용하며 정답·해설·feedback을 반환하지 않음 |
 | `MATERIAL_ACCESS_DENIED` | 403/404 | 자료 접근 불가 |
 | `INVALID_PDF_FILE` | 400 | PDF가 아니거나 손상됨 |
 | `FILE_TOO_LARGE` | 413 | 파일 제한 초과 |
@@ -172,8 +176,8 @@
 | `EXAM_NOT_FOUND` | 404 | 시험이 없거나 접근할 수 없음. 학생의 DRAFT 목록·상세·제출 접근도 이 코드로 은닉 |
 | `EXAM_NOT_PUBLISHED` | 409 | 학생이 CLOSED 시험에 제출하거나 강사가 DRAFT 시험을 close하는 등 공개 상태가 아닌 대상에 상태 작업을 요청 |
 | `EXAM_NOT_EDITABLE` | 409 | CLOSED 시험을 publish하거나 공개 이후 수정·삭제하는 등 편집 가능한 상태가 아님 |
-| `EXAM_ALREADY_SUBMITTED` | 409 | 제출 시에는 재응시 불가 GRADED 또는 채점 중 SUBMITTED의 새 `requestId`를 거부. 임시저장 PUT에서는 미소비 응시 시작 기록이 없거나 `allowRetake=false`이고 기존 제출이 있으면 거부 |
-| `INVALID_EXAM_ANSWER` | 400 | 알 수 없거나 중복된 문항 ID 또는 문항 유형과 맞지 않는 답안 |
+| `EXAM_ALREADY_SUBMITTED` | 409 | 제출 시 채점 중 SUBMITTED 또는 재응시 불가 시험의 기존 제출(GRADED·GRADING_FAILED)의 새 `requestId`를 거부. 학생 실패 복구는 저장 답안 재채점 API 사용. 강사 재채점은 실패 상태 외 호출을 거부. 임시저장 PUT에서는 미소비 응시 시작 기록이 없거나 `allowRetake=false`이고 기존 제출이 있으면 거부 |
+| `INVALID_EXAM_ANSWER` | 400 | 알 수 없거나 중복된 문항 ID, 문항 유형과 맞지 않는 답안, 최종 제출에서 명시한 null·빈 문자열·ASCII/유니코드 공백 전용 답안. 문항 생략은 미응답 0점이며 임시저장의 빈 답안 허용과 구분 |
 | `DRAFT_VERSION_CONFLICT` | 409 | 임시저장 `version` 불일치 또는 동시 최초 생성. 응답 최상위 `latestDraft`로 서버 버전과 답안 전달 |
 | `DRAFT_TOO_LARGE` | 400 | 임시저장 요청의 직렬화된 JSON이 256KB를 초과 |
 | `INVALID_EXAM_DUE_AT` | 400 | 생성·수정 요청에 명시한 `dueAt`이 현재 시각보다 미래가 아님. 수정에서 필드를 생략하거나 null로 제거하는 것은 허용 |
@@ -208,6 +212,11 @@ FastAPI 내부 API의 공통 요청·인증 오류와 xAI Files 삭제 오류는
 | `AI_INTERNAL_ERROR` | 500 | `INTERNAL` | 분류되지 않은 AI Service 내부 오류 |
 | `FILE_UPLOAD_FAILED` | 502 | `INTERNAL` | upload-only xAI Files 업로드 실패. timeout·429·5xx는 `retryable=true`, 영구 4xx·응답 스키마 실패는 `false` |
 | `FILE_DELETE_FAILED` | 502 | `INTERNAL` | xAI Files 삭제 실패(404 제외), `retryable=true` |
+| `EXTRACTION_FAILED` | 400 / 500 | `INTERNAL` | 400: parser의 알려진 자원/출력 상한, 500: 예상하지 못한 worker 실행 실패. 부분 성공 없음, `retryable=false` |
+| `EXTRACTION_BUSY` | 503 | `INTERNAL` | 접수 용량 소진·실행 대기 기한 초과·종료 확인 대기. 새 추출을 시작하지 않음, `retryable=false` |
+| `EXTRACTION_TIMEOUT` | 504 | `TIMEOUT` | 추출 또는 handler 전체 기한 초과. 해당 worker 종료·회수, `retryable=false` |
+
+위 PDF 경계 오류도 기존 오류 봉투를 사용한다. 정상 문서의 `UNSUPPORTED_FORMAT`·`ENCRYPTED_PDF`·`NO_TEXT_CONTENT`·`PAGE_LIMIT_EXCEEDED`·`FILE_TOO_LARGE` 분류는 유지한다. Spring의 자료 추출은 자동 재시도하지 않으며 외부 자료 상태와 failureReason을 유지한다. 정리 지연·실패의 `EXTRACTION_CLEANUP_PENDING`·`EXTRACTION_CLEANUP_FAILED`는 운영 로그용 코드로, 외부 failureReason enum에 추가하지 않는다.
 
 `FILE_UPLOAD_FAILED`는 `/internal/ai/extract`에서는 비치명적인 `warnings[].type`이고 upload-only `/internal/ai/files`에서는 표준 오류 봉투 code입니다. 추출 경로의 xAI Files 업로드 실패·48MiB 초과는 warning으로 알리며 텍스트 추출 성공 응답은 HTTP 200을 유지합니다.
 
@@ -232,3 +241,10 @@ FE는 `message` 문자열을 파싱하지 않고 `code`로 분기합니다.
 - 서버 로그에는 `traceId`, 사용자/세션의 안전한 식별자, 에러 코드, 처리 구간을 남깁니다.
 - 비밀번호, JWT, Grok(xAI) API Key, 전체 PDF 텍스트, 학생 답안 원문은 기본 오류 로그에 남기지 않습니다.
 - AI 원문 로깅이 꼭 필요하면 마스킹, 접근 통제, 보관 기간을 먼저 결정합니다.
+
+
+#478/#519 use AGE_VERIFICATION_REQUIRED (403) for guardian-cohort or missing-DOB NEW_SIGNUP UNKNOWN and GUARDIAN_VERIFICATION_PENDING (403) for MANUAL_PENDING. KST current-year minus birth-year ≥15 requires no guardian. EMAIL_VERIFICATION_REQUIRED still takes precedence when email evidence is missing. Account/role/resource errors and LEGACY_EXEMPT remain. LOCAL missing/future DOB uses VALIDATION_FAILED (400); new Google DOB missing uses SIGNUP_REQUIRED (409). BIRTHDATE_CORRECTION_PENDING (409) means a different date is already pending; BIRTHDATE_CORRECTION_NOT_FOUND (404) means an admin requested an absent intake. Correction submissions cannot change DOB or eligibility. [Current policy and request contract](birthdate-policy-and-correction.md).
+
+#491 adds GUARDIAN_VERIFICATION_UNAVAILABLE (503: disabled, incomplete notice/configuration or disconnected provider), GUARDIAN_LINK_INVALID (400: invalid/expired/revoked/inactive link), GUARDIAN_STATE_CONFLICT (409: consumed/in-flight/unsuitable state or legacy exemption), GUARDIAN_NOTICE_CHANGED (409: pinned notice changed, reissue required). Invalid self-declaration/phone/code uses VALIDATION_FAILED, throttling uses RATE_LIMIT_EXCEEDED. Exception reasons expose categories only, never provider response/phone/OTP. [Guardian contract](guardian-web-sms-intake.md).
+
+#526은 GUARDIAN_TEAM_UNAVAILABLE(503: 비활성/미준비), GUARDIAN_TEAM_REQUEST_NOT_FOUND(404), GUARDIAN_TEAM_CONFIGURATION_CHANGED(409: 신청 당시 정책 변경), GUARDIAN_CONSENT_CHANGED(409: 이전 AI/SSE 세대), GUARDIAN_AI_CONSENT_REQUIRED(403: 선택 외부 AI 동의 없음)를 추가한다. 일반 업무 경계의 정책 불일치·만료 승인은 AGE_VERIFICATION_REQUIRED로 차단한다. [상태·FE 계약](guardian-team-review-fe-contract.md).

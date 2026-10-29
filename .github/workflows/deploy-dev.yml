@@ -1,20 +1,22 @@
-# Required GitHub Secrets:
-# - DEV_SSH_HOST
-# - DEV_SSH_USER
-# - DEV_SSH_KEY
-# - DEV_SSH_PASSPHRASE (required for passphrase-protected SSH keys)
-# GHCR uses the automatically issued, job-scoped GITHUB_TOKEN (packages:write).
-#
-# Required GitHub Repository Variables:
-# - DEV_DOMAIN
-# - DEV_DEPLOY_PATH
-
+# Existing dev environment credentials/permissions are retained.
+# No push trigger: merging this safety path or the product PRs never deploys.
 name: Deploy dev
 
 on:
-  push:
-    branches: [develop]
   workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: Exact reviewed develop SHA with successful combined Main/AI CI
+        required: true
+        type: string
+      reviewed_manifest:
+        description: Reviewed fresh runtime, rollback, budget and CI metadata JSON (no secrets)
+        required: true
+        type: string
+      verified_host_fingerprint:
+        description: Existing verified DEV host SHA256 fingerprint from trusted known_hosts
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -27,24 +29,23 @@ concurrency:
 jobs:
   deploy:
     name: deploy-dev
-    if: github.ref == 'refs/heads/develop'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/develop' && inputs.approved_sha == github.sha
     runs-on: ubuntu-latest
     environment: dev
     timeout-minutes: 20
 
     steps:
-      - name: Checkout repository
+      - name: Checkout exact reviewed commit
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
 
-      - name: Validate deployment variables
+      - name: Validate reviewed metadata before image build or SSH
         shell: bash
         env:
-          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
-          DEV_DEPLOY_PATH: ${{ vars.DEV_DEPLOY_PATH }}
-        run: |
-          set -euo pipefail
-          test -n "$DEV_DOMAIN"
-          test -n "$DEV_DEPLOY_PATH"
+          REVIEWED_MANIFEST: ${{ inputs.reviewed_manifest }}
+          VERIFIED_HOST_FINGERPRINT: ${{ inputs.verified_host_fingerprint }}
+        run: python3 -I -S -B scripts/deploy/dev_main_only.py --prepare --output "$RUNNER_TEMP/dev-main-only.sh"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -56,96 +57,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push main-service image
+      - name: Build and push reviewed Main image only
+        id: main_image
         uses: docker/build-push-action@v6
         with:
           context: ./main-service
           file: ./main-service/Dockerfile
           push: true
-          tags: |
-            ghcr.io/autoai-uteum/main-service:${{ github.sha }}
-            ghcr.io/autoai-uteum/main-service:latest
+          tags: ghcr.io/autoai-uteum/main-service:${{ github.sha }}
 
-      - name: Build and push ai-service image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./ai-service
-          file: ./ai-service/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/autoai-uteum/ai-service:${{ github.sha }}
-            ghcr.io/autoai-uteum/ai-service:latest
-
-      - name: Copy deployment configuration
-        uses: appleboy/scp-action@v1
-        with:
-          host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USER }}
-          key: ${{ secrets.DEV_SSH_KEY }}
-          passphrase: ${{ secrets.DEV_SSH_PASSPHRASE }}
-          source: docker-compose.yml,docker-compose.prod.yml,infra/nginx/edupilot.conf
-          target: ${{ vars.DEV_DEPLOY_PATH }}
-          overwrite: true
-
-      - name: Pull and restart dev services
-        uses: appleboy/ssh-action@v1
+      - name: Verify current DEV and replace Main only
+        shell: bash
         env:
-          DEPLOY_TAG: ${{ github.sha }}
+          NEW_MAIN_DIGEST: ghcr.io/autoai-uteum/main-service@${{ steps.main_image.outputs.digest }}
           DEV_DEPLOY_PATH: ${{ vars.DEV_DEPLOY_PATH }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USERNAME: ${{ github.actor }}
-        with:
-          host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USER }}
-          key: ${{ secrets.DEV_SSH_KEY }}
-          passphrase: ${{ secrets.DEV_SSH_PASSPHRASE }}
-          envs: DEPLOY_TAG,DEV_DEPLOY_PATH,GHCR_TOKEN,GHCR_USERNAME
-          script: |
-            set -eu
-            cd "$DEV_DEPLOY_PATH"
-            # Do not overwrite the server's Docker credentials or retain the job token.
-            registry_auth_dir="$(mktemp -d /tmp/edupilot-dev-ghcr.XXXXXX)"
-            trap 'rm -f -- "$registry_auth_dir/config.json"; rmdir -- "$registry_auth_dir"' EXIT
-            printf '%s' "$GHCR_TOKEN" |
-              docker --config "$registry_auth_dir" login ghcr.io --username "$GHCR_USERNAME" --password-stdin
-            unset GHCR_TOKEN
-            ENVIRONMENT=dev TAG="$DEPLOY_TAG" docker --config "$registry_auth_dir" compose --env-file .env \
-              -f docker-compose.yml -f docker-compose.prod.yml pull
-            ENVIRONMENT=dev TAG="$DEPLOY_TAG" docker --config "$registry_auth_dir" compose --env-file .env \
-              -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
-            ENVIRONMENT=dev TAG="$DEPLOY_TAG" docker --config "$registry_auth_dir" compose --env-file .env \
-              -f docker-compose.yml -f docker-compose.prod.yml restart nginx
-            ENVIRONMENT=dev TAG="$DEPLOY_TAG" docker --config "$registry_auth_dir" compose --env-file .env \
-              -f docker-compose.yml -f docker-compose.prod.yml ps
-
-      - name: Smoke test
-        shell: bash
-        env:
-          HEALTH_URL: https://${{ vars.DEV_DOMAIN }}/api/health
-          READINESS_URL: https://${{ vars.DEV_DOMAIN }}/api/health/ready
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 12); do
-            if curl --fail --silent --show-error "$HEALTH_URL"; then
-              break
-            fi
-            echo "Health check attempt $attempt/12 failed"
-            if [ "$attempt" -eq 12 ]; then
-              exit 1
-            fi
-            sleep 5
-          done
-
-          for attempt in $(seq 1 12); do
-            readiness_response="$(
-              curl --fail --silent --show-error "$READINESS_URL" || true
-            )"
-            if printf '%s' "$readiness_response" |
-              grep --extended-regexp --quiet '"aiService"[[:space:]]*:[[:space:]]*"UP"'; then
-              printf '%s\n' "$readiness_response"
-              exit 0
-            fi
-            echo "Readiness check attempt $attempt/12 failed"
-            sleep 5
-          done
-          exit 1
+          DEV_SSH_HOST: ${{ secrets.DEV_SSH_HOST }}
+          DEV_SSH_USER: ${{ secrets.DEV_SSH_USER }}
+          DEV_SSH_KEY: ${{ secrets.DEV_SSH_KEY }}
+          DEV_SSH_PASSPHRASE: ${{ secrets.DEV_SSH_PASSPHRASE }}
+          VERIFIED_HOST_FINGERPRINT: ${{ inputs.verified_host_fingerprint }}
+        run: python3 -I -S -B scripts/deploy/dev_ssh_ed25519.py --script "$RUNNER_TEMP/dev-main-only.sh"

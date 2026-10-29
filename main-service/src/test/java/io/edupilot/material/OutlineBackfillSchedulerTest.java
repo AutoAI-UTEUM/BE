@@ -2,6 +2,7 @@ package io.edupilot.material;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
@@ -33,5 +34,25 @@ class OutlineBackfillSchedulerTest {
 		verify(dispatcher).submit(11L);
 		verify(dispatcher).submit(12L);
 		verify(dispatcher).submit(13L);
+	}
+
+	@Test
+	void duplicateCandidateIsSubmittedOnlyOncePerBatch() {
+		MaterialOutlinePersistenceService persistenceService = mock(
+			MaterialOutlinePersistenceService.class
+		);
+		MaterialOutlineTaskDispatcher dispatcher = mock(
+			MaterialOutlineTaskDispatcher.class
+		);
+		when(persistenceService.findBackfillCandidates(3))
+			.thenReturn(List.of(11L, 11L, 12L));
+		OutlineBackfillScheduler scheduler = new OutlineBackfillScheduler(
+			persistenceService, dispatcher, new MaterialOutlineProperties(3)
+		);
+
+		scheduler.backfill();
+
+		verify(dispatcher, times(1)).submit(11L);
+		verify(dispatcher, times(1)).submit(12L);
 	}
 }

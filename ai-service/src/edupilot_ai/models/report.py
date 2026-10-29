@@ -94,6 +94,9 @@ class ReportGenerateRequest(ContractModel):
             raise ValueError("evidence IDs must be unique")
 
         expected_criteria = set(criterion_keys)
+        eligibility_keys = [item.criterion_key for item in self.data_quality.criterion_eligibility]
+        if len(eligibility_keys) != len(set(eligibility_keys)):
+            raise ValueError("criterion eligibility keys must be unique")
         if any(
             item.criterion_key not in expected_criteria
             for item in self.data_quality.criterion_eligibility
@@ -154,6 +157,13 @@ class ReportQueryRequest(ContractModel):
     report_summary: ReportSummary
     criterion_results: list[ReportCriterionResult]
     evidence: list[ReportEvidence] = Field(max_length=200)
+
+    @model_validator(mode="after")
+    def validate_evidence_uniqueness(self) -> Self:
+        evidence_ids = [item.evidence_id for item in self.evidence]
+        if len(evidence_ids) != len(set(evidence_ids)):
+            raise ValueError("evidence IDs must be unique")
+        return self
 
 
 class ReportQueryOutput(ContractModel):

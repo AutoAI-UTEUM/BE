@@ -3,7 +3,7 @@
 import json
 import logging
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -22,7 +22,7 @@ from edupilot_ai.models.learning_support import RepairOutput
 from edupilot_ai.models.plan import AgentOutput
 from edupilot_ai.models.quiz import QuizCoverage, QuizGeneration, QuizType
 from edupilot_ai.models.quiz_preview import QuizQuestionStreamEvent
-from edupilot_ai.models.turn import DetailLevel, Message, NoteDraft, QaThreadMode
+from edupilot_ai.models.turn import DetailLevel, EventType, Message, NoteDraft, QaThreadMode
 from edupilot_ai.orchestration.context import AgentContext
 from edupilot_ai.orchestration.prompt_cache import turn_prompt_cache
 from edupilot_ai.orchestration.prompts import (
@@ -130,9 +130,67 @@ async def _fixed_text_stream(
 
 
 class ExplainerAgent:
-    def __init__(self, *, llm: LlmBridge, profile: AgentLlmProfile) -> None:
+    def __init__(
+        self,
+        *,
+        llm: LlmBridge,
+        profile: AgentLlmProfile,
+        page_context_only_enabled: bool = False,
+        page_context_only_pages: Mapping[str, Sequence[int]] | None = None,
+    ) -> None:
         self._llm = llm
         self._profile = profile
+        self._page_context_only_enabled = page_context_only_enabled
+        self._page_context_only_pages = {
+            file_id: frozenset(pages) for file_id, pages in (page_context_only_pages or {}).items()
+        }
+
+    def _attachments(self, context: AgentContext) -> tuple[LlmFileAttachment, ...]:
+        attachments = _material_attachments(context)
+        file_id = context.attached_file_id
+        if not attachments:
+            reason = "NO_FILE"
+        elif not self._page_context_only_enabled:
+            reason = "DISABLED"
+        elif (
+            context.event_type is not EventType.EXPLAIN_CURRENT_PAGE
+            or context.plan_source != "DETERMINISTIC"
+        ):
+            reason = "NOT_DETERMINISTIC_EXPLANATION"
+        elif (
+            context.page_quiz_decision is None
+            or context.page_quiz_decision.page_number != context.session.current_page
+        ):
+            reason = "NO_MATCHING_PAGE_PLAN"
+        elif not (context.current_page_text or "").strip():
+            reason = "NO_PAGE_TEXT"
+        elif context.session.current_page not in self._page_context_only_pages.get(
+            file_id or "", frozenset()
+        ):
+            reason = "PAGE_NOT_REVIEWED"
+        else:
+            reason = "REVIEWED_PAGE_PLAN"
+            attachments = ()
+        logger.info(
+            "explainer evidence selected",
+            extra={
+                "agent": "ExplainerAgent",
+                "planSource": context.plan_source,
+                "evidenceMode": "PDF_ATTACHED" if attachments else "PAGE_CONTEXT",
+                "evidenceSelectionReason": reason,
+                "pageContextOnlyEnabled": self._page_context_only_enabled,
+                "fileAttached": bool(attachments),
+                "pageContextChars": sum(
+                    len(text or "")
+                    for text in (
+                        context.current_page_text,
+                        context.previous_page_text,
+                        context.next_page_text,
+                    )
+                ),
+            },
+        )
+        return attachments
 
     async def run(
         self,
@@ -156,7 +214,7 @@ class ExplainerAgent:
             response_model=AgentOutput,
             profile=self._profile,
             timeout_seconds=timeout_seconds,
-            attachments=_material_attachments(context),
+            attachments=self._attachments(context),
             prompt_cache=turn_prompt_cache(context, "explainer"),
         )
         return AgentResult(
@@ -187,7 +245,7 @@ class ExplainerAgent:
                 ),
                 profile=self._profile,
                 timeout_seconds=timeout_seconds,
-                attachments=_material_attachments(context),
+                attachments=self._attachments(context),
                 prompt_cache=turn_prompt_cache(context, "explainer"),
             )
         )

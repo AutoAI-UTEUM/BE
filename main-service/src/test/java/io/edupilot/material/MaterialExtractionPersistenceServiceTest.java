@@ -18,6 +18,7 @@ import io.edupilot.user.User;
 
 @ExtendWith(MockitoExtension.class)
 class MaterialExtractionPersistenceServiceTest {
+	@Mock private io.edupilot.deletion.DeletionJournal deletionJournal;
 
 	@Mock
 	private LearningMaterialRepository materialRepository;
@@ -38,7 +39,7 @@ class MaterialExtractionPersistenceServiceTest {
 		MaterialExtractionPersistenceService service =
 			new MaterialExtractionPersistenceService(
 				materialRepository,
-				pageRepository
+				pageRepository, deletionJournal
 			);
 
 		boolean applied = service.fail(
@@ -69,7 +70,7 @@ class MaterialExtractionPersistenceServiceTest {
 		MaterialExtractionPersistenceService service =
 			new MaterialExtractionPersistenceService(
 				materialRepository,
-				pageRepository
+				pageRepository, deletionJournal
 			);
 
 		boolean applied = service.complete(

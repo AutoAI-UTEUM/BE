@@ -5,6 +5,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.diagnosis.Diagnosis;
@@ -52,7 +53,7 @@ public class QuizSubmissionPersistenceService {
 		this.materialAccessService = materialAccessService;
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, isolation = Isolation.READ_COMMITTED)
 	public Optional<QuizSubmitResponse> findByRequest(
 		Long userId,
 		Long quizId,
@@ -65,12 +66,13 @@ public class QuizSubmissionPersistenceService {
 			quizId,
 			userId,
 			requestId
-		).map(submission -> reconstruct(submission).toSubmitResponse(
-			replayUiActions(submission)
-		));
+		).map(submission -> {
+			materialAccessService.assertSessionAccessible(userId, submission.getSessionId());
+			return reconstruct(submission).toSubmitResponse(replayUiActions(submission));
+		});
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, isolation = Isolation.READ_COMMITTED)
 	public Optional<QuizSubmissionDetailResponse> findDetail(
 		Long userId,
 		Long quizId
@@ -85,9 +87,13 @@ public class QuizSubmissionPersistenceService {
 			});
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, isolation = Isolation.READ_COMMITTED)
 	public boolean exists(Long userId, Long quizId) {
-		return submissionRepository.existsByQuiz_IdAndUser_Id(quizId, userId);
+		return submissionRepository.findOwnedByQuizId(quizId, userId)
+			.map(submission -> {
+				materialAccessService.assertSessionAccessible(userId, submission.getSessionId());
+				return true;
+			}).orElse(false);
 	}
 
 	@Transactional
@@ -102,6 +108,7 @@ public class QuizSubmissionPersistenceService {
 				userId
 			)
 			.orElseThrow(() -> new BusinessException(ErrorCode.QUIZ_NOT_FOUND));
+		materialAccessService.requireAccessibleForUpdate(userId, session.getMaterialId());
 		if (session.getStatus() != SessionStatus.ACTIVE) {
 			throw new BusinessException(ErrorCode.QUIZ_NOT_SUBMITTABLE);
 		}

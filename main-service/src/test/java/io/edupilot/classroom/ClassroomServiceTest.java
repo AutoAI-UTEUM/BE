@@ -161,7 +161,7 @@ class ClassroomServiceTest {
 
 	@Test
 	void instructorCreatesClassroomWithCalculatedWeekAndUniqueInviteCode() {
-		when(userRepository.findById(1L)).thenReturn(Optional.of(instructor));
+		when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(instructor));
 		when(inviteCodeGenerator.generate()).thenReturn("AAAA-BBBB", "7KMX-9QTR");
 		when(classroomRepository.existsByInviteCode("AAAA-BBBB")).thenReturn(true);
 		when(classroomRepository.existsByInviteCode("7KMX-9QTR")).thenReturn(false);

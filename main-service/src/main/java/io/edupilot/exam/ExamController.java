@@ -167,7 +167,11 @@ public class ExamController {
 	}
 
 	@PostMapping("/{examId}/submissions")
-	@Operation(summary = "시험 제출")
+	@Operation(
+		summary = "시험 제출",
+		description = "명시한 답안의 null·빈 문자열·유니코드 공백은 거부합니다. "
+			+ "재응시 불가 시험의 실패 제출은 답안을 교체할 수 없으며 학생 재채점 API를 사용합니다."
+	)
 	@ApiResponses({
 		@io.swagger.v3.oas.annotations.responses.ApiResponse(
 			responseCode = "200",
@@ -187,6 +191,36 @@ public class ExamController {
 	) {
 		ExamSubmissionResponse response = studentExamService.submit(
 			user.userId(), user.role(), examId, request
+		);
+		HttpStatus status = response.status() == SubmissionStatus.SUBMITTED
+			? HttpStatus.ACCEPTED : HttpStatus.OK;
+		return ResponseEntity.status(status).body(ApiResponse.success(response));
+	}
+
+	@PostMapping("/{examId}/submissions/me/regrade")
+	@Operation(
+		operationId = "regradeMyExamSubmission",
+		summary = "내 실패 시험 제출 재채점",
+		description = "최신 실패 제출의 저장 답안만 재채점합니다. 본문 없이 호출하며 "
+			+ "submissionId·attemptNo·requestId를 유지합니다. 진행 중 또는 완료 후 재호출은 멱등입니다. "
+			+ "마감 전 실패 점수·판정·피드백은 공개하지 않습니다."
+	)
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(
+			responseCode = "202", description = "저장 답안 재채점 접수 또는 채점 진행 중",
+			useReturnTypeSchema = true
+		),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(
+			responseCode = "200", description = "이미 채점된 동일 제출 반환",
+			useReturnTypeSchema = true
+		)
+	})
+	public ResponseEntity<ApiResponse<ExamSubmissionResponse>> regradeMySubmission(
+		@AuthenticationPrincipal AuthenticatedUser user,
+		@PathVariable Long examId
+	) {
+		ExamSubmissionResponse response = studentExamService.regradeMySubmission(
+			user.userId(), user.role(), examId
 		);
 		HttpStatus status = response.status() == SubmissionStatus.SUBMITTED
 			? HttpStatus.ACCEPTED : HttpStatus.OK;

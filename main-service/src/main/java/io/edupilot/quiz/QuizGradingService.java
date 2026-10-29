@@ -13,7 +13,9 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
@@ -25,6 +27,8 @@ import io.edupilot.global.error.ErrorCode;
 @Service
 public class QuizGradingService {
 
+	private final GuardianConsentFence consentFence;
+	private final EmailVerificationGate emailVerification;
 	private final AiClient aiClient;
 	private final AiUsageService aiUsageService;
 	private final DeterministicAnswerGrader deterministicAnswerGrader;
@@ -32,17 +36,32 @@ public class QuizGradingService {
 	public QuizGradingService(
 		AiClient aiClient,
 		AiUsageService aiUsageService,
-		DeterministicAnswerGrader deterministicAnswerGrader
+		DeterministicAnswerGrader deterministicAnswerGrader,
+		EmailVerificationGate emailVerification,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
+		this.emailVerification = emailVerification;
 		this.aiClient = aiClient;
 		this.aiUsageService = aiUsageService;
 		this.deterministicAnswerGrader = deterministicAnswerGrader;
 	}
 
 	public GradingResult grade(Long userId, PreparedQuizSubmission prepared) {
+		GuardianConsentFence.Snapshot consent = prepared.quizType().usesAiGrading() ? consentFence.capture(userId) : null;
+		return grade(userId, prepared, consent);
+	}
+
+	/** 제출 작업이 시작될 때 캡처한 동의 세대를 바꾸지 않습니다. */
+	public GradingResult grade(Long userId, PreparedQuizSubmission prepared, GuardianConsentFence.Snapshot consent) {
+		emailVerification.requireVerified(userId);
 		if (!prepared.quizType().usesAiGrading()) {
 			return gradeDeterministically(prepared);
 		}
+		if (consent == null || !userId.equals(consent.userId())) {
+			throw new BusinessException(ErrorCode.GUARDIAN_CONSENT_CHANGED);
+		}
+		consentFence.assertCurrent(consent);
 		GradeResponse response;
 		try {
 			response = aiClient.grade(toGradeRequest(prepared));
@@ -56,7 +75,9 @@ public class QuizGradingService {
 			aiUsageService.record(userId, AiFeature.GRADE, null, false);
 			throw exception;
 		}
-		return validateAiResult(prepared, response);
+		GradingResult result = validateAiResult(prepared, response);
+		consentFence.assertCurrent(consent);
+		return result;
 	}
 
 	private GradingResult gradeDeterministically(

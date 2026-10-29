@@ -24,7 +24,11 @@ import io.edupilot.auth.dto.SignupRequest;
 import io.edupilot.auth.dto.SignupResponse;
 import io.edupilot.auth.validation.ValidEmail;
 import io.edupilot.global.response.ApiResponse;
+import io.edupilot.global.response.ErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -45,6 +49,19 @@ public class AuthController {
 
 	@PostMapping("/signup")
 	@Operation(summary = "회원가입")
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(
+			responseCode = "200", description = "계정 생성 성공. 로그인 토큰·세션은 발급하지 않습니다.", useReturnTypeSchema = true
+		),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(
+			responseCode = "400", description = "POLICY_CONSENT_REQUIRED: 준비된 필수 정책 버전의 동의 누락·중복·불일치 또는 요청 검증 오류.",
+			content = @Content(schema = @Schema(implementation = ErrorResponse.class))
+		),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(
+			responseCode = "503", description = "SIGNUP_POLICY_NOT_READY: 가입 동의 필수 설정이지만 현재 유효한 동의 대상 정책이 없습니다.",
+			content = @Content(schema = @Schema(implementation = ErrorResponse.class))
+		)
+	})
 	public ApiResponse<SignupResponse> signup(
 		@Valid @RequestBody SignupRequest request,
 		HttpServletRequest servletRequest
@@ -82,7 +99,30 @@ public class AuthController {
 	}
 
 	@PostMapping("/google")
-	@Operation(summary = "Google 로그인 또는 가입")
+	@Operation(
+		summary = "Google 로그인 또는 가입",
+		description = "같은 Google subject의 기존 로그인 또는 비충돌 신규 가입. "
+			+ "이메일만 같은 기존 계정에는 자동 연결하지 않으며 충돌 시 토큰·쿠키를 발급하지 않습니다."
+	)
+	@ApiResponses({
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(
+			responseCode = "200", description = "로그인 성공", useReturnTypeSchema = true
+		),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(
+			responseCode = "400", description = "POLICY_CONSENT_REQUIRED: 신규 가입에서 준비된 필수 정책 버전의 동의 오류 또는 요청 검증 오류.",
+			content = @Content(schema = @Schema(implementation = ErrorResponse.class))
+		),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(
+			responseCode = "409",
+			description = "EMAIL_ALREADY_EXISTS: 미연결 Google subject의 이메일이 기존 계정과 충돌. "
+				+ "SIGNUP_REQUIRED: 비충돌 신규 가입에 역할 등 추가 정보 필요.",
+			content = @Content(schema = @Schema(implementation = ErrorResponse.class))
+		),
+		@io.swagger.v3.oas.annotations.responses.ApiResponse(
+			responseCode = "503", description = "SIGNUP_POLICY_NOT_READY: 신규 가입의 필수 동의 대상 정책이 아직 준비되지 않았습니다. 기존 Google 로그인에는 적용하지 않습니다.",
+			content = @Content(schema = @Schema(implementation = ErrorResponse.class))
+		)
+	})
 	public ResponseEntity<ApiResponse<LoginResponse>> googleLogin(
 		@Valid @RequestBody GoogleLoginRequest request,
 		HttpServletRequest servletRequest

@@ -25,13 +25,19 @@ public class LearnerMemoryPromotionService {
 		Long materialId,
 		MemoryWrite write
 	) {
+		return promote(userId, materialId, write, null);
+	}
+
+	public boolean promoteMemory(Long userId, Long materialId, MemoryWrite write, long expectedGuardianConsentEpoch) {
+		return promote(userId, materialId, write, expectedGuardianConsentEpoch);
+	}
+
+	private boolean promote(Long userId, Long materialId, MemoryWrite write, Long expectedGuardianConsentEpoch) {
 		for (int attempt = 0; attempt < 2; attempt++) {
 			try {
-				boolean promoted = transaction.promote(
-					userId,
-					materialId,
-					write
-				);
+				boolean promoted = expectedGuardianConsentEpoch == null
+					? transaction.promote(userId, materialId, write)
+					: transaction.promote(userId, materialId, write, expectedGuardianConsentEpoch);
 				if (!promoted) {
 					log.atWarn()
 						.addKeyValue("userId", userId)

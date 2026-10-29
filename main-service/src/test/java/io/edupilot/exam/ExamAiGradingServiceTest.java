@@ -40,7 +40,8 @@ class ExamAiGradingServiceTest {
 		service = new ExamAiGradingService(
 			aiClient,
 			aiUsageService,
-			persistenceService
+			persistenceService,
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 	}
 

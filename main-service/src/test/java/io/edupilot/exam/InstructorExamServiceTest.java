@@ -298,11 +298,12 @@ class InstructorExamServiceTest {
 			100L,
 			300L,
 			"q1",
-			new ManualScoreAdjustmentRequest(new BigDecimal("8.00"))
+			new ManualScoreAdjustmentRequest(new BigDecimal("8.00"), "  풀이 근거 재검토  ")
 		);
 
 		assertThat(fixture.answer().getScore()).isEqualByComparingTo("5.00");
 		assertThat(fixture.answer().getManualScore()).isEqualByComparingTo("8.00");
+		assertThat(fixture.answer().getManualScoreReason()).isEqualTo("풀이 근거 재검토");
 		assertThat(fixture.answer().effectiveScore()).isEqualByComparingTo("8.00");
 		assertThat(fixture.answer().getAdjustedBy()).isEqualTo(1L);
 		assertThat(fixture.answer().getAdjustedAt()).isEqualTo(NOW);
@@ -312,8 +313,42 @@ class InstructorExamServiceTest {
 		assertThat(response.score()).isEqualByComparingTo("8.00");
 		assertThat(response.items().getFirst().score()).isEqualByComparingTo("8.00");
 		assertThat(response.items().getFirst().manualScore()).isEqualByComparingTo("8.00");
+		assertThat(response.items().getFirst().manualScoreReason()).isEqualTo("풀이 근거 재검토");
 		assertThat(response.items().getFirst().adjustedAt()).isEqualTo(NOW);
 		verify(submissionRepository).findByIdAndExamIdForUpdate(300L, 100L);
+		verifyNoInteractions(notificationDispatcher);
+	}
+
+	@Test
+	void readjustmentReplacesReasonAndClearsMissingOrBlankReason() {
+		AdjustmentFixture fixture = adjustableSubmission(SubmissionStatus.GRADED);
+		service.adjustAnswerScore(1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+			new ManualScoreAdjustmentRequest(new BigDecimal("8.00"), "첫 검토"));
+		service.adjustAnswerScore(1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+			new ManualScoreAdjustmentRequest(new BigDecimal("7.00"), "다시 검토"));
+		assertThat(fixture.answer().getManualScoreReason()).isEqualTo("다시 검토");
+
+		service.adjustAnswerScore(1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+			new ManualScoreAdjustmentRequest(new BigDecimal("6.00")));
+		assertThat(fixture.answer().getManualScoreReason()).isNull();
+		service.adjustAnswerScore(1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+			new ManualScoreAdjustmentRequest(new BigDecimal("5.00"), " \t\n "));
+		assertThat(fixture.answer().getManualScoreReason()).isNull();
+		assertThat(fixture.answer().getScore()).isEqualByComparingTo("5.00");
+	}
+
+	@Test
+	void oversizedReasonCannotMutateScoresOrAdjustmentMetadata() {
+		AdjustmentFixture fixture = adjustableSubmission(SubmissionStatus.GRADED);
+		assertError(() -> service.adjustAnswerScore(1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
+			new ManualScoreAdjustmentRequest(new BigDecimal("8.00"), "가".repeat(501))),
+			ErrorCode.VALIDATION_FAILED);
+		assertThat(fixture.answer().getManualScore()).isNull();
+		assertThat(fixture.answer().getManualScoreReason()).isNull();
+		assertThat(fixture.answer().getAdjustedAt()).isNull();
+		assertThat(fixture.submission().getScore()).isEqualByComparingTo("5.00");
+		verify(answerRepository, never()).flush();
+		verify(submissionRepository, never()).flush();
 		verifyNoInteractions(notificationDispatcher);
 	}
 
@@ -422,13 +457,15 @@ class InstructorExamServiceTest {
 		appender.start();
 		logger.addAppender(appender);
 		try {
+			String firstReason = "private first adjustment reason";
+			String latestReason = "private latest adjustment reason";
 			service.adjustAnswerScore(
 				1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
-				new ManualScoreAdjustmentRequest(new BigDecimal("5.00"))
+				new ManualScoreAdjustmentRequest(new BigDecimal("5.00"), firstReason)
 			);
 			service.adjustAnswerScore(
 				1L, UserRole.INSTRUCTOR, 100L, 300L, "q1",
-				new ManualScoreAdjustmentRequest(new BigDecimal("8.00"))
+				new ManualScoreAdjustmentRequest(new BigDecimal("8.00"), latestReason)
 			);
 
 			ILoggingEvent event = appender.list.getLast();
@@ -442,9 +479,12 @@ class InstructorExamServiceTest {
 				.containsEntry("questionId", "q1")
 				.containsEntry("beforeScore", new BigDecimal("5.00"))
 				.containsEntry("afterScore", new BigDecimal("8.00"))
-				.containsEntry("adjustedAt", NOW);
-			assertThat(event.getFormattedMessage())
-				.doesNotContain(fixture.answer().getAnswer());
+				.containsEntry("adjustedAt", NOW)
+				.containsEntry("reasonProvided", true);
+			for (ILoggingEvent logged : appender.list) {
+				assertThat(logged.getFormattedMessage() + logged.getKeyValuePairs())
+					.doesNotContain(fixture.answer().getAnswer(), firstReason, latestReason);
+			}
 		} finally {
 			logger.detachAppender(appender);
 			appender.stop();

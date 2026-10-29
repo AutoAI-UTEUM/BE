@@ -9,19 +9,23 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.ai.dto.ExtractedPage;
+import io.edupilot.deletion.DeletionJournal;
 
 @Service
 public class MaterialExtractionPersistenceService {
 
 	private final LearningMaterialRepository materialRepository;
 	private final MaterialPageRepository pageRepository;
+	private final DeletionJournal deletionJournal;
 
 	public MaterialExtractionPersistenceService(
 		LearningMaterialRepository materialRepository,
-		MaterialPageRepository pageRepository
+		MaterialPageRepository pageRepository,
+		DeletionJournal deletionJournal
 	) {
 		this.materialRepository = materialRepository;
 		this.pageRepository = pageRepository;
+		this.deletionJournal = deletionJournal;
 	}
 
 	@Transactional(readOnly = true)
@@ -51,6 +55,8 @@ public class MaterialExtractionPersistenceService {
 		if (material == null || !material.isActiveAndProcessing()) {
 			return CompletionResult.discarded();
 		}
+		if (deletionJournal.materialIsTombstoned(material.getStorageKey())
+			|| deletionJournal.rejectsExternalAttachment(xaiFileId)) { return CompletionResult.discarded(); }
 
 		List<MaterialPage> pages = extractedPages.stream()
 			.map(page -> MaterialPage.create(

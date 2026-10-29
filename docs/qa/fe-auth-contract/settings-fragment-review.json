@@ -1,0 +1,17 @@
+{
+  "beCandidateHead": "e949fbecbe8f6cd414ee9f18605d1a15dca2fa6e",
+  "mainServiceTree": "20a4c0c7c55b44d8b792ce282e622eddb4d573d9",
+  "feDevHead": "21f4ad2d30f13bafd05bfcc289515c2caac98810",
+  "fePrHead": "3a9abe566d3926da69404192b35708a269c22ef6",
+  "syntheticOnly": true,
+  "deploymentOrActivationApproved": false,
+  "fragmentAgreement": "pending",
+  "preferences": { "aiAnswerStyle": "DETAILED", "newMaterialNotification": false, "studyReminder": true },
+  "fragmentFailurePlan": [
+    { "id": "fragment-only", "decision": "support format and bootstrap/client navigation parser together; pending" },
+    { "id": "mixed-query-fragment", "decision": "source precedence versus fail-closed rejection; pending" },
+    { "id": "duplicate-or-malformed", "decision": "reject duplicate/invalid tokens without falling back; pending" },
+    { "id": "retry-expiry-replay", "decision": "retain explicit public POST and BE invalid-token errors; pending" },
+    { "id": "off-navigation-history", "decision": "retain default OFF, in-memory lifetime and URL cleanup; pending" }
+  ]
+}

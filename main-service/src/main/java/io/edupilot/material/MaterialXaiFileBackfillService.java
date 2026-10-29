@@ -7,17 +7,22 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.material.MaterialXaiFileBackfillPersistenceService.UploadClaim;
 import io.edupilot.material.storage.FileStorage;
 
 @Service
 public class MaterialXaiFileBackfillService {
 
+	private final GuardianConsentFence consentFence;
+
 	private static final Logger log = LoggerFactory.getLogger(
 		MaterialXaiFileBackfillService.class
 	);
 
+	private final EmailVerificationGate emailVerification;
 	private final MaterialXaiFileBackfillPersistenceService persistenceService;
 	private final FileStorage fileStorage;
 	private final AiClient aiClient;
@@ -27,8 +32,12 @@ public class MaterialXaiFileBackfillService {
 		MaterialXaiFileBackfillPersistenceService persistenceService,
 		FileStorage fileStorage,
 		AiClient aiClient,
-		MaterialXaiFileLifecycleService lifecycleService
+		MaterialXaiFileLifecycleService lifecycleService,
+		EmailVerificationGate emailVerification,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
+		this.emailVerification = emailVerification;
 		this.persistenceService = persistenceService;
 		this.fileStorage = fileStorage;
 		this.aiClient = aiClient;
@@ -43,12 +52,13 @@ public class MaterialXaiFileBackfillService {
 
 		String uploadedFileId = null;
 		try {
+			GuardianConsentFence.Snapshot consent = consentFence.captureMaterialOwner(materialId);
+			emailVerification.requireMaterialOwnerVerified(materialId);
 			Resource resource = fileStorage.load(claim.get().storageKey());
 			uploadedFileId = aiClient.uploadFile(resource);
-			if (!persistenceService.attachIfStillEligible(
-				claim.get().materialId(),
-				uploadedFileId
-			)) {
+			String resultFileId = uploadedFileId;
+			if (!consentFence.complete(consent, () -> persistenceService.attachIfStillEligible(
+				claim.get().materialId(), resultFileId))) {
 				lifecycleService.deleteAfterCommit(uploadedFileId);
 				return;
 			}

@@ -54,6 +54,54 @@ import tools.jackson.databind.node.ObjectNode;
 
 class HttpAiClientContractTest {
 
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	void rejectedTurnKeepsDecodedUsageWithoutAcceptingInvalidResult(boolean streaming) {
+		String body = """
+			{"schemaVersion":"1.0","turnId":"wrong-turn","turnGoal":"ANSWER_USER_QUESTION",
+			 "actionsExecuted":[],"messages":[],"statePatch":{},"uiActions":[],"memoryCandidates":[],
+			 "usage":{"model":"synthetic-model","inputTokens":10,"outputTokens":20,
+			 "reasoningTokens":null,"costUsdTicks":123}}
+			""";
+		server.enqueue(streaming
+			? new MockResponse().setHeader("Content-Type", "application/x-ndjson")
+				.setBody("{\"type\":\"completed\",\"result\":" + body.replace("\n", "").strip() + "}\n")
+			: jsonResponse(200, body));
+		var ai = client(Duration.ofSeconds(2));
+		assertThatThrownBy(() -> {
+			if (streaming) {
+				ai.executeTurnStream(turnRequest("expected-turn"), event -> { },
+					new AiStreamCancellation(), Duration.ofSeconds(2));
+			} else {
+				ai.executeTurn(turnRequest("expected-turn"));
+			}
+		}).isInstanceOfSatisfying(AiClientException.class, error -> {
+			assertThat(error.errorCode()).isEqualTo(ErrorCode.AI_RESPONSE_INVALID);
+			assertThat(error.category()).isEqualTo(AiFailureCategory.SCHEMA);
+			assertThat(error.retryable()).isFalse();
+			assertThat(error.usage()).isEqualTo(new io.edupilot.ai.dto.AiUsage(
+				"synthetic-model", 10L, 20L, null, 123L));
+		});
+	}
+
+	@Test
+	void rejectedStreamCompletionKeepsKnownUsage() {
+		server.enqueue(new MockResponse().setHeader("Content-Type", "application/x-ndjson")
+			.setBody("""
+				{"type":"completed","result":{"schemaVersion":"1.0","turnId":"turn-123",
+				"turnGoal":"ANSWER_USER_QUESTION","actionsExecuted":[],"messages":[],
+				"statePatch":{},"uiActions":[],"memoryCandidates":[],
+				"usage":{"model":"synthetic-model","inputTokens":10,"outputTokens":20,
+				"reasoningTokens":null,"costUsdTicks":123}}}
+				""".replace("\n", "") + "\n"));
+		assertThatThrownBy(() -> client(Duration.ofSeconds(2)).executeTurnStream(
+			turnRequest("turn-123"), event -> { }, new AiStreamCancellation(), Duration.ofSeconds(2)))
+			.isInstanceOfSatisfying(AiClientException.class, error -> {
+				assertThat(error.errorCode()).isEqualTo(ErrorCode.AI_RESPONSE_INVALID);
+				assertThat(error.usage().costUsdTicks()).isEqualTo(123L);
+			});
+	}
+
 	private static final String INTERNAL_TOKEN = "contract-test-token";
 	private static final String TRACE_ID = "contract-test-trace";
 
@@ -615,6 +663,25 @@ class HttpAiClientContractTest {
 		assertThat(response.usage()).isNull();
 	}
 
+	@ParameterizedTest
+	@ValueSource(strings = {"EXTRACTION_TIMEOUT", "EXTRACTION_BUSY"})
+	void extractKeepsBudgetFailureCodeAndNeverRetries(String code) {
+		boolean timeout = "EXTRACTION_TIMEOUT".equals(code);
+		server.enqueue(jsonResponse(timeout ? 504 : 503, """
+			{"schemaVersion":"1.0","error":{"code":"%s","category":"%s",
+			"message":"Synthetic extraction failure","retryable":false},"traceId":"synthetic-trace"}
+			""".formatted(code, timeout ? "TIMEOUT" : "INTERNAL")));
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1))
+			.extract(new ByteArrayResource("%%PDF-synthetic".getBytes())))
+			.isInstanceOfSatisfying(AiClientException.class, error -> {
+				assertThat(error.errorCode()).isEqualTo(timeout
+					? ErrorCode.AI_SERVICE_TIMEOUT : ErrorCode.AI_SERVICE_UNAVAILABLE);
+				assertThat(error.upstreamCode()).isEqualTo(code);
+				assertThat(error.retryable()).isFalse();
+			});
+		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
 	@Test
 	void uploadFileSendsPdfMultipartAndReturnsValidatedFileId() throws Exception {
 		server.enqueue(jsonResponse(200, """
@@ -675,6 +742,21 @@ class HttpAiClientContractTest {
 		assertThat(request.getHeader("X-Internal-Token"))
 			.isEqualTo(INTERNAL_TOKEN);
 		assertThat(request.getHeader("X-Trace-Id")).isEqualTo(TRACE_ID);
+	}
+
+	@Test
+	void internalDeleteRoute404CannotBeRecordedAsCompletedCleanup() {
+		server.enqueue(new MockResponse().setResponseCode(404));
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).deleteFile("synthetic-missing"))
+			.isInstanceOf(AiClientException.class);
+		assertThat(server.getRequestCount()).isEqualTo(1);
+	}
+
+	@Test
+	void deletionRetryDoesNotTreatProviderFailureAsSuccess() {
+		server.enqueue(new MockResponse().setResponseCode(503));
+		assertThatThrownBy(() -> client(Duration.ofSeconds(1)).deleteFile("synthetic-failure"))
+			.isInstanceOf(AiClientException.class);
 	}
 
 	@Test

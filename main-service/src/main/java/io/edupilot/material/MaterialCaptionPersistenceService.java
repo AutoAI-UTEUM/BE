@@ -28,7 +28,7 @@ public class MaterialCaptionPersistenceService {
 		LearningMaterial material = materialRepository.findById(materialId)
 			.orElse(null);
 		if (material == null || !material.isActive() || !material.isReady()
-			|| material.getCaptionsCompletedAt() != null) {
+			|| material.getCaptionsCompletedAt() != null || material.getCaptionFailureReason() != null) {
 			return Optional.empty();
 		}
 		List<PageSnapshot> pages = pageRepository
@@ -54,7 +54,7 @@ public class MaterialCaptionPersistenceService {
 		LearningMaterial material = materialRepository.findById(materialId)
 			.orElse(null);
 		if (material == null || !material.isActive() || !material.isReady()
-			|| material.getCaptionsCompletedAt() != null) {
+			|| material.getCaptionsCompletedAt() != null || material.getCaptionFailureReason() != null) {
 			return;
 		}
 		pageRepository.findByMaterial_IdOrderByPageNumberAsc(materialId)
@@ -71,10 +71,26 @@ public class MaterialCaptionPersistenceService {
 		LearningMaterial material = materialRepository.findByIdForUpdate(materialId)
 			.orElse(null);
 		if (material == null || !material.isActive() || !material.isReady()
-			|| material.getCaptionsCompletedAt() != null) {
+			|| material.getCaptionsCompletedAt() != null || material.getCaptionFailureReason() != null) {
 			return false;
 		}
 		material.completeCaptionGeneration(completedAt);
+		return true;
+	}
+
+	@Transactional
+	public boolean markPermanentlyFailed(
+		Long materialId,
+		CaptionFailureReason reason,
+		Instant completedAt
+	) {
+		LearningMaterial material = materialRepository.findByIdForUpdate(materialId)
+			.orElse(null);
+		if (material == null || !material.isActive() || !material.isReady()
+			|| material.getCaptionsCompletedAt() != null || material.getCaptionFailureReason() != null) {
+			return false;
+		}
+		material.failCaptionGeneration(reason, completedAt);
 		return true;
 	}
 

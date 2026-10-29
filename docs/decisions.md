@@ -3,19 +3,90 @@
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | Open |
-| 마지막 갱신 | 2026-09-29 |
+| 마지막 갱신 | 2026-10-01 |
 
 확정된 선택은 날짜, 결정자, 이유를 기록하고 관련 문서를 함께 갱신합니다. 마감일은 팀 일정 확정 후 입력합니다.
 
 `DEC-001` 같은 값은 이 문서 안에서 결정을 추적하기 위한 ID이며 GitHub 이슈 번호가 아닙니다. 기본적으로 관련 Epic의 `결정 필요` 체크박스로 관리합니다. 여러 팀의 합의가 필요하거나 실제 개발을 막는 항목만 별도 `[Decision]` 이슈로 만들고, 이 표에 GitHub 이슈 링크를 추가합니다.
 
-DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC-033의 잔여 TBD 목록에서 추적합니다. DEC-041은 AI 프로토타입의 Spring·FE 연동 합의 대기 항목이며 기존 승인 계약을 아직 대체하지 않습니다.
+DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC-033의 잔여 TBD 목록에서 추적합니다. DEC-041은 AI 프로토타입의 Spring·FE 연동 합의 대기 항목이며 기존 승인 계약을 아직 대체하지 않습니다. DEC-044는 #457 퀴즈 제출 접근권 회수의 구현 정책과 검증 경계를 기록합니다. DEC-045는 #458의 실패 시험 결과 마스킹과 답안 고정 재채점 정책입니다.
 
 | ID | 결정 항목 | 현재 후보/질문 | 영향 | 소유자 | 목표 시점 |
 | --- | --- | --- | --- | --- | --- |
 | DEC-041 | 페이지별 퀴즈 사전 계획·QA 추가 제안·문항 선전달 | `pageQuizPlan` 저장/버전·capabilities·외부 preview 매핑·제출/취소 경계 합의 TBD. [AI 구현/인계 초안](ai-quiz-latency-handoff.md) | 내부 선택 필드·opt-in 이벤트, Spring/FE 후속 | AI·BE·FE | 활성화 전 |
+| DEC-042 | Google 계정 연결·선점 계정 복구 | #455는 이메일 충돌 차단만 적용. 기존 자동 연결 계정 조사, 소유권 증명·연결/복구 승인, 이전 비밀번호·refresh·인증 세션·access token 종료 정책 TBD | Auth·FE·운영 | BE·FE·운영 | 복구 기능 도입 전 |
+| DEC-043 | PDF 캡션 렌더링 전 자원 예산 | #456 출력 W=1,600px / H=2,400px / P=2,560,000픽셀·영구 실패 정책 확정. 운영 힙·동시 4작업 실측·대표 PDF 가독성은 배포 전 완료 조건 | Material·BE·운영 | BE·운영 | 배포 전 |
+
+- 수동 점수 변경 사유 후속 정책 (2026-10-12, 소유자: 제품·BE·FE): 사유 필수화 여부, 학생에게 공개할 허용된 사유의 별도 계약, 전체 조정 이력의 접근권·보존 기간은 TBD다. 현재 추가는 기존 요청과 호환되는 선택 사유의 최신 값 저장과 소유 강사 조회에 한정하며 EXAM-03·SEC-03 전체 완료로 처리하지 않는다.
+
+### DEC-043 — PDF 캡션 렌더링 전 자원 예산 (#456)
+
+- 상태: **출력 상한·실패 정책 확정** (사용자 승인, 2026-09-30). 근거: #456 / Finding `csf_c16808f77f45cf1db4d936ab`, 분기 기준 develop `f86a6e8`. 아래 운영 검증은 아직 완료되지 않았다.
+- 수정 전 문제: 고정 150 DPI로 래스터를 할당한 뒤 폭만 1,600px로 줄였다. 작은 업로드 파일도 페이지 치수에 따라 큰 이미지를 먼저 할당할 수 있다. 거대 래스터를 실제 할당하지 않고 PDFRenderer 호출 인자를 검사하는 합성 테스트로 재현했다.
+- 출력 상한: **W=1,600px, H=2,400px, P=2,560,000픽셀**을 모두 만족하도록 비율을 유지해 **최대 150 DPI**에서 처음부터 축소 렌더링한다. 세로형 A4·Letter는 150 DPI를 유지하며 가로형은 폭 1,600px 제한으로 축소된다. 기존 폭 기준·페이지 순서·저장 key·JPEG 품질 0.8·10페이지 청크는 유지한다.
+- 할당 전 검사 위치: `PageImageRenderer.renderPlan()`을 `PDFRenderer.renderImage()` 전에 호출한다. 사용 중인 [PDFBox 3.0.8 PDFRenderer](https://github.com/apache/pdfbox/blob/3.0.8/pdfbox/src/main/java/org/apache/pdfbox/rendering/PDFRenderer.java)는 유효 CropBox의 float 폭·높이×배율을 내림하고 90/270도 회전 시 출력 두 변을 교환한다. [PDPage](https://github.com/apache/pdfbox/blob/3.0.8/pdfbox/src/main/java/org/apache/pdfbox/pdmodel/PDPage.java)의 CropBox→MediaBox 클리핑도 적용한다. double 배율 산정 뒤 float 변환·실제 float 곱셈·내림 결과를 재검증하며 픽셀 곱은 long으로 계산한다.
+- 원본 처리: 유한한 양수 유효 치수는 비율 유지 축소를 허용한다. 치수가 0·음수·비유한 값이거나 좌표가 비유한 값이면 `INVALID_PAGE_DIMENSIONS`, 표현할 수 없는 배율이나 축소 후 한 변이 1px 미만이면 `RENDER_LIMIT_EXCEEDED`로 이미지 할당 전에 거부한다. 유한한 음수 원점 좌표 자체는 거부 사유가 아니다. 별도의 임의 원본 포인트 상한은 추가하지 않는다.
+- 영구 종료: V52의 nullable `learning_materials.caption_failure_reason VARCHAR(40)`에 위 코드만 저장하고 같은 트랜잭션에서 `captions_completed_at`에 시도 종료를 기록한다. 이 시각은 캡션 전량 성공 표시가 아니다. 실패 사유 또는 완료 시각이 있으면 snapshot·backfill에서 제외하며 캡션 반영 시에도 종료 상태를 확인한다. 자료 READY·개요·추출 원문은 유지하고 추출용 `failure_reason`을 재사용하지 않는다. 기존 행은 failure reason null을 유지하며 외부 자료 DTO는 변경하지 않는다.
+- 일시 실패 정책 유지: 현행 외부 AI 청크 실패는 해당 청크를 건너뛰고 다음 청크를 처리한 뒤 시도를 종료하며 자동 재시도하지 않는다(#268). 이 정책을 새로 변경하지 않는다. executor 전달 실패는 기존처럼 종료 시각을 기록하지 않아 backfill이 다시 전달할 수 있다. WARN에는 materialId·실패 코드/종류만 기록하고 PDF·캡션 본문을 넣지 않는다.
+- 자원 정리: PDDocument는 try-with-resources, 인코더는 dispose, 출력 스트림은 close, 반환받은 래스터는 성공·인코딩/저장/consumer 실패 모두 finally에서 flush한다. 사후 축소용 두 번째 래스터는 제거한다.
+- 래스터 산정: [Java TYPE_INT_RGB](https://docs.oracle.com/en/java/javase/21/docs/api/java.desktop/java/awt/image/BufferedImage.html#TYPE_INT_RGB)는 32비트 int 픽셀이다. P×4바이트 기준 **작업당 1장×4작업이면 약 39.1MiB**, **작업당 2장을 동시에 보유×4작업이면 약 78.1MiB**다. 두 번째 수치는 PDFBox 혼합 모드의 ARGB→RGB 변환 등 같은 크기 두 래스터가 겹친다는 가정이다. PDF 파싱·내장 이미지 디코딩·인코더·JPEG·10페이지 base64 청크·HTTP 버퍼·GC 잔존을 포함한 전체 힙 상한이 아니다.
+- 로컬 제한 프로세스 검증: Java 21, 테스트 JVM `-Xmx256m`, worker 4개, 각 자료에 Letter 1장+700×1,000pt 1장인 blank 합성 PDF로 수행했다. 최종 실행의 10ms 전체 힙 샘플 최고치는 245,072,864바이트(약 233.7MiB)였고 PDFBox·JPEG 인코딩/테스트용 디코딩 버퍼를 포함한다. 순간 최고치·RSS·실자료 내장 이미지·base64/AI 호출 버퍼·운영 동시 부하를 측정한 값은 아니다. `main-service`에서 `./gradlew -I src/test/resources/pdf-render-budget.gradle pdfRenderBudgetTest --rerun-tasks --no-daemon`으로 같은 제한을 재검증할 수 있다. 수치는 실행별로 달라질 수 있다.
+- **배포 전 완료 조건(미완료)**: 저장소 Dockerfile·compose에 명시적 JVM 힙 상한이 없다. BE·운영이 실제 운영 `-Xmx`/컨테이너 메모리 상한, 동시 4작업의 실제 힙·RSS와 다른 학습/채점 작업 여유, 대표 정상 PDF의 캡션용 가독성을 확인해야 한다. 합성 blank PDF의 제한된 별도 JVM 검증은 이 운영 검증을 대체하지 않는다.
+- 격리 범위 TBD: 출력 래스터 사전 제한만 포함한다. PDF 파싱·내장 이미지·복잡한 페이지의 CPU/메모리/시간 위험까지 해결했다고 간주하지 않는다. 별도 렌더링 프로세스 격리와 메모리·시간 상한은 BE·운영의 후속 작업이다.
+
+### DEC-042 — Google 이메일 충돌 차단과 기존 연결 계정 복구
+
+- 상태: 이메일 충돌 차단은 #455 구현 지시서 범위, 계정 연결·복구 확장은 TBD.
+- 기준일: 2026-09-30. 근거: #455 / Finding `csf_e8999ce40953eb04880b0be5`.
+- 현재 방침: 동일 `google_sub` 로그인과 비충돌 신규 Google 가입은 유지한다. 미연결 subject의 이메일 충돌은 `EMAIL_ALREADY_EXISTS`(409)로 거부하며 기존 계정 삭제·비밀번호 변경·자동 연결·토큰/세션 발급을 하지 않는다. 비활성·정지 계정 상태 검사와 DB UNIQUE 제약은 유지한다.
+- 이유: Google의 검증된 이메일은 현재 Google 이메일 소유권을 증명할 뿐, 같은 이메일로 이미 생성된 LOCAL 계정의 기존 비밀번호·세션 소유권을 증명하지 않는다. 자동 연결하면 선점자가 만든 비밀번호와 Google 소유자가 동일 사용자 ID를 공유할 수 있다.
+- 기존 계정 영향 조사: `users`에서 `auth_provider='LOCAL' AND google_sub IS NOT NULL`인 행을 우선 조사 후보로 식별한다. 다음 읽기 전용 쿼리는 ID만 반환한다. 합법적 연결도 포함되므로 이 조건만으로 피해를 단정하거나 계정을 삭제하지 않는다. 실제 운영 대상 수·연결 경위는 아직 확인하지 않았다.
+
+  ```sql
+  SELECT id FROM users
+  WHERE auth_provider = 'LOCAL' AND google_sub IS NOT NULL;
+  ```
+
+- 잔여 위험: 이미 연결된 subject는 이번 수정 후에도 기존 로그인 경로로 같은 계정에 진입한다. 기존 비밀번호·refresh token·인증 세션 및 이미 발급된 access token은 이 수정만으로 폐기되지 않는다. 신규 연결 차단만으로 기존 피해 계정 복구가 완료됐다고 보고하지 않는다.
+- 복구 정책 TBD: 기존 LOCAL 계정 소유권 증명, 명시적 연결/복구 승인, 사용자 안내 및 사전 발급된 모든 자격증명의 종료를 함께 설계한다. 현재 access 검증은 사용자 상태·역할과 만료를 확인하며 인증 세션 폐기·비밀번호 변경만으로 모든 기존 access token을 즉시 무효화하지 않는다. 복구를 도입할 때는 credential/token version, denylist 또는 별도 승인된 상태 차단 등 검증 가능한 즉시 무효화 방안을 결정해야 한다. 이번 이슈에서 복구 API·세션 정책·데이터 보정은 추가하지 않는다.
+- 동기화 문서: [API 명세](api-spec.md) §3, [화면-API 매핑](screen-api-map.md), [오류 코드](error-code.md), [도메인 모델](domain-model.md), [데이터베이스](database.md).
 
 ## 확정된 기본안
+
+### DEC-046 — KST DOB·보호자 연도 기준과 관리자 정정 요청 (#519)
+
+- 승인: 2026-10-05 05:50:09 UTC 제안에 대해 06:35:05 UTC 사용자가 “진행”. 한국 날짜로 미래 DOB 거부, 가입 후 관리자에게 수정 요청, 올해 14에 해당하는 출생 연도도 보호자 대상에 포함하는 세 가지 기준.
+- `Asia/Seoul` 오늘 이하 DOB만 신규 LOCAL/Google 가입과 수정 요청에서 허용한다. 기존 Google subject 로그인은 DOB를 재입력/검증/변경하지 않는다.
+- `한국 현재 연도 - 출생 연도 <=14`는 보호자 대상, `>=15`는 이메일 확인·기존 필수동의 등 다른 이용 조건 충족 시 보호자 불필요다. 정확한 생일·윤년 생일 보정으로 14에 해당하는 연도를 제외하지 않는다. 분류가 보호자 관계 증거나 인증 성공을 만들지 않는다.
+- User DOB는 가입 후 본인이 수정하지 않는다. 접수·본인 조회·현재 DB ADMIN의 대기 목록/상세만 구현한다. 접수는 User DOB·이용 자격을 변경하지 않으며 탈퇴 시 요청 DOB도 제거한다. 관리자 증빙·승인/반려·실제 정정 적용과 metadata 보존기간은 미정이다.
+- 기존 `LEGACY_EXEMPT` 이용과 이메일/역할/소유권·필수동의 제한을 유지한다. 보호자 업체·관계 확인·메일/SMS·운영 활성화/삭제·백업 복구의 승인으로 확대하지 않는다. [구현 계약](birthdate-policy-and-correction.md).
+
+### DEC-045 — 실패 시험 결과 공개 제한과 답안 고정 복구 (#458)
+
+- 상태: Accepted — 사용자 승인(2026-10-01): **학생 저장 답안 재채점 API 추가**. 근거: #458 / Finding `csf_3f022c090940d3570f7bb989`. 분기 기준 develop `f7c96f5`. DEC-032의 실패 결과 terminal 공개와 `allowRetake=false` 실패 시 새 attempt 허용을 부분 대체합니다.
+- 입력: 최종 제출에서 명시한 null·빈 값·공백 전용 답안은 기존 `INVALID_EXAM_ANSWER`(400)로 저장 전에 거부합니다. 기존 trim을 유지하고 `Character.isWhitespace || Character.isSpaceChar`로 공백만 있는 값을 검사합니다(U+2003·U+3000·NBSP U+00A0·U+202F 포함). 채점 준비도 같은 판정을 사용하며, 이미 저장된 비정상 공백 답안을 조용히 누락하거나 0점으로 바꾸지 않고 실패 종료합니다. 운영 답안 자동 보정은 하지 않습니다.
+- 미응답·임시저장: 문항 배열에서 생략한 답안만 null/0점/WRONG으로 처리하며 정상 한국어·영문 내용은 추가 변형하지 않습니다. 임시저장의 null·빈 답안 허용은 유지하되 복원 후 최종 제출 검증은 예외 없이 적용합니다. 거절 시 draft·start를 보존하고, 성공 시 기존 본문 우선·동일 트랜잭션 정리를 유지합니다.
+- 공개: PUBLISHED 시험의 **모든 GRADING_FAILED attempt**는 학생 문항 score·verdict·feedback을 null로 반환합니다. 본인 GET·지정 attempt·동일 requestId POST·동시 중복 복구에 동일한 마스킹을 적용합니다. 제출 총점·정규화·gradedAt도 null이며 본인 answer·questionId·maxScore와 식별/응시 시각은 유지합니다. DB 부분 점수와 강사 조회, 정상 GRADED 결과, CLOSED의 기존 복습 공개 정책은 바꾸지 않습니다. 이전 실패 attempt는 다음 시도 성공만으로 공개되지 않습니다.
+- 복구: `allowRetake=false`는 실패를 포함한 기존 제출의 새 requestId·답안 제출을 409로 차단하고 `submittable=false`로 안내합니다. `POST /api/exams/{examId}/submissions/me/regrade`(본문 없음)는 승인 LEARNER 멤버의 최신 실패 제출을 **저장된 원래 답안**으로만 재큐잉합니다. submissionId·attemptNo·requestId·제출/응시 시각을 유지하고 재시도 카운트를 0으로 초기화합니다. 기존 시험 행 잠금·lease claim·token CAS·afterCommit dispatch를 재사용하고 AI 호출은 트랜잭션 밖에서 실행합니다.
+- 멱등·권한: 이미 SUBMITTED면 추가 dispatch 없이 같은 제출/202, GRADED면 같은 제출/200을 반환합니다. 동시 호출도 새 attempt를 만들지 않습니다. 본인 최신 제출 부재/DRAFT는 EXAM_NOT_FOUND, 비멤버는 CLASSROOM_NOT_FOUND, 역할 부족은 ACCESS_DENIED입니다. CLOSED·완료 강의실에서도 저장 답안 복구는 허용하며 신규 제출 허용과 구분합니다. 소유 강사의 실패 재채점·GRADED 수동 점수 수정은 기존대로입니다.
+- 재응시: `allowRetake=true`의 terminal 결과 후 새 requestId·답안·다음 attempt 허용은 유지합니다. 최신 SUBMITTED는 항상 새 제출을 막습니다. 성적 대표값은 기존의 최신 GRADED attempt이며 실패 attempt를 0점 성적으로 계산하지 않습니다.
+- 이유·trade-off: 실패 상태에서 결정적 점수/판정을 먼저 보여 주고 답안 교체를 허용하면 실제 채점 장애도 정답 탐색·재응시 제한 우회에 사용됩니다. 복구를 막는 대신 같은 제출·답안 재채점으로 정상 장애 복구를 유지합니다. 과거 비정상 답안은 고정 재채점으로도 안전하게 실패하므로 별도의 운영 확인이 필요하며 이 이슈에서 데이터를 임의 수정하지 않습니다. 학생 수동 재채점의 별도 요청 빈도 제한은 기존 강사 재채점과 같이 이번 범위에 추가하지 않으며, 반복 진행 중 호출은 추가 AI 작업을 만들지 않습니다.
+- FE·배포: 마감 전 실패 점수·판정·피드백을 표시하지 않고 저장 답안 재채점 버튼(본문 없음)을 사용합니다. 202면 기존 GET polling을 재개하며 답안 편집·새 응시는 allowRetake=true에만 제공합니다. 임시저장 복원 시 최종 미응답 문항은 생략합니다. schema·AI wire·오류 코드 추가·환경 설정 변경은 없습니다. 학생/강사 계약 테스트와 로컬 mock/H2 검증, 코드 리뷰·CI·dev FE 검증은 구분해 보고합니다.
+- 후속 변경 문서: [API 명세](api-spec.md) §6.2, [화면-API 매핑](screen-api-map.md), [오류 코드](error-code.md), [도메인 모델](domain-model.md), [데이터베이스](database.md).
+
+### DEC-044 — 퀴즈 제출의 현재 자료 접근권과 회수 경계 (#457)
+
+- 상태: #457 구현 정책. 지시서의 저장 전 재검사 권고안을 적용하며 팀 코드 리뷰·CI는 별도 확인한다.
+- 결정일: 2026-10-01. 근거: `csf_d3f2798117235ad82309dd61`, #457 구현 지시서, 기존 `MaterialAccessService`의 소유권 또는 강의실 grant 정책.
+- 적용: 준비·채점 직전, 최초/claim 이후/중복 저장 복구 재응답, 제출 저장, 후속 평가·진단·메모리 후보 저장, 최종 반환에서 현재 접근권을 검사한다. 자료 소유자와 다른 강의실 grant가 남은 사용자는 허용한다. 회수 시 기존 상세 조회와 같은 `MATERIAL_NOT_FOUND`(404)를 쓰고 광범위한 catch에서도 성공 응답으로 강등하지 않는다.
+- 저장 순서: 기존 세션 row 잠금 뒤 자료를 잠그고, 비소유자이면 해당 자료의 `classroom_week_materials`·`classroom_weeks`·`classroom_members` 조인을 `FOR UPDATE`로 조회한다. 자료 row만 잠그거나 snapshot SELECT만 재실행하는 방식으로 멤버십 제거를 보호했다고 간주하지 않는다. 접근 근거 삭제가 먼저 커밋되면 저장은 거절하고, 저장이 접근 근거 잠금을 먼저 확보하면 삭제는 그 커밋/롤백 뒤 진행한다. 기존 접근 조회의 주차 공개 여부 무관 정책은 유지한다. 자료 삭제도 자료 잠금과 경합한다.
+- 트랜잭션: 외부 AI 호출은 모든 DB 잠금·트랜잭션 밖에서 수행한다. 준비·기존 결과 조회는 `READ_COMMITTED`로 조회 시작 때의 오래된 RR snapshot을 권한 판단에 재사용하지 않는다. 저장·평가·진단은 각 짧은 트랜잭션에서 잠금 검사를 다시 한다. `requireAccessibleForUpdate`를 쓰는 기존 세션 생성도 같은 grant 잠금 보호를 받는다.
+- 반환·후속 처리: 회수 전에 커밋한 제출/평가 기록은 보존한다. 저장 직후 회수가 확인되면 새 후속 처리를 시작하지 않으며, 외부 호출 중 회수돼도 반환된 평가·메모리 후보·진단을 새로 저장하지 않는다. 최종 권한 검사에서 회수가 확인되면 저장된 제출이 있더라도 보호된 결과 대신 404를 반환한다. 이미 권한 검사를 통과해 승인된 AI 호출·HTTP 응답을 회수 시점에 소급 취소하지 않는다. 특히 HTTP 직렬화·전송 완료까지 DB 잠금을 잡는 계약은 아니다. 사용량 이력은 실제 실행 비용 기록으로 유지한다.
+- claim: 준비에서 차단되면 claim을 만들지 않는다. claim 획득 후 접근 거절·AI 오류·저장 오류·후속 오류는 모두 기존 finally에서 해제한다. 기록을 일괄 삭제하거나 중복 POST로 복구하지 않는다.
+- 검증 범위: 로컬 H2의 실제 멤버십 삭제와 독립 트랜잭션·latch로 저장 우선/회수 우선 순서를 검사한다. MySQL 8/InnoDB 동시성 실행 검증은 별도이며 H2 성공으로 대체했다고 주장하지 않는다. 근거: [MySQL locking reads](https://dev.mysql.com/doc/refman/8.0/en/innodb-locking-reads.html).
+- 남은 검증: dev의 MySQL에서 동일 경합 검증과 실제 FE 404 안내 확인. 본 변경의 API 형태·DB schema·AI 판단 정책·토큰 상한은 변경하지 않는다.
+
+- 학습 turn 적용(#479, 2026-10-04): completed 및 사용자 취소 부분 응답의 공통 저장 경계에도 현재 계정·역할과 자료 grant를 검사한다. 계정의 공유 잠금을 세션 잠금보다 먼저 확보하고 자료/grant 잠금은 위 순서를 따른다. 오래된 관리 엔티티를 권한 근거로 삼지 않도록 계정을 잠금 읽기로 갱신한다. 저장이 먼저 커밋됐다면 이후 권한 거절은 완료 기록을 FAILED로 바꾸지 않으며, 메모리 승격 시작 전 및 POST 반환 전 새 트랜잭션의 권한 검사를 적용한다. 일반 SSE 전송 장애의 복구 응답은 유지하지만 SSE의 권한 거절은 기존 401/404로 전달한다. 이미 시작된 후속 작업의 중간 회수 경계는 별도 범위다.
 
 ### DEC-002 — Python 버전 · Grok 모델 선정 (v2)
 
@@ -174,6 +245,17 @@ DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC
 - 대안과 trade-off: S3는 내구성·presigned URL이 강점이나 AWS 구성(DEC-019) 선행이 필요해 초기 채택을 보류.
 - **S3 전환 계획**: AWS 전개(DEC-019 확정) 시 어댑터 구현체를 S3로 교체한다. 이때 FE 다운로드는 Spring이 권한 확인 후 발급하는 **presigned URL**(유효기간 있는 서명 링크, 예: 10분)로 변경해 파일 바이트가 Spring을 거치지 않게 한다. `storage_key` 체계는 전환 시에도 유지한다.
 - 후속 변경 문서: api-spec §4 자료 상세, database.md §2, backend-plan §11
+
+### DEC-046 — PDF 추출 실행·접수·종료 예산 (#527)
+
+- 상태: 2026-10-06 사용자 구현 지시의 기본안 적용. 운영 용량 승인과 배포는 별도 확인한다.
+- 최신 develop의 #470 요청별 subprocess 구현을 보존하고 접수 수명을 파일 스테이징·선택적 업로드까지 확장한다. 앱 프로세스당 실행 2개·추가 접수 2개, 실행 대기 10초·추출 120초·정리 확인 5초·handler 전체 190초가 기본값이다. 환경 변수로 조정하며 전체 replica 동시성은 합산한다.
+- 기한 초과·취소·HTTP 연결 종료·앱 종료 시 해당 실행을 실제로 종료·회수한다. 종료 확인이 지연되면 늦게 시작하는 process/reaper·임시 파일을 계속 소유하고 새 접수를 막는다. 정상 회수가 확인되면 재개하고 정리 실패는 안전한 운영 코드로 기록한다.
+- Linux의 기존 512MiB 주소 공간·CPU 제한과 8,000,000자 출력 제한을 유지한다. Windows는 최소 SYSTEMROOT만 전달하고 venv launcher 자식까지 해당 PID 트리만 종료한다. Windows 로컬 검증을 Linux 자원 강제나 운영 RSS 상한으로 표현하지 않는다.
+- worker JSON은 로케일 대신 UTF-8 바이트로 전송한다. 실제 한글·이모지 CMap 합성 PDF의 원문 round-trip을 검증한다. Linux 합성 4문서(1/20/1/20페이지, 동시 worker 2개)의 별도 검증에서 총 3,454.7ms, worker HWM 63,928~64,432KiB, 전체 부모 테스트 프로세스 HWM 82,316KiB를 관측했다. 입력·모듈·테스트 버퍼를 포함한 이 관측은 대표 운영 문서의 최악치나 컨테이너 상한을 증명하지 않는다.
+- 내부 EXTRACTION_BUSY(503/INTERNAL)·EXTRACTION_TIMEOUT(504/TIMEOUT)·예상하지 못한 EXTRACTION_FAILED(500/INTERNAL)는 retryable=false다. 알려진 parser 자원 오류의 기존 400과 파일·페이지 오류는 유지한다. Spring 외부 자료 상태·failureReason은 유지하며 자동 재추출하지 않는다.
+- 텍스트 추출 후 파일 업로드는 기존 60초와 남은 전체 예산 중 작은 값만 사용한다. 업로드만 실패·만료하면 페이지를 보존하고 HTTP 200/FILE_UPLOAD_FAILED 경고를 반환한다. 읽기 thread 정리 전에 해당 임시 파일을 삭제하지 않는다.
+- 운영 TBD: 실제 Spring 추출 read timeout(기본 200초), multipart 전송·직렬화 여유, 컨테이너/replica별 부모·자식 CPU·메모리, 대표 사용자 PDF의 처리 시간·품질을 배포 전에 확인한다. handler 이전 multipart spooling은 이 접수 제한의 보호 범위 밖이다.
 
 ### DEC-006 — PDF 텍스트 추출 책임
 
@@ -420,13 +502,14 @@ DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC
 - 상태: Accepted — 시험 도메인 구현 후 발견된 고아 `SUBMITTED` 복구와 응답 지연 문제를 보완합니다. 신규 구현 이슈 번호는 원격 이슈 등록 후 연결합니다.
 - 결정일: 2026-08-03
 - 결정자: 프로젝트 담당자
+- #458 보완(2026-10-01): 실패 결과의 학생 공개와 재응시 불가 실패 복구는 DEC-045가 부분 대체합니다. 비동기 실행·lease/CAS·DB 부분 결과·성적 대표값은 유지합니다.
 - 선택:
   - 응답 있는 SHORT/ESSAY가 있으면 제출을 `SUBMITTED`로 커밋하고 동일한 `ExamSubmissionResponse` 봉투를 HTTP 202로 즉시 반환합니다. MCQ/OX 전용 또는 주관식 전부 미응답은 기존대로 즉시 `GRADED`, HTTP 200입니다. FE는 HTTP 코드가 아니라 본문의 `status`로 분기합니다.
-  - `SUBMITTED` 응답은 총점·정규화 점수·채점 시각뿐 아니라 이미 계산된 MCQ/OX의 문항별 `score`, `verdict`, `feedback`도 null로 마스킹합니다. 본인 `answer`, `maxScore`, `questionId`는 유지하며 문항별 결과는 `GRADED | GRADING_FAILED`에서만 공개합니다. 이는 재응시 허용 시험에서 객관식 정오답 선공개로 생기는 정보 이득을 막기 위함입니다.
+  - `SUBMITTED` 응답은 총점·정규화 점수·채점 시각뿐 아니라 이미 계산된 MCQ/OX의 문항별 `score`, `verdict`, `feedback`도 null로 마스킹합니다. 본인 `answer`, `maxScore`, `questionId`는 유지합니다. #458 이후 문항별 학생 결과는 `GRADED` 또는 CLOSED 시험의 `GRADING_FAILED`에서만 공개합니다(DEC-045). 이는 실패를 이용한 객관식 정오답 선공개와 재응시 정보 이득을 막기 위함입니다.
   - 제출 커밋 뒤 bounded executor(core 4, max 4, queue 100, AbortPolicy)에 직접 전달합니다. worker는 5분 lease를 조건부 claim하고 `status=SUBMITTED AND grading_lease_token=:token`일 때만 terminal 결과를 반영해 늦은 worker 덮어쓰기를 막습니다.
   - scheduler는 30초마다 최대 100건을 처리합니다. `SUBMITTED.updated_at`을 마지막 채점 시도 시작 시각으로 사용하며 30분 컷오프에서 첫 두 번은 재큐잉하고 세 번째는 `GRADING_FAILED`로 종결합니다. 카운트와 상태 변경은 기존 CAS 조건을 유지하며 active lease보다 우선합니다. 강사는 실패 제출을 저장 답안으로 재채점할 수 있고 이때 카운트를 0으로 초기화합니다. 일반 AI 오류와 잡힌 worker 예외는 즉시 실패 처리합니다.
   - 비동기 worker가 `AI_REQUEST_INVALID`을 받으면 재시도하지 않고 `GRADING_FAILED`로 종결하며 ERROR 로그로 Spring-AI 계약 결함을 구분합니다. 원 POST에 500을 반환하거나 이미 커밋된 제출을 보상 삭제하지 않습니다. 이 항목은 DEC-031의 동기 처리 규칙을 대체합니다.
-  - 같은 `requestId`는 기존 상태를 반환합니다. 최신 제출이 `SUBMITTED`이면 새 requestId를 거부하고, `GRADING_FAILED`는 `allowRetake`와 무관하게 응시권을 소모하지 않아 새 requestId로 다음 attempt를 만들 수 있습니다.
+  - 같은 `requestId`는 기존 상태를 반환합니다. 최신 제출이 `SUBMITTED`이면 새 requestId를 거부합니다. #458 이후 `allowRetake=false` 실패는 동일 제출·저장 답안 재채점으로만 복구하고, 새 requestId/attempt는 `allowRetake=true`의 terminal 제출에서만 허용합니다(DEC-045).
   - 운영 조회·polling·제출 제한의 최신 시도는 상태와 무관한 `MAX(attempt_no)`입니다. 성적·리포트 대표 제출은 `MAX(attempt_no WHERE status=GRADED)`이며 실패 시도는 제외합니다. 예를 들어 1회차 `GRADED` 80점 뒤 2회차 `GRADING_FAILED`이면 대표 성적은 1회차 80점입니다. GRADED 시도가 없는 학생은 점수·성취도 집계에서 제외합니다.
 - 이유: 외부 AI 호출을 요청 트랜잭션과 분리하면서 프로세스 종료·executor 포화·늦은 worker에도 제출을 회수할 수 있어야 합니다. 채점 실패는 시스템 장애이므로 이미 확정된 학생 성적을 지우거나 응시권을 영구 소모해서는 안 됩니다.
 - 대안과 trade-off: 동기 채점은 구현이 단순하지만 요청 지연과 고아 제출 복구가 어렵습니다. 단일 30분 절대 컷오프는 executor 적체와 일시 장애를 영구 실패로 만들 수 있어, 제한된 3개 채점 창과 강사 재채점 API를 추가하고 기존 lease·CAS 구조는 유지합니다.
@@ -539,6 +622,16 @@ DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC
 - 이유: 기존 회전 시점 `now+14일` 방식은 계속 사용하는 계정을 무기한 유지했고 사용자 단위 `lastActiveAt`은 여러 기기를 구분하지 못했습니다. 세션별 idle과 absolute를 분리하면 활동 중 UX를 유지하면서 방치 세션과 장기 세션을 서버 정본으로 종료할 수 있습니다.
 - 대안과 trade-off: 모든 API마다 session을 조회·갱신하면 즉시 폐기는 강하지만 DB 쓰기와 stateless JWT 장점을 잃습니다. 15분 access TTL과 명시적 activity API를 택해 일반 요청 경로를 유지하며, session 종료 뒤 이미 발급된 access가 최대 15분 남을 수 있음을 수용합니다. FE는 실제 활동·선제 refresh·401 fallback을 탭 전체 single-flight로 조정해야 합니다.
 - 후속 변경 문서: [API 명세](api-spec.md) §3, [화면-API 매핑](screen-api-map.md), [DB 명세](database.md), [도메인 모델](domain-model.md), [에러 코드](error-code.md).
+
+### DEC-047 — 학습 턴 시도별 사용량 기록 (#528)
+
+- 상태: 2026-10-06 사용자 구현 지시. 클라이언트 requestId는 기존 세션·메시지·claim의 멱등 키로 유지한다.
+- TURN 집계는 Spring이 AI Service에 시작한 요청 시도 하나다. JSON·SSE 모두 시도 직전 서버가 발급한 turnId를 기존 ai_usage_log.request_id에 기록한다. 실제 재시도는 새 ID·새 행, 동일 실행의 기록 재저장만 UNIQUE로 중복 제거한다. 스키마·기존 migration·과거 로그를 변경하지 않는다.
+- 응답 검증까지 성공한 경우 success=true이며, 검증 거부·AI 실패·호출 중 취소는 해당 시도 실패 1행이다. 호출 전 거부·quota 초과·취소에는 새 사용량을 만들지 않는다. 완료 뒤 업무 저장이나 FE 전송 실패가 추가 호출 행을 만들지 않는다.
+- HttpAiClient가 이미 파싱한 usage는 내부 검증 예외에 보존하여 실패 기록에 전달한다. 파싱되지 않았거나 미확인인 값은 null이다. 토큰·비용을 0으로 추정하거나 부분 업무 결과를 성공으로 수용하지 않는다.
+- 트랜잭션 저장 경계에서 AI_POLICY_REJECTED/AI_RESPONSE_INVALID가 확인되면 해당 사용자·TURN·서버 실행 ID의 기존 행을 실패로 정정한다. 행 추가·비용·createdAt·quota 수는 바꾸지 않는다. 정상 저장 이후 메모리 승격·FE 전송 오류에는 이 정정을 적용하지 않는다. 정정 DB 장애는 기존 기록 실패 정책처럼 로그만 남기는 후속 보장 한계다.
+- REQUIRES_NEW와 기존 기록 실패 격리, KST·역할·ADMIN·quota OFF 정책을 유지한다. 한 요청 안의 개별 provider 호출 수와 Spring의 시도 수를 혼동하지 않는다.
+- 후속 범위: COUNT 검사와 호출 사이의 원자적 예약, DB 장애 중 엄격한 기록 보장, 프로세스 중단 뒤 복구는 구현하지 않는다. 모든 상황의 한도 초과 0 또는 정확한 provider 과금 원장을 보장한다고 보고하지 않는다. 모든 Main Service 인스턴스의 수정 적용과 새 집계·관리자 비용 대조를 배포 시 확인한다.
 
 ### DEC-019 — AWS 구성 (단일 EC2 + Docker Compose)
 

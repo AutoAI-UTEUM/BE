@@ -8,6 +8,7 @@ from edupilot_ai.captions.service import CaptionService
 from edupilot_ai.criteria.service import CriteriaSuggestService
 from edupilot_ai.docchat.service import DocChatService
 from edupilot_ai.examdraft.service import ExamDraftService
+from edupilot_ai.extraction.service import PdfExtractor
 from edupilot_ai.grading.service import GraderAgent, GradeService
 from edupilot_ai.llm.bridge import LlmBridge
 from edupilot_ai.llm.files import XaiFileClientProtocol
@@ -53,6 +54,11 @@ def get_xai_file_client(request: Request) -> XaiFileClientProtocol:
     return cast(XaiFileClientProtocol, request.app.state.xai_file_client)
 
 
+def get_pdf_extractor(request: Request) -> PdfExtractor:
+    """Share bounded PDF worker admission across requests on this app."""
+    return cast(PdfExtractor, request.app.state.pdf_extractor)
+
+
 def get_caption_service(
     settings: Annotated[Settings, Depends(get_settings)],
     llm: Annotated[LlmBridge, Depends(get_llm_bridge)],
@@ -69,7 +75,12 @@ def get_turn_service(
     llm: Annotated[LlmBridge, Depends(get_llm_bridge)],
 ) -> TurnService:
     """Build one request-scoped turn pipeline from app-scoped dependencies."""
-    explainer = ExplainerAgent(llm=llm, profile=settings.explainer_llm_profile)
+    explainer = ExplainerAgent(
+        llm=llm,
+        profile=settings.explainer_llm_profile,
+        page_context_only_enabled=settings.edupilot_explainer_page_context_only_enabled,
+        page_context_only_pages=settings.edupilot_explainer_page_context_only_pages,
+    )
     qa = QaAgent(llm=llm, profile=settings.qa_llm_profile)
     quiz = QuizAgent(llm=llm, profile=settings.quiz_llm_profile)
     repair = RepairAgent(llm=llm, profile=settings.repair_llm_profile)

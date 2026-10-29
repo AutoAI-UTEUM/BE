@@ -3,8 +3,10 @@ package io.edupilot.session;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
@@ -30,6 +32,8 @@ import java.util.function.LongSupplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -40,7 +44,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 import io.edupilot.ai.AiClient;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.AiClientProperties;
+import io.edupilot.ai.AiFailureCategory;
 import io.edupilot.ai.AiStreamCancellation;
+import io.edupilot.ai.QuizQuestionStreamFixtures;
 import io.edupilot.ai.TurnStreamEvent;
 import io.edupilot.ai.dto.QuizGeneration;
 import io.edupilot.ai.dto.NoteDraft;
@@ -100,9 +106,12 @@ class SessionTurnServiceTest {
 	private UserRepository userRepository;
 	@Mock
 	private MaterialAccessService materialAccessService;
+	@Mock private SessionStreamAccessGuard accessGuard;
 
 	@BeforeEach
 	void configureTurnReadTimeout() {
+		org.mockito.Mockito.lenient().when(accessGuard.captureAccess(1L))
+			.thenReturn(new SessionStreamAccessGuard.Access(io.edupilot.user.UserRole.LEARNER, 0));
 		User user = User.create("user@example.com", "hash", "학습자");
 		org.mockito.Mockito.lenient()
 			.when(userRepository.findById(1L))
@@ -141,7 +150,7 @@ class SessionTurnServiceTest {
 			"질문",
 			null
 		)).thenReturn(new PreparedTurn(501L));
-		when(snapshotService.build(1L, 100L, 501L, true))
+		when(snapshotService.buildQuestion(1L, 100L, 501L, true))
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L),
 				Map.of(
@@ -152,7 +161,8 @@ class SessionTurnServiceTest {
 						"reason", "핵심 개념")
 				),
 				10L,
-				true
+				true,
+				Map.of("qaQuizProposal", true, "quizQuestionStream", false)
 			));
 		io.edupilot.ai.dto.TurnResponse aiResponse = aiResponse("ignored");
 		when(aiClient.executeTurn(any()))
@@ -178,6 +188,8 @@ class SessionTurnServiceTest {
 		);
 		when(persistenceService.persist(
 			any(),
+			any(),
+			anyLong(),
 			any(),
 			anyString(),
 			any(),
@@ -228,6 +240,11 @@ class SessionTurnServiceTest {
 				.containsEntry("pageQuizDecision", Map.of(
 					"pageNumber", 1, "suggestQuiz", true,
 					"reason", "핵심 개념")));
+		assertThat(requests.getAllValues())
+			.allSatisfy(value -> assertThat(value.capabilities())
+				.containsExactlyInAnyOrderEntriesOf(Map.of(
+					"qaQuizProposal", true,
+					"quizQuestionStream", false)));
 		verify(responseValidator).validate(
 			any(),
 			eq(requests.getAllValues().get(1).turnId()),
@@ -240,6 +257,8 @@ class SessionTurnServiceTest {
 			ArgumentCaptor.forClass(Boolean.class);
 		verify(persistenceService).persist(
 			any(),
+			any(),
+			anyLong(),
 			any(),
 			anyString(),
 			any(),
@@ -254,7 +273,7 @@ class SessionTurnServiceTest {
 			eq(AiFeature.TURN),
 			any(),
 			eq(true),
-			eq("request-1"),
+			eq(requests.getAllValues().get(1).turnId()),
 			eq(QuizDecisionSource.PLAN)
 		);
 		verify(claimService).claim(1L, 100L, "request-1");
@@ -370,6 +389,8 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			anyLong(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -449,9 +470,9 @@ class SessionTurnServiceTest {
 			10L,
 			false
 		);
-		when(snapshotService.build(1L, 100L, 501L, true))
+		when(snapshotService.buildQuestion(1L, 100L, 501L, true))
 			.thenReturn(snapshot);
-		when(snapshotService.build(1L, 100L, 501L, false))
+		when(snapshotService.buildQuestion(1L, 100L, 501L, false))
 			.thenReturn(snapshot);
 		when(streamService.beginTurn(
 			eq(1L),
@@ -466,6 +487,8 @@ class SessionTurnServiceTest {
 		});
 		when(persistenceService.persist(
 			any(),
+			any(),
+			anyLong(),
 			any(),
 			anyString(),
 			any(),
@@ -488,8 +511,8 @@ class SessionTurnServiceTest {
 		);
 
 		verify(snapshotService, org.mockito.Mockito.times(2))
-			.build(1L, 100L, 501L, true);
-		verify(snapshotService).build(1L, 100L, 501L, false);
+			.buildQuestion(1L, 100L, 501L, true);
+		verify(snapshotService).buildQuestion(1L, 100L, 501L, false);
 		ArgumentCaptor<io.edupilot.ai.dto.TurnRequest> requests =
 			ArgumentCaptor.forClass(io.edupilot.ai.dto.TurnRequest.class);
 		verify(aiClient, org.mockito.Mockito.times(3))
@@ -659,6 +682,8 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			anyLong(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -738,6 +763,8 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			anyLong(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -783,7 +810,7 @@ class SessionTurnServiceTest {
 	void streamsIntermediateEventsThenPersistsSnapshotBeforeCompleted()
 		throws Exception {
 		stubPreparedTurn();
-		when(snapshotService.build(1L, 100L, 501L, true))
+		when(snapshotService.buildQuestion(1L, 100L, 501L, true))
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L),
 				Map.of(),
@@ -833,6 +860,8 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			anyLong(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -857,6 +886,8 @@ class SessionTurnServiceTest {
 		var order = inOrder(persistenceService, streamService);
 		order.verify(persistenceService).persist(
 			any(),
+			any(),
+			anyLong(),
 			any(),
 			anyString(),
 			any(),
@@ -904,12 +935,14 @@ class SessionTurnServiceTest {
 			});
 		when(persistenceService.persistCancelled(
 			eq(1L),
+			any(),
+			anyLong(),
 			eq(100L),
 			eq("request-1"),
 			anyString(),
 			eq("부분 답변")
 		)).thenAnswer(invocation -> {
-			String turnId = invocation.getArgument(3);
+			String turnId = invocation.getArgument(5);
 			TurnResponse response = new TurnResponse(
 				turnId,
 				100L,
@@ -944,13 +977,16 @@ class SessionTurnServiceTest {
 			.isEqualTo("부분 답변");
 		verify(persistenceService).persistCancelled(
 			eq(1L),
+			any(),
+			anyLong(),
 			eq(100L),
 			eq("request-1"),
 			anyString(),
 			eq("부분 답변")
 		);
 		verify(persistenceService, never()).persist(
-			any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()
+			any(),
+			any(), anyLong(), any(), anyString(), any(), any(), any(), anyBoolean(), any()
 		);
 		verify(responseValidator, never()).validate(
 			any(), anyString(), any(), any(), any(), any()
@@ -994,10 +1030,12 @@ class SessionTurnServiceTest {
 		);
 
 		verify(persistenceService, never()).persistCancelled(
-			any(), any(), anyString(), anyString(), anyString()
+			any(),
+			any(), anyLong(), any(), anyString(), anyString(), anyString()
 		);
 		verify(persistenceService, never()).persist(
-			any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()
+			any(),
+			any(), anyLong(), any(), anyString(), any(), any(), any(), anyBoolean(), any()
 		);
 		verify(preparationService).markFailed(501L);
 		var failure = ArgumentCaptor.forClass(RuntimeException.class);
@@ -1042,7 +1080,8 @@ class SessionTurnServiceTest {
 		)).isInstanceOf(AiClientException.class);
 
 		verify(persistenceService, never()).persistCancelled(
-			any(), any(), anyString(), anyString(), anyString()
+			any(),
+			any(), anyLong(), any(), anyString(), anyString(), anyString()
 		);
 		verify(preparationService).markFailed(501L);
 		verify(streamService).fail(
@@ -1050,6 +1089,133 @@ class SessionTurnServiceTest {
 			any(AiClientException.class)
 		);
 		verify(claimService).release(100L, "request-1");
+	}
+
+	@Test
+	void quizPreviewCapabilityIsNeverSentOnNonStreamingJsonRequest() throws Exception {
+		stubQuizTurn(quizStreamSnapshot(true), new QuizGeneration.Coverage(3, 3));
+		when(persistenceService.persist(any(), any(), anyLong(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
+			.thenReturn(persisted(publicResponse()));
+
+		service().execute(1L, 100L, quizRequest());
+
+		ArgumentCaptor<io.edupilot.ai.dto.TurnRequest> captured =
+			ArgumentCaptor.forClass(io.edupilot.ai.dto.TurnRequest.class);
+		verify(aiClient).executeTurn(captured.capture());
+		assertThat(captured.getValue().capabilities()).isNull();
+		assertThat(objectMapper.writeValueAsString(captured.getValue())).doesNotContain("capabilities");
+		verify(aiClient, never()).executeTurnStream(any(), any(), any(), any());
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = {true, false})
+	void quizPreviewStreamPersistsOnlyValidatedCompletedAndLogsFirstQuestionLatency(boolean enabled)
+		throws Exception {
+		stubQuizStream(enabled);
+		AtomicLong clock = new AtomicLong();
+		when(aiClient.executeTurnStream(any(), any(), any(), any())).thenAnswer(invocation -> {
+			io.edupilot.ai.dto.TurnRequest request = invocation.getArgument(0);
+			assertThat(request.streamsQuizQuestions()).isEqualTo(enabled);
+			assertThat(objectMapper.writeValueAsString(request).contains("capabilities")).isEqualTo(enabled);
+			Consumer<TurnStreamEvent> listener = invocation.getArgument(1);
+			if (enabled) {
+				for (int index = 1; index <= 5; index++) {
+					clock.set(Duration.ofMillis(123 + index - 1).toNanos());
+					listener.accept(TurnStreamEvent.quizQuestion(QuizQuestionStreamFixtures.preview(index)));
+				}
+			}
+			verify(persistenceService, never()).persist(any(), any(), anyLong(), any(), anyString(), any(), any(), any(), anyBoolean(), any());
+			return quizAiResponse(request.turnId());
+		});
+		TurnResponse publicQuiz = new TurnResponse("turn-public", 100L, List.of(), List.of(),
+			new TurnStateResponse(3, PageStatus.QUIZ_READY, 50L));
+		when(persistenceService.persist(any(), any(), anyLong(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
+			.thenReturn(persisted(publicQuiz));
+		Logger logger = (Logger) LoggerFactory.getLogger(SessionTurnService.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			TurnResponse response = service(clock::get).execute(1L, 100L, quizRequest());
+			assertThat(response.state().activeQuizId()).isEqualTo(50L);
+			var order = inOrder(streamConnection, responseValidator, persistenceService, streamService);
+			if (enabled) {
+				for (int index = 1; index <= 5; index++) {
+					order.verify(streamConnection).send(TurnStreamEvent.quizQuestion(QuizQuestionStreamFixtures.preview(index)));
+				}
+			}
+			order.verify(responseValidator).validate(any(), anyString(), any(),
+				eq(TurnEventType.QUIZ_TYPE_SELECTED), eq("MCQ"), any());
+			order.verify(persistenceService).persist(eq(1L), any(), anyLong(), eq(100L), eq("request-quiz"),
+				eq(TurnEventType.QUIZ_TYPE_SELECTED), any(), eq(501L), eq(false), any());
+			order.verify(streamService).complete(streamConnection, "request-quiz", publicQuiz);
+			verify(aiUsageService).record(eq(1L), eq(AiFeature.TURN), any(), eq(true),
+				argThat(id -> id.startsWith("turn-") && id.length() == 41), eq(QuizDecisionSource.PLANNER));
+			var metrics = logFields(appender, "AI quiz question stream finished");
+			if (enabled) {
+				assertThat(metrics).hasSize(1);
+				assertThat(metrics.getFirst()).containsEntry("quizQuestionFirstMs", 123L)
+					.containsEntry("quizQuestionCount", 5);
+			} else {
+				assertThat(metrics).isEmpty();
+			}
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"EOF", "ERROR", "USER_CANCEL", "CONNECTION_LOST"})
+	void interruptedQuizPreviewIsNeverPersistedOrRetried(String interruption) throws Exception {
+		stubQuizStream(true);
+		User owner = User.create("user@example.com", "hash", "학습자");
+		ReflectionTestUtils.setField(owner, "id", 1L);
+		var material = io.edupilot.material.LearningMaterial.create(owner, "자료", "materials/test.pdf");
+		ReflectionTestUtils.setField(material, "id", 10L);
+		material.markReady(5);
+		LearningSession storedSession = LearningSession.create(owner, material);
+		ReflectionTestUtils.setField(storedSession, "id", 100L);
+		LearningSessionRepository repository = mock(LearningSessionRepository.class);
+		when(repository.findByIdAndUser_Id(100L, 1L)).thenReturn(Optional.of(storedSession));
+		when(aiClient.executeTurnStream(any(), any(), any(), any())).thenAnswer(invocation -> {
+			Consumer<TurnStreamEvent> listener = invocation.getArgument(1);
+			listener.accept(TurnStreamEvent.quizQuestion(QuizQuestionStreamFixtures.preview(1)));
+			AiStreamCancellation cancellation = invocation.getArgument(2);
+			if ("USER_CANCEL".equals(interruption)) {
+				cancellation.cancelByUser();
+			} else if ("CONNECTION_LOST".equals(interruption)) {
+				cancellation.cancel();
+			}
+			throw new AiClientException(ErrorCode.AI_STREAM_INTERRUPTED, AiFailureCategory.INTERNAL, true, null);
+		});
+
+		assertThatThrownBy(() -> service().execute(1L, 100L, quizRequest()))
+			.isInstanceOf(BusinessException.class);
+
+		verify(aiClient, times(1)).executeTurnStream(any(), any(), any(), any());
+		verify(persistenceService, never()).persist(any(), any(), anyLong(), any(), anyString(), any(), any(), any(), anyBoolean(), any());
+		verify(persistenceService, never()).persistCancelled(any(), any(), anyLong(), any(), anyString(), anyString(), anyString());
+		verify(streamService, never()).complete(any(), anyString(), any());
+		verify(claimService).release(100L, "request-quiz");
+		SessionService polling = new SessionService(repository, userRepository, new StateReducer(),
+			Clock.systemUTC(), mock(io.edupilot.diagnosis.DiagnosisService.class), materialAccessService,
+			new UiActionResolver(), new QaQuizProposalSuppression(new QaQuizProposalProperties(false, 2, 5)));
+		assertThat(polling.detail(1L, 100L).activeQuizId()).isNull();
+	}
+
+	private TurnSnapshot quizStreamSnapshot(boolean enabled) {
+		return new TurnSnapshot(Map.of("sessionId", 100L, "currentPage", 3),
+			Map.of("currentPageText", "현재"), 10L, false,
+			enabled ? Map.of("qaQuizProposal", false, "quizQuestionStream", true) : null);
+	}
+
+	private void stubQuizStream(boolean enabled) {
+		when(preparationService.prepare(1L, 100L, "request-quiz", "퀴즈 유형 선택: MCQ", null))
+			.thenReturn(new PreparedTurn(501L));
+		when(snapshotService.buildQuiz(1L, 100L, 501L)).thenReturn(quizStreamSnapshot(enabled));
+		when(streamService.beginTurn(eq(1L), eq(100L), anyString(), any(AiStreamCancellation.class)))
+			.thenReturn(Optional.of(streamConnection));
 	}
 
 	@Test
@@ -1100,6 +1266,8 @@ class SessionTurnServiceTest {
 		);
 		when(persistenceService.persist(
 			any(),
+			any(),
+			anyLong(),
 			any(),
 			anyString(),
 			any(),
@@ -1170,6 +1338,8 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			anyLong(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -1214,6 +1384,8 @@ class SessionTurnServiceTest {
 		);
 		when(persistenceService.persist(
 			any(),
+			any(),
+			anyLong(),
 			any(),
 			anyString(),
 			any(),
@@ -1325,6 +1497,8 @@ class SessionTurnServiceTest {
 		verify(persistenceService, never()).persist(
 			any(),
 			any(),
+			anyLong(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -1367,6 +1541,8 @@ class SessionTurnServiceTest {
 			});
 		when(persistenceService.persist(
 			any(),
+			any(),
+			anyLong(),
 			any(),
 			anyString(),
 			any(),
@@ -1433,6 +1609,8 @@ class SessionTurnServiceTest {
 		verify(persistenceService, never()).persist(
 			any(),
 			any(),
+			anyLong(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -1482,6 +1660,8 @@ class SessionTurnServiceTest {
 		verify(preparationService).markFailed(501L);
 		verify(persistenceService, never()).persist(
 			any(),
+			any(),
+			anyLong(),
 			any(),
 			anyString(),
 			any(),
@@ -1539,6 +1719,7 @@ class SessionTurnServiceTest {
 			aiClientProperties,
 			userRepository,
 			materialAccessService,
+			accessGuard,
 			nanoTime
 		);
 	}
@@ -1681,7 +1862,7 @@ class SessionTurnServiceTest {
 			"질문",
 			null
 		)).thenReturn(new PreparedTurn(501L));
-		when(snapshotService.build(1L, 100L, 501L, true))
+		when(snapshotService.buildQuestion(1L, 100L, 501L, true))
 			.thenReturn(new TurnSnapshot(
 				Map.of("sessionId", 100L),
 				Map.of(),
@@ -1749,6 +1930,8 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			anyLong(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -1761,6 +1944,8 @@ class SessionTurnServiceTest {
 			.isEqualTo(response);
 		verify(persistenceService).persist(
 			any(),
+			any(),
+			anyLong(),
 			any(),
 			anyString(),
 			any(),
@@ -1797,6 +1982,8 @@ class SessionTurnServiceTest {
 		TurnResponse response = publicResponse();
 		when(persistenceService.persist(
 			any(),
+			any(),
+			anyLong(),
 			any(),
 			anyString(),
 			any(),
@@ -1837,7 +2024,8 @@ class SessionTurnServiceTest {
 				assertThat(exception.errorCode()).isEqualTo(ErrorCode.TURN_ALREADY_PROCESSED));
 		verify(aiClient, times(1)).executeTurnStream(any(), any(), any(), any());
 		verify(persistenceService, times(1)).persist(
-			any(), any(), anyString(), any(), any(), any(), anyBoolean(), any());
+			any(),
+			any(), anyLong(), any(), anyString(), any(), any(), any(), anyBoolean(), any());
 		verify(preparationService, times(1)).prepare(1L, 100L, "request-1", "질문", null);
 		verify(preparationService, never()).markFailed(any());
 		verify(streamService, never()).fail(any(), any());
@@ -1854,7 +2042,7 @@ class SessionTurnServiceTest {
 		ControllableSseEmitter failing = new ControllableSseEmitter();
 		failing.failingEvent = "status";
 		AtomicInteger connections = new AtomicInteger();
-		SessionStreamService streams = new SessionStreamService(repository,
+		SessionStreamService streams = new SessionStreamService(repository, materialAccessService, mock(SessionStreamAccessGuard.class),
 			() -> connections.getAndIncrement() == 0 ? failing : new ControllableSseEmitter());
 		SessionTurnService turns = service();
 		ReflectionTestUtils.setField(turns, "streamService", streams);
@@ -1869,7 +2057,7 @@ class SessionTurnServiceTest {
 			events.accept(TurnStreamEvent.status("PLANNING"));
 			return aiResponse(invocation.getArgument(0, io.edupilot.ai.dto.TurnRequest.class).turnId());
 		});
-		when(persistenceService.persist(any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
+		when(persistenceService.persist(any(), any(), anyLong(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
 			.thenReturn(persisted(publicResponse()));
 		try {
 			streams.connect(1L, 100L);
@@ -1883,7 +2071,8 @@ class SessionTurnServiceTest {
 			verify(preparationService, times(1)).markFailed(501L);
 			verify(claimService, times(2)).release(100L, "request-1");
 			verify(persistenceService, times(1)).persist(
-				any(), any(), anyString(), any(), any(), any(), anyBoolean(), any());
+				any(),
+				any(), anyLong(), any(), anyString(), any(), any(), any(), anyBoolean(), any());
 		} finally {
 			streams.shutdown();
 		}
@@ -1897,7 +2086,7 @@ class SessionTurnServiceTest {
 		when(active.getStatus()).thenReturn(SessionStatus.ACTIVE);
 		when(repository.findByIdAndUser_Id(100L, 1L)).thenReturn(Optional.of(active));
 		ControllableSseEmitter emitter = new ControllableSseEmitter();
-		SessionStreamService streams = new SessionStreamService(repository, () -> emitter);
+		SessionStreamService streams = new SessionStreamService(repository, materialAccessService, mock(SessionStreamAccessGuard.class), () -> emitter);
 		SessionTurnService turns = service();
 		ReflectionTestUtils.setField(turns, "streamService", streams);
 		AtomicInteger attempts = new AtomicInteger();
@@ -1910,7 +2099,7 @@ class SessionTurnServiceTest {
 			events.accept(TurnStreamEvent.contentDelta("private assistant answer"));
 			return aiResponse(invocation.getArgument(0, io.edupilot.ai.dto.TurnRequest.class).turnId());
 		});
-		when(persistenceService.persist(any(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
+		when(persistenceService.persist(any(), any(), anyLong(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
 			.thenReturn(persisted(publicResponse()));
 		Logger logger = (Logger)LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
 		ListAppender<ILoggingEvent> appender = new ListAppender<>();
@@ -1995,6 +2184,8 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			anyLong(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -2033,6 +2224,8 @@ class SessionTurnServiceTest {
 		when(persistenceService.persist(
 			any(),
 			any(),
+			anyLong(),
+			any(),
 			anyString(),
 			any(),
 			any(),
@@ -2051,14 +2244,40 @@ class SessionTurnServiceTest {
 		when(memoryPromotionService.promoteMemory(
 			1L,
 			10L,
-			memoryWrite
+			memoryWrite,
+			0L
 		)).thenThrow(new org.springframework.dao
 			.OptimisticLockingFailureException("conflict"));
 
 		assertThat(service().execute(1L, 100L, userQuestion()))
 			.isEqualTo(response);
 		verify(memoryPromotionService)
-			.promoteMemory(1L, 10L, memoryWrite);
+			.promoteMemory(1L, 10L, memoryWrite, 0L);
+		verify(claimService).release(100L, "request-1");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"GUARDIAN_CONSENT_CHANGED", "AGE_VERIFICATION_REQUIRED", "GUARDIAN_AI_CONSENT_REQUIRED"})
+	void memoryConsentFailureCannotBeHiddenBySuccessfulTurnPersistence(String error) throws Exception {
+		stubPreparedTurn();
+		when(accessGuard.captureAccess(1L)).thenReturn(new SessionStreamAccessGuard.Access(io.edupilot.user.UserRole.LEARNER, 42));
+		when(streamService.beginTurn(eq(1L), eq(100L), anyString(), any(AiStreamCancellation.class)))
+			.thenReturn(Optional.empty());
+		when(aiClient.executeTurn(any())).thenAnswer(invocation ->
+			aiResponse(invocation.getArgument(0, io.edupilot.ai.dto.TurnRequest.class).turnId()));
+		TurnResponse response = publicResponse();
+		MemoryWrite memoryWrite = new MemoryWrite(List.of(1L));
+		when(persistenceService.persist(any(), any(), anyLong(), any(), anyString(), any(), any(), any(), anyBoolean(), any()))
+			.thenReturn(new PersistedTurn(response.turnId(), response.sessionId(), response.messages(), response.uiActions(),
+				response.state(), memoryWrite, 10L));
+		BusinessException denied = new BusinessException(ErrorCode.valueOf(error));
+		when(memoryPromotionService.promoteMemory(1L, 10L, memoryWrite, 42L)).thenThrow(denied);
+
+		assertThatThrownBy(() -> service().execute(1L, 100L, userQuestion())).isSameAs(denied);
+
+		verify(memoryPromotionService).promoteMemory(1L, 10L, memoryWrite, 42L);
+		verify(memoryPromotionService, never()).promoteMemory(any(), any(), any());
+		verify(preparationService, never()).markFailed(501L);
 		verify(claimService).release(100L, "request-1");
 	}
 

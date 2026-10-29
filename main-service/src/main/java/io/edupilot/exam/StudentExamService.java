@@ -167,8 +167,26 @@ public class StudentExamService {
 		return exam.getStatus() == ExamStatus.PUBLISHED
 			&& exam.getClassroomStatus() == ClassroomStatus.ACTIVE
 			&& (latest == null
-				|| latest.getStatus() == SubmissionStatus.GRADING_FAILED
-				|| latest.getStatus() == SubmissionStatus.GRADED && exam.isAllowRetake());
+				|| latest.getStatus() != SubmissionStatus.SUBMITTED && exam.isAllowRetake());
+	}
+
+	@Transactional
+	public ExamSubmissionResponse regradeMySubmission(Long userId, UserRole role, Long examId) {
+		requireLearner(role);
+		Exam exam = examRepository.findByIdForUpdate(examId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.EXAM_NOT_FOUND));
+		if (exam.getStatus() == ExamStatus.DRAFT) {
+			throw new BusinessException(ErrorCode.EXAM_NOT_FOUND);
+		}
+		classroomService.requireVisible(userId, role, exam.getClassroomId());
+		ExamSubmission latest = submissionRepository
+			.findTopByExam_IdAndUser_IdOrderByAttemptNoDesc(examId, userId)
+			.orElseThrow(() -> new BusinessException(ErrorCode.EXAM_NOT_FOUND));
+		if (latest.getStatus() == SubmissionStatus.GRADING_FAILED) {
+			return persistenceService.regradeFailedSubmission(examId, latest.getId());
+		}
+		// Concurrent/repeated recovery requests reuse the same pending or completed attempt.
+		return response(latest);
 	}
 
 	@Transactional(readOnly = true)

@@ -50,6 +50,12 @@ public class MaterialOverview {
 	@Column(nullable = false, length = 20)
 	private MaterialOverviewStatus status;
 
+	@Column(name = "generation_failure_count", nullable = false)
+	private int generationFailureCount;
+
+	@Column(name = "generation_attempted_at")
+	private Instant generationAttemptedAt;
+
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
@@ -83,6 +89,21 @@ public class MaterialOverview {
 		this.outline = null;
 		this.status = MaterialOverviewStatus.FAILED;
 		this.updatedAt = failedAt;
+		recordFailedGeneration(failedAt);
+	}
+
+	public void claimGeneration(Instant attemptedAt) {
+		this.generationAttemptedAt = attemptedAt;
+	}
+
+	public void recordFailedGeneration(Instant failedAt) {
+		this.generationFailureCount++;
+		this.generationAttemptedAt = failedAt;
+	}
+
+	public void clearGenerationFailures() {
+		this.generationFailureCount = 0;
+		this.generationAttemptedAt = null;
 	}
 
 	public Long getMaterialId() {
@@ -111,5 +132,13 @@ public class MaterialOverview {
 
 	public Instant getUpdatedAt() {
 		return updatedAt;
+	}
+
+	public int getGenerationFailureCount() {
+		return generationFailureCount;
+	}
+
+	public Instant getGenerationAttemptedAt() {
+		return generationAttemptedAt;
 	}
 }

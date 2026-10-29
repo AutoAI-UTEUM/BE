@@ -318,6 +318,51 @@ prod 배포 smoke test는 `/admin`·`/admin/users`의 HTTP 200, 인증 정보 �
 파일만 교체하므로 Nginx 경로 수정은 BE 저장소의 `infra/nginx/edupilot.conf`에도
 반영해야 합니다. 서버에서만 수정하면 다음 BE 배포가 이전 설정으로 덮어쓸 수 있습니다.
 
+### 6.3 검토 페이지 설명 최적화
+
+설명 PDF 첨부 생략은 **기본 OFF**인 제한 실험이다. Compose 배포만으로 활성화되지 않는다.
+두 변수는 `ai-service`에만 전달되며 Spring·FE 코드/계약과 퀴즈·QA의 PDF 첨부는 변경하지 않는다.
+dev 배포 로그의 `explainerEvidenceConfig`에는 컨테이너에서 읽은 플래그와 승인 파일/페이지 개수만
+남긴다. 이 설정 확인은 실제 턴의 근거 선택·학습 품질 검증을 대체하지 않는다.
+
+1. 대상 자료의 현재 xAI file ID를 서버에서 확인한다(자료 ID가 아님). 실제 페이지와 Spring이 보내는
+   현재/인접 페이지 텍스트·캡션을 대조해 충분한 근거가 있는 페이지만 승인한다. 로컬 비교에서 쓴
+   임시 file ID나 수동 캡션을 dev 자료의 검증 결과로 재사용하지 않는다.
+2. dev 서버의 배포용 환경 설정에 아래 두 값을 반영한다. 예시는 가짜 ID이며 실제 값은 커밋하거나
+   공개 로그/PR에 복사하지 않는다. 승인 목록은 JSON 객체이고 빈 문자열은 허용하지 않는다.
+
+   ```dotenv
+   EDUPILOT_EXPLAINER_PAGE_CONTEXT_ONLY_ENABLED=true
+   EDUPILOT_EXPLAINER_PAGE_CONTEXT_ONLY_PAGES='{"file-reviewed-example":[2,3]}'
+   ```
+
+3. 현재 실행 중인 검증된 dev SHA를 `TAG`에 사용해 설정을 검증하고 AI만 재생성한다.
+   단순 `restart`는 변경된 환경변수를 반영하지 않는다.
+
+   ```bash
+   ENVIRONMENT=dev TAG=replace-with-current-deployed-sha docker compose --env-file .env \
+     -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+   ENVIRONMENT=dev TAG=replace-with-current-deployed-sha docker compose --env-file .env \
+     -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps ai-service
+   ```
+
+   플래그/승인 항목 **개수만** 확인한다(키·file ID·페이지 본문 출력 금지).
+
+   ```bash
+   ENVIRONMENT=dev TAG=replace-with-current-deployed-sha docker compose --env-file .env \
+     -f docker-compose.yml -f docker-compose.prod.yml exec -T ai-service python -c \
+     'from edupilot_ai.settings import Settings; s=Settings(); p=s.edupilot_explainer_page_context_only_pages; print({"enabled": s.edupilot_explainer_page_context_only_enabled, "reviewedFiles": len(p), "reviewedPages": sum(len(v) for v in p.values())})'
+   ```
+
+4. readiness의 `aiService=UP`을 확인한 뒤, 승인된 페이지의 설명 턴에서 같은 traceId의
+   `planSource=DETERMINISTIC`, `evidenceMode=PAGE_CONTEXT`,
+   `evidenceSelectionReason=REVIEWED_PAGE_PLAN`, `fileAttached=false`를 확인한다.
+   실제 호출은 합의된 유료 검증 예산 안에서만 수행한다. 학습자 QA·평가·진단 이력이 있어 Planner가
+   실행되거나 계획이 없는 경우에는 PDF 유지가 정상이다. 이를 통과시키려고 학습자 데이터를 지우지 않는다.
+5. 첫 본문/완료 시간과 수식·그림·조건 누락을 함께 확인한다. 품질 문제가 있으면 플래그를 `false`로
+   변경하고 같은 명령으로 AI 컨테이너를 재생성한다. 해당 페이지 로그가 `PDF_ATTACHED`로 돌아오는지
+   확인한다. prod 활성화는 별도 검토하며 dev의 승인 목록을 무조건 복사하지 않는다.
+
 ## 7. 롤백
 
 배포 전 정상 동작한 이전 git SHA를 기록합니다. 애플리케이션 롤백은 이전 이미지

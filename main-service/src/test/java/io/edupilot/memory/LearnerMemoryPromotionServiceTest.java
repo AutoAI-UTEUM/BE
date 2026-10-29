@@ -278,12 +278,36 @@ class LearnerMemoryPromotionServiceTest {
 			.isEqualTo(Propagation.REQUIRES_NEW);
 	}
 
+	@Test
+	void lateAiMemoryRetryKeepsTheOriginalGuardianConsentEpoch() {
+		MemoryWrite write = write();
+		when(transaction.promote(1L, 10L, write, 7L))
+			.thenThrow(new OptimisticLockingFailureException("합성 동시 변경"))
+			.thenReturn(true);
+		assertThat(new LearnerMemoryPromotionService(transaction).promoteMemory(1L, 10L, write, 7L)).isTrue();
+		verify(transaction, org.mockito.Mockito.times(2)).promote(1L, 10L, write, 7L);
+		verify(transaction, never()).promote(1L, 10L, write);
+	}
+
+	@Test
+	void changedGuardianConsentCannotBeRetriedAsANewMemoryApproval() {
+		MemoryWrite write = write();
+		when(transaction.promote(1L, 10L, write, 7L)).thenThrow(new io.edupilot.global.error.BusinessException(
+			io.edupilot.global.error.ErrorCode.GUARDIAN_CONSENT_CHANGED));
+		assertThatThrownBy(() -> new LearnerMemoryPromotionService(transaction).promoteMemory(1L, 10L, write, 7L))
+			.isInstanceOfSatisfying(io.edupilot.global.error.BusinessException.class,
+				error -> assertThat(error.errorCode()).isEqualTo(io.edupilot.global.error.ErrorCode.GUARDIAN_CONSENT_CHANGED));
+		verify(transaction).promote(1L, 10L, write, 7L);
+		verify(transaction, never()).promote(1L, 10L, write);
+	}
+
 	private LearnerMemoryPromotionTransaction promotionTransaction() {
 		return new LearnerMemoryPromotionTransaction(
 			memoryRepository,
 			candidateRepository,
 			userRepository,
-			materialRepository
+			materialRepository,
+			io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 	}
 

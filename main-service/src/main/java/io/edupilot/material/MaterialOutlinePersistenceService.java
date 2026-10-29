@@ -2,7 +2,8 @@ package io.edupilot.material;
 
 import java.time.Clock;
 import java.time.Duration;
-import java.util.ArrayList;
+import java.time.Instant;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -17,6 +18,7 @@ import io.edupilot.ai.dto.OutlineResponse;
 public class MaterialOutlinePersistenceService {
 
 	private static final Duration FAILED_RETRY_BACKOFF = Duration.ofHours(24);
+	private static final int MAX_GENERATION_FAILURES = 3;
 
 	private final LearningMaterialRepository materialRepository;
 	private final MaterialPageRepository pageRepository;
@@ -43,6 +45,15 @@ public class MaterialOutlinePersistenceService {
 
 	@Transactional(readOnly = true)
 	public Optional<OutlineSnapshot> snapshot(Long materialId) {
+		return snapshot(materialId, false);
+	}
+
+	@Transactional(readOnly = true)
+	public Optional<OutlineSnapshot> snapshotForManual(Long materialId) {
+		return snapshot(materialId, true);
+	}
+
+	private Optional<OutlineSnapshot> snapshot(Long materialId, boolean manual) {
 		LearningMaterial material = materialRepository.findById(materialId)
 			.orElse(null);
 		if (material == null || !material.isActive() || !material.isReady()) {
@@ -50,7 +61,7 @@ public class MaterialOutlinePersistenceService {
 		}
 		Optional<MaterialOverview> overview = overviewRepository
 			.findByMaterial_Id(materialId);
-		if (overview.isPresent() && !canGenerate(overview.get())) {
+		if (!manual && overview.isPresent() && !canGenerate(overview.get())) {
 			return Optional.empty();
 		}
 
@@ -74,10 +85,64 @@ public class MaterialOutlinePersistenceService {
 	}
 
 	@Transactional
+	public boolean claimAutomaticGeneration(Long materialId) {
+		LearningMaterial material = materialRepository.findByIdForUpdate(materialId)
+			.orElse(null);
+		if (material == null || !material.isActive() || !material.isReady()) {
+			return false;
+		}
+		MaterialOverview overview = overviewRepository.findByMaterial_Id(materialId)
+			.orElse(null);
+		Instant cutoff = clock.instant().minus(FAILED_RETRY_BACKOFF);
+		if (overview != null && !canClaimAutomatically(overview, cutoff)) {
+			return false;
+		}
+		if (overview == null) {
+			overview = MaterialOverview.createPending(material);
+		}
+		overview.claimGeneration(clock.instant());
+		overviewRepository.save(overview);
+		return true;
+	}
+
+	@Transactional
+	public boolean prepareManualRegeneration(Long materialId) {
+		LearningMaterial material = materialRepository.findByIdForUpdate(materialId)
+			.orElse(null);
+		if (material == null || !material.isActive() || !material.isReady()) {
+			return false;
+		}
+		MaterialOverview overview = overviewRepository.findByMaterial_Id(materialId)
+			.orElseGet(() -> MaterialOverview.createPending(material));
+		overview.clearGenerationFailures();
+		overview.claimGeneration(clock.instant());
+		overviewRepository.save(overview);
+		return true;
+	}
+
+	@Transactional
 	public boolean markReady(
 		Long materialId,
 		String content,
 		OutlineResponse outline
+	) {
+		return markReady(materialId, content, outline, false);
+	}
+
+	@Transactional
+	public boolean markReadyManual(
+		Long materialId,
+		String content,
+		OutlineResponse outline
+	) {
+		return markReady(materialId, content, outline, true);
+	}
+
+	private boolean markReady(
+		Long materialId,
+		String content,
+		OutlineResponse outline,
+		boolean manual
 	) {
 		LearningMaterial material = materialRepository.findByIdForUpdate(materialId)
 			.orElse(null);
@@ -86,12 +151,20 @@ public class MaterialOutlinePersistenceService {
 		}
 		MaterialOverview overview = overviewRepository.findByMaterial_Id(materialId)
 			.orElseGet(() -> MaterialOverview.createPending(material));
-		if (overview.getStatus() == MaterialOverviewStatus.READY
+		if (!manual && overview.getStatus() == MaterialOverviewStatus.READY
 			&& !needsCheckpointBackfill(overview)
 			&& !needsPageQuizPlanBackfill(overview)) {
 			return false;
 		}
 		overview.markReady(content, outline);
+		if (outline.quizCheckpoints() == null
+			|| (pageQuizPlanProperties.enabled()
+				&& outline.pageQuizPlan() == null)) {
+			// A valid overview can still miss optional backfill output.
+			overview.recordFailedGeneration(clock.instant());
+		} else {
+			overview.clearGenerationFailures();
+		}
 		overviewRepository.save(overview);
 		return true;
 	}
@@ -106,26 +179,28 @@ public class MaterialOutlinePersistenceService {
 		MaterialOverview overview = overviewRepository.findByMaterial_Id(materialId)
 			.orElseGet(() -> MaterialOverview.createPending(material));
 		if (overview.getStatus() == MaterialOverviewStatus.READY) {
-			return false;
+			// Preserve a usable overview while backing off failed regeneration.
+			overview.recordFailedGeneration(clock.instant());
+		} else {
+			overview.markFailed(clock.instant());
 		}
-		overview.markFailed(clock.instant());
 		overviewRepository.save(overview);
 		return true;
 	}
 
 	@Transactional(readOnly = true)
 	public List<Long> findBackfillCandidates(int batchSize) {
-		List<Long> candidates = new ArrayList<>(
-			materialRepository.findMissingOverviewIds(
-				PageRequest.of(0, batchSize)
-			)
+		Instant cutoff = clock.instant().minus(FAILED_RETRY_BACKOFF);
+		LinkedHashSet<Long> candidates = new LinkedHashSet<>(
+			materialRepository.findMissingOverviewIds(PageRequest.of(0, batchSize))
 		);
 		int remainingSlots = batchSize - candidates.size();
 		if (remainingSlots == 0) {
 			return List.copyOf(candidates);
 		}
-		candidates.addAll(overviewRepository.findRetryableFailedMaterialIds(
-			clock.instant().minus(FAILED_RETRY_BACKOFF),
+		candidates.addAll(overviewRepository.findRetryableUnreadyMaterialIds(
+			cutoff,
+			MAX_GENERATION_FAILURES,
 			PageRequest.of(0, remainingSlots)
 		));
 		remainingSlots = batchSize - candidates.size();
@@ -134,16 +209,19 @@ public class MaterialOutlinePersistenceService {
 		}
 		candidates.addAll(
 			overviewRepository.findReadyWithoutQuizCheckpointsMaterialIds(
+				cutoff,
+				MAX_GENERATION_FAILURES,
 				PageRequest.of(0, remainingSlots)
 			)
 		);
 		remainingSlots = batchSize - candidates.size();
-		if (remainingSlots > 0 && pageQuizPlanProperties.enabled()) {
+		if (remainingSlots > 0 && pageQuizPlanProperties.enabled()
+			&& pageQuizPlanProperties.backfillEnabled()) {
 			// A READY outline with an absent plan keeps the legacy turn path.
-			// Retry no sooner than the existing failed-outline backoff interval.
 			for (Long materialId : overviewRepository
 				.findReadyWithoutPageQuizPlanMaterialIds(
-					clock.instant().minus(FAILED_RETRY_BACKOFF),
+					cutoff,
+					MAX_GENERATION_FAILURES,
 					PageRequest.of(0, batchSize + candidates.size())
 				)) {
 				if (!candidates.contains(materialId)) {
@@ -155,6 +233,24 @@ public class MaterialOutlinePersistenceService {
 			}
 		}
 		return List.copyOf(candidates);
+	}
+
+	private boolean canClaimAutomatically(MaterialOverview overview, Instant cutoff) {
+		if (overview.getGenerationFailureCount() >= MAX_GENERATION_FAILURES
+			|| (overview.getGenerationAttemptedAt() != null
+				&& overview.getGenerationAttemptedAt().isAfter(cutoff))) {
+			return false;
+		}
+		if (overview.getStatus() == MaterialOverviewStatus.PENDING
+			|| overview.getStatus() == MaterialOverviewStatus.FAILED) {
+			return overview.getGenerationAttemptedAt() != null
+				|| overview.getUpdatedAt() == null
+				|| !overview.getUpdatedAt().isAfter(cutoff);
+		}
+		return needsCheckpointBackfill(overview)
+			|| (needsPageQuizPlanBackfill(overview)
+				&& overview.getUpdatedAt() != null
+				&& !overview.getUpdatedAt().isAfter(cutoff));
 	}
 
 	private boolean canGenerate(MaterialOverview overview) {
@@ -172,10 +268,8 @@ public class MaterialOutlinePersistenceService {
 
 	private boolean needsPageQuizPlanBackfill(MaterialOverview overview) {
 		if (!pageQuizPlanProperties.enabled()
-			|| overview.getStatus() != MaterialOverviewStatus.READY
-			|| overview.getUpdatedAt() == null
-			|| overview.getUpdatedAt().isAfter(
-				clock.instant().minus(FAILED_RETRY_BACKOFF))) {
+			|| !pageQuizPlanProperties.backfillEnabled()
+			|| overview.getStatus() != MaterialOverviewStatus.READY) {
 			return false;
 		}
 		OutlineResponse outline = overview.getOutline();

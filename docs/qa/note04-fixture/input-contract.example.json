@@ -1,0 +1,36 @@
+{
+  "format": "note04.mysql.v1",
+  "environment": "LOCAL_OWNED_MYSQL_SCHEMA",
+  "schemaSourceCommit": "ef8f0f74a3d2d46a0adc9aabf1d9dad9577dd938",
+  "runLabel": "NOTE04-DEV-20261004-R1",
+  "manifestId": "note04-dev-20261004-r1-plan",
+  "approvalReference": "LOCAL-SYNTHETIC-REHEARSAL",
+  "createdAtUtc": "2026-10-04 00:00:00.000000",
+  "learners": {
+    "A": { "userId": null },
+    "B": { "userId": null }
+  },
+  "sessions": {
+    "A1": {
+      "userId": null,
+      "materialId": null,
+      "sessionId": null,
+      "expectedVersion": null,
+      "expectedMaterialUpdatedAtUtc": null
+    },
+    "A2": {
+      "userId": null,
+      "materialId": null,
+      "sessionId": null,
+      "expectedVersion": null,
+      "expectedMaterialUpdatedAtUtc": null
+    },
+    "B1": {
+      "userId": null,
+      "materialId": null,
+      "sessionId": null,
+      "expectedVersion": null,
+      "expectedMaterialUpdatedAtUtc": null
+    }
+  }
+}

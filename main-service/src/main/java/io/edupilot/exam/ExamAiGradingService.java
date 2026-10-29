@@ -11,7 +11,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import io.edupilot.guardian.GuardianConsentFence;
 import io.edupilot.ai.AiClient;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.ai.AiClientException;
 import io.edupilot.ai.dto.GradeRequest;
 import io.edupilot.ai.dto.GradeResponse;
@@ -23,9 +25,12 @@ import io.edupilot.global.error.ErrorCode;
 @Service
 public class ExamAiGradingService {
 
+	private final GuardianConsentFence consentFence;
+
 	private static final Logger log = LoggerFactory.getLogger(ExamAiGradingService.class);
 	private static final String SCHEMA_VERSION = "1.0";
 
+	private final EmailVerificationGate emailVerification;
 	private final AiClient aiClient;
 	private final AiUsageService aiUsageService;
 	private final ExamSubmissionPersistenceService persistenceService;
@@ -33,8 +38,12 @@ public class ExamAiGradingService {
 	public ExamAiGradingService(
 		AiClient aiClient,
 		AiUsageService aiUsageService,
-		ExamSubmissionPersistenceService persistenceService
+		ExamSubmissionPersistenceService persistenceService,
+		EmailVerificationGate emailVerification,
+		GuardianConsentFence consentFence
 	) {
+		this.consentFence = consentFence;
+		this.emailVerification = emailVerification;
 		this.aiClient = aiClient;
 		this.aiUsageService = aiUsageService;
 		this.persistenceService = persistenceService;
@@ -42,11 +51,14 @@ public class ExamAiGradingService {
 
 	public ExamAiGradingOutcome grade(Long submissionId) {
 		PreparedExamAiGrading prepared = persistenceService.prepareAiGrading(submissionId);
+		GuardianConsentFence.Snapshot consent = consentFence.capture(prepared.userId());
 		Map<String, ExamAiGradingOutcome.GradedItem> grades = new HashMap<>();
 		boolean failed = false;
 		boolean requestInvalid = false;
 		for (PreparedExamAiGrading.Group group : prepared.groups()) {
 			try {
+				consentFence.assertCurrent(consent);
+				emailVerification.requireAiVerified(prepared.userId());
 				GradeResponse response = aiClient.grade(toRequest(prepared.examId(), group));
 				aiUsageService.record(
 					prepared.userId(),
@@ -59,7 +71,7 @@ public class ExamAiGradingService {
 				aiUsageService.record(
 					prepared.userId(),
 					AiFeature.GRADE,
-					null,
+					exception.usage(),
 					false
 				);
 				if ("AI_REQUEST_INVALID".equals(exception.upstreamCode())) {
@@ -69,6 +81,7 @@ public class ExamAiGradingService {
 				}
 				logFailure(prepared, group, exception);
 			} catch (BusinessException exception) {
+				if (GuardianConsentFence.isConsentFailure(exception)) throw exception;
 				failed = true;
 				logFailure(prepared, group, exception);
 			}
@@ -82,7 +95,8 @@ public class ExamAiGradingService {
 				.log("Exam grading request violated the AI contract");
 			failed = true;
 		}
-		return new ExamAiGradingOutcome(Map.copyOf(grades), failed);
+		consentFence.assertCurrent(consent);
+		return new ExamAiGradingOutcome(Map.copyOf(grades), failed, consent);
 	}
 
 	private GradeRequest toRequest(

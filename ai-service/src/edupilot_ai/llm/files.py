@@ -98,7 +98,6 @@ class XaiFileClient:
                 "tool": "files.upload",
                 "status": "SUCCESS",
                 "durationMs": round((perf_counter() - started_at) * 1000, 3),
-                "fileId": file_id,
                 "sizeBytes": size_bytes,
             },
         )
@@ -116,7 +115,7 @@ class XaiFileClient:
                 timeout=httpx.Timeout(self._timeout_seconds),
             )
         except (httpx.TimeoutException, httpx.RequestError) as exception:
-            self._log_delete_failure(started_at=started_at, file_id=file_id)
+            self._log_delete_failure(started_at=started_at)
             raise XaiFileClientError("FILE_DELETE_FAILED") from exception
 
         if response.status_code == httpx.codes.NOT_FOUND:
@@ -126,12 +125,11 @@ class XaiFileClient:
                     "tool": "files.delete",
                     "status": "SUCCESS",
                     "durationMs": round((perf_counter() - started_at) * 1000, 3),
-                    "fileId": file_id,
                 },
             )
             return
         if not response.is_success:
-            self._log_delete_failure(started_at=started_at, file_id=file_id)
+            self._log_delete_failure(started_at=started_at)
             raise XaiFileClientError(
                 "FILE_DELETE_FAILED",
                 retryable=response.status_code == httpx.codes.TOO_MANY_REQUESTS
@@ -144,7 +142,6 @@ class XaiFileClient:
                 "tool": "files.delete",
                 "status": "SUCCESS",
                 "durationMs": round((perf_counter() - started_at) * 1000, 3),
-                "fileId": file_id,
             },
         )
 
@@ -165,7 +162,7 @@ class XaiFileClient:
         )
 
     @staticmethod
-    def _log_delete_failure(*, started_at: float, file_id: str) -> None:
+    def _log_delete_failure(*, started_at: float) -> None:
         logger.warning(
             "xAI file delete finished",
             extra={
@@ -173,6 +170,5 @@ class XaiFileClient:
                 "status": "FAILED",
                 "durationMs": round((perf_counter() - started_at) * 1000, 3),
                 "errorCode": "FILE_DELETE_FAILED",
-                "fileId": file_id,
             },
         )

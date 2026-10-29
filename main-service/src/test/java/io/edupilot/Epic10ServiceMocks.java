@@ -15,7 +15,10 @@ import io.edupilot.admin.xai.XaiAlertConfigService;
 import io.edupilot.auth.AuthSessionRepository;
 import io.edupilot.auth.PasswordResetTokenRepository;
 import io.edupilot.auth.UserAccessGuard;
+import io.edupilot.auth.EmailVerificationTokenRepository;
+import io.edupilot.auth.EmailVerificationGate;
 import io.edupilot.classroom.ClassroomService;
+import io.edupilot.classroom.ClassroomRepository;
 import io.edupilot.aiusage.AiQuotaService;
 import io.edupilot.aiusage.AiUsageService;
 import io.edupilot.classroom.ClassroomAnalyticsService;
@@ -37,6 +40,10 @@ import io.edupilot.material.MaterialOutlinePersistenceService;
 import io.edupilot.material.MaterialOverviewRepository;
 import io.edupilot.material.MaterialOverviewService;
 import io.edupilot.mail.EmailDeliveryRepository;
+import io.edupilot.mail.EmailOutboxRepository;
+import io.edupilot.mail.EmailOutboxStore;
+import io.edupilot.mail.EmailQuotaLockRepository;
+import io.edupilot.mail.EmailSendReservationRepository;
 import io.edupilot.notification.NotificationBulkRepository;
 import io.edupilot.notification.NotificationService;
 import io.edupilot.notification.NotificationTriggerService;
@@ -61,6 +68,22 @@ import io.edupilot.usernote.WrongAnswerNoteService;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @MockitoBean(types = {
+	jakarta.persistence.EntityManager.class,
+	io.edupilot.deletion.DeletionJournal.class,
+	io.edupilot.deletion.DeletionIntentRepository.class,
+	io.edupilot.deletion.DeletionJournalLockRepository.class,
+	io.edupilot.deletion.DeletionWorker.class,
+	io.edupilot.material.MaterialRenderStorage.class,
+	io.edupilot.guardian.GuardianVerificationRequestRepository.class,
+	io.edupilot.guardian.GuardianWithdrawalHook.class,
+	io.edupilot.guardian.GuardianWebRequestRepository.class,
+	io.edupilot.user.birthdate.BirthdateCorrectionRepository.class,
+	io.edupilot.guardian.GuardianWebPersistence.class,
+	io.edupilot.guardian.GuardianWebService.class,
+	io.edupilot.guardian.GuardianWebWithdrawalHook.class,
+	io.edupilot.guardian.GuardianConsentFence.class,
+	io.edupilot.guardian.team.GuardianTeamService.class,
+	io.edupilot.guardian.team.mail.GuardianTeamMailCleanup.class,
 	AdminAiUsageService.class,
 	AdminClassroomService.class,
 	AdminUserService.class,
@@ -69,9 +92,12 @@ import io.edupilot.usernote.WrongAnswerNoteService;
 	AuthSessionRepository.class,
 	PasswordResetTokenRepository.class,
 	UserAccessGuard.class,
+	EmailVerificationTokenRepository.class,
+	EmailVerificationGate.class,
 	AiUsageService.class,
 	AiQuotaService.class,
 	ClassroomService.class,
+	ClassroomRepository.class,
 	ClassroomAnalyticsService.class,
 	ClassroomStudentService.class,
 	ClassroomWeekService.class,
@@ -80,12 +106,17 @@ import io.edupilot.usernote.WrongAnswerNoteService;
 	MaterialOverviewRepository.class,
 	MaterialOverviewService.class,
 	EmailDeliveryRepository.class,
+	EmailOutboxRepository.class,
+	EmailOutboxStore.class,
+	EmailQuotaLockRepository.class,
+	EmailSendReservationRepository.class,
 	NotificationService.class,
 	NotificationTriggerService.class,
 	NotificationBulkRepository.class,
 	PolicyConsentRepository.class,
 	PolicyDocumentRepository.class,
 	LearningProgressService.class,
+	io.edupilot.session.SessionStreamAccessGuard.class,
 	QuizProposalPolicy.class,
 	ClassroomWeekMaterialRepository.class,
 	ClassroomNoticeService.class,

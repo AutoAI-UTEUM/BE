@@ -106,7 +106,8 @@ class MaterialXaiFileBackfillServiceTest {
 			persistenceService,
 			fileStorage,
 			aiClient,
-			lifecycleService
+			lifecycleService,
+			org.mockito.Mockito.mock(io.edupilot.auth.EmailVerificationGate.class), io.edupilot.GuardianConsentFenceTestSupport.legacy()
 		);
 	}
 }

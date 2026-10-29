@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -416,6 +417,21 @@ class QuizSubmissionPersistenceServiceTest {
 			diagnosisRepository,
 			materialAccessService
 		);
+	}
+
+	@Test
+	void revokedReplayIsRejectedBeforeProtectedResultReconstruction() {
+		Fixture f = fixture();
+		User user = (User) ReflectionTestUtils.getField(f.session(), "user");
+		QuizSubmission submission = QuizSubmission.create(f.quiz(), user, "request-1", List.of(), f.result(), true);
+		when(submissionRepository.findByRequest(50L, 1L, "request-1")).thenReturn(Optional.of(submission));
+		doThrow(new BusinessException(ErrorCode.MATERIAL_NOT_FOUND))
+			.when(materialAccessService).assertSessionAccessible(1L, 100L);
+
+		assertThatThrownBy(() -> service().findByRequest(1L, 50L, "request-1"))
+			.isInstanceOfSatisfying(BusinessException.class,
+				error -> assertThat(error.errorCode()).isEqualTo(ErrorCode.MATERIAL_NOT_FOUND));
+		org.mockito.Mockito.verifyNoInteractions(diagnosisRepository);
 	}
 
 	private Fixture fixture() {

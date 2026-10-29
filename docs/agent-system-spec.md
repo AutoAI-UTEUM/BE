@@ -126,6 +126,8 @@ Orchestrator에 전달할 문맥을 만듭니다.
 
 필요 이상으로 전체 PDF, 전체 대화, 전체 퀴즈를 매 턴 전달하지 않습니다.
 
+PDF 텍스트 추출 전처리는 API 이벤트 루프와 분리한 요청별 worker에서 수행합니다. 접수는 파일 스테이징부터 선택적 업로드까지 제한하며 대기·추출·정리 및 handler 전체 예산을 구분합니다. 취소·연결 종료·앱 종료에서도 실제 worker를 회수하고, 종료 확인이 지연되면 새 접수를 차단한 채 늦은 정리의 소유권을 유지합니다. Linux 메모리/CPU 한도와 전체 텍스트 상한을 넘으면 부분 성공 없이 종료하며 parser 원문 진단은 로그에 전달하지 않습니다. 추출 후 업로드만 실패한 경우 텍스트는 보존합니다. 동시 처리·오류 매핑의 정본은 내부 계약 §6.1과 DEC-046입니다.
+
 ### Policy / Verifier
 
 Orchestrator Plan의 JSON 스키마와 교수 정책을 검증하고 허용되지 않는 액션을 거부·제한·보정합니다. 예를 들어 만점 퀴즈 직후 근거 없이 오개념 교정을 호출하는 Plan은 허용하지 않습니다.
@@ -233,7 +235,7 @@ LLM 전용 `PlannerOutput`은 아래 Plan의 `schemaVersion`, `memoryWrite`,
 입력:
 
 - `pageContext`(Backend 추출 페이지 텍스트 동봉 — DEC-006), `page`
-- nullable xAI file ID(설명 Plan의 전체 흐름 판단과 실제 Explainer·QuizAgent 호출에 첨부)
+- nullable xAI file ID(Explainer는 기본적으로 PDF를 첨부하며 아래의 선택 실험만 예외)
 - 현재 페이지 및 필요한 인접 페이지 문맥
 - `detailLevel`: `NORMAL` 또는 `DETAILED`
 - `learnerLevel`, `learnerMemoryDigest`
@@ -250,6 +252,14 @@ LLM 전용 `PlannerOutput`은 아래 Plan의 `schemaVersion`, `memoryWrite`,
 - 잘 아는 내용은 불필요하게 반복하지 않습니다.
 - 퀴즈 생성, 채점, 자유 질문 답변, 오답 교정은 하지 않습니다.
 - 결과 본문은 Markdown이며 수식은 필요하면 LaTeX를 사용합니다.
+
+2026-09-30 선택 실험: 기본 OFF인 `EDUPILOT_EXPLAINER_PAGE_CONTEXT_ONLY_ENABLED`와
+검토한 file ID/페이지 승인 목록을 함께 설정하면, 실제로 Plan이 합성된 계획 기반 설명에서만
+PDF 첨부를 생략하고 기존 현재/인접 페이지 텍스트·캡션을 사용합니다. 프롬프트·프로필·Policy와
+외부 계약은 유지하며 일반/후속 QA 및 학습 판단 때문에 Planner를 실행한 설명에는 적용하지
+않습니다. 캡션의 충분성을 자동으로 판정하지 않으며, 실제 적용 대상의 스냅샷 품질을
+검토하기 전에는 운영에서 활성화하지 않습니다. 설정·계측·롤백과 소규모 비교 결과는
+[AI README](../ai-service/README.md#설명-pdf-첨부-비교-실험-2026-09-30-기본-off)를 참고합니다.
 
 출력:
 
@@ -740,6 +750,12 @@ Spring은 snake_case 토큰 키도 수신하며 비용 기록 후 외부 API 응
   추론이 아니라 파이프라인이 만드는 결정적 한국어 진행 문구입니다.
 - Grok(xAI)의 스트리밍·구조화 출력 지원 방식은 실제 사용 모델의 공식 가이드를 기준으로 구현 시 확인합니다.
 - ToolDispatcher는 청크를 표준 스트림 이벤트로 변환하고 Spring이 FE에 중계합니다.
+- `capabilities.quizQuestionStream=true`인 `QUIZ_TYPE_SELECTED` NDJSON 턴의
+  `quiz_question`은 Spring의 명시적 공개 record 화이트리스트로만 SSE 중계합니다.
+  문항·선택지·coverage의 추가 필드도 제거하며 private DTO/원시 delta는 중계하지 않습니다.
+  임시 문항은 저장하지 않고 전체 completed 검증·저장 후 정본 quizId로 교체합니다.
+  Spring 플래그는 기본 OFF이며 JSON fallback·다른 이벤트에는 이 capability를 보내지 않습니다.
+  [공개 필드와 활성화 게이트](ai-integration-contract.md#51-fastapi--spring-내부-전송).
 - 완료 전에 받은 청크는 임시 UI 상태이며, 최종 결과 검증 후 확정 저장합니다.
 - 10초 동안 다른 이벤트가 없으면 `heartbeat`를 발행합니다. `completed`와 `error`는
   상호 배타이며 하나만 정확히 1회 마지막에 발행합니다.
@@ -863,3 +879,8 @@ error
 - timeout, 재시도, rate limit, fallback 모델 정책
 - 평가 큐 크기와 메모리 승격 근거 기준
 - AI 결과 및 prompt/response의 로그·보관·마스킹 정책
+
+
+### File deletion retry (#477)
+
+Spring durably queues discarded/material-deleted provider file cleanup. DELETE /internal/ai/files/{fileId} keeps its request contract: the AI endpoint translates provider 404 into idempotent 204. An internal endpoint 404 is not proof of deletion and remains a tracked failure in Spring. No new paid AI request or timeout-budget change is introduced. Physical cleanup is disabled pending approved retention policy. Existing AI provider fileId logging requires separate coordination with #469. [Deletion journal](deletion-journal.md).

@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Map;
 
+import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -189,7 +190,10 @@ public class ClassroomResourceController {
 	}
 
 	@GetMapping("/resources/{resourceId}/file")
-	@Operation(summary = "강의실 파일 자료 다운로드")
+	@Operation(
+		summary = "강의실 파일 자료 다운로드",
+		description = "현재 강의실 접근 권한을 확인하고 Cache-Control: no-store, private로 반환합니다."
+	)
 	public ResponseEntity<org.springframework.core.io.Resource> file(
 		@AuthenticationPrincipal AuthenticatedUser user,
 		@PathVariable Long resourceId
@@ -206,10 +210,7 @@ public class ClassroomResourceController {
 			.build();
 		return ResponseEntity.ok()
 			.contentType(downloadContentType(file.fileName()))
-			.header(
-				HttpHeaders.CACHE_CONTROL,
-				"private, max-age=3600, immutable"
-			)
+			.cacheControl(CacheControl.noStore().cachePrivate())
 			.header(X_CONTENT_TYPE_OPTIONS, "nosniff")
 			.header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
 			.body(file.resource());

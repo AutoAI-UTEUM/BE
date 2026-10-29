@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.edupilot.ai.dto.DiagnosisResponse;
+import io.edupilot.material.MaterialAccessService;
 import io.edupilot.quiz.QuizPostGradingContext;
 import io.edupilot.quiz.QuizSubmission;
 import io.edupilot.quiz.QuizSubmissionRepository;
@@ -20,15 +21,18 @@ public class DiagnosisPersistenceService {
 	private final LearningSessionRepository sessionRepository;
 	private final QuizSubmissionRepository submissionRepository;
 	private final DiagnosisRepository diagnosisRepository;
+	private final MaterialAccessService materialAccessService;
 
 	public DiagnosisPersistenceService(
 		LearningSessionRepository sessionRepository,
 		QuizSubmissionRepository submissionRepository,
-		DiagnosisRepository diagnosisRepository
+		DiagnosisRepository diagnosisRepository,
+		MaterialAccessService materialAccessService
 	) {
 		this.sessionRepository = sessionRepository;
 		this.submissionRepository = submissionRepository;
 		this.diagnosisRepository = diagnosisRepository;
+		this.materialAccessService = materialAccessService;
 	}
 
 	@Transactional
@@ -44,6 +48,7 @@ public class DiagnosisPersistenceService {
 		if (session == null || session.getStatus() != SessionStatus.ACTIVE) {
 			return Optional.empty();
 		}
+		materialAccessService.requireAccessibleForUpdate(context.userId(), session.getMaterialId());
 		Diagnosis existing = diagnosisRepository
 			.findBySubmission_Id(context.submissionId())
 			.orElse(null);
