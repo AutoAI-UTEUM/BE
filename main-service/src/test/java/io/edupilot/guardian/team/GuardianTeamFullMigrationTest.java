@@ -47,12 +47,33 @@ class GuardianTeamFullMigrationTest {
 				new ByteArrayResource(ddl.replace("DROP CHECK", "DROP CONSTRAINT").getBytes(StandardCharsets.UTF_8)));
 			assertExistingEvidence(sql);
 			assertApprovalConstraints(sql);
+			sql.execute("create table guardian_team_requests(id varchar(36) primary key, confirmation_method varchar(20), "
+				+ "explicit_response_at datetime(6), generation_started_at datetime(6))");
+			sql.execute("insert into guardian_team_requests(id,confirmation_method,explicit_response_at,generation_started_at) "
+				+ "values('existing-email','EMAIL_REPLY','2026-10-06 00:00:00','2026-10-06 00:00:00')");
+			ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/migration/V65__guardian_prior_consent_evidence.sql"));
+			assertThat(jdbc.queryForObject("select confirmation_method from guardian_team_requests where id='existing-email'", String.class)).isEqualTo("EMAIL_REPLY");
+			assertThat(jdbc.queryForObject("select count(*) from guardian_team_requests where prior_consent_method is not null", Integer.class)).isZero();
+			sql.execute("insert into guardian_team_requests values('synthetic-prior','PRIOR_RECORD','2026-10-05 00:00:00',"
+				+ "'2026-10-06 00:00:00','SIGNED_DOCUMENT','2026-10-06 00:00:00','2026-10-07 00:00:00')");
+			sql.execute("insert into guardian_team_requests values('synthetic-in-person','PRIOR_RECORD','2026-10-04 00:00:00',"
+				+ "'2026-10-06 00:00:00','IN_PERSON','2026-10-06 00:00:00','2026-10-07 00:00:00')");
+			assertThat(jdbc.queryForObject("select prior_consent_method from guardian_team_requests where id='synthetic-prior'", String.class)).isEqualTo("SIGNED_DOCUMENT");
+			assertThat(jdbc.queryForObject("select prior_consent_method from guardian_team_requests where id='synthetic-in-person'", String.class)).isEqualTo("IN_PERSON");
+			assertThatThrownBy(() -> sql.execute("update guardian_team_requests set prior_consent_method='OTHER' where id='synthetic-in-person'"))
+				.isInstanceOf(SQLException.class);
+			assertThatThrownBy(() -> sql.execute("update guardian_team_requests set prior_consent_method=null where id='synthetic-prior'"))
+				.isInstanceOf(SQLException.class);
+			assertThatThrownBy(() -> sql.execute("update guardian_team_requests set confirmation_method=null where id='synthetic-prior'"))
+				.isInstanceOf(SQLException.class);
+			assertThatThrownBy(() -> sql.execute("update guardian_team_requests set prior_consent_valid_until=evidence_reviewed_at where id='synthetic-prior'"))
+				.isInstanceOf(SQLException.class);
 		}
 	}
 
 	@Test
 	@EnabledIfEnvironmentVariable(named = "GUARDIAN_MYSQL_ISOLATED", matches = "true")
-	void canonicalMysqlMigratesV1ThroughV64WithoutApprovingExistingAccounts() throws Exception {
+	void canonicalMysqlMigratesV1ThroughV65WithoutApprovingExistingAccounts() throws Exception {
 		String schema = "guardian_team_full_migration_synthetic";
 		String url = IsolatedMysql.url(schema);
 		try (var ignored = IsolatedMysql.open(schema)) { /* Identity before Flyway clean/migrate. */ }
@@ -71,7 +92,7 @@ class GuardianTeamFullMigrationTest {
 		Flyway after = Flyway.configure().dataSource(url, IsolatedMysql.USER, IsolatedMysql.PASSWORD).locations("classpath:db/migration").load();
 		after.migrate();
 		assertThat(after.validateWithResult().validationSuccessful).isTrue();
-		assertThat(after.info().current().getVersion().getVersion()).isEqualTo("64");
+		assertThat(after.info().current().getVersion().getVersion()).isEqualTo("65");
 		try (Connection connection = IsolatedMysql.open(schema); Statement sql = connection.createStatement()) {
 			assertExistingEvidence(sql);
 			assertApprovalConstraints(sql);

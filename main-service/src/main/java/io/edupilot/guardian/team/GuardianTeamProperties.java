@@ -31,11 +31,13 @@ public record GuardianTeamProperties(
 	Duration linkTtl,
 	Duration requestTtl,
 	Duration approvedEvidenceRetention,
-	Duration approvalValidity
+	Duration approvalValidity,
+	@DefaultValue GuardianPriorConsentPolicy priorConsent
 ) {
 	public GuardianTeamProperties {
 		reviewerIds = reviewerIds == null ? List.of() : List.copyOf(reviewerIds);
 		requiredScopes = requiredScopes == null ? List.of() : List.copyOf(requiredScopes);
+		priorConsent = priorConsent == null ? GuardianPriorConsentPolicy.disabled() : priorConsent;
 	}
 
 	public boolean ready() {
@@ -49,7 +51,8 @@ public record GuardianTeamProperties(
 			&& requiredScopes.equals(List.of("SERVICE")) && optionalAiReady()
 			&& bounded(linkTtl, Duration.ofHours(24)) && bounded(requestTtl, Duration.ofDays(5))
 			&& linkTtl.compareTo(requestTtl) <= 0 && positive(approvedEvidenceRetention) && positive(approvalValidity)
-			&& approvedEvidenceRetention.compareTo(approvalValidity) >= 0;
+			&& approvedEvidenceRetention.compareTo(approvalValidity) >= 0
+			&& (!priorConsent.enabled() || priorConsent.ready());
 	}
 
 	public void validateActivation() {
@@ -66,6 +69,10 @@ public record GuardianTeamProperties(
 		StringBuilder canonical = new StringBuilder();
 		for (Object value : values) {
 			String text = Objects.toString(value, ""); canonical.append(text.length()).append(':').append(text);
+		}
+		// Preserve the existing snapshot when the additional path is disabled.
+		if (priorConsent.enabled()) {
+			String snapshot = priorConsent.snapshot(); canonical.append(snapshot.length()).append(':').append(snapshot);
 		}
 		return GuardianTeamSecrets.hash(canonical.toString());
 	}

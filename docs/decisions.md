@@ -722,3 +722,11 @@ DEC-001~040의 결정 기록이 있으며, 리포트 후속 검토 항목은 DEC
 - **B4 — turn 시간 예산**: Plan과 Agent 호출을 합친 turn 총 시간을
   180초 이하로 제한합니다. 호출별 남은 시간 전달과 예산 분배는
   스트리밍 이슈 #25에서 구현합니다.
+
+
+## Retained prior guardian consent (2026-10-29; activation TBD)
+
+The user confirmed explicit guardian consent records are retained for elementary-school test participants. This authorizes implementing evidence-based administrator processing; the subsequent clarification identifies face-to-face verification (`IN_PERSON`), without establishing a universal consent exemption. Ordinary guardian consent remains the default. The BE prior-record path is implemented default OFF. The actual source is `IN_PERSON`. The reviewed reuse policy reference, maximum record age, original validity/notice and scope coverage, subject/guardian binding procedure, withdrawal register, external record access/erasure and FE delivery remain TBD before activation. No production values are inferred. See [contract and operational decisions](guardian-prior-consent.md).
+
+
+The user's 2026-10-30 plan is to conduct testing tentatively through the end of 2026. This is a planning horizon only: it does not establish consent expiry, the original record validity, a maximum reuse duration, or permission to enable the feature. Those policy values remain unset and the feature remains default OFF.

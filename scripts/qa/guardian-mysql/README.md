@@ -34,7 +34,7 @@ The schemas are created once by `docker exec` on the verified job service:
 The FullMigration H2 case is counted separately (1). Parameter sources are
 unchanged from develop `d4b8c85cff81af4aee870efa0f9803189ad79c77`.
 FullMigration exercises canonical V1–V60, inserts synthetic legacy evidence,
-then migrates through V64. The turn persistence fixture also expects V64.
+then migrates through V65. The turn persistence fixture also expects V65.
 Mail is disabled and AI clients are mocked; the test network has no internet route.
 
 `report.py` rejects missing suites/cases, duplicate cases and any failure, error,

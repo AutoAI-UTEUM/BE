@@ -40,6 +40,22 @@ public final class GuardianTeamDtos {
 		@NotNull DecisionKind decision, GuardianTeamRequest.Reason reason,
 		boolean relationshipChecked, boolean guardianContactChecked, boolean evidenceReferenceChecked,
 		boolean noticeAndScopesChecked) { }
+	@Schema(description = "Approve only after reviewing a retained explicit guardian consent record. Face-to-face confirmation uses method IN_PERSON and the actual face-to-face consent date in responseReceivedAt, separately from server review time. No document, contact or reply body is accepted. A null requestId with generation/revision 0 means no existing case; otherwise use the current case snapshot.")
+	public record PriorConsentApproval(@NotBlank @Size(max = 64) String idempotencyKey,
+		@Size(max = 36) String requestId, long generation, long revision,
+		@NotNull GuardianPriorConsentPolicy.Method method, @NotBlank @Size(max = 100) String evidenceReference,
+		@NotNull Instant responseReceivedAt, @NotNull Instant consentValidUntil,
+		@NotBlank String noticeVersion, @NotBlank String noticeDigest,
+		@NotNull GuardianTeamRequest.Relationship relationship, Set<String> scopes,
+		boolean subjectMatched, boolean responseExplicitlyConsents, boolean legalGuardianDeclarationConfirmed,
+		boolean guardianContactChecked, boolean noticeAndScopesMatched, boolean confirmationMethodChecked,
+		boolean evidenceReferenceChecked, boolean validityChecked, boolean notWithdrawn) {
+		@Override public String toString() { return "GuardianPriorConsentApproval[REDACTED]"; }
+	}
+	public record PriorConsentEvidence(@Schema(description = "Actual retained evidence source. IN_PERSON means face-to-face; do not infer an email reply or phone call from the ordinary replyChannel.") GuardianPriorConsentPolicy.Method method, Instant receivedAt,
+		Instant reviewedAt, Instant consentValidUntil) { }
+	public record PriorConsentOptions(boolean available, String noticeVersion, String noticeDigest, String noticeUrl,
+		List<GuardianPriorConsentPolicy.Method> methods, String maxAge, List<String> requiredScopes, String optionalAiScope) { }
 	public record Revoke(@NotBlank @Size(max = 64) String idempotencyKey, @Positive long generation, @Positive long revision,
 		@NotNull GuardianTeamRequest.Reason reason) { }
 	public enum DecisionKind { APPROVE, REJECT, NEEDS_INFORMATION }
@@ -61,7 +77,7 @@ public final class GuardianTeamDtos {
 		@Schema(description = "현재 신청 고지와 전체 정책 설정이 일치하고 선택 AI가 설정된 경우의 범위. 미설정·stale은 null이며 승인을 의미하지 않습니다.", allowableValues = {"EXTERNAL_AI"}, nullable = true) String optionalAiScope,
 		String replyChannel,
 		GuardianTeamRequest.Relationship relationship, GuardianTeamRequest.ConfirmationMethod confirmationMethod,
-		String evidenceReference, List<Event> events, Map<String, String> forms) {
+		String evidenceReference, PriorConsentEvidence priorConsentEvidence, List<Event> events, Map<String, String> forms) {
 		@Override public String toString() { return "GuardianTeamDetail[REDACTED]"; }
 	}
 	public record Event(long generation, long revision, String type, GuardianTeamRequest.State state, Long actorId, Instant at) { }

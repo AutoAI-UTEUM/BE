@@ -27,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -75,6 +76,9 @@ import jakarta.persistence.PersistenceContext;
 	"edupilot.guardian.team.optional-ai-scope=EXTERNAL_AI", "edupilot.guardian.team.optional-consent-text=외부 AI 전송 동의는 선택입니다.",
 	"edupilot.guardian.team.link-ttl=30m", "edupilot.guardian.team.request-ttl=5d",
 	"edupilot.guardian.team.approved-evidence-retention=30d", "edupilot.guardian.team.approval-validity=7d",
+	"edupilot.guardian.team.prior-consent.enabled=true", "edupilot.guardian.team.prior-consent.policy-confirmed=true",
+	"edupilot.guardian.team.prior-consent.methods=IN_PERSON",
+	"edupilot.guardian.team.prior-consent.policy-reference=synthetic-reviewed-policy", "edupilot.guardian.team.prior-consent.max-age=30d",
 	"edupilot.guardian.team.recovery-initial-delay-ms=3600000"
 })
 @ActiveProfiles("jpa-context")
@@ -624,6 +628,218 @@ class GuardianTeamJpaTest {
 		});
 	}
 
+	@Test void priorConsentOptionsExposeOnlyReviewedMethodsToCurrentAllowlistedAdminsWithoutCreatingCases() throws Exception {
+		mvc.perform(get("/api/admin/guardian-requests/prior-consent/options").header("Authorization", bearer(reviewer)))
+			.andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+			.andExpect(jsonPath("$.data.available").value(true)).andExpect(jsonPath("$.data.methods[0]").value("IN_PERSON"))
+			.andExpect(jsonPath("$.data.maxAge").value("PT720H"))
+			.andExpect(jsonPath("$.data.noticeVersion").value(policy.noticeVersion()))
+			.andExpect(jsonPath("$.data.requiredScopes[0]").value("SERVICE"))
+			.andExpect(jsonPath("$.data.optionalAiScope").value("EXTERNAL_AI"));
+		User child = child();
+		mvc.perform(get("/api/admin/guardian-requests/prior-consent/options").header("Authorization", bearer(child))).andExpect(status().isForbidden());
+		assertThat(requests.count()).isZero(); assertThat(events.count()).isZero(); assertThat(operations.count()).isZero();
+		verifyNoInteractions(ai, mail);
+	}
+
+	@Test void priorConsentCreatesOneCaseAndPreservesReceiptReviewAndAuditFacts() throws Exception {
+		User child = child(); var body = prior("prior-create", null, Set.of("SERVICE"));
+		mvc.perform(post(priorUrl(child)).header("Authorization", bearer(reviewer)).contentType(MediaType.APPLICATION_JSON)
+			.content(json.writeValueAsString(body))).andExpect(status().isOk())
+			.andExpect(header().string("Cache-Control", "no-store")).andExpect(header().string("Referrer-Policy", "no-referrer"))
+			.andExpect(jsonPath("$.data.state").value("APPROVED")).andExpect(jsonPath("$.data.serviceApproved").value(true))
+			.andExpect(jsonPath("$.data.externalAiApproved").value(false));
+		var row = requests.findAll().getFirst(); var detail = service.detail(1L, row.id());
+		assertThat(detail.confirmationMethod()).isEqualTo(GuardianTeamRequest.ConfirmationMethod.PRIOR_RECORD);
+		assertThat(detail.priorConsentEvidence().method()).isEqualTo(GuardianPriorConsentPolicy.Method.IN_PERSON);
+		assertThat(detail.priorConsentEvidence().receivedAt()).isEqualTo(baseline.minus(Duration.ofDays(1)));
+		assertThat(detail.priorConsentEvidence().reviewedAt()).isEqualTo(baseline);
+		assertThat(detail.priorConsentEvidence().consentValidUntil()).isEqualTo(baseline.plus(Duration.ofDays(2)));
+		assertThat(detail.status().webDeclaredAt()).isNull(); assertThat(detail.guardianName()).isNull(); assertThat(detail.guardianContact()).isNull();
+		assertThat(detail.status().approvedUntil()).isEqualTo(baseline.plus(Duration.ofDays(2)));
+		assertThat(detail.events()).extracting(GuardianTeamDtos.Event::type)
+			.containsExactlyInAnyOrder("REVIEWER_REQUESTED", "PRIOR_CONSENT_CONFIRMED", "PRIOR_CONSENT_APPROVED");
+		assertThat(detail.events()).allSatisfy(event -> { assertThat(event.actorId()).isEqualTo(1L); assertThat(event.at()).isEqualTo(baseline); });
+		assertThat(operations.count()).isEqualTo(1);
+		mvc.perform(get("/api/users/me/guardian-requests").header("Authorization", bearer(child)))
+			.andExpect(status().isOk()).andExpect(jsonPath("$.data.priorConsentEvidence").doesNotExist())
+			.andExpect(jsonPath("$.data.evidenceReference").doesNotExist());
+		verifyNoInteractions(ai, mail);
+	}
+
+	@Test void priorConsentSupportsAnExistingFirstCaseWithoutFabricatingWebOrEmailEvidence() {
+		User child = child(); var pending = intake(child, true).status();
+		var approved = service.approvePriorConsent(1L, child.getId(), prior("prior-existing", pending, Set.of("SERVICE", "EXTERNAL_AI")));
+		assertThat(approved.serviceApproved()).isTrue(); assertThat(approved.externalAiApproved()).isTrue();
+		assertThat(approved.requestId()).isEqualTo(pending.requestId()); assertThat(requests.count()).isEqualTo(1);
+		assertThat(approved.webDeclaredAt()).isNull(); assertThat(approved.explicitResponseAt()).isBefore(baseline);
+		var detail = service.detail(1L, approved.requestId());
+		assertThat(detail.events()).noneSatisfy(event -> assertThat(event.type()).isEqualTo("EXPLICIT_RESPONSE_CONFIRMED"));
+		verifyNoInteractions(ai, mail);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"subjectMatched", "responseExplicitlyConsents", "legalGuardianDeclarationConfirmed", "guardianContactChecked",
+		"noticeAndScopesMatched", "confirmationMethodChecked", "evidenceReferenceChecked", "validityChecked", "notWithdrawn"})
+	void everyPriorConsentCheckIsRequiredAndFailureLeavesNoPartialCase(String check) throws Exception {
+		User child = child(); var node = (tools.jackson.databind.node.ObjectNode) json.valueToTree(prior("unchecked", null, Set.of("SERVICE")));
+		node.put(check, false);
+		mvc.perform(post(priorUrl(child)).header("Authorization", bearer(reviewer)).contentType(MediaType.APPLICATION_JSON)
+			.content(json.writeValueAsString(node))).andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+		assertThat(requests.count()).isZero(); assertThat(events.count()).isZero(); assertThat(operations.count()).isZero();
+		assertThat(users.findById(child.getId()).orElseThrow().getAgeVerificationState()).isNotEqualTo(AgeVerificationState.TEAM_APPROVED);
+	}
+
+	@Test void missingWrongOrUnapprovedEvidenceNeverCreatesACase() throws Exception {
+		User child = child();
+		for (String field : new String[]{"evidenceReference", "responseReceivedAt", "consentValidUntil", "relationship", "method"}) {
+			var node = (tools.jackson.databind.node.ObjectNode) json.valueToTree(prior("missing-" + field, null, Set.of("SERVICE")));
+			node.putNull(field);
+			mvc.perform(post(priorUrl(child)).header("Authorization", bearer(reviewer)).contentType(MediaType.APPLICATION_JSON)
+				.content(json.writeValueAsString(node))).andExpect(status().isBadRequest());
+		}
+		for (String[] invalid : new String[][]{{"evidenceReference", "https://example.invalid/child-document"}, {"method", "EMAIL_REPLY"},
+			{"noticeVersion", "other-notice"}, {"noticeDigest", "b".repeat(64)}}) {
+			var node = (tools.jackson.databind.node.ObjectNode) json.valueToTree(prior("invalid-" + invalid[0], null, Set.of("SERVICE")));
+			node.put(invalid[0], invalid[1]);
+			mvc.perform(post(priorUrl(child)).header("Authorization", bearer(reviewer)).contentType(MediaType.APPLICATION_JSON)
+				.content(json.writeValueAsString(node))).andExpect(status().is(invalid[0].startsWith("notice") ? 409 : 400));
+		}
+		assertError(() -> service.approvePriorConsent(1L, child.getId(), prior("no-service", null, Set.of("EXTERNAL_AI"))), ErrorCode.VALIDATION_FAILED);
+		assertThat(requests.count()).isZero(); assertThat(events.count()).isZero(); assertThat(operations.count()).isZero();
+		verifyNoInteractions(ai, mail);
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = GuardianPriorConsentPolicy.Method.class, names = "IN_PERSON", mode = EnumSource.Mode.EXCLUDE)
+	void inPersonReviewNeverSubstitutesAnEmailPhoneOrWrittenMethod(GuardianPriorConsentPolicy.Method otherMethod) throws Exception {
+		User child = child(); var node = (tools.jackson.databind.node.ObjectNode) json.valueToTree(prior("wrong-source-" + otherMethod, null, Set.of("SERVICE")));
+		node.put("method", otherMethod.name());
+		mvc.perform(post(priorUrl(child)).header("Authorization", bearer(reviewer)).contentType(MediaType.APPLICATION_JSON)
+			.content(json.writeValueAsString(node))).andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+		assertThat(requests.count()).isZero(); assertThat(events.count()).isZero(); assertThat(operations.count()).isZero();
+		assertThat(users.findById(child.getId()).orElseThrow().getAgeVerificationState()).isNotEqualTo(AgeVerificationState.TEAM_APPROVED);
+		verifyNoInteractions(ai, mail);
+	}
+
+	@Test void inPersonEvidenceCannotUseAnotherAccountsRequestOrAnUnmatchedSubject() throws Exception {
+		User firstChild = child(), differentChild = child(); var first = intake(firstChild, false).status();
+		assertError(() -> service.approvePriorConsent(1L, differentChild.getId(), prior("wrong-account", first, Set.of("SERVICE"))), ErrorCode.GUARDIAN_STATE_CONFLICT);
+		var node = (tools.jackson.databind.node.ObjectNode) json.valueToTree(prior("unmatched-subject", first, Set.of("SERVICE")));
+		node.put("subjectMatched", false);
+		assertError(() -> service.approvePriorConsent(1L, firstChild.getId(), json.treeToValue(node, GuardianTeamDtos.PriorConsentApproval.class)), ErrorCode.VALIDATION_FAILED);
+		assertThat(requests.count()).isEqualTo(1); assertThat(events.count()).isEqualTo(1);
+		assertThat(service.self(firstChild.getId()).status().serviceApproved()).isFalse();
+		assertThat(users.findById(differentChild.getId()).orElseThrow().getAgeVerificationState()).isNotEqualTo(AgeVerificationState.TEAM_APPROVED);
+		verifyNoInteractions(ai, mail);
+	}
+
+	@Test void priorConsentRejectsFutureExpiredAndOverAgeRecordsAndCapsApprovalAtTheEvidenceAgeLimit() throws Exception {
+		User child = child();
+		for (String[] invalid : new String[][]{{"responseReceivedAt", baseline.plusSeconds(1).toString()},
+			{"responseReceivedAt", baseline.minus(Duration.ofDays(30)).toString()}, {"consentValidUntil", baseline.toString()}}) {
+			var node = (tools.jackson.databind.node.ObjectNode) json.valueToTree(prior("bad-time", null, Set.of("SERVICE")));
+			node.put(invalid[0], invalid[1]);
+			assertError(() -> service.approvePriorConsent(1L, child.getId(), json.treeToValue(node, GuardianTeamDtos.PriorConsentApproval.class)), ErrorCode.VALIDATION_FAILED);
+		}
+		assertThat(requests.count()).isZero();
+		var node = (tools.jackson.databind.node.ObjectNode) json.valueToTree(prior("age-cap", null, Set.of("SERVICE")));
+		node.put("responseReceivedAt", baseline.minus(Duration.ofDays(30)).plusSeconds(3600).toString());
+		var approved = service.approvePriorConsent(1L, child.getId(), json.treeToValue(node, GuardianTeamDtos.PriorConsentApproval.class));
+		assertThat(approved.approvedUntil()).isEqualTo(baseline.plusSeconds(3600));
+		when(clock.instant()).thenReturn(approved.approvedUntil());
+		assertThat(service.self(child.getId()).status().serviceApproved()).isFalse();
+	}
+
+	@Test void priorConsentRequiresCurrentDatabaseAdminAllowlistAndNeverAllowsSelfApproval() throws Exception {
+		User child = child(); var body = prior("permission", null, Set.of("SERVICE")); String content = json.writeValueAsString(body);
+		mvc.perform(post(priorUrl(child)).contentType(MediaType.APPLICATION_JSON).content(content)).andExpect(status().isUnauthorized());
+		mvc.perform(post(priorUrl(child)).header("Authorization", bearer(child)).contentType(MediaType.APPLICATION_JSON).content(content)).andExpect(status().isForbidden());
+		User unlisted = users.saveAndFlush(actor(UserRole.ADMIN, LocalDate.of(1980, 1, 1)));
+		assertError(() -> service.approvePriorConsent(unlisted.getId(), child.getId(), body), ErrorCode.ACCESS_DENIED);
+		assertError(() -> service.approvePriorConsent(1L, 1L, body), ErrorCode.ACCESS_DENIED);
+		String staleToken = bearer(reviewer); reviewer.changeRole(UserRole.LEARNER); users.saveAndFlush(reviewer);
+		mvc.perform(post(priorUrl(child)).header("Authorization", staleToken).contentType(MediaType.APPLICATION_JSON).content(content)).andExpect(status().isForbidden());
+		assertError(() -> service.approvePriorConsent(1L, child.getId(), body), ErrorCode.ACCESS_DENIED);
+		reviewer.changeRole(UserRole.ADMIN); reviewer.suspend("synthetic", 1L, baseline); users.saveAndFlush(reviewer);
+		assertError(() -> service.approvePriorConsent(1L, child.getId(), body), ErrorCode.ACCESS_DENIED);
+		assertThat(requests.count()).isZero(); assertThat(events.count()).isZero();
+	}
+
+	@Test void duplicateConcurrentPriorApprovalCommitsOneCaseOneDecisionAndOneConsentEpoch() throws Exception {
+		User child = child(); var body = prior("concurrent-prior", null, Set.of("SERVICE"));
+		long before = users.findById(child.getId()).orElseThrow().getGuardianConsentEpoch(); CountDownLatch start = new CountDownLatch(1);
+		try (var executor = Executors.newFixedThreadPool(4)) {
+			var calls = new ArrayList<Future<GuardianTeamDtos.Status>>();
+			for (int i = 0; i < 4; i++) { calls.add(executor.submit(() -> { start.await(); return service.approvePriorConsent(1L, child.getId(), body); })); }
+			start.countDown(); String id = calls.getFirst().get(15, TimeUnit.SECONDS).requestId();
+			for (var call : calls) {
+				var result = call.get(15, TimeUnit.SECONDS); assertThat(result.requestId()).isEqualTo(id);
+				assertThat(result.state()).isEqualTo(GuardianTeamRequest.State.APPROVED); assertThat(result.serviceApproved()).isTrue();
+			}
+		} finally { start.countDown(); }
+		assertThat(requests.count()).isEqualTo(1); assertThat(events.count()).isEqualTo(3); assertThat(operations.count()).isEqualTo(1);
+		assertThat(users.findById(child.getId()).orElseThrow().getGuardianConsentEpoch()).isEqualTo(before + 1);
+		assertError(() -> service.approvePriorConsent(1L, child.getId(), prior("concurrent-prior", null, Set.of("SERVICE", "EXTERNAL_AI"))), ErrorCode.GUARDIAN_STATE_CONFLICT);
+		assertError(() -> service.approvePriorConsent(1L, child.getId(), prior("different-key", null, Set.of("SERVICE"))), ErrorCode.GUARDIAN_STATE_CONFLICT);
+		assertThat(events.count()).isEqualTo(3); verifyNoInteractions(ai, mail);
+	}
+
+	@Test void priorApprovalCannotOverwriteStaleRequestsOrReuseEvidenceAfterWithdrawal() {
+		User child = child(); var pending = intake(child, false).status(); var stale = prior("stale", pending, Set.of("SERVICE"));
+		var linked = link(child, pending).status();
+		assertError(() -> service.approvePriorConsent(1L, child.getId(), stale), ErrorCode.GUARDIAN_STATE_CONFLICT);
+		service.withdrawRequest(child.getId(), linked.requestId(), new GuardianTeamDtos.Mutation("withdraw-prior", linked.generation(), linked.revision()));
+		assertError(() -> service.approvePriorConsent(1L, child.getId(), prior("after-withdraw", linked, Set.of("SERVICE"))), ErrorCode.GUARDIAN_STATE_CONFLICT);
+		var restarted = service.intake(child.getId(), new GuardianTeamDtos.Intake("restart-after-withdraw", null, null, false)).status();
+		assertError(() -> service.approvePriorConsent(1L, child.getId(), prior("old-evidence-next-generation", restarted, Set.of("SERVICE"))), ErrorCode.GUARDIAN_STATE_CONFLICT);
+		assertThat(service.self(child.getId()).status().serviceApproved()).isFalse();
+	}
+
+	@Test void priorRecordCannotExpandAWebDeclarationOrApproveAnObsoletePolicySnapshot() {
+		User child = child(); var pending = intake(child, false).status(); var linked = link(child, pending);
+		var declared = service.consent(consent(linked.url().split("#token=", 2)[1], linked.status(), "declare-service", Set.of("SERVICE")), ip());
+		assertError(() -> service.approvePriorConsent(1L, child.getId(), prior("expand-prior", declared, Set.of("SERVICE", "EXTERNAL_AI"))), ErrorCode.GUARDIAN_STATE_CONFLICT);
+		jdbc.update("update guardian_team_requests set configuration_digest=? where id=?", "b".repeat(64), declared.requestId());
+		assertError(() -> service.approvePriorConsent(1L, child.getId(), prior("stale-policy-prior", declared, Set.of("SERVICE"))), ErrorCode.GUARDIAN_TEAM_CONFIGURATION_CHANGED);
+		assertThat(service.self(child.getId()).status().serviceApproved()).isFalse();
+		assertThat(events.countByRequestIdAndEventTypeAndRecordedAtAfter(declared.requestId(), "PRIOR_CONSENT_APPROVED", baseline.minusSeconds(1))).isZero();
+	}
+
+	@Test void priorApprovalRetainsEmailVerificationAndSeparateExternalAiGatesAndRevocationErasesProvenance() throws Exception {
+		User child = unverifiedChild(); var approved = service.approvePriorConsent(1L, child.getId(), prior("gates", null, Set.of("SERVICE")));
+		mvc.perform(get("/api/materials").header("Authorization", bearer(child))).andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.error.code").value("EMAIL_VERIFICATION_REQUIRED"));
+		User saved = users.findById(child.getId()).orElseThrow(); saved.verifyEmail(baseline); users.saveAndFlush(saved);
+		mvc.perform(get("/api/materials").header("Authorization", bearer(saved))).andExpect(status().isOk());
+		assertThat(UserBusinessAccessState.from(saved).aiEligibilityFailure(clock, true, policy.configurationDigest())).isEqualTo(ErrorCode.GUARDIAN_AI_CONSENT_REQUIRED);
+		service.revoke(1L, approved.requestId(), new GuardianTeamDtos.Revoke("prior-revoke", approved.generation(), approved.revision(), GuardianTeamRequest.Reason.OPERATOR_REVOKED));
+		assertError(() -> service.approvePriorConsent(1L, child.getId(), prior("gates", null, Set.of("SERVICE"))), ErrorCode.GUARDIAN_STATE_CONFLICT);
+		var detail = service.detail(1L, approved.requestId()); assertThat(detail.priorConsentEvidence()).isNull(); assertThat(detail.evidenceReference()).isNull();
+		assertThat(detail.status().serviceApproved()).isFalse();
+		assertThat(UserBusinessAccessState.from(users.findById(child.getId()).orElseThrow()).eligibilityFailure(clock, true, policy.configurationDigest())).isNotNull();
+		verifyNoInteractions(ai, mail);
+	}
+
+	@Test void ordinaryConfirmationStillRejectsPriorTimesAndDoesNotAcceptThePriorRecordMarker() {
+		User child = child(); var pending = intake(child, false).status();
+		for (var method : new GuardianTeamRequest.ConfirmationMethod[]{GuardianTeamRequest.ConfirmationMethod.EMAIL_REPLY, GuardianTeamRequest.ConfirmationMethod.PRIOR_RECORD}) {
+			assertError(() -> service.confirm(1L, pending.requestId(), new GuardianTeamDtos.Confirmation("ordinary-" + method,
+				pending.generation(), pending.revision(), method, "synthetic-prior-record", method == GuardianTeamRequest.ConfirmationMethod.EMAIL_REPLY ? baseline.minusSeconds(60) : baseline, policy.noticeVersion(), policy.noticeDigest(),
+				GuardianTeamRequest.Relationship.PARENT, Set.of("SERVICE"), true, true, true, true, true)), ErrorCode.VALIDATION_FAILED);
+		}
+		assertThat(approve(confirm(pending, Set.of("SERVICE")), "ordinary-still-works").serviceApproved()).isTrue();
+		assertThat(service.detail(1L, pending.requestId()).priorConsentEvidence()).isNull();
+	}
+
+	private GuardianTeamDtos.PriorConsentApproval prior(String key, GuardianTeamDtos.Status status, Set<String> scopes) {
+		return new GuardianTeamDtos.PriorConsentApproval(key, status == null ? null : status.requestId(), status == null ? 0 : status.generation(),
+			status == null ? 0 : status.revision(), GuardianPriorConsentPolicy.Method.IN_PERSON, "synthetic-retained-record",
+			baseline.minus(Duration.ofDays(1)), baseline.plus(Duration.ofDays(2)), policy.noticeVersion(), policy.noticeDigest(),
+			GuardianTeamRequest.Relationship.PARENT, scopes, true, true, true, true, true, true, true, true, true);
+	}
+	private String priorUrl(User child) { return "/api/admin/guardian-requests/users/" + child.getId() + "/prior-consent/approval"; }
 	private User child() { return users.saveAndFlush(actor(UserRole.LEARNER, LocalDate.of(2016, 1, 1))); }
 	private User unverifiedChild() {
 		User user = User.create("synthetic-" + UUID.randomUUID() + "@example.invalid", passwords.encode("synthetic-password"), "합성 계정", UserRole.LEARNER);

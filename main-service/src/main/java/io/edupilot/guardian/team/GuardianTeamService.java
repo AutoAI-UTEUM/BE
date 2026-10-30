@@ -1,6 +1,7 @@
 package io.edupilot.guardian.team;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -32,6 +33,8 @@ import io.edupilot.user.UserStatus;
 public class GuardianTeamService {
 	private static final int MAX_ORDINARY_EVENTS_PER_GENERATION = 98;
 	private static final int MAX_TERMINAL_EVENTS_PER_GENERATION = 101;
+	private static final Instant MIN_EVIDENCE_TIME = Instant.parse("1000-01-01T00:00:00Z");
+	private static final Instant MAX_EVIDENCE_TIME = Instant.parse("+10000-01-01T00:00:00Z");
 	private final GuardianTeamProperties policy;
 	private final UserRepository users;
 	private final GuardianTeamRequestRepository requests;
@@ -162,6 +165,8 @@ public class GuardianTeamService {
 			row.generationStartedAt(), scopeSet(row.declaredScopes()), current ? policy.requiredScopes() : List.of(), optionalAiScope(current),
 			current ? policy.replyChannel() : null,
 			row.relationship(), row.confirmationMethod(), row.evidenceReference(),
+			row.priorConsentMethod() == null ? null : new GuardianTeamDtos.PriorConsentEvidence(row.priorConsentMethod(),
+				row.explicitResponseAt(), row.evidenceReviewedAt(), row.priorConsentValidUntil()),
 			events.findByRequestIdOrderByRecordedAtAscIdAsc(row.id(), PageRequest.of(0, 200)).stream()
 				.map(e -> new GuardianTeamDtos.Event(e.generation(), e.revision(), e.eventType(), e.state(), e.actorId(), e.recordedAt())).toList(),
 			forms(row));
@@ -191,6 +196,72 @@ public class GuardianTeamService {
 		record(row, key, digest, "EXPLICIT_RESPONSE_CONFIRMED", reviewerId); return status(row);
 	}
 
+	public GuardianTeamDtos.PriorConsentOptions priorConsentOptions(Long reviewerId) {
+		requireReady(); requireReviewer(users.findByIdForUpdate(reviewerId).orElseThrow(this::denied));
+		boolean available = policy.priorConsent().ready();
+		return new GuardianTeamDtos.PriorConsentOptions(available, available ? policy.noticeVersion() : null,
+			available ? policy.noticeDigest() : null, available ? policy.noticeUrl() : null,
+			available ? policy.priorConsent().methods() : List.of(), available ? policy.priorConsent().maxAge().toString() : null,
+			available ? policy.requiredScopes() : List.of(), optionalAiScope(available));
+	}
+
+	/** An atomic evidence review and decision; never fabricates an email reply or revives a withdrawn case. */
+	public GuardianTeamDtos.Status approvePriorConsent(Long reviewerId, Long userId, GuardianTeamDtos.PriorConsentApproval body) {
+		requireReady();
+		if (!policy.priorConsent().ready()) { throw new BusinessException(ErrorCode.GUARDIAN_TEAM_UNAVAILABLE); }
+		User account = lockReviewerAccount(reviewerId, userId); requireEligible(account);
+		String key = "PRIOR_APPROVE:" + requireKey(body.idempotencyKey());
+		String scopes = scopes(body.scopes(), true);
+		String digest = digest("PRIOR_APPROVE", userId, body.requestId(), body.generation(), body.revision(), body.method(),
+			body.evidenceReference(), body.responseReceivedAt(), body.consentValidUntil(), body.noticeVersion(), body.noticeDigest(),
+			body.relationship(), scopes, body.subjectMatched(), body.responseExplicitlyConsents(), body.legalGuardianDeclarationConfirmed(),
+			body.guardianContactChecked(), body.noticeAndScopesMatched(), body.confirmationMethodChecked(),
+			body.evidenceReferenceChecked(), body.validityChecked(), body.notWithdrawn());
+		var row = requests.findByUserForUpdate(userId).orElse(null);
+		if (row != null && replay(row, key, digest)) { return status(row); }
+		Instant reviewedAt = now();
+		Instant receivedAt = evidenceTime(body.responseReceivedAt()), validUntil = evidenceTime(body.consentValidUntil());
+		if (body.method() == null || !policy.priorConsent().methods().contains(body.method()) || body.relationship() == null
+			|| body.evidenceReference() == null || !body.evidenceReference().matches("[A-Za-z0-9_.:-]{1,100}")
+			|| receivedAt.isAfter(reviewedAt) || !validUntil.isAfter(reviewedAt)
+			|| !body.subjectMatched() || !body.responseExplicitlyConsents() || !body.legalGuardianDeclarationConfirmed()
+			|| !body.guardianContactChecked() || !body.noticeAndScopesMatched() || !body.confirmationMethodChecked()
+			|| !body.evidenceReferenceChecked() || !body.validityChecked() || !body.notWithdrawn()) { throw validation(); }
+		Instant maximumValidity;
+		try { maximumValidity = receivedAt.plus(policy.priorConsent().maxAge()).truncatedTo(ChronoUnit.MICROS); }
+		catch (java.time.DateTimeException | ArithmeticException invalidTime) { throw validation(); }
+		if (!maximumValidity.isAfter(reviewedAt)) { throw validation(); }
+		if (row == null) {
+			if (body.requestId() != null || body.generation() != 0 || body.revision() != 0) { throw conflict(); }
+			if (!Objects.equals(policy.noticeVersion(), body.noticeVersion()) || !Objects.equals(policy.noticeDigest(), body.noticeDigest())) {
+				throw new BusinessException(ErrorCode.GUARDIAN_NOTICE_CHANGED);
+			}
+			if (!receivedAt.isBefore(reviewedAt)) { throw validation(); }
+			row = GuardianTeamRequest.create(account, policy, configurationDigest(), reviewedAt, null, null);
+			// Assigned UUIDs use JPA merge; continue with the managed instance for the atomic confirmation/decision.
+			row = requests.saveAndFlush(row);
+			record(row, "PRIOR_INTAKE:" + body.idempotencyKey(), digest, "REVIEWER_REQUESTED", reviewerId);
+		} else {
+			if (!row.id().equals(body.requestId())) { throw conflict(); }
+			expect(row, body.generation(), body.revision()); requireCurrent(row); requirePending(row);
+			matchNotice(row, body.noticeVersion(), body.noticeDigest());
+			// Subsequent generations can follow revocation, refusal or withdrawal. Require fresh ordinary consent there.
+			if (row.generation() != 1 || !receivedAt.isBefore(row.generationStartedAt())) { throw conflict(); }
+			if (row.webDeclaredAt() != null && (!Objects.equals(row.declaredScopes(), scopes) || row.relationship() != body.relationship())) {
+				throw conflict();
+			}
+		}
+		row.confirmPriorConsent(body.method(), body.evidenceReference(), receivedAt, validUntil,
+			reviewerId, body.relationship(), scopes, reviewedAt);
+		record(row, "PRIOR_CONFIRM:" + body.idempotencyKey(), digest, "PRIOR_CONSENT_CONFIRMED", reviewerId);
+		Instant deadline = reviewedAt.plus(policy.approvalValidity());
+		if (validUntil.isBefore(deadline)) { deadline = validUntil; }
+		if (maximumValidity.isBefore(deadline)) { deadline = maximumValidity; }
+		grantApproval(row, reviewerId, deadline);
+		record(row, key, digest, "PRIOR_CONSENT_APPROVED", reviewerId);
+		return status(row);
+	}
+
 	public GuardianTeamDtos.Status decide(Long reviewerId, String id, GuardianTeamDtos.Decision body) {
 		requireReady(); var row = lockReviewer(reviewerId, id);
 		String key = "DECIDE:" + requireKey(body.idempotencyKey());
@@ -205,13 +276,7 @@ public class GuardianTeamService {
 					|| !row.legalMethodChecked() || row.evidenceReference() == null || !body.relationshipChecked()
 					|| !body.guardianContactChecked() || !body.evidenceReferenceChecked() || !body.noticeAndScopesChecked()
 					|| !scopeSet(row.declaredScopes()).containsAll(policy.requiredScopes())) { throw conflict(); }
-				requireEligible(row.user()); row.approve(reviewerId, now(), policy.approvalValidity(), policy.approvedEvidenceRetention());
-				row.user().recordGuardianTeamApproval(row.approvedUntil(), scopeSet(row.declaredScopes()).contains("EXTERNAL_AI"));
-				row.user().recordGuardianTeamPolicyDigest(policy.configurationDigest());
-				events.setGenerationDeadline(row.id(), row.generation(), row.evidenceEraseDueAt());
-				// Remove superseded intake/declaration input digests as well as plain contacts after review.
-				operations.eraseForRequest(row.id());
-				mailCleanup.purgeForRequest(row.id());
+				grantApproval(row, reviewerId, now().plus(policy.approvalValidity()));
 			}
 			case REJECT -> {
 				requireReason(body.reason(), Set.of(GuardianTeamRequest.Reason.RELATIONSHIP_UNCONFIRMED,
@@ -226,6 +291,17 @@ public class GuardianTeamService {
 			}
 		}
 		record(row, key, digest, body.decision().name(), reviewerId); return status(row);
+	}
+
+	private void grantApproval(GuardianTeamRequest row, Long reviewerId, Instant approvedUntil) {
+		Instant approvedAt = now();
+		if (!approvedUntil.isAfter(approvedAt)) { throw validation(); }
+		requireEligible(row.user()); row.approve(reviewerId, approvedAt, Duration.between(approvedAt, approvedUntil), policy.approvedEvidenceRetention());
+		row.user().recordGuardianTeamApproval(row.approvedUntil(), scopeSet(row.declaredScopes()).contains("EXTERNAL_AI"));
+		row.user().recordGuardianTeamPolicyDigest(configurationDigest());
+		events.setGenerationDeadline(row.id(), row.generation(), row.evidenceEraseDueAt());
+		// Remove superseded input digests and contacts; only the final decision replay key survives.
+		operations.eraseForRequest(row.id()); mailCleanup.purgeForRequest(row.id());
 	}
 
 	public GuardianTeamDtos.Status revoke(Long reviewerId, String id, GuardianTeamDtos.Revoke body) {
@@ -291,6 +367,13 @@ public class GuardianTeamService {
 	}
 	private GuardianTeamRequest lockReviewer(Long reviewerId, String id) {
 		Long owner = requests.ownerOfId(id).orElseThrow(this::notFound);
+		lockReviewerAccount(reviewerId, owner);
+		var row = requests.findByIdForUpdate(id).orElseThrow(this::notFound);
+		if (!row.userId().equals(owner)) { throw conflict(); }
+		return row;
+	}
+	private User lockReviewerAccount(Long reviewerId, Long owner) {
+		if (reviewerId == null || owner == null || owner <= 0) { throw denied(); }
 		List<Long> ids = new TreeSet<>(List.of(owner, reviewerId)).stream().toList();
 		User reviewer = null, account = null;
 		for (Long accountId : ids) {
@@ -300,10 +383,8 @@ public class GuardianTeamService {
 		}
 		requireReviewer(reviewer);
 		if (owner.equals(reviewerId)) { throw denied(); }
-		var row = requests.findByIdForUpdate(id).orElseThrow(this::notFound);
-		if (!row.userId().equals(owner)) { throw conflict(); }
 		if (account == null) { throw notFound(); }
-		return row;
+		return account;
 	}
 	private void requireReviewer(User reviewer) {
 		if (reviewer == null || reviewer.getRole() != UserRole.ADMIN || reviewer.getStatus() != UserStatus.ACTIVE
@@ -415,6 +496,12 @@ public class GuardianTeamService {
 		return String.join(",", new TreeSet<>(values));
 	}
 	private static Set<String> scopeSet(String value) { return value == null || value.isBlank() ? Set.of() : Set.of(value.split(",")); }
+	private static Instant evidenceTime(Instant value) {
+		if (value == null || value.isBefore(MIN_EVIDENCE_TIME) || !value.isBefore(MAX_EVIDENCE_TIME)) {
+			throw validation();
+		}
+		return value.truncatedTo(ChronoUnit.MICROS);
+	}
 	private static String name(String value) {
 		if (value == null || value.isBlank()) { return null; }
 		if (value.length() > 100 || value.chars().anyMatch(Character::isISOControl)) { throw validation(); }
