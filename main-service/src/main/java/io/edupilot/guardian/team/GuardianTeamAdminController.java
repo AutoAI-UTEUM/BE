@@ -45,6 +45,20 @@ public class GuardianTeamAdminController {
 		@PathVariable String id, @Valid @RequestBody GuardianTeamDtos.Confirmation body) {
 		return GuardianTeamSelfController.privateResponse(service.confirm(user.userId(), id, body));
 	}
+	@GetMapping("/prior-consent/options")
+	@AdminAction("GUARDIAN_PRIOR_CONSENT_OPTIONS")
+	@Operation(summary = "Read reviewed prior-consent options", description = "Allowlisted ACTIVE ADMIN only. Returns available=false with no evidence collection options when this additional path is disabled. Does not create a case or approve an account.")
+	public ResponseEntity<ApiResponse<GuardianTeamDtos.PriorConsentOptions>> priorConsentOptions(@AuthenticationPrincipal AuthenticatedUser user) {
+		return GuardianTeamSelfController.privateResponse(service.priorConsentOptions(user.userId()));
+	}
+	@PostMapping("/users/{userId}/prior-consent/approval")
+	@AdminAction("GUARDIAN_PRIOR_CONSENT_APPROVAL")
+	@Operation(summary = "Approve using reviewed, retained prior guardian consent",
+		description = "Default OFF. An allowlisted ACTIVE ADMIN must verify subject, guardian relationship/contact, explicit consent, current notice/scopes, accepted collection method, retained evidence and current validity/non-withdrawal. Face-to-face confirmation uses IN_PERSON with its actual consent date and an opaque retained-record reference, not an email or phone alias. Creates a first case if absent or uses its current generation/revision. Consent receipt time is preserved separately from server review time. Email verification and optional external AI consent still apply.")
+	public ResponseEntity<ApiResponse<GuardianTeamDtos.Status>> priorConsentApproval(@AuthenticationPrincipal AuthenticatedUser user,
+		@PathVariable @Min(1) Long userId, @Valid @RequestBody GuardianTeamDtos.PriorConsentApproval body) {
+		return GuardianTeamSelfController.privateResponse(service.approvePriorConsent(user.userId(), userId, body));
+	}
 	@PostMapping("/{id}/decision")
 	@AdminAction("GUARDIAN_TEAM_DECISION")
 	@Operation(summary = "보호자 팀 검토 승인·반려·보완 요청", description = "세대·revision 충돌을 거부하며 결정 트랜잭션에서 담당자 DB 권한을 다시 확인합니다. 승인에는 별도 명시적 응답과 관계·연락·증거·동의 범위 체크가 모두 필요합니다.")

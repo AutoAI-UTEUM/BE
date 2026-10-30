@@ -87,6 +87,6 @@ class GuardianTeamScopeOptionsTest {
 			first.noticeDigest(), first.noticeUrl(), first.collectionItemsText(), first.purposesText(), first.retentionText(), first.refusalText(),
 			first.replyContact(), first.replyChannel(), first.reviewerIds(), first.requiredScopes(), optional,
 			optional == null || optional.isBlank() ? null : first.optionalConsentText(),
-			first.linkTtl(), first.requestTtl(), first.approvedEvidenceRetention(), first.approvalValidity());
+			first.linkTtl(), first.requestTtl(), first.approvedEvidenceRetention(), first.approvalValidity(), first.priorConsent());
 	}
 }

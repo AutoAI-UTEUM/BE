@@ -38,6 +38,9 @@ public class GuardianTeamRequest {
 	@Enumerated(EnumType.STRING) @Column(name = "confirmation_method", length = 20) private ConfirmationMethod confirmationMethod;
 	@Column(name = "evidence_reference", length = 100) private String evidenceReference;
 	@Column(name = "confirmed_by") private Long confirmedBy;
+	@Enumerated(EnumType.STRING) @Column(name = "prior_consent_method", length = 24) private GuardianPriorConsentPolicy.Method priorConsentMethod;
+	@Column(name = "evidence_reviewed_at") private Instant evidenceReviewedAt;
+	@Column(name = "prior_consent_valid_until") private Instant priorConsentValidUntil;
 	@Column(name = "relationship_checked", nullable = false) private boolean relationshipChecked;
 	@Column(name = "legal_method_checked", nullable = false) private boolean legalMethodChecked;
 	@Column(name = "approved_at") private Instant approvedAt;
@@ -65,6 +68,7 @@ public class GuardianTeamRequest {
 		contactOrigin = ContactOrigin.NONE; firstCollectedAt = null; unconfirmedEraseDueAt = null;
 		webDeclaredAt = null; relationship = null; declaredScopes = null; explicitResponseAt = null; confirmationMethod = null;
 		evidenceReference = null; confirmedBy = null; relationshipChecked = false; legalMethodChecked = false;
+		clearPriorConsent();
 		approvedAt = null; approvedUntil = null; approvedBy = null; evidenceEraseDueAt = null; endedAt = null; reasonCode = null;
 		evidenceErasedAt = null;
 		collect(name, contact, ContactOrigin.CHILD, now);
@@ -76,6 +80,7 @@ public class GuardianTeamRequest {
 		// A new declaration link invalidates earlier intent/confirmation without extending collection deadlines.
 		state = State.AWAITING_CONSENT; webDeclaredAt = null; relationship = null; declaredScopes = null;
 		explicitResponseAt = null; confirmationMethod = null; evidenceReference = null; confirmedBy = null;
+		clearPriorConsent();
 		legalMethodChecked = false; relationshipChecked = false;
 		revision++;
 	}
@@ -88,11 +93,18 @@ public class GuardianTeamRequest {
 
 	void confirm(ConfirmationMethod method, String reference, Instant receivedAt, Long reviewer,
 		Relationship relation, String scopes, Instant now) {
+		clearPriorConsent();
 		explicitResponseAt = receivedAt; confirmationMethod = method; evidenceReference = reference;
 		confirmedBy = reviewer; relationship = relation; declaredScopes = scopes; legalMethodChecked = true;
 		state = State.REVIEW_PENDING; revision++;
 		// A manual record is evidence of an explicit response, not a relationship approval.
 		if (firstCollectedAt == null) { firstCollectedAt = now; unconfirmedEraseDueAt = now.plus(Duration.ofDays(5)); }
+	}
+
+	void confirmPriorConsent(GuardianPriorConsentPolicy.Method method, String reference, Instant receivedAt,
+		Instant validUntil, Long reviewer, Relationship relation, String scopes, Instant now) {
+		confirm(ConfirmationMethod.PRIOR_RECORD, reference, receivedAt, reviewer, relation, scopes, now);
+		priorConsentMethod = method; evidenceReviewedAt = now; priorConsentValidUntil = validUntil;
 	}
 
 	void approve(Long reviewer, Instant now, Duration validity, Duration retention) {
@@ -104,6 +116,7 @@ public class GuardianTeamRequest {
 	void needsInformation(Reason reason) {
 		state = State.NEEDS_INFORMATION; reasonCode = reason; explicitResponseAt = null; confirmationMethod = null;
 		evidenceReference = null; confirmedBy = null; legalMethodChecked = false; relationshipChecked = false;
+		clearPriorConsent();
 		tokenHash = null; consumedTokenHash = null; tokenExpiresAt = null; revision++;
 	}
 
@@ -128,6 +141,7 @@ public class GuardianTeamRequest {
 	public void eraseEvidence(Instant now) {
 		evidenceReference = null; confirmedBy = null; approvedBy = null; relationship = null; declaredScopes = null;
 		webDeclaredAt = null; explicitResponseAt = null; confirmationMethod = null;
+		clearPriorConsent();
 		relationshipChecked = false; legalMethodChecked = false; evidenceErasedAt = now;
 	}
 	boolean pending() { return switch (state) {
@@ -171,10 +185,14 @@ public class GuardianTeamRequest {
 	Instant approvedUntil() { return approvedUntil; }
 	Reason reasonCode() { return reasonCode; }
 	boolean legalMethodChecked() { return legalMethodChecked; }
+	GuardianPriorConsentPolicy.Method priorConsentMethod() { return priorConsentMethod; }
+	Instant evidenceReviewedAt() { return evidenceReviewedAt; }
+	Instant priorConsentValidUntil() { return priorConsentValidUntil; }
+	private void clearPriorConsent() { priorConsentMethod = null; evidenceReviewedAt = null; priorConsentValidUntil = null; }
 
 	public enum State { AWAITING_CONSENT, DECLARED, REVIEW_PENDING, NEEDS_INFORMATION, APPROVED, REJECTED, REVOKED, EXPIRED, WITHDRAWN }
 	public enum ContactOrigin { NONE, CHILD, GUARDIAN }
 	public enum Relationship { PARENT, MINOR_GUARDIAN }
-	public enum ConfirmationMethod { EMAIL_REPLY, PHONE }
+	public enum ConfirmationMethod { EMAIL_REPLY, PHONE, PRIOR_RECORD }
 	public enum Reason { APPROVED, INCOMPLETE_RESPONSE, RELATIONSHIP_UNCONFIRMED, CONSENT_DECLINED, REQUESTER_WITHDREW, OPERATOR_REVOKED, DEADLINE_EXPIRED, ACCOUNT_WITHDRAWN, NOTICE_CHANGED }
 }

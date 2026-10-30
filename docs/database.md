@@ -330,3 +330,10 @@ V61은 사용자당 현재 guardian_team_requests와 세대별 guardian_team_eve
 `V64__exam_answer_manual_score_reason.sql`은 `exam_answers.manual_score_reason VARCHAR(500) NULL`만 추가한다. 기존 행은 null이며 원점수·수동 점수·조정자·조정 시각을 백필하거나 변경하지 않는다. 현재 사유만 점수 수정 트랜잭션에서 교체하며 전체 이력 보존 정책을 새로 만들지 않는다. 애플리케이션은 UTF-16 길이 500 이하를 검증하므로 supplementary Unicode 문자 입력의 상한이 DB 문자 수보다 엄격할 수 있다.
 
 새 코드 시작 전에 V64가 필요하다. 이전 코드로 돌아가도 nullable 추가 컬럼을 그대로 두면 기존 SQL·매핑과 호환된다. rollback을 위해 컬럼을 삭제하면 저장된 사유를 잃으므로 자동 down migration을 추가하지 않는다. 실제 DEV/PROD 적용은 별도 배포 절차에서 DB 스냅샷·migration 이력·실제 실행 영향 확인 후 진행하며 로컬 H2 MySQL-mode 검증과 구분한다.
+
+
+## V65: retained prior-consent provenance
+
+`V65__guardian_prior_consent_evidence.sql` adds nullable `prior_consent_method VARCHAR(24)`, `evidence_reviewed_at DATETIME(6)` and `prior_consent_valid_until DATETIME(6)` to `guardian_team_requests`, with an all-or-none provenance CHECK and receipt/review/validity ordering. Existing rows keep null additions; no user grants or evidence backfills occur. Actual receipt uses `explicit_response_at`; `confirmation_method=PRIOR_RECORD` distinguishes the new path. Existing purge/revocation/expiry clear the added fields. Older readers that cannot deserialize this enum must not replace a reader after new values exist. See [migration and recovery boundary](guardian-prior-consent.md).
+
+The unpublished V65 CHECK also accepts `IN_PERSON` while preserving nullable additions and the existing source values. Actual consent time remains separate from review time; no account grant/backfill is introduced.

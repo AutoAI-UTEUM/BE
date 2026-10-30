@@ -207,3 +207,10 @@ FE는 로그인 뒤 `/entry`를 조회하며 DOB·브라우저 연도·`ageVerif
 한국어 [양식 안내](guardian-team-review-forms.md)의 실제 문구·동의 범위·확인 창구·담당자·기간 입력을 검토한다. 기본 BE 기능은 비활성이며 필수 입력이 비어 있으면 활성화가 차단된다. 초기 구현은 이메일 발송·수신 connector와 SMS를 제공하지 않으므로, 복사할 안내 문구를 실제 발송했다고 표시하지 않는다. 실제 메일함 운영과 확인·파기 절차, FE 배포와 BE 활성화는 별도 운영 승인 후 검증한다.
 
 승인 증거 보유 설정은 최대 기한이며 조기 철회·반려·탈퇴 시 목적에 따른 증거 참조·로컬 사본 정리를 허용한다. 기술적으로 `approvedEvidenceRetention >= approvalValidity`가 필수지만 두 값의 실제 기간과 법적 최소·예외 보존은 아직 운영 검토가 필요하다. 테스트의 합성 기간을 화면의 실제 보유기간으로 사용하거나 “이 기간 동안 모든 증거가 보관된다”고 보장하지 않는다.
+
+
+## Additional prior-record administrator path (default OFF)
+
+The BE also provides an atomic first-case approval using genuinely retained prior consent, gated by separately reviewed methods/policy/maximum age. It is not a default consent exemption. [The full contract](guardian-prior-consent.md) defines options discovery, pending-account handling, required unselected checks, actual receipt versus review time, bounded validity, current revisions, admin provenance and FE integration limitations. FE main/develop availability is not established by this BE change.
+
+Face-to-face verification now has the explicit source `IN_PERSON`. Display its actual consent confirmation time separately from admin processing time; `replyChannel` belongs to the ordinary workflow and must not be rendered as the prior evidence source. The additional path stays OFF until the reuse policy and age/validity settings are reviewed.

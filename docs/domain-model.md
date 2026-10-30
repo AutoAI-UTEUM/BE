@@ -395,3 +395,10 @@ Authentication reads a role/status scalar from the User primary key on every req
 Guardian web/SMS intake (#491) stores AWAITING_CONSENT -> SENDING -> PHONE_PENDING -> VERIFYING -> PHONE_CONFIRMED separately from User eligibility. Provider failures, code mismatch, dispute and uncertain interrupted calls become REVIEW_REQUIRED. User-row locks and attempt nonce checks fence late completions; withdrawal atomically cancels links and clears phone identifiers. Phone confirmation is not guardian relationship approval. [Lifecycle and scope](guardian-web-sms-intake.md).
 
 보호자 팀 검토(#526)는 웹 자기신고 DECLARED, 담당자가 확인한 명시적 회신 REVIEW_PENDING, 관계 검토 완료 APPROVED를 구분한다. User의 TEAM_APPROVED는 현재 정책 digest·유효기간·필수 SERVICE 동의가 필요하며 선택 EXTERNAL_AI와 별개다. 철회·재승인 시 세대가 증가하고 이전 AI/SSE 결과는 저장·출력하지 않는다. 기존 SMS 소유 확인을 승인으로 바꾸지 않는다. [팀 검토 상태·개인정보 정리·마이그레이션](guardian-team-review.md).
+
+
+## Prior-record guardian review
+
+A policy-enabled first-case review can use retained explicit consent predating the request. `PRIOR_RECORD` identifies provenance separately from `EMAIL_REPLY`/`PHONE` confirmation; actual source, receipt, server review and validity are preserved. Target/relationship/contact, current notice/scopes, source policy, retention/accessibility, validity and non-withdrawal checks precede one atomic approval. A prior record never restarts a terminal case or later generation. Expiry is capped by ordinary validity, record validity and reviewed maximum age. Email and optional EXTERNAL_AI gates remain separate. See [rules, audit and tests](guardian-prior-consent.md).
+
+Face-to-face evidence is identified as `IN_PERSON`; neither the ordinary reply channel nor identity verification alone can substitute for explicit consent, subject/guardian binding, current notice/scopes, validity and non-withdrawal checks.

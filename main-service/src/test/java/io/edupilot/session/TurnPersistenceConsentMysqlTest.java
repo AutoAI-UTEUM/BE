@@ -111,7 +111,7 @@ class TurnPersistenceConsentMysqlTest {
 		when(clock.getZone()).thenReturn(ZoneOffset.UTC);
 		IsolatedMysql.assertIdentity(jdbc, DATABASE);
 		assertThat(migrations.validateWithResult().validationSuccessful).isTrue();
-		assertThat(migrations.info().current().getVersion().getVersion()).isEqualTo("64");
+		assertThat(migrations.info().current().getVersion().getVersion()).isEqualTo("65");
 		assertThat(policy.ready()).isTrue();
 		child = transaction().execute(status -> {
 			User account = User.create("synthetic-turn-" + UUID.randomUUID() + "@example.test", "!synthetic", "Synthetic child");

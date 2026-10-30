@@ -228,3 +228,10 @@ TEAM_REVIEW는 기본 OFF이며 실제 관계 확인 기준·동의문/수집항
 | 담당자 승인 철회 | 승인 철회 | `POST /api/admin/guardian-requests/{id}/revoke` | 철회·만료를 현재 상태로 표시한다. TEAM_APPROVED 상태값만으로 이용 가능을 추정하지 않는다. 이후 학습·AI·SSE와 늦은 결과는 BE의 현재 승인 증거·동의 세대 검사에 따른다. |
 
 외부 AI 선택 동의와 서비스 이용 승인을 구분한다. 실제 오류 응답을 기존 이메일·연령·소유권 검사와 함께 처리하며, unavailable·pending·needs information을 성공 화면으로 표시하지 않는다. 확인된 실제 회신 등록·개별 승인과 메일 송수신 연결은 운영 승인이 필요한 별도 수행이다. [구현·설정·복구 경계](guardian-team-review.md).
+
+
+## Administrator: retained prior guardian consent
+
+From a pending account, read `GET /api/admin/guardian-requests/prior-consent/options`. Only offer review when available and after the administrator checks the actual retained record. Submit `POST /api/admin/guardian-requests/users/{userId}/prior-consent/approval` with an opaque evidence reference, actual receipt, validity end, covered notice/scopes and performed checks. A missing case uses null ID and zero generation/revision; an existing case uses its current snapshot. No checks are preselected. Refresh and re-review on 409; disable entry on 503. FE code is not part of this BE change. See [FE handoff and API details](guardian-prior-consent.md).
+
+For the user-described face-to-face record, show `IN_PERSON`, the actual consent confirmation date and a separate server review date. Keep all required checks unselected and retain only an opaque record reference; no original document upload is required.
