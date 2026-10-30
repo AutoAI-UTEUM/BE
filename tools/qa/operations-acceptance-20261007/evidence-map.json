@@ -747,6 +747,17 @@
     {
       "path": "main-service/src/test/java/io/edupilot/guardian/team/GuardianTeamFullMigrationTest.java",
       "baselineSha256": "f852e0a51adc241346f12d4a32178f01361e4294ffd74932652a69c375546170",
+      "sourceSha": "df6c81ae54baebf5d5d57a283b2f29a0b1bd5c67",
+      "sha256": "5be415764b64dad6cca6c3c4a47fb3335330f496ca7a0b5804c531fabca26b2a",
+      "ciRunUrl": "https://github.com/AutoAI-UTEUM/BE/actions/runs/41011472412/job/123918098933",
+      "scope": "synthetic-fixture-maintenance;not-live-acceptance",
+      "integrationSha": "cce881ca35bf88bcc5118cc3b6538ec0476885ce"
+    }
+  ],
+  "historicalSourceBindings": [
+    {
+      "path": "main-service/src/test/java/io/edupilot/guardian/team/GuardianTeamFullMigrationTest.java",
+      "baselineSha256": "f852e0a51adc241346f12d4a32178f01361e4294ffd74932652a69c375546170",
       "sourceSha": "987a82b270ae6e0cd3f502a451899376dce4462b",
       "sha256": "d7fae60c9387d611ce342ec5a019068d025eaf651ff95a9cb4caa0b442f2117d",
       "ciRunUrl": "https://github.com/AutoAI-UTEUM/BE/actions/runs/39030416865/job/117389571371",

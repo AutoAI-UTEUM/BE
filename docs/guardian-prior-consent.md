@@ -80,3 +80,6 @@ This implementation does not prove deployed FE support, production policy, origi
 
 
 The user's 2026-10-30 plan is to conduct testing tentatively through the end of 2026. This is a planning horizon only: it does not establish consent expiry, the original record validity, a maximum reuse duration, or permission to enable the feature. Those policy values remain unset and the feature remains default OFF.
+
+
+The operations acceptance catalog remains historical (including its original V1-V63 migration observations). Its prior synthetic fixture binding is preserved under `historicalSourceBindings`; the current V65 fixture binding references the actually successful isolated MySQL CI for source `df6c81ae54baebf5d5d57a283b2f29a0b1bd5c67` / integration `cce881ca35bf88bcc5118cc3b6538ec0476885ce` (MySQL 39 and separate H2 1, no failures/skips, cleanup 0). This is synthetic fixture verification, not live V65 acceptance or operating authorization.

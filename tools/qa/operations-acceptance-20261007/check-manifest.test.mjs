@@ -237,10 +237,23 @@ test('current fixture binding preserves the historical catalog and links separat
   const historical = EVIDENCE.bundles.flatMap((b) => b.sources).find((x) => x.path === binding.path);
   assert.equal(historical.sha256, 'f852e0a51adc241346f12d4a32178f01361e4294ffd74932652a69c375546170');
   assert.equal(binding.baselineSha256, historical.sha256);
-  assert.equal(binding.sourceSha, '987a82b270ae6e0cd3f502a451899376dce4462b');
-  assert.equal(binding.sha256, 'd7fae60c9387d611ce342ec5a019068d025eaf651ff95a9cb4caa0b442f2117d');
-  assert.equal(binding.ciRunUrl, 'https://github.com/AutoAI-UTEUM/BE/actions/runs/39030416865/job/117389571371');
+  assert.equal(binding.sourceSha, 'df6c81ae54baebf5d5d57a283b2f29a0b1bd5c67');
+  assert.equal(binding.integrationSha, 'cce881ca35bf88bcc5118cc3b6538ec0476885ce');
+  assert.equal(binding.sha256, '5be415764b64dad6cca6c3c4a47fb3335330f496ca7a0b5804c531fabca26b2a');
+  assert.equal(binding.ciRunUrl, 'https://github.com/AutoAI-UTEUM/BE/actions/runs/41011472412/job/123918098933');
   assert.equal(binding.scope, 'synthetic-fixture-maintenance;not-live-acceptance');
+});
+
+test('the prior synthetic fixture proof remains immutable and distinct from current fixture verification', () => {
+  assert.equal(EVIDENCE.historicalSourceBindings.length, 1);
+  assert.deepEqual(EVIDENCE.historicalSourceBindings[0], {
+    path: 'main-service/src/test/java/io/edupilot/guardian/team/GuardianTeamFullMigrationTest.java',
+    baselineSha256: 'f852e0a51adc241346f12d4a32178f01361e4294ffd74932652a69c375546170',
+    sourceSha: '987a82b270ae6e0cd3f502a451899376dce4462b',
+    sha256: 'd7fae60c9387d611ce342ec5a019068d025eaf651ff95a9cb4caa0b442f2117d',
+    ciRunUrl: 'https://github.com/AutoAI-UTEUM/BE/actions/runs/39030416865/job/117389571371',
+    scope: 'synthetic-fixture-maintenance;not-live-acceptance',
+  });
 });
 
 test('all 46 evidence references and 63 migrations match historical or reviewed current source SHA-256', () => {
