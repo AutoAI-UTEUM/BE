@@ -81,6 +81,9 @@ jobs:
       - name: Validate Main-only DEV deployment guards without operations
         run: python3 -I -S -B scripts/deploy/test_dev_main_only.py
 
+      - name: Validate reviewed V65 DEV deployment guards without operations
+        run: python3 -I -S -B scripts/deploy/test_dev_v65_main_only.py
+
       - name: Validate isolated SES trial guards without sending
         if: steps.changes.outputs.service == 'true'
         run: |

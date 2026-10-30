@@ -1,6 +1,7 @@
 """Reviewed DEV Main-only deployment. No automatic trigger, retry or rollback."""
 import argparse
 import datetime as dt
+import gzip
 import hashlib
 import json
 import os
@@ -21,6 +22,10 @@ GUARDIAN = ("EDUPILOT_GUARDIAN_TEAM_ENABLED", "EDUPILOT_GUARDIAN_TEAM_POLICY_CON
 TRIAL = ("EDUPILOT_MAIL_OUTBOX_DISPATCH_DELIVERY_IDS", "EDUPILOT_MAIL_OUTBOX_DISPATCH_RECIPIENT")
 OVERRIDES = ("JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS", "SPRING_APPLICATION_JSON",
              "SPRING_CONFIG_LOCATION", "SPRING_CONFIG_ADDITIONAL_LOCATION", "SPRING_CONFIG_IMPORT")
+V65_CONTRACT = "v65-prior-consent"
+V65_CATALOG_SHA256 = "83b8357cd5b2ab07f5d01a857323af1107a1718eae9fb1dfcf0daaa5de7467da"
+V64_CATALOG_SHA256 = "75af39b82695df2088c3916f6ffc3a2b9c71627fb4cf2fcca3b080cb3335d228"
+PRIOR_PREFIX = "EDUPILOT_GUARDIAN_TEAM_PRIOR_CONSENT_"
 
 
 def require(condition, code):
@@ -88,7 +93,7 @@ def sha_json(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def source_catalog(root):
+def read_source_catalog(root):
     catalog = {}
     for path in (root / "main-service/src/main/resources/db/migration").glob("V*__*.sql"):
         version = re.fullmatch(r"V(\d+)__.*\.sql", path.name)[1]
@@ -97,29 +102,93 @@ def source_catalog(root):
         for line in path.read_text(encoding="utf-8-sig").splitlines():
             crc = zlib.crc32(line.encode("utf-8"), crc)
         catalog[version] = crc if crc < 2**31 else crc - 2**32
+    return catalog
+
+
+def source_catalog(root):
+    catalog = read_source_catalog(root)
     require(set(catalog) == {str(v) for v in range(1, 65)} and catalog["64"] == -1987207835,
             "V64_ONLY_RELEASE_EXPECTED")
     return catalog
 
 
-def prepare(root, output, value, expected_sha, fingerprint):
-    validate_manifest(value, expected_sha)
+def source_catalog_v65(root):
+    catalog = read_source_catalog(root)
+    require(set(catalog) == {str(v) for v in range(1, 66)}
+            and catalog["65"] == -1852741875 and sha_json(catalog) == V65_CATALOG_SHA256,
+            "EXACT_REVIEWED_V65_CATALOG_REQUIRED")
+    return catalog
+
+
+def validate_v65_manifest(value, expected_sha):
+    shape(value, ("schemaVersion", "approvedSha", "preflightReceiptSha256", "checkedAtUtc", "services",
+                  "configSha256", "flywayCatalogSha256", "rollback", "budget", "ci", "v65"))
+    require(type(value["schemaVersion"]) is int and value["schemaVersion"] == 2, "V65_MANIFEST_SCHEMA_REQUIRED")
+    base = {k: v for k, v in value.items() if k != "v65"}
+    base["schemaVersion"] = 1
+    validate_manifest(base, expected_sha)
+    require(value["flywayCatalogSha256"] == V65_CATALOG_SHA256, "EXACT_REVIEWED_V65_CATALOG_REQUIRED")
+    extra = value["v65"]
+    shape(extra, ("releaseContract", "fromVersion", "guardianMysql", "backup", "recovery", "writeQuiescence"))
+    require(extra["releaseContract"] == V65_CONTRACT and type(extra["fromVersion"]) is int
+            and extra["fromVersion"] in (64, 65), "V65_BASELINE_MUST_BE_64_OR_65")
+    ci = extra["guardianMysql"]
+    shape(ci, ("sourceSha", "catalogSha256", "runId", "reviewedSuccess"))
+    require(is_hex(ci["sourceSha"], r"[a-f0-9]{40}") and ci["catalogSha256"] == V65_CATALOG_SHA256
+            and type(ci["runId"]) is int and ci["runId"] > 0 and ci["reviewedSuccess"] is True,
+            "REVIEWED_V65_CATALOG_MYSQL_CI_REQUIRED")
+    backup = extra["backup"]
+    shape(backup, ("relativePath", "createdAtUtc", "sizeBytes", "sha256", "flywayCatalogSha256",
+                   "restoreDrillReceiptSha256", "filesRecoveryReceiptSha256", "deletionLedgerReceiptSha256"))
+    require(isinstance(backup["relativePath"], str)
+            and re.fullmatch(r"backups/[A-Za-z0-9][A-Za-z0-9_.-]{0,150}\.sql\.gz", backup["relativePath"])
+            and type(backup["sizeBytes"]) is int and backup["sizeBytes"] > 0
+            and all(is_hex(backup[k]) for k in ("sha256", "restoreDrillReceiptSha256", "filesRecoveryReceiptSha256", "deletionLedgerReceiptSha256"))
+            and backup["flywayCatalogSha256"] == (V64_CATALOG_SHA256 if extra["fromVersion"] == 64 else V65_CATALOG_SHA256),
+            "VERIFIED_BASELINE_BACKUP_AND_RESTORE_EVIDENCE_REQUIRED")
+    fresh(backup["createdAtUtc"])
+    recovery = extra["recovery"]
+    shape(recovery, ("mode", "evidenceSha256", "automaticRollback"))
+    require(recovery["mode"] == "COMPATIBLE_FORWARD_FIX_OR_VERIFIED_RESTORE"
+            and is_hex(recovery["evidenceSha256"]) and recovery["automaticRollback"] is False,
+            "V65_COMPATIBLE_MANUAL_RECOVERY_REQUIRED")
+    pause = extra["writeQuiescence"]
+    shape(pause, ("confirmed", "startedAtUtc", "receiptSha256"))
+    require(pause["confirmed"] is True and is_hex(pause["receiptSha256"]), "EXISTING_WRITE_QUIESCENCE_REQUIRED")
+    fresh(pause["startedAtUtc"])
+    times = [dt.datetime.fromisoformat(x.replace("Z", "+00:00")) for x in
+             (pause["startedAtUtc"], backup["createdAtUtc"], value["checkedAtUtc"])]
+    require(times[0] <= times[1] <= times[2], "BACKUP_MUST_FOLLOW_QUIESCENCE_AND_PRECEDE_PREFLIGHT")
+    return value
+
+
+def release_inputs(root, value, expected_sha, release_contract):
+    if release_contract == "v64":
+        validate_manifest(value, expected_sha)
+        return source_catalog(root)
+    require(release_contract == V65_CONTRACT, "EXPLICIT_REVIEWED_RELEASE_CONTRACT_REQUIRED")
+    validate_v65_manifest(value, expected_sha)
+    return source_catalog_v65(root)
+
+
+def prepare(root, output, value, expected_sha, fingerprint, release_contract="v64"):
+    catalog = release_inputs(root, value, expected_sha, release_contract)
     require(isinstance(fingerprint, str) and re.fullmatch(r"SHA256:[A-Za-z0-9+/]{43}", fingerprint),
             "EXISTING_VERIFIED_HOST_FINGERPRINT_REQUIRED")
-    catalog = source_catalog(root)
     require(value["flywayCatalogSha256"] == sha_json(catalog), "REVIEWED_CATALOG_MISMATCH")
     require(value["configSha256"] == {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in FILES},
             "REVIEWED_HOST_CONFIG_MUST_MATCH_CHECKOUT")
     source = Path(__file__).read_text(encoding="utf-8")
     marker = "CONFIG = {}" + "  # REVIEWED_CONFIG"
     require(source.count(marker) == 1, "REMOTE_CONFIG_MARKER_REQUIRED")
-    source = source.replace(marker, "CONFIG = " + repr({"manifest": value, "catalog": catalog}), 1)
+    source = source.replace(marker, "CONFIG = " + repr({"manifest": value, "catalog": catalog, "releaseContract": release_contract}), 1)
     compile(source, "<reviewed-dev-main-only>", "exec")
     delimiter = "EDUPILOT_REVIEWED_MAIN_ONLY_PY"
     require(delimiter not in source.splitlines(), "HEREDOC_DELIMITER_COLLISION")
     script = "set -eu\npython3 -I -S -B - --remote <<'" + delimiter + "'\n" + source + "\n" + delimiter + "\n"
     with output.open("x", encoding="utf-8", newline="\n") as stream:
         stream.write(script)
+    return sha_json(catalog)
 
 
 class Deployment:
@@ -176,6 +245,32 @@ class Deployment:
                 "NGINX_SIGNUP_PAUSE_INPUT_UNCONFIRMED")
         return lines[0].split("=", 1)[1]
 
+    def readonly_sql(self, mysql_id, statement):
+        sql = "SET SESSION TRANSACTION READ ONLY;\nSTART TRANSACTION READ ONLY;\n" + statement + "\nROLLBACK;\n"
+        mysql = 'MYSQL_PWD="${MYSQL_PASSWORD:?}" exec mysql --user="${MYSQL_USER:?}" --database="${MYSQL_DATABASE:?}" --batch --raw --skip-column-names --connect-timeout=5'
+        return self.docker("exec", "-i", mysql_id, "sh", "-c", mysql, data=sql.encode()).splitlines()
+
+    def read_flyway(self, mysql_id):
+        rows = self.readonly_sql(mysql_id, "SELECT version, checksum, success FROM flyway_schema_history ORDER BY installed_rank;")
+        actual = {}
+        for row in rows:
+            parts = row.split("\t")
+            require(len(parts) == 3 and parts[0] in self.catalog and parts[0] not in actual and parts[2] == "1", "FLYWAY_HISTORY_DRIFT")
+            actual[parts[0]] = int(parts[1])
+        return actual
+
+    def verify_database(self, mysql_id):
+        require(self.read_flyway(mysql_id) == self.catalog, "FLYWAY_NOT_EXACT_V64_STOP_NO_REPAIR")
+
+    def verify_extra_readonly(self, before, env, marker):
+        pass  # V64 behavior is unchanged; the separate V65 contract adds checks.
+
+    def validate_image(self, target):
+        pass
+
+    def verify_post_migration(self, after):
+        pass
+
     def verify_readonly(self):
         fresh(self.manifest["checkedAtUtc"])
         require(all(hashlib.sha256((self.root / p).read_bytes()).hexdigest() == self.manifest["configSha256"][p] for p in FILES),
@@ -199,16 +294,8 @@ class Deployment:
         for line in (self.root / ".env").read_text(encoding="utf-8-sig").splitlines():
             match = re.match(r"^\s*(?:export\s+)?(" + "|".join(TRIAL) + r")\s*[=:]\s*(.*)$", line)
             require(not match or match[2].strip() in ("", "''", '""'), "DOTENV_TRIAL_INPUTS_NOT_EMPTY")
-        sql = ("SET SESSION TRANSACTION READ ONLY;\nSTART TRANSACTION READ ONLY;\n"
-               "SELECT version, checksum, success FROM flyway_schema_history ORDER BY installed_rank;\nROLLBACK;\n")
-        mysql = 'MYSQL_PWD="${MYSQL_PASSWORD:?}" exec mysql --user="${MYSQL_USER:?}" --database="${MYSQL_DATABASE:?}" --batch --raw --skip-column-names --connect-timeout=5'
-        rows = self.docker("exec", "-i", before["mysql"]["id"], "sh", "-c", mysql, data=sql.encode()).splitlines()
-        actual = {}
-        for row in rows:
-            parts = row.split("\t")
-            require(len(parts) == 3 and parts[0] in self.catalog and parts[0] not in actual and parts[2] == "1", "FLYWAY_HISTORY_DRIFT")
-            actual[parts[0]] = int(parts[1])
-        require(actual == self.catalog, "FLYWAY_NOT_EXACT_V64_STOP_NO_REPAIR")
+        self.verify_extra_readonly(before, env, marker)
+        self.verify_database(before["mysql"]["id"])
         self.docker("exec", before["nginx"]["id"], "nginx", "-t")
         return before, env, marker
 
@@ -246,6 +333,7 @@ class Deployment:
             require(target.get("Entrypoint") == ["java", "-jar", "/app/app.jar"] and not target.get("Cmd"), "NEW_MAIN_ENTRYPOINT_MISMATCH")
             target_env = dict(line.split("=", 1) for line in target.get("Env", []))
             require(all(not target_env.get(k) for k in (*TRIAL, *OVERRIDES)), "NEW_IMAGE_ENV_OVERRIDE_UNREVIEWED")
+            self.validate_image(target)
             require(all(k in desired_env or k in target_env for k in old_env), "CURRENT_EXTRA_ENV_WOULD_BE_DROPPED")
             # Repeat all read-only guards immediately before the single allowed replacement.
             current, current_env, current_marker = self.verify_readonly()
@@ -266,6 +354,7 @@ class Deployment:
             new_env = self.main_environment(after["main-service"]["id"])
             require(all(new_env.get(k) == old_env.get(k) for k in desired_env)
                     and all(not new_env.get(k) for k in (*TRIAL, *OVERRIDES)), "POST_MAIN_SETTINGS_OR_CREDENTIAL_DRIFT")
+            self.verify_post_migration(after)
             # New Main IP must be resolved without recreating/restarting Nginx.
             self.docker("exec", before["nginx"]["id"], "nginx", "-t")
             self.nginx_reload_requested = True
@@ -287,25 +376,117 @@ class Deployment:
                     "mysqlAiNginxImagesChanged": False, "automaticRetryOrRollback": False}
 
 
+class V65Deployment(Deployment):
+    """Only the reviewed additive V65 transition, with no old-image rollback."""
+
+    def __init__(self, root, manifest, catalog, new_digest):
+        validate_v65_manifest(manifest, manifest.get("approvedSha"))
+        require(sha_json(catalog) == V65_CATALOG_SHA256, "EXACT_REVIEWED_V65_CATALOG_REQUIRED")
+        super().__init__(root, manifest, catalog, new_digest)
+        self.baseline = {k: v for k, v in catalog.items() if int(k) <= manifest["v65"]["fromVersion"]}
+
+    def prior_policy_off(self, env):
+        for key, value in env.items():
+            if key.startswith(PRIOR_PREFIX):
+                require(value == "false" if key in (PRIOR_PREFIX + "ENABLED", PRIOR_PREFIX + "POLICY_CONFIRMED") else not value,
+                        "PRIOR_CONSENT_MUST_REMAIN_UNCONFIGURED_AND_OFF")
+
+    def verify_extra_readonly(self, before, env, marker):
+        validate_v65_manifest(self.manifest, self.manifest["approvedSha"])
+        self.prior_policy_off(env)
+        self.prior_policy_off(os.environ)
+        require(marker == "true", "EXISTING_SIGNUP_PAUSE_REQUIRED_FOR_V65")
+        backup = self.manifest["v65"]["backup"]
+        path = self.root / backup["relativePath"]
+        require(path.resolve() == path and path.is_file() and not path.is_symlink()
+                and path.stat().st_size == backup["sizeBytes"]
+                and (os.name != "posix" or path.stat().st_mode & 0o077 == 0), "EXISTING_PRIVATE_BACKUP_FILE_REQUIRED")
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            initial_stat = os.fstat(stream.fileno())
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+            require(digest.hexdigest() == backup["sha256"], "BACKUP_INTEGRITY_MISMATCH")
+            # Stream CRC/length validation only. Never decode, log, restore or modify dump content.
+            stream.seek(0)
+            uncompressed = 0
+            with gzip.GzipFile(fileobj=stream, mode="rb") as archive:
+                for chunk in iter(lambda: archive.read(1024 * 1024), b""):
+                    uncompressed += len(chunk)
+            # Windows path/handle birth-time views may differ; compare identity, size and modification time.
+            signature = lambda stat: (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+            require(signature(initial_stat) == signature(os.fstat(stream.fileno())) == signature(path.stat()),
+                    "BACKUP_CHANGED_DURING_VERIFICATION")
+        require(uncompressed > 0, "EMPTY_BACKUP_NOT_ACCEPTED")
+
+    def verify_v65_columns(self, mysql_id, applied):
+        rows = self.readonly_sql(mysql_id,
+            "SELECT column_name, column_type, is_nullable FROM information_schema.columns "
+            "WHERE table_schema=DATABASE() AND table_name='guardian_team_requests' "
+            "AND column_name IN ('prior_consent_method','evidence_reviewed_at','prior_consent_valid_until');")
+        expected = {"prior_consent_method\tvarchar(24)\tYES", "evidence_reviewed_at\tdatetime(6)\tYES",
+                    "prior_consent_valid_until\tdatetime(6)\tYES"} if applied else set()
+        require(len(rows) == len(expected) and set(rows) == expected, "V65_COLUMNS_MISMATCH_STOP_NO_REPAIR")
+        checks = self.readonly_sql(mysql_id,
+            "SELECT constraint_name, enforced FROM information_schema.table_constraints "
+            "WHERE constraint_schema=DATABASE() AND table_name='guardian_team_requests' "
+            "AND constraint_type='CHECK' AND constraint_name='chk_guardian_team_prior_evidence';")
+        require(checks == (["chk_guardian_team_prior_evidence\tYES"] if applied else []),
+                "V65_ENFORCED_CHECK_MISMATCH_STOP_NO_REPAIR")
+
+    def verify_database(self, mysql_id):
+        require(self.read_flyway(mysql_id) == self.baseline, "V65_BASELINE_HISTORY_MISMATCH_STOP_NO_REPAIR")
+        self.verify_v65_columns(mysql_id, self.manifest["v65"]["fromVersion"] == 65)
+
+    def validate_image(self, target):
+        labels = target.get("Labels") or {}
+        require(labels.get("org.opencontainers.image.revision") == self.manifest["approvedSha"]
+                and labels.get("com.uteum.dev-release-contract") == V65_CONTRACT
+                and labels.get("com.uteum.flyway-catalog-sha256") == V65_CATALOG_SHA256,
+                "V65_IMAGE_REVISION_CATALOG_OR_CONTRACT_MISMATCH")
+        env = {}
+        for line in target.get("Env", []):
+            key, sep, value = line.partition("=")
+            require(sep and key not in env, "V65_IMAGE_ENV_AMBIGUOUS")
+            env[key] = value
+        self.prior_policy_off(env)
+        require(all(env.get(k, "false") == "false" for k in GUARDIAN), "V65_IMAGE_GUARDIAN_MUST_REMAIN_OFF")
+
+    def verify_post_migration(self, after):
+        require(self.read_flyway(after["mysql"]["id"]) == self.catalog, "V65_POST_MIGRATION_HISTORY_MISMATCH_MANUAL_RECOVERY")
+        self.verify_v65_columns(after["mysql"]["id"], True)
+        self.prior_policy_off(self.main_environment(after["main-service"]["id"]))
+
+
 def run():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--prepare", action="store_true")
     mode.add_argument("--remote", action="store_true")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--release-contract", choices=("v64", V65_CONTRACT), default="v64")
     args = parser.parse_args()
     if args.prepare:
         require(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch" and os.environ.get("GITHUB_REF") == "refs/heads/develop", "MANUAL_DEVELOP_DISPATCH_ONLY")
         value = json.loads(os.environ.get("REVIEWED_MANIFEST", ""))
         require(args.output is not None, "OUTPUT_SCRIPT_REQUIRED")
-        prepare(Path.cwd(), args.output, value, os.environ.get("GITHUB_SHA"), os.environ.get("VERIFIED_HOST_FINGERPRINT"))
+        catalog_hash = prepare(Path.cwd(), args.output, value, os.environ.get("GITHUB_SHA"), os.environ.get("VERIFIED_HOST_FINGERPRINT"), args.release_contract)
+        if os.environ.get("GITHUB_OUTPUT"):
+            with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as stream:
+                stream.write("catalog_sha256=" + catalog_hash + "\n")
         print(json.dumps({"status": "REVIEWED_MAIN_ONLY_PAYLOAD_PREPARED", "serverConnections": 0}))
         return 0
     manifest = CONFIG.get("manifest", {})
-    validate_manifest(manifest, manifest.get("approvedSha"))
+    contract = CONFIG.get("releaseContract", "v64")
+    if contract == V65_CONTRACT:
+        validate_v65_manifest(manifest, manifest.get("approvedSha"))
+    else:
+        require(contract == "v64", "EXPLICIT_REVIEWED_RELEASE_CONTRACT_REQUIRED")
+        validate_manifest(manifest, manifest.get("approvedSha"))
     root = Path(os.environ.get("DEV_DEPLOY_PATH", ""))
     require(root.is_absolute() and root != Path("/") and root.is_dir() and root.resolve() == root, "EXISTING_CANONICAL_DEPLOY_PATH_REQUIRED")
-    controller = Deployment(root, manifest, CONFIG["catalog"], os.environ.get("NEW_MAIN_DIGEST", ""))
+    controller_type = V65Deployment if contract == V65_CONTRACT else Deployment
+    controller = controller_type(root, manifest, CONFIG["catalog"], os.environ.get("NEW_MAIN_DIGEST", ""))
     try:
         result = controller.apply()
     except Exception:
