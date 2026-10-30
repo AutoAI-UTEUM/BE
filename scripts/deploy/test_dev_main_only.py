@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -16,6 +17,27 @@ ROOT = HERE.parents[1]
 spec = importlib.util.spec_from_file_location("dev_main_only", HERE / "dev_main_only.py")
 deploy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(deploy)
+RELEASE_ROOT = None
+
+
+def setUpModule():
+    """Keep the reviewed V64 release fixture separate from the evolving checkout."""
+    global RELEASE_ROOT
+    directory = tempfile.TemporaryDirectory(dir=HERE, prefix="synthetic-v64-release-")
+    RELEASE_ROOT = Path(directory.name).resolve()
+    assert RELEASE_ROOT.is_relative_to(HERE.resolve())
+    unittest.addModuleCleanup(directory.cleanup)
+    for filename in deploy.FILES:
+        target = RELEASE_ROOT / filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT / filename).read_bytes())
+    migrations = "main-service/src/main/resources/db/migration"
+    destination = RELEASE_ROOT / migrations
+    destination.mkdir(parents=True)
+    for version in range(1, 65):
+        sources = list((ROOT / migrations).glob(f"V{version}__*.sql"))
+        assert len(sources) == 1, f"Expected exactly one reviewed V{version} migration"
+        shutil.copyfile(sources[0], destination / sources[0].name)
 
 
 def fixture():
@@ -24,10 +46,10 @@ def fixture():
         repo = "ghcr.io/autoai-uteum/" + name if name.endswith("-service") else name
         services[name] = {"id": str(i) * 64, "imageId": "sha256:" + str(i) * 64,
                           "repoDigest": repo + "@sha256:" + str(i) * 64}
-    catalog = deploy.source_catalog(ROOT)
+    catalog = deploy.source_catalog(RELEASE_ROOT)
     manifest = {"schemaVersion": 1, "approvedSha": "a" * 40, "preflightReceiptSha256": "b" * 64,
                 "checkedAtUtc": dt.datetime.now(dt.timezone.utc).isoformat(), "services": services,
-                "configSha256": {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in deploy.FILES},
+                "configSha256": {p: hashlib.sha256((RELEASE_ROOT / p).read_bytes()).hexdigest() for p in deploy.FILES},
                 "flywayCatalogSha256": deploy.sha_json(catalog),
                 "rollback": {"mainRepoDigest": services["main-service"]["repoDigest"], "registryAvailabilityReviewed": True},
                 "budget": {"confirmed": 4, "reserved": 0, "limit": 7, "currentMainContainerId": services["main-service"]["id"], "evidenceSha256": "e" * 64},
@@ -40,6 +62,46 @@ def fixture():
 
 
 class MainOnlyTests(unittest.TestCase):
+    def test_release_fixture_is_exactly_v64_while_current_checkout_is_rejected(self):
+        catalog = deploy.source_catalog(RELEASE_ROOT)
+        self.assertEqual(set(catalog), {str(v) for v in range(1, 65)})
+        self.assertEqual(catalog["64"], -1987207835)
+        self.assertTrue(any(int(path.name.split("__", 1)[0][1:]) > 64
+                            for path in (ROOT / "main-service/src/main/resources/db/migration").glob("V*__*.sql")))
+        with self.assertRaisesRegex(ValueError, "V64_ONLY_RELEASE_EXPECTED"):
+            deploy.source_catalog(ROOT)
+
+    def test_current_checkout_cannot_prepare_a_v64_release_script(self):
+        manifest, *_ = fixture()
+        with tempfile.TemporaryDirectory(dir=HERE, prefix="synthetic-post-v64-") as temp:
+            self.assertTrue(Path(temp).resolve().is_relative_to(HERE))
+            output = Path(temp) / "not-authorized.sh"
+            with mock.patch.object(deploy.subprocess, "run", side_effect=AssertionError("NO_PROCESS")) as process:
+                with self.assertRaisesRegex(ValueError, "V64_ONLY_RELEASE_EXPECTED"):
+                    deploy.prepare(ROOT, output, manifest, "a" * 40, "SHA256:" + "a" * 43)
+            self.assertFalse(output.exists())
+            process.assert_not_called()
+
+    def test_release_catalog_still_rejects_added_missing_or_modified_migrations(self):
+        migrations = "main-service/src/main/resources/db/migration"
+        for fault in ("newer", "missing", "modified", "duplicate"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory(dir=HERE, prefix="synthetic-catalog-") as temp:
+                root = Path(temp)
+                self.assertTrue(root.resolve().is_relative_to(HERE))
+                target = root / migrations
+                shutil.copytree(RELEASE_ROOT / migrations, target)
+                v64 = next(target.glob("V64__*.sql"))
+                if fault == "newer":
+                    (target / "V65__unreviewed_synthetic.sql").write_text("SELECT 1;\n", encoding="utf-8")
+                elif fault == "missing":
+                    v64.unlink()
+                elif fault == "modified":
+                    v64.write_text("SELECT 1;\n", encoding="utf-8")
+                else:
+                    (target / "V64__duplicate_synthetic.sql").write_text("SELECT 1;\n", encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "V64_ONLY_RELEASE_EXPECTED|DUPLICATE_MIGRATION_VERSION"):
+                    deploy.source_catalog(root)
+
     def test_manifest_rejects_stale_future_wrong_sha_and_incomplete_evidence(self):
         for mutate in (
             lambda m: m.update(approvedSha="f" * 40),
@@ -77,7 +139,7 @@ class MainOnlyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=HERE, prefix="synthetic-") as tmp:
             output = Path(tmp) / "main-only.sh"
             with mock.patch.object(deploy.subprocess, "run", side_effect=AssertionError("NO_PROCESS")):
-                deploy.prepare(ROOT, output, manifest, "a" * 40, "SHA256:" + "a" * 43)
+                deploy.prepare(RELEASE_ROOT, output, manifest, "a" * 40, "SHA256:" + "a" * 43)
             source = output.read_text(encoding="utf-8")
             self.assertIn("python3 -I -S -B - --remote", source)
             self.assertIn("'manifest':", source)
@@ -89,10 +151,10 @@ class MainOnlyTests(unittest.TestCase):
         manifest, *_ = fixture()
         for fingerprint in ("", "SHA256:invalid", "accept-new"):
             with self.assertRaises(ValueError):
-                deploy.prepare(ROOT, HERE / "not-created.sh", manifest, "a" * 40, fingerprint)
+                deploy.prepare(RELEASE_ROOT, HERE / "not-created.sh", manifest, "a" * 40, fingerprint)
         manifest["configSha256"]["docker-compose.dev.yml"] = "f" * 64
         with self.assertRaisesRegex(ValueError, "REVIEWED_HOST_CONFIG"):
-            deploy.prepare(ROOT, HERE / "not-created.sh", manifest, "a" * 40, "SHA256:" + "a" * 43)
+            deploy.prepare(RELEASE_ROOT, HERE / "not-created.sh", manifest, "a" * 40, "SHA256:" + "a" * 43)
         self.assertFalse((HERE / "not-created.sh").exists())
 
     def run_synthetic(self, *, drift=False, settings_drift=False, initial_fail=False):
@@ -102,7 +164,7 @@ class MainOnlyTests(unittest.TestCase):
         after["main-service"].update(id="9" * 64, imageId="sha256:" + "f" * 64, repoDigests=[target])
         if drift:
             after["mysql"]["id"] = "8" * 64
-        controller = deploy.Deployment(ROOT, manifest, catalog, target)
+        controller = deploy.Deployment(RELEASE_ROOT, manifest, catalog, target)
         calls = []
         def fake(*args, data=None, timeout=20):
             calls.append((args, data))
@@ -224,7 +286,7 @@ class MainOnlyTests(unittest.TestCase):
 
     def test_nginx_pause_rejects_missing_duplicate_or_unsupported_values(self):
         manifest, catalog, _, _ = fixture()
-        controller = deploy.Deployment(ROOT, manifest, catalog, "ghcr.io/autoai-uteum/main-service@sha256:" + "f" * 64)
+        controller = deploy.Deployment(RELEASE_ROOT, manifest, catalog, "ghcr.io/autoai-uteum/main-service@sha256:" + "f" * 64)
         with mock.patch.object(controller, 'docker', return_value='EDUPILOT_SIGNUP_PAUSED=false\n\n'):
             self.assertEqual(controller.nginx_signup_pause('4' * 64), 'false')
         for text in ('\n', 'EDUPILOT_SIGNUP_PAUSED=false\nEDUPILOT_SIGNUP_PAUSED=true\n', 'EDUPILOT_SIGNUP_PAUSED=FALSE\n'):
@@ -241,7 +303,7 @@ class Ed25519TransportTests(unittest.TestCase):
     def fixture(self, temp):
         manifest, catalog, _, _ = fixture()
         output = Path(temp) / 'reviewed.sh'
-        deploy.prepare(ROOT, output, manifest, 'a' * 40, transport.PIN)
+        deploy.prepare(RELEASE_ROOT, output, manifest, 'a' * 40, transport.PIN)
         env = {
             'VERIFIED_HOST_FINGERPRINT': transport.PIN,
             'DEV_SSH_HOST': 'dev.example.test', 'DEV_SSH_USER': 'ec2-user',
