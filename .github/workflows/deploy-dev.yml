@@ -5,6 +5,14 @@ name: Deploy dev
 on:
   workflow_dispatch:
     inputs:
+      release_contract:
+        description: Explicit reviewed migration and recovery contract (V65 needs schemaVersion 2 metadata)
+        required: true
+        type: choice
+        default: v64
+        options:
+          - v64
+          - v65-prior-consent
       approved_sha:
         description: Exact reviewed develop SHA with successful combined Main/AI CI
         required: true
@@ -41,11 +49,13 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Validate reviewed metadata before image build or SSH
+        id: reviewed
         shell: bash
         env:
           REVIEWED_MANIFEST: ${{ inputs.reviewed_manifest }}
           VERIFIED_HOST_FINGERPRINT: ${{ inputs.verified_host_fingerprint }}
-        run: python3 -I -S -B scripts/deploy/dev_main_only.py --prepare --output "$RUNNER_TEMP/dev-main-only.sh"
+          RELEASE_CONTRACT: ${{ inputs.release_contract }}
+        run: python3 -I -S -B scripts/deploy/dev_main_only.py --prepare --release-contract "$RELEASE_CONTRACT" --output "$RUNNER_TEMP/dev-main-only.sh"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -65,6 +75,10 @@ jobs:
           file: ./main-service/Dockerfile
           push: true
           tags: ghcr.io/autoai-uteum/main-service:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            com.uteum.dev-release-contract=${{ inputs.release_contract }}
+            com.uteum.flyway-catalog-sha256=${{ steps.reviewed.outputs.catalog_sha256 }}
 
       - name: Verify current DEV and replace Main only
         shell: bash

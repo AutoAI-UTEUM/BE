@@ -1,5 +1,7 @@
 # DEV Main 한정 배포 경로 (#479)
 
+V65가 포함된 develop은 이 문서의 V64 기본 경로로 배포하지 않는다. 별도 검토된 [V65 Main-only 계약](dev-v65-main-only-deployment.md)의 명시적 선택과 schemaVersion 2 백업/복구 근거가 필요하다. 기존 V64 검증은 유지한다.
+
 2026-10-15 구현·합성 검증 범위를 설명한다. 이 문서는 실제 병합·이미지 push·SSH·배포를 실행했다는 증거가 아니다. 기존 DEV environment의 권한·자격 증명과 PROD 경로는 변경하지 않는다.
 
 ## 트리거와 실행 범위
