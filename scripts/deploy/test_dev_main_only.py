@@ -234,7 +234,11 @@ class MainOnlyTests(unittest.TestCase):
         self.assertNotIn("scp-action", text)
 
     def test_remote_readonly_guards_reject_runtime_schema_drift_without_fe_access(self):
-        for fault in (None, "guardian", "flyway", "identity", "config", "nginx_pause"):
+        health_faults = tuple(name + suffix for name in ("main-service", "ai-service", "mysql")
+                              for suffix in ("_health_missing", "_unhealthy"))
+        successes = (None, "nginx_healthy", "nginx_unhealthy", "nginx_health_null")
+        for fault in (*successes, "guardian", "flyway", "identity", "config", "nginx_pause",
+                      "nginx_stopped", *health_faults):
             manifest, catalog, before, _ = fixture()
             env = {k: "false" for k in deploy.GUARDIAN}
             env.update(SPRING_PROFILES_ACTIVE="dev", EDUPILOT_MAIL_PROVIDER="logging",
@@ -244,10 +248,36 @@ class MainOnlyTests(unittest.TestCase):
                 env["EDUPILOT_GUARDIAN_WEB_ENABLED"] = "true"
             if fault == "identity":
                 before["mysql"]["id"] = "8" * 64
+            for name in deploy.SERVICES:
+                if fault == name + "_health_missing":
+                    before[name]["health"] = None
+                elif fault == name + "_unhealthy":
+                    before[name]["health"] = "unhealthy"
+            if fault == "nginx_healthy":
+                before["nginx"]["health"] = "healthy"
+            before["nginx"]["repoDigests"].append("docker.io/library/nginx@sha256:" + "5" * 64)
             calls = []
             def fake(*args, data=None, timeout=20):
                 calls.append((args, data))
+                if args[0] == "ps":
+                    name = args[-1].split("=", 2)[-1]
+                    return before[name]["id"] + "\n"
+                if args[:2] == ("image", "inspect"):
+                    observed = next(value for value in before.values() if value["imageId"] == args[-1])
+                    return json.dumps(observed["repoDigests"])
                 if args[0] == "inspect":
+                    if args[2].startswith('{"imageId":'):
+                        name, observed = next((name, value) for name, value in before.items() if value["id"] == args[-1])
+                        state = {"Running": not (name == "nginx" and fault == "nginx_stopped")}
+                        if observed["health"] is not None:
+                            state["Health"] = {"Status": observed["health"]}
+                        elif fault == "nginx_health_null" and name == "nginx":
+                            state["Health"] = None
+                        # Model the reported Docker missing-map-key failure, not a Go parser.
+                        if "Health" not in state and ".State.Health" in args[2]:
+                            raise ValueError("SYNTHETIC_DOCKER_MAP_HAS_NO_ENTRY_HEALTH")
+                        return json.dumps({"imageId": observed["imageId"], "running": state["Running"],
+                                           "health": (state.get("Health") or {}).get("Status")})
                     if args[-1] == before["nginx"]["id"]:
                         return 'EDUPILOT_SIGNUP_PAUSED=' + ('true' if fault == 'nginx_pause' else 'false') + '\n\n'
                     return json.dumps({"entrypoint": ["java", "-jar", "/app/app.jar"], "cmd": None})
@@ -267,11 +297,18 @@ class MainOnlyTests(unittest.TestCase):
                 if fault == "config":
                     (root / "docker-compose.dev.yml").write_text("changed", encoding="utf-8")
                 controller = deploy.Deployment(root, manifest, catalog, "ghcr.io/autoai-uteum/main-service@sha256:" + "f" * 64)
-                with mock.patch.object(controller, "identities", return_value=before), \
-                        mock.patch.object(controller, "main_environment", return_value=env), \
+                with mock.patch.object(controller, "main_environment", return_value=env), \
                         mock.patch.object(controller, "docker", side_effect=fake):
-                    if fault is None:
-                        controller.verify_readonly()
+                    if fault in successes:
+                        observed, _, _ = controller.verify_readonly()
+                        self.assertEqual(observed["nginx"]["health"], before["nginx"]["health"])
+                        self.assertEqual(len(observed["nginx"]["repoDigests"]), 2)
+                    elif fault in health_faults:
+                        with self.assertRaisesRegex(ValueError, "CURRENT_SERVICES_NOT_HEALTHY", msg=fault):
+                            controller.verify_readonly()
+                    elif fault == "nginx_stopped":
+                        with self.assertRaisesRegex(ValueError, "CURRENT_SERVICE_NOT_RUNNING"):
+                            controller.verify_readonly()
                     else:
                         with self.assertRaises(ValueError, msg=fault):
                             controller.verify_readonly()
