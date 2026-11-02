@@ -6,6 +6,8 @@
 
 ## 배포 전 준비
 
+전체 쓰기 중지를 위해 Main/Nginx를 정지해야 하는 경우에는 [별도 유지보수 경로](dev-v65-maintenance.md)를 검토한다. 아래 정상 workflow는 정지된 서비스를 자동 허용하지 않는다. 유지보수 도구의 구현/합성 검증은 실제 중단·백업·복구·배포 승인을 뜻하지 않는다.
+
 1. 이 경로가 develop에 반영된 후 실제 배포할 develop SHA의 Main/AI CI를 확인한다. 그 SHA와 dispatch ref/SHA가 같아야 한다. 현재 V65 migration 카탈로그에 대해 성공한 격리 MySQL CI도 확인한다. Guardian CI는 PR 전용이므로 source SHA와 카탈로그를 따로 기록하며, 다른 카탈로그나 H2 결과로 대체하지 않는다.
 2. 기존에 승인된 DEV 읽기 경로로 현재 4개 container ID/image ID/registry digest, health, 4개 설정 파일 hash, Flyway 성공 이력/checksum을 수집한다. 현재 DB는 정확히 V1~V64 또는 V1~V65여야 한다. V63 이하에서 V54/V60 등을 한 번에 적용하는 경로는 지원하지 않는다. 미래/중복/실패 이력, V65 부분 적용, 다른 checksum은 repair 없이 중단한다.
 3. 기존 절차에 따라 쓰기 중지 상태를 확보하고 담당자의 근거 receipt를 준비한다. Nginx signup pause marker/입력은 이미 true여야 하고, mail은 logging/PAUSED, 기본 guardian 플래그는 false여야 한다. **signup pause와 outbox PAUSED만으로 기존 로그인 사용자의 쓰기가 중단되었다고 판단하지 않는다.** 실제 쓰기 중지 여부와 유지 책임은 운영자의 선행 확인 사항이다. 이 helper는 이를 설정하거나 기존 Main을 별도로 정지하지 않는다.

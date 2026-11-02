@@ -5,7 +5,6 @@ import gzip
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
@@ -13,6 +12,8 @@ import tempfile
 import time
 import urllib.request
 import zlib
+from contextlib import contextmanager
+from pathlib import Path
 
 CONFIG = {}  # REVIEWED_CONFIG
 SERVICES = ("main-service", "ai-service", "mysql", "nginx")
@@ -281,6 +282,14 @@ class Deployment:
             require(before[name]["id"] == expected["id"] and before[name]["imageId"] == expected["imageId"]
                     and expected["repoDigest"] in before[name]["repoDigests"], "RUNTIME_CHANGED_SINCE_PREFLIGHT")
         require(all(before[n]["health"] == "healthy" for n in ("main-service", "ai-service", "mysql")), "CURRENT_SERVICES_NOT_HEALTHY")
+        env, marker = self.verify_main_inputs(before)
+        self.verify_extra_readonly(before, env, marker)
+        self.verify_database(before["mysql"]["id"])
+        self.docker("exec", before["nginx"]["id"], "nginx", "-t")
+        return before, env, marker
+
+    def verify_main_inputs(self, before):
+        """Inspect immutable container inputs, including an intentionally stopped Main."""
         env = self.main_environment(before["main-service"]["id"])
         entry = json.loads(self.docker("inspect", "--format", '{"entrypoint":{{json .Config.Entrypoint}},"cmd":{{json .Config.Cmd}}}', before["main-service"]["id"]))
         require(entry["entrypoint"] == ["java", "-jar", "/app/app.jar"] and not entry["cmd"], "CURRENT_MAIN_COMMAND_UNREVIEWED")
@@ -294,13 +303,11 @@ class Deployment:
         for line in (self.root / ".env").read_text(encoding="utf-8-sig").splitlines():
             match = re.match(r"^\s*(?:export\s+)?(" + "|".join(TRIAL) + r")\s*[=:]\s*(.*)$", line)
             require(not match or match[2].strip() in ("", "''", '""'), "DOTENV_TRIAL_INPUTS_NOT_EMPTY")
-        self.verify_extra_readonly(before, env, marker)
-        self.verify_database(before["mysql"]["id"])
-        self.docker("exec", before["nginx"]["id"], "nginx", "-t")
-        return before, env, marker
+        return env, marker
 
-    def apply(self):
-        before, old_env, marker = self.verify_readonly()
+    @contextmanager
+    def prepared_main(self, old_env, marker):
+        """Shared image/settings guards; entering this context never recreates a service."""
         os.environ["EDUPILOT_SIGNUP_PAUSED"] = marker
         os.environ["ENVIRONMENT"] = "dev"
         os.environ["TAG"] = self.manifest["approvedSha"]
@@ -335,6 +342,11 @@ class Deployment:
             require(all(not target_env.get(k) for k in (*TRIAL, *OVERRIDES)), "NEW_IMAGE_ENV_OVERRIDE_UNREVIEWED")
             self.validate_image(target)
             require(all(k in desired_env or k in target_env for k in old_env), "CURRENT_EXTRA_ENV_WOULD_BE_DROPPED")
+            yield compose, target_id, desired_env
+
+    def apply(self):
+        before, old_env, marker = self.verify_readonly()
+        with self.prepared_main(old_env, marker) as (compose, target_id, desired_env):
             # Repeat all read-only guards immediately before the single allowed replacement.
             current, current_env, current_marker = self.verify_readonly()
             require(current == before and current_env == old_env and current_marker == marker, "PREFLIGHT_CHANGED_BEFORE_MAIN_REPLACEMENT")
