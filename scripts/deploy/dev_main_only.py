@@ -218,7 +218,7 @@ class Deployment:
                               "label=com.docker.compose.service=" + name).split()
             require(len(ids) == 1 and is_hex(ids[0]), "CURRENT_SERVICE_IDENTITY_AMBIGUOUS")
             fmt = ('{"imageId":{{json .Image}},"running":{{.State.Running}},'
-                   '"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}null{{end}}}')
+                   '"health":{{with (index .State "Health")}}{{json .Status}}{{else}}null{{end}}}')
             info = json.loads(self.docker("inspect", "--format", fmt, ids[0]))
             require(info["running"] is True, "CURRENT_SERVICE_NOT_RUNNING")
             digests = json.loads(self.docker("image", "inspect", "--format", "{{json .RepoDigests}}", info["imageId"])) or []
