@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import signal
+import socket
 import sys
 import time
 from contextlib import contextmanager
@@ -21,6 +22,16 @@ base = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(base)
 require = base.require
 ACTIONS = ("begin", "confirm-drain", "install", "reopen", "status")
+EXPECTED_DEV_HOSTNAME = "ip-172-31-40-63.ap-northeast-2.compute.internal"
+
+
+def verify_dev_host():
+    # Exact operator-confirmed OS hostname, in addition to verified SSH host-key trust.
+    # Do not normalize to a short name, resolve DNS, accept arbitrary suffixes, or run a shell.
+    require(
+        socket.gethostname() == EXPECTED_DEV_HOSTNAME,
+        "EXACT_REVIEWED_DEV_HOST_REQUIRED",
+    )
 
 
 def utc():
@@ -900,13 +911,7 @@ def run():
         "EXISTING_CANONICAL_DEV_DEPLOY_PATH_REQUIRED",
     )
     # Use an already authenticated, verified DEV operator session. This tool never authenticates or dispatches.
-    require(
-        base.subprocess.run(["hostname"], capture_output=True, check=True)
-        .stdout.decode()
-        .strip()
-        == "ip-172-31-40-63",
-        "EXACT_REVIEWED_DEV_HOST_REQUIRED",
-    )
+    verify_dev_host()
     for signum in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, interrupt)
     controller = Maintenance(root, plan, catalog)

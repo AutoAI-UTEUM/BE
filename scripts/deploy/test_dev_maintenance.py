@@ -288,6 +288,68 @@ class Simulation:
 
 
 class MaintenanceTests(unittest.TestCase):
+    def test_exact_confirmed_host_uses_only_os_hostname_and_keeps_ssh_as_separate_trust(
+        self,
+    ):
+        expected = "ip-172-31-40-63.ap-northeast-2.compute.internal"
+        self.assertEqual(m.EXPECTED_DEV_HOSTNAME, expected)
+        with (
+            mock.patch.object(
+                m.socket, "gethostname", return_value=expected
+            ) as hostname,
+            mock.patch.object(
+                m.socket, "getfqdn", side_effect=AssertionError("NO_DNS")
+            ) as fqdn,
+            mock.patch.object(
+                m.socket, "getaddrinfo", side_effect=AssertionError("NO_DNS")
+            ) as lookup,
+            mock.patch.object(
+                m.base.subprocess, "run", side_effect=AssertionError("NO_PROCESS")
+            ) as process,
+        ):
+            m.verify_dev_host()
+        hostname.assert_called_once_with()
+        process.assert_not_called()
+        fqdn.assert_not_called()
+        lookup.assert_not_called()
+
+    def test_host_pin_rejects_short_name_other_suffix_region_instance_and_normalization(
+        self,
+    ):
+        expected = "ip-172-31-40-63.ap-northeast-2.compute.internal"
+        rejected = (
+            "ip-172-31-40-63",
+            "ip-172-31-40-63.example.invalid",
+            "ip-172-31-40-63.ap-northeast-1.compute.internal",
+            "ip-172-31-40-64.ap-northeast-2.compute.internal",
+            expected + ".example.invalid",
+            expected + ".",
+            expected + "\n",
+            " " + expected,
+            expected.upper(),
+            "",
+        )
+        for hostname in rejected:
+            with (
+                self.subTest(hostname=hostname),
+                mock.patch.object(m.socket, "gethostname", return_value=hostname),
+                self.assertRaisesRegex(ValueError, "EXACT_REVIEWED_DEV_HOST_REQUIRED"),
+            ):
+                m.verify_dev_host()
+
+    def test_hostname_os_read_error_does_not_fall_back_to_an_external_command(self):
+        with (
+            mock.patch.object(
+                m.socket, "gethostname", side_effect=OSError("SYNTHETIC")
+            ),
+            mock.patch.object(
+                m.base.subprocess, "run", side_effect=AssertionError("NO_FALLBACK")
+            ) as process,
+            self.assertRaises(OSError),
+        ):
+            m.verify_dev_host()
+        process.assert_not_called()
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory(dir=HERE, prefix="synthetic-maintenance-")
         self.addCleanup(temp.cleanup)
