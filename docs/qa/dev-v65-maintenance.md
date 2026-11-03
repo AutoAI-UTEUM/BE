@@ -7,7 +7,7 @@
 ## 실행 전 필요한 것
 
 - 승인된 새 커밋의 clean 소스 checkout. CLI는 실행 시 실제 HEAD 일치와 untracked 파일을 포함한 clean 상태를 확인한다. 입력 JSON과 실제 `.env`/백업은 그 checkout 밖에 둔다. 이번 미커밋 구현은 배포 승인 SHA가 아니다.
-- `/opt/edupilot`, hostname `ip-172-31-40-63`인 기존 DEV. 현재 경로는 인스턴스 이동이나 별도 경로를 자동 허용하지 않는다. 기존 신뢰된 호스트 지문과 접속 수단은 실행 담당자가 먼저 확인한다. hostname 검사는 SSH 신뢰 검증을 대체하지 않는다.
+- `/opt/edupilot`, 사용자가 실제 OS 조회로 확인한 hostname `ip-172-31-40-63.ap-northeast-2.compute.internal`인 기존 DEV. 진단과 유지보수 CLI는 `socket.gethostname()`의 전체 값을 정확히 비교한다. 단축명·임의 접미사·다른 리전/인스턴스·추가 접미사를 허용하지 않으며 DNS 조회나 외부 `hostname` 명령을 사용하지 않는다. 인스턴스 이동이나 별도 경로를 자동 허용하지 않는다. 기존 신뢰된 SSH 호스트 지문과 접속 수단은 실행 담당자가 먼저 확인한다. OS hostname 검사는 SSH 서버키 검증을 대체하지 않는다.
 - 정확한 승인 SHA/Main·AI CI, 검토된 V65 MySQL 증거, V1~V65 checksum 카탈로그, 현재 컨테이너/설정 hash, 이전 이미지의 registry 가용성, 현재 7회 예산 및 신규 교체+수동 복구 2회 여유.
 - **중단 전에 이미 빌드/게시된** 승인 SHA의 Main digest. 현재 도구는 이미지를 빌드하지 않는다. begin에서 해당 digest를 pull하여 OCI revision/계약/catalog/entrypoint/정책 및 환경 보존을 검증한다. 별도 승인된 이미지 준비 경로가 없으면 begin하지 않는다. 기존 workflow의 빌드 전 검증을 생략하여 이미지를 얻지 않는다.
 - 기존 signup pause marker/입력 모두 true, mail logging/PAUSED, guardian 기본 false 및 prior-consent OFF/미설정. 도구는 이 설정을 변경하지 않는다.
