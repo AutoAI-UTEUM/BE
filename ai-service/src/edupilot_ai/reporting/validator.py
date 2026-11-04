@@ -1,9 +1,11 @@
 """Deterministic validation for structured report LLM outputs."""
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from edupilot_ai.models.report import (
     EvidencedStatement,
+    EvidenceSourceType,
     ReportGenerateOutput,
     ReportGenerateRequest,
     ReportQueryOutput,
@@ -14,12 +16,33 @@ _SCORE_STATUS_CONFLICT = "SCORE_STATUS_CONFLICT"
 _MISCONCEPTION_SINGLE_EVIDENCE = "MISCONCEPTION_SINGLE_EVIDENCE"
 
 
-class ReportValidationError(ValueError):
-    """Validation failure carrying only a safe machine reason code."""
+@dataclass(frozen=True)
+class ReportSourceViolation:
+    """Safe location/types only; never include arbitrary criterion keys or evidence text."""
 
-    def __init__(self, reason: str) -> None:
+    criterion_index: int
+    allowed_sources: tuple[EvidenceSourceType, ...]
+    disallowed_sources: tuple[EvidenceSourceType, ...]
+    evidence_count: int
+
+    def safe_details(self) -> dict[str, object]:
+        return {
+            "criterionIndex": self.criterion_index,
+            "allowedSourceTypes": list(self.allowed_sources),
+            "disallowedSourceTypes": list(self.disallowed_sources),
+            "disallowedEvidenceCount": self.evidence_count,
+        }
+
+
+class ReportValidationError(ValueError):
+    """Validation failure carrying a safe reason and optional source diagnostics."""
+
+    def __init__(
+        self, reason: str, *, source_violation: ReportSourceViolation | None = None
+    ) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.source_violation = source_violation
 
 
 def _validate_evidence_ids(
@@ -126,10 +149,24 @@ def validate_generate_output(
         item.criterion_key: item.eligible for item in request.data_quality.criterion_eligibility
     }
     evidence_sources = {item.evidence_id: item.source_type for item in request.evidence}
+    criterion_indices = {item.key: index for index, item in enumerate(request.criteria)}
     for result in output.criterion_results:
         allowed_sources = set(criteria[result.criterion_key].allowed_source_types)
-        if any(evidence_sources[item] not in allowed_sources for item in result.evidence_ids):
-            raise ReportValidationError("DISALLOWED_EVIDENCE_SOURCE")
+        disallowed_ids = [
+            item for item in result.evidence_ids if evidence_sources[item] not in allowed_sources
+        ]
+        if disallowed_ids:
+            raise ReportValidationError(
+                "DISALLOWED_EVIDENCE_SOURCE",
+                source_violation=ReportSourceViolation(
+                    criterion_index=criterion_indices[result.criterion_key],
+                    allowed_sources=tuple(sorted(allowed_sources)),
+                    disallowed_sources=tuple(
+                        sorted({evidence_sources[item] for item in disallowed_ids})
+                    ),
+                    evidence_count=len(disallowed_ids),
+                ),
+            )
         if (result.status == "ASSESSED") != (result.score is not None):
             raise ReportValidationError(_SCORE_STATUS_CONFLICT)
         if result.status == "ASSESSED" and not result.evidence_ids:
