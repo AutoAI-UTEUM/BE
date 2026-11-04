@@ -229,6 +229,21 @@ criterion CRUD는 강의실당 활성 criteria를 20개 이하로 제한합니�
 
 AI 출력 검증:
 
+2026-11-04 AI 내부 허용 근거 안내 보강: 생성 LLM 입력의 각 criterion에
+`allowedSourceTypes`로 계산한 `allowedEvidenceIds`를 추가합니다. evidence 본문은
+기존 목록에 한 번만 유지하며, 원본 ID·Spring 요청/응답 스키마는 변경하지 않습니다.
+목록은 인용 가능한 후보이지 평가 적합성/충분성의 보장이 아닙니다. 실제 rubric과
+판단을 뒷받침하는 근거만 선택하고 `minimumEvidence`·`eligible=false`를 그대로
+준수합니다. ASSESSED/INSUFFICIENT_DATA 모두 유형 제한을 적용합니다.
+
+허용 유형 위반 시 검증을 완화하거나 ID만 삭제하지 않고 기존 1회 재생성 경로를
+유지합니다. 재생성 입력 `validationFeedback` 및 로그에는 요청 criteria 배열의
+0-based `criterionIndex`, `allowedSourceTypes`, `disallowedSourceTypes`,
+`disallowedEvidenceCount`를 제공합니다. 첫 위반 항목을 기록하며 실제 criterion key,
+근거 ID·label·fact·리포트 본문은 진단 로그에 넣지 않습니다. 실패 사유 코드와
+총예산·모델·추론 강도·토큰 상한은 변경하지 않습니다. 재생성 빈도 감소와 지연 개선은
+운영 재측정으로 확인해야 하며 이 변경만으로 제거를 보장하지 않습니다.
+
 - criterion key는 요청 catalog에 있어야 합니다.
 - score는 null 또는 0~100입니다.
 - ASSESSED는 최소 1개 evidence ID를 가집니다.

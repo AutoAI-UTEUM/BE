@@ -1,5 +1,6 @@
 """Report generation and query services with one schema regeneration."""
 
+import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from http import HTTPStatus
@@ -118,6 +119,19 @@ _GENERATE_NARRATIVE_INSTRUCTION = (
     "안내하라."
 )
 
+_GENERATE_SOURCE_INSTRUCTION = (
+    " 각 criterion의 allowedSourceTypes는 해당 평가 항목에서 인용할 수 있는 근거 유형이다. "
+    "서버가 계산한 allowedEvidenceIds는 그 유형을 만족하는 근거 ID 목록이다. "
+    "criterionResults의 evidenceIds는 해당 criterion의 allowedEvidenceIds 안에서만 선택하라. "
+    "ASSESSED뿐 아니라 INSUFFICIENT_DATA에서도 허용하지 않은 유형은 인용하지 마라. "
+    "목록에 있다는 이유로 모두 인용하지 말고 실제 rubric과 판단을 뒷받침하는 근거만 선택하라. "
+    "목록이 비었거나 관련 근거가 minimumEvidence에 못 미치면 INSUFFICIENT_DATA, score=null로 "
+    "작성하고 다른 유형의 근거로 개수를 채우지 마라. dataQuality의 eligible=false도 준수하라. "
+    "validationFeedback이 있으면 criterionIndex는 요청 criteria 배열의 0부터 시작하는 위치다. "
+    "해당 항목의 허용 근거만으로 판단과 서술을 다시 검토하라. 근거 ID만 지우고 기존 판단을 "
+    "그대로 유지하지 마라."
+)
+
 _QUERY_UNCERTAINTY_INSTRUCTION = (
     " 답변은 인용한 evidence의 label을 본문에서 자연스럽게 언급하라. snapshot 근거가 "
     "부분적이면 단정하지 말고 '리포트에 기록된 범위에서는'으로 한정하라. 리포트에 "
@@ -133,19 +147,28 @@ def generate_messages(
     *,
     retry: bool,
     reason: str | None = None,
+    source_feedback: Mapping[str, object] | None = None,
 ) -> Sequence[Mapping[str, str]]:
     system = (
         "너는 EduPilot의 ReportAgent다. 요청 criterion마다 계약 JSON 결과를 생성하라. "
-        f"{_base_system_prompt()}{_GENERATE_NARRATIVE_INSTRUCTION}"
+        f"{_base_system_prompt()}{_GENERATE_NARRATIVE_INSTRUCTION}{_GENERATE_SOURCE_INSTRUCTION}"
     )
     if retry:
         system += " 이전 출력이 계약을 위반했다. 이전 본문을 재사용하지 말고 재생성하라."
         if reason is not None:
             system += f" 위반 사유 코드: {reason}."
     system += f" {_INJECTION_DEFENSE_INSTRUCTION}"
+    payload = request.model_dump(mode="json", by_alias=True)
+    for criterion, criterion_payload in zip(request.criteria, payload["criteria"], strict=True):
+        allowed_sources = set(criterion.allowed_source_types)
+        criterion_payload["allowedEvidenceIds"] = [
+            item.evidence_id for item in request.evidence if item.source_type in allowed_sources
+        ]
+    if retry and source_feedback is not None:
+        payload["validationFeedback"] = dict(source_feedback)
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": request.model_dump_json(by_alias=True)},
+        {"role": "user", "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
     ]
 
 
@@ -188,6 +211,7 @@ class ReportGenerationService:
     async def execute(self, request: ReportGenerateRequest) -> ReportGenerateResponse:
         usages: list[LlmUsage] = []
         validation_reason: str | None = None
+        source_feedback: dict[str, object] | None = None
         deadline = self._clock() + self._timeout_seconds
         for attempt in range(2):
             try:
@@ -204,6 +228,7 @@ class ReportGenerationService:
                         request,
                         retry=attempt == 1,
                         reason=validation_reason,
+                        source_feedback=source_feedback,
                     ),
                     response_model=ReportGenerateOutput,
                     profile=self._profile,
@@ -238,6 +263,9 @@ class ReportGenerationService:
                     validate_generate_output(request, normalized_output)
                 except ReportValidationError as error:
                     validation_reason = error.reason
+                    source_feedback = (
+                        error.source_violation.safe_details() if error.source_violation else None
+                    )
                     logger.warning(
                         "report output validation failed",
                         extra={
@@ -247,6 +275,7 @@ class ReportGenerationService:
                             "evidenceCount": len(request.evidence),
                             "errorCode": error.reason,
                             "attempt": attempt + 1,
+                            **(source_feedback or {}),
                         },
                     )
                     if attempt == 0:
