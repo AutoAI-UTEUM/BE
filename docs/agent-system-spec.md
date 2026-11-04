@@ -24,6 +24,11 @@
 
 ## 1. 전체 시스템 구조
 
+Composer Predictions는 학습 턴과 분리된 선택적 질문 초안 서비스입니다. 완료된 설명·QA의
+최근 공개 대화만 받아 사용자 관점의 질문 한 개 또는 null을 반환하며 Planner·statePatch·
+평가에는 관여하지 않습니다. 퀴즈·진단·티치백에서는 호출하지 않고 기본 비활성화합니다.
+[내부 계약 §6.11](ai-integration-contract.md#611-post-internalaicomposer-prediction-연동-초안-기본-off)의 Spring/FE 인계는 별도 작업입니다.
+
 ```mermaid
 flowchart TB
   UI["Web Session UI"]

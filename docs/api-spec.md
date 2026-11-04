@@ -3040,6 +3040,12 @@ prod에서 메일 provider가 `logging`이면 기동을 거부하며, `EDUPILOT_
 
 ## 8. Spring → FastAPI 내부 API
 
+다음 질문 초안은 AI 전용 `POST /internal/ai/composer-prediction`을 추가하며 기본 OFF입니다.
+기존 턴을 기다리게 하지 않는 별도 요청으로, 최대 6개 최근 공개 메시지에서 사용자 관점의
+질문 1개 또는 null을 반환합니다. Spring 외부 API와 FE 구현은 아직 포함하지 않습니다.
+요청/응답·검증·fail-soft·버전 에코·활성화 조건은
+[내부 계약 §6.11](ai-integration-contract.md#611-post-internalaicomposer-prediction-연동-초안-기본-off)을 따릅니다.
+
 캡션용 PDF 렌더링은 이미지 할당 전에 폭 1,600px·높이 2,400px·총 2,560,000픽셀을 모두 검사해 최대 150 DPI에서 비율 유지 축소합니다(DEC-043). 비정상 치수 또는 축소 후 1px 미만 출력은 내부 캡션 실패 코드로 기록해 자동 backfill에서 제외하되 자료 READY·개요·외부 응답은 유지합니다. 외부 AI 청크 실패의 기존 부분 처리·재업로드 정책은 변경하지 않습니다.
 
 > 2026-09-29 연동 초안(DEC-041): AI에서 개요 `includePageQuizPlan`/`pageQuizPlan`,
@@ -3063,6 +3069,7 @@ prod에서 메일 provider가 `logging`이면 기동을 거부하며, `EDUPILOT_
 | POST | `/internal/ai/outline` | 저장된 전 페이지 텍스트 기반 자료 요약·목차 생성 | 추출 저장 완료 후 비동기 처리 |
 | POST | `/internal/ai/captions` | PDF 페이지 이미지 기반 시각 정보 캡션 생성 | 추출 저장 완료 후 10페이지 단위 비동기 처리 |
 | POST | `/internal/ai/doc-chat` | 자료·퀴즈 복습 문맥 기반 단일 질문 응답 | 자료 뷰어 또는 퀴즈 복습 질문 시 동기 처리 |
+| POST | `/internal/ai/composer-prediction` | 다음 질문 초안 (기본 OFF) | 답변 완료 후 별도 호출, 외부 API 연동은 TBD |
 | POST | `/internal/ai/criteria/suggest` | READY 자료 개요 기반 강의실 평가 기준 제안 | 소유 강사의 자동 생성 요청 후 비동기 처리 |
 | POST | `/internal/ai/turn` | 자유 학습 턴 계획·실행 (설명, QA, 퀴즈 생성, 교정, 메모리 후보·승격 포함) | turns 이벤트 수신 시 |
 | POST | `/internal/ai/grade` | SHORT/ESSAY 채점 — 결정성 설정(temperature 최저 등)으로 동일 답안 재채점 편차를 최소화 | 통합 퀴즈 또는 별도 시험에서 응답이 있는 SHORT/ESSAY 유형별 1회 |
