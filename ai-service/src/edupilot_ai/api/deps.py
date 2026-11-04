@@ -25,6 +25,7 @@ from edupilot_ai.orchestration.orchestrator import Orchestrator
 from edupilot_ai.orchestration.policy import PolicyVerifier
 from edupilot_ai.orchestration.service import TurnService
 from edupilot_ai.outline.service import OutlineService
+from edupilot_ai.prediction.service import ComposerPredictionService
 from edupilot_ai.reporting.service import ReportGenerationService, ReportQueryService
 from edupilot_ai.settings import Settings
 from edupilot_ai.summary.service import ConversationSummaryService
@@ -206,6 +207,18 @@ def get_doc_chat_service(
         profile=settings.docchat_llm_profile,
         timeout_seconds=settings.edupilot_docchat_timeout_seconds,
         max_context_chars=settings.edupilot_docchat_max_context_chars,
+    )
+
+
+def get_composer_prediction_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    llm: Annotated[LlmBridge, Depends(get_llm_bridge)],
+) -> ComposerPredictionService:
+    return ComposerPredictionService(
+        llm=llm,
+        profile=settings.prediction_llm_profile,
+        timeout_seconds=settings.edupilot_prediction_timeout_seconds,
+        enabled=settings.edupilot_prediction_enabled,
     )
 
 

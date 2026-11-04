@@ -59,6 +59,7 @@
 | POST | `/internal/ai/outline` | 자료 요약·목차 구조 생성 | 추출 완료 후 비동기 |
 | POST | `/internal/ai/captions` | PDF 페이지 이미지의 시각 정보 캡션 생성 | 추출 완료 후 비동기, 최대 10페이지/요청 |
 | POST | `/internal/ai/doc-chat` | 자료·퀴즈 복습 문맥 기반 단일 질문 응답 | 외부 doc-chat 요청당 동기 1회 |
+| POST | `/internal/ai/composer-prediction` | 다음 학습 질문 초안 1개 또는 null (기본 OFF) | 설명·QA 완료 후 별도 요청, Spring/FE 연동 대기 (§6.11) |
 | POST | `/internal/ai/conversation-summary` | 기존 요약과 신규 대화를 합친 학습 문맥 요약 | Spring 비동기 요약 작업 |
 | POST | `/internal/ai/criteria/suggest` | 강의실 자료 개요 기반 평가 기준 제안 | 강사 자동 생성 요청 후 비동기 |
 | POST | `/internal/ai/turn` | 자유 턴 (설명·QA·퀴즈 생성·교정·메모리 도구 포함) | turns 이벤트 수신 시 |
@@ -717,6 +718,112 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 - 공백 요약 또는 구조화 출력 SCHEMA 실패만 총예산 안에서 1회 재생성하고 최종 실패는 `AI_RESPONSE_INVALID`입니다. 점수·채점 결과·평가 상태는 요약에 포함하지 않습니다.
 - Spring은 최근 원문 메시지 10개를 별도로 유지하고 이 엔드포인트를 턴 처리와 분리된 비동기 작업으로 호출합니다. 성공 시 요약과 마지막 포함 메시지 ID를 한 트랜잭션으로 저장하고, 실패 시 둘 다 갱신하지 않아 다음 주기에 재시도합니다. 새 대화를 시작하면 요약과 경계 ID를 함께 초기화합니다. 스냅샷의 `conversationSummary`는 저장값이 null이면 키 자체를 생략합니다. 요약 실패는 사용자 턴을 실패시키지 않습니다. Main Service read timeout은 `EDUPILOT_AI_SUMMARY_READ_TIMEOUT`(기본 `45s`), 트리거 간격은 `EDUPILOT_SUMMARY_TURN_INTERVAL`(기본 `8`)입니다.
 - AI Service를 먼저 배포해야 합니다. 기존 AI 모델은 알 수 없는 `conversationSummary` 턴 필드를 `extra=forbid`로 거부하므로 Spring의 스냅샷 전달은 AI 배포 뒤에 활성화합니다. Main Service read timeout 권장은 `45s`입니다.
+
+### 6.11 POST /internal/ai/composer-prediction (연동 초안, 기본 OFF)
+
+2026-11-03: AI 구현 대상은 **다음 학습 질문 초안 한 개**입니다. Codex의 비공개
+예측 API가 아니라 기존 xAI 브리지로 독립 호출합니다. Spring 외부 API·FE 연결·운영
+활성화는 별도 협의 사항이며 이 변경으로 구현/배포된 것이 아닙니다. 기존 turn 응답,
+이벤트, statePatch, Planner, 퀴즈 생성에는 변경이 없습니다.
+
+요청 예시 (`X-Internal-Token` 필수):
+
+```json
+{
+  "schemaVersion": "1.0",
+  "sourceTurnId": "turn-completed-3",
+  "contextVersion": "session-3-page-4-revision-7",
+  "learningActivity": "QA",
+  "messages": [
+    {"role": "USER", "content": "경사하강법이 뭐야?"},
+    {"role": "ASSISTANT", "content": "기울기의 반대 방향으로 이동해 손실을 줄입니다."}
+  ]
+}
+```
+
+- `sourceTurnId`, `contextVersion`: 공백 불가·최대 128자. Spring의 완료 턴 ID와 스냅샷
+  버전을 **그대로 에코**합니다. AI는 DB를 조회하지 않아 최신 여부를 확인할 수 없습니다.
+- `messages`: 오래된 순서 1~6개, role `USER|ASSISTANT`, content 공백 불가·각 4,000자 이하.
+  Spring은 완료된 공개 대화만 조립하며 필요 시 길이를 제한합니다. LLM 입력은 최신
+  메시지부터 합산한 **끝 6,000자**로 다시 제한합니다. PDF·fileId·전체 이력·채점 정보·
+  비공개 정답·루브릭은 넣지 않습니다. 알 수 없는 필드는 422입니다.
+- `learningActivity`: `EXPLAIN|QA|QUIZ|DIAGNOSIS|TEACHBACK|OTHER`. **Spring 현재 상태**로
+  결정하며 FE 값을 신뢰하지 않습니다. EXPLAIN/QA만 생성하고 나머지는 호출 없이 null입니다.
+  마지막 메시지가 ASSISTANT가 아니어도 호출 없이 null입니다.
+- 설명 중 풀이/자기 설명을 요구했다면 Spring은 TEACHBACK으로 구분합니다. 프롬프트에도
+  답안·정답·학생의 이해 선언을 만들지 말고 이런 상황에서 null을 반환하도록 지시합니다.
+  프롬프트만으로 의미적 안전을 보장하지는 않으므로 서버 상태 가드가 필수입니다.
+
+응답 예시:
+
+```json
+{
+  "schemaVersion": "1.0",
+  "sourceTurnId": "turn-completed-3",
+  "contextVersion": "session-3-page-4-revision-7",
+  "suggestion": "학습률이 너무 크면 어떻게 돼?",
+  "warnings": [],
+  "usage": null
+}
+```
+
+- suggestion은 한국어 한 줄·최대 160자 또는 null입니다. 공백·여러 줄·동일한 기존
+  USER 메시지는 null로 생략합니다. 모델 출력 SCHEMA 오류, provider 실패, 시간 초과는
+  **200 + suggestion:null + PREDICTION_UNAVAILABLE warning**으로 처리합니다.
+  본문/예외 원문은 로깅하지 않습니다. 401/422 등 계약 오류는 기존 오류 봉투입니다.
+- usage는 공용 모델/합산 규칙입니다. null·후처리로 폐기한 출력·실패 호출도 얻은 usage가
+  있으면 보존합니다. 미확인 비용은 0으로 만들지 않습니다.
+- 서비스 재생성 없음. 기존 브리지 network 재시도만 동일 총예산 안에서 적용됩니다.
+  기본값은 `EDUPILOT_PREDICTION_ENABLED=false`, `EDUPILOT_PREDICTION_TIMEOUT_SECONDS=10`,
+  `PREDICTION_REASONING_EFFORT=low`입니다. 공통 `MODEL_NAME`과 전용 출력 예산 512토큰을
+  사용하며 기존 설명·QA 예산은 바꾸지 않습니다. 초기값이며 아래 소표본 실모델 검증과
+  별개로 운영 환경의 품질/비용 검증이 필요합니다.
+- Spring의 내부 HTTP 연결 종료/요청 취소 시 모델 호출을 취소하고 감시 태스크를 회수합니다.
+  이미 provider에 전달된 요청의 계산/과금까지 취소된다고 보장하지 않습니다.
+  공통 ASGI 미들웨어까지 전파된 `CancelledError`는 INFO `internal request cancelled`,
+  `status=CANCELLED`로 기록하고 재전파합니다. 응답 헤더 전송이 완료된 경우에만 기존
+  상태를 `httpStatus`에 남깁니다. 아직 응답이 없으면 이 필드는 생략하며 HTTP 500을
+  가정하거나 별도 오류 응답을 만들지 않습니다. 서버 종료 등 다른 취소 원인도 가능하므로
+  이 로그만으로 클라이언트 단절이라고 단정하지 않습니다. 일반 성공/실패 로그는 유지합니다.
+
+#### AI 단독 실모델 검증 (2026-11-04)
+
+로컬 서비스 클래스 + 실제 xAI 브리지로 합성 학습 대화 6건을 순차 검증했습니다.
+설정은 grok-4.5 / low / 출력 예산 512토큰 / 총예산 10초입니다. 네트워크 요청 자체를
+6회로 제한했고 재시도는 발생하지 않았습니다. 실제 학생 데이터·PDF는 사용하지 않았으며
+운영 플래그나 `.env`는 변경하지 않았습니다. Spring/FE 연동·운영 부하 테스트는 아닙니다.
+
+| 합성 상황 | 제안 결과 | 소요(초) |
+| --- | --- | --- |
+| 경사하강법 설명 완료 | 큰 학습률에 대한 구체적인 예시 요청 | 5.855 |
+| 이진 탐색 QA 완료 | 미정렬 배열에서 실패하는 예시 요청 | 1.491 |
+| 통분 설명 완료 | 1/2과 1/3의 통분 방법 질문 | 5.188 |
+| 큰 학습률에 대한 후속 QA | 작은 학습률과의 대조 질문 | 3.392 |
+| 사용자가 학습 종료 의사 표시 | null, warning 없음 | 1.954 |
+| QA 문맥에서 학생의 자기 설명을 요구 | null, warning 없음 | 0.676 |
+
+6건 평균 3.093초, 범위 0.676~5.855초입니다. 관찰된 질문은 한국어이며 답안 대신 질문을
+제안했습니다. provider가 반환한 비용 합계는 122,632,000 ticks($0.0122632)입니다.
+추가로 QUIZ/DIAGNOSIS/TEACHBACK 상태는 각 null·LLM 0회임을 확인했습니다. 소표본이므로
+일반적인 품질·p95 지연·성공률을 보장하지 않습니다. 실제 기기에서 사용자가 입력하기 전에
+제안이 도착하는 비율, 수락/수정률, 취소 전파와 늦은 응답 폐기는 별도 연동 검증 대상입니다.
+
+#### Spring/FE 인계 및 활성화 게이트 (미구현)
+
+1. Spring: 인증·소유권·이용 자격·진행 중 평가를 검사하고 **답변 완료/저장 후 별도 요청**으로
+   호출합니다. 완료 SSE·세션 잠금을 지연시키지 않고 실패는 원래 턴과 무관하게 생략합니다.
+2. Spring: session+sourceTurnId+contextVersion별 중복 억제, 사용자 rate limit·비용 한도·
+   동시 요청 제한이 필요합니다. AI에는 결과 캐시가 없어 같은 요청도 다시 과금될 수 있습니다.
+   사용자 간 캐시는 공유하지 않습니다. HTTP 취소를 AI 호출까지 전파합니다.
+3. FE: 빈 입력창에서만 선택적 ghost text/버튼으로 표시합니다. Tab/클릭은 **편집 가능한
+   초안으로 수락**할 뿐 전송하지 않습니다. 모바일 버튼·접근성도 별도 구현합니다.
+4. 입력/새 질문/페이지 이동/세션 변경 시 취소합니다. 늦게 온 결과는 sourceTurnId,
+   contextVersion, 로컬 입력 세대가 현재와 일치할 때만 표시하고 기존 입력은 덮어쓰지 않습니다.
+5. 미수락 제안은 대화·메모리·평가 근거로 저장하지 않고 수락만으로 이해/숙련도 증거로
+   취급하지 않습니다. 명시적 전송 뒤에만 일반 사용자 메시지 경로를 사용합니다.
+6. 외부 API/DTO, 버전 생성, 중복 억제 보존 시간, 한도, opt-out·연령별 운영 정책은 TBD입니다.
+   합의와 품질·지연·비용 검증 후에만 활성화합니다. 위 AI 단독 소표본 검증은 완료했지만
+   Spring/FE 연동과 활성화 승인은 아직 별도입니다.
 
 ## 7. Grok 연동 규칙 (DEC-002 v2 요약 — 구현 구속)
 

@@ -1,17 +1,93 @@
 """Structured logging and sensitive-data exclusion tests."""
 
+import asyncio
 import json
 import logging
 from io import StringIO
 
 import httpx
 import pytest
+from pydantic import SecretStr
+from starlette.types import Message, Receive, Scope, Send
 
 from edupilot_ai.core.logging import LoggingRuntime, bind_log_context, reset_log_context
+from edupilot_ai.core.middleware import InternalTokenMiddleware
 from edupilot_ai.settings import RuntimeEnvironment
 from tests.fakes import FakeLlm
 from tests.test_outline import outline_output, outline_payload
 from tests.test_report_contract import generate_payload, report_output
+
+
+@pytest.mark.parametrize("started", [False, True])
+async def test_cancelled_request_is_info_without_fake_http_error(started: bool) -> None:
+    stream = StringIO()
+    runtime = LoggingRuntime(environment=RuntimeEnvironment.PROD, stream=stream)
+    sent: list[Message] = []
+
+    async def application(scope: Scope, receive: Receive, send: Send) -> None:
+        if started:
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+        raise asyncio.CancelledError()
+
+    async def receive() -> Message:
+        return {"type": "http.disconnect"}
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    middleware = InternalTokenMiddleware(application, expected_token=SecretStr("test-token"))
+    scope: Scope = {
+        "type": "http",
+        "path": "/internal/ai/composer-prediction",
+        "headers": [
+            (b"x-internal-token", b"test-token"),
+            (b"x-trace-id", b"cancel-trace"),
+        ],
+    }
+    outer_tokens = bind_log_context(trace_id="outer-trace")
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await middleware(scope, receive, send)
+        logging.getLogger("edupilot_ai.test").info("after cancellation")
+    finally:
+        reset_log_context(outer_tokens)
+        runtime.close()
+    records = [json.loads(line) for line in stream.getvalue().splitlines()]
+    assert records[0]["message"] == "internal request cancelled"
+    assert records[0]["status"] == "CANCELLED"
+    assert records[0]["level"] == "INFO"
+    assert records[0]["traceId"] == "cancel-trace"
+    assert records[0].get("httpStatus") == (200 if started else None)
+    assert "errorCode" not in records[0]
+    assert records[1]["traceId"] == "outer-trace"
+    assert len(sent) == int(started)
+
+
+async def test_real_unexpected_failure_still_logs_error_500() -> None:
+    stream = StringIO()
+    runtime = LoggingRuntime(environment=RuntimeEnvironment.PROD, stream=stream)
+
+    async def application(scope: Scope, receive: Receive, send: Send) -> None:
+        raise RuntimeError("private-exception-marker")
+
+    async def receive() -> Message:
+        return {"type": "http.disconnect"}
+
+    async def send(message: Message) -> None:
+        pytest.fail("middleware must not manufacture a response")
+
+    middleware = InternalTokenMiddleware(application, expected_token=SecretStr("test-token"))
+    try:
+        with pytest.raises(RuntimeError, match="private-exception-marker"):
+            await middleware({"type": "http", "path": "/health", "headers": []}, receive, send)
+    finally:
+        runtime.close()
+    record = json.loads(stream.getvalue())
+    assert record["message"] == "internal request completed"
+    assert record["level"] == "ERROR"
+    assert record["status"] == 500
+    assert record["errorCode"] == "AI_INTERNAL_ERROR"
+    assert "private-exception-marker" not in stream.getvalue()
 
 
 def test_json_log_contains_correlation_and_action_fields() -> None:

@@ -1,5 +1,6 @@
 """Pure ASGI internal authentication and trace propagation middleware."""
 
+import asyncio
 import logging
 from hmac import compare_digest
 from http import HTTPStatus
@@ -41,11 +42,13 @@ class InternalTokenMiddleware:
         state["trace_id"] = trace_id
         started_at = perf_counter()
         status_code = HTTPStatus.INTERNAL_SERVER_ERROR
+        response_started = False
+        cancelled = False
         error_code: str | None = None
         tokens = bind_log_context(trace_id=trace_id)
 
         async def send_with_trace(message: Message) -> None:
-            nonlocal status_code
+            nonlocal status_code, response_started
             if message["type"] == "http.response.start":
                 status_code = HTTPStatus(int(message["status"]))
                 message = dict(message)
@@ -53,6 +56,8 @@ class InternalTokenMiddleware:
                 response_headers = MutableHeaders(scope=message)
                 response_headers[TRACE_ID_HEADER] = trace_id
             await send(message)
+            if message["type"] == "http.response.start":
+                response_started = True
 
         path = str(scope.get("path", ""))
         try:
@@ -76,26 +81,35 @@ class InternalTokenMiddleware:
                     return
 
             await self._app(scope, receive, send_with_trace)
+        except asyncio.CancelledError:
+            # Task cancellation is not an HTTP 500 and must not become an error envelope.
+            cancelled = True
+            raise
         except Exception:
             error_code = "AI_INTERNAL_ERROR"
             raise
         finally:
             level = (
-                logging.ERROR
+                logging.INFO
+                if cancelled
+                else logging.ERROR
                 if status_code >= HTTPStatus.INTERNAL_SERVER_ERROR
                 else logging.WARNING
                 if status_code >= HTTPStatus.BAD_REQUEST
                 else logging.INFO
             )
-            logger.log(
-                level,
-                "internal request completed",
-                extra={
-                    "traceId": trace_id,
-                    "endpoint": path,
-                    "status": int(status_code),
-                    "durationMs": round((perf_counter() - started_at) * 1000, 3),
-                    "errorCode": error_code,
-                },
-            )
-            reset_log_context(tokens)
+            try:
+                logger.log(
+                    level,
+                    "internal request cancelled" if cancelled else "internal request completed",
+                    extra={
+                        "traceId": trace_id,
+                        "endpoint": path,
+                        "status": "CANCELLED" if cancelled else int(status_code),
+                        "httpStatus": int(status_code) if cancelled and response_started else None,
+                        "durationMs": round((perf_counter() - started_at) * 1000, 3),
+                        "errorCode": error_code,
+                    },
+                )
+            finally:
+                reset_log_context(tokens)

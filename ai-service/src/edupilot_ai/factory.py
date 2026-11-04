@@ -8,6 +8,7 @@ import httpx
 from fastapi import FastAPI
 
 from edupilot_ai.api.captions import router as captions_router
+from edupilot_ai.api.composer_prediction import router as composer_prediction_router
 from edupilot_ai.api.conversation_summary import router as conversation_summary_router
 from edupilot_ai.api.criteria import router as criteria_router
 from edupilot_ai.api.doc_chat import router as doc_chat_router
@@ -118,6 +119,7 @@ def create_app(
     register_exception_handlers(app)
     app.include_router(health_router)
     app.include_router(captions_router)
+    app.include_router(composer_prediction_router)
     app.include_router(conversation_summary_router)
     app.include_router(criteria_router)
     app.include_router(doc_chat_router)

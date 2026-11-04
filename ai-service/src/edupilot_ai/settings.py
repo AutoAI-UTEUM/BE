@@ -165,6 +165,18 @@ class Settings(BaseSettings):
         default=60,
         validation_alias="EDUPILOT_DOCCHAT_TIMEOUT_SECONDS",
     )
+    edupilot_prediction_enabled: bool = Field(
+        default=False,
+        validation_alias="EDUPILOT_PREDICTION_ENABLED",
+    )
+    edupilot_prediction_timeout_seconds: PositiveInt = Field(
+        default=10,
+        validation_alias="EDUPILOT_PREDICTION_TIMEOUT_SECONDS",
+    )
+    prediction_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.LOW,
+        validation_alias="PREDICTION_REASONING_EFFORT",
+    )
     edupilot_summary_timeout_seconds: PositiveInt = Field(
         default=30,
         validation_alias="EDUPILOT_SUMMARY_TIMEOUT_SECONDS",
@@ -415,6 +427,13 @@ class Settings(BaseSettings):
     def docchat_llm_profile(self) -> AgentLlmProfile:
         """Build the low-reasoning lightweight document chat profile."""
         return self._profile(self.docchat_reasoning_effort)
+
+    @property
+    def prediction_llm_profile(self) -> AgentLlmProfile:
+        """Small optional draft; existing teaching-agent output budgets are unchanged."""
+        return self._profile(self.prediction_reasoning_effort).model_copy(
+            update={"max_tokens": 512},
+        )
 
     @property
     def summary_llm_profile(self) -> AgentLlmProfile:
