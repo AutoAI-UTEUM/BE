@@ -49,6 +49,12 @@ lease 2분, 확정된 429 재시도 간격 30초, 최대 provider 호출 3회다
 본문 DB 삽입 실패는 호출자 트랜잭션 실패로 전파된다. provider 실패는 비동기로 이력에 기록한다.
 커밋 직후 dispatch 전에 종료되거나 실행기가 포화되면 READY 작업이 남아 다음 회수에서 처리된다.
 
+가입 등 호출자가 이미 MySQL `REPEATABLE READ` 스냅샷을 만든 경우, 별도 커밋된 새 감사 이력은
+호출자의 일반 조회에 보이지 않을 수 있다. `findCommittedTypeById`는 짧은 read-only
+REQUIRES_NEW 트랜잭션에서 불변 메일 유형만 읽는다. 일반 큐는 저장된 유형과 요청 유형의
+보호자 전용 메일 차단을 검사한 뒤, 감사 엔티티를 FK 참조로만 연결한다. outbox 삽입과
+발송 시작의 기존 호출자 커밋·롤백 경계는 유지한다.
+
 ## 일시정지와 지정 작업 시험
 
 `feature/473-scoped-outbox-dispatch`는 `EDUPILOT_MAIL_OUTBOX_DISPATCH_MODE`를 추가한다.
@@ -128,3 +134,19 @@ develop 반영은 DEV 컨테이너 교체와 Flyway 실행을 수반하므로 �
 수신자가 다른 동시 worker의 마지막 일 예산 경쟁, 같은 claim 예약 멱등성,
 발송 비활성 상태의 정상 READY 50건 뒤 만료 인증 본문 정리도 검증한다.
 실제 메일 수신·실운영 재시작·운영 백업 복구·학생 데이터·SES 권한 변경은 실행하지 않는다.
+
+`SignupMailOutboxJpaTest`는 이메일 확인·메일 큐를 실제 서비스로 실행하고 Google verifier,
+메일 발송기·실행기와 AI만 대체한다. 일반·Google 가입, 커밋 후 발송, 호출자 롤백,
+실제 outbox CHECK 제약 실패, 이전 스냅샷에서의 보호자 전용 이력 우회 차단을 검증한다.
+`main-service`에서 기본 H2 회귀와 실제 MySQL 검증을 각각 실행한다.
+
+```bash
+./gradlew test --tests 'io.edupilot.auth.SignupMailOutboxJpaTest' --rerun --no-daemon
+SIGNUP_MAIL_MYSQL_URL='jdbc:mysql://127.0.0.1:33316/signup_mail_synthetic' \
+  ./gradlew test --tests 'io.edupilot.auth.SignupMailOutboxJpaTest' --rerun --no-daemon
+```
+
+MySQL은 포트 자체가 33316인 전용 폐기 가능 DB와 비밀번호 없는 합성 root 계정만 사용한다.
+테스트는 URL·DB 이름·포트와 `REPEATABLE READ`를 확인하며 해당 DB 스키마를 생성·삭제한다.
+환경 변수는 Gradle의 기본 up-to-date 판정에 포함되지 않으므로 두 명령 모두 `--rerun`으로
+테스트 task를 다시 실행한다.
