@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "kind": "LOCAL_WORKTREE_TESTS",
+  "scope": "composer-spring-local-synthetic;not-ci;not-live-acceptance",
+  "generatedAtUtc": "2026-11-04T12:10:37Z",
+  "ciRunUrl": null,
+  "executionAuthorized": false,
+  "operatorAcceptance": false,
+  "realMysql": false,
+  "realProvider": false,
+  "deployedServices": false,
+  "source": {
+    "kind": "WORKTREE_SNAPSHOT",
+    "baseCommit": "cdc3297b45647b069248b11393a2156a4929d0ef",
+    "inputCount": 1224,
+    "inputTreeSha256": "0e0d06fc0a92e3e0ff188e223796e5784b79ffdbb14b6d419b896e7db6a1580d"
+  },
+  "binding": {
+    "path": "main-service/src/main/java/io/edupilot/aiusage/AiFeature.java",
+    "baselineSha256": "9daa987ec4b9596505b90fb3e8c6e2d75f43d5cff9d75e659a70c6a3abac84d8",
+    "sha256": "0e6e5ac9428e2cb1a8f263c208de9f2cbddcc83299dde910a2c9f2f8f2d3bc63"
+  },
+  "generatorSha256": "edad2fb815ce35098451d7782d9c8edc3b1f250cf64059098186031f3cff290b",
+  "summarySha256": "13bfbe831b8631d0a1af2c31d88f3bd9cf293d31dbbcedb38803afa1e4cb5d69",
+  "logSha256": "4a92c93d2fc187fe9ca0e1e157198011037d310ccb14bceb8c4d5ba3d1af7944",
+  "totals": {
+    "tests": 2305,
+    "passed": 2274,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 31
+  },
+  "execution": {
+    "profile": "main-offline-full-build-v1",
+    "javaMajor": 21,
+    "exitCode": 0,
+    "rerunTasks": true,
+    "startedAtUtc": "2026-11-04T11:48:49Z",
+    "finishedAtUtc": "2026-11-04T12:10:20Z"
+  },
+  "attestation": "UNSIGNED_LOCAL_REPLAYABLE;not-CI-or-live-acceptance"
+}

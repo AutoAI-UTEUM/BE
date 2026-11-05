@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -12,6 +13,23 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.query.Param;
 
 public interface AiUsageLogRepository extends JpaRepository<AiUsageLog, Long> {
+
+	boolean existsByRequestId(String requestId);
+
+	Optional<AiUsageLog> findByUserIdAndFeatureAndRequestId(Long userId, AiFeature feature, String requestId);
+
+	@Query("""
+		select log.createdAt as createdAt, log.costUsdTicks as costUsdTicks
+		from AiUsageLog log where log.userId = :userId
+		  and log.feature = io.edupilot.aiusage.AiFeature.COMPOSER_PREDICTION
+		  and log.createdAt >= :since
+		""")
+	List<ComposerUsage> findComposerUsage(@Param("userId") Long userId, @Param("since") Instant since);
+
+	interface ComposerUsage {
+		Instant getCreatedAt();
+		Long getCostUsdTicks();
+	}
 
 	long countByUserIdAndCreatedAtGreaterThanEqual(Long userId, Instant since);
 
