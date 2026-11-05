@@ -99,6 +99,9 @@ jobs:
       - name: Validate isolated deletion ledger boundary without operations
         run: python3 -I -S -B scripts/deploy/test_deletion_ledger.py
 
+      - name: Validate synthetic MySQL drill boundary without Docker
+        run: python3 -I -S -B scripts/qa/deletion-ledger-mysql/test_run.py
+
       - name: Validate isolated SES trial guards without sending
         if: steps.changes.outputs.service == 'true'
         run: |
