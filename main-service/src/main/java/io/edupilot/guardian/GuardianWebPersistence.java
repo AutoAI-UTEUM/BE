@@ -91,7 +91,7 @@ public class GuardianWebPersistence {
 	@Transactional(propagation = Propagation.MANDATORY)
 	public void cancelUser(Long userId) {
 		// Withdrawal already holds the User row. This method is called by its MANDATORY hook.
-		requests.findByUserIdForUpdate(userId).forEach(GuardianWebRequest::cancel);
+		GuardianWebCancellation.cancel(requests, userId);
 	}
 	@Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
 	public List<String> expiredIds() { return requests.expiredIds(now(), PageRequest.of(0, 100)); }

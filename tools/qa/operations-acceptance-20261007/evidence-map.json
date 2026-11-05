@@ -751,10 +751,10 @@
       "path": "main-service/src/main/java/io/edupilot/aiusage/AiFeature.java",
       "baselineSha256": "9daa987ec4b9596505b90fb3e8c6e2d75f43d5cff9d75e659a70c6a3abac84d8",
       "sha256": "0e6e5ac9428e2cb1a8f263c208de9f2cbddcc83299dde910a2c9f2f8f2d3bc63",
-      "receiptPath": "tools/qa/operations-acceptance-20261007/local-verification/composer-ai-v1-20261104.receipt.json",
-      "receiptSha256": "9ea9aaebd2125bf8c359c448717e9e8840217cf18a02469d64229ec1fb392476",
-      "summaryPath": "tools/qa/operations-acceptance-20261007/local-verification/composer-ai-v1-20261104.tests.json",
-      "summarySha256": "13bfbe831b8631d0a1af2c31d88f3bd9cf293d31dbbcedb38803afa1e4cb5d69"
+      "receiptPath": "tools/qa/operations-acceptance-20261007/local-verification/dev-preparation-20261105.receipt.json",
+      "receiptSha256": "9e0b36e7fe769e3cda7153caa9ee4ae9bab59ec825e37ef4adc53a0fd0a12fa1",
+      "summaryPath": "tools/qa/operations-acceptance-20261007/local-verification/dev-preparation-20261105.tests.json",
+      "summarySha256": "f57525b0139dbfc05ecdbfedc72243f3fbd3caa74329c4c62a93b8885e4dbedd"
     }
   ],
   "historicalLocalSourceBindings": [
@@ -769,6 +769,18 @@
       "receiptSha256": "2cfa9f211f0413c134432fbb41bd3334a5f5edae25131fab7cda2d848b0100e3",
       "summaryPath": "tools/qa/operations-acceptance-20261007/local-verification/composer-spring-20261104.tests.json",
       "summarySha256": "ef2d95c8622b93797067cffa357ed140b1865820d0463081aa079232f748307d"
+    },
+    {
+      "kind": "LOCAL_WORKTREE_TESTS",
+      "scope": "composer-spring-local-synthetic;not-ci;not-live-acceptance",
+      "hashMode": "sha256-normalized-lf",
+      "path": "main-service/src/main/java/io/edupilot/aiusage/AiFeature.java",
+      "baselineSha256": "9daa987ec4b9596505b90fb3e8c6e2d75f43d5cff9d75e659a70c6a3abac84d8",
+      "sha256": "0e6e5ac9428e2cb1a8f263c208de9f2cbddcc83299dde910a2c9f2f8f2d3bc63",
+      "receiptPath": "tools/qa/operations-acceptance-20261007/local-verification/composer-ai-v1-20261104.receipt.json",
+      "receiptSha256": "9ea9aaebd2125bf8c359c448717e9e8840217cf18a02469d64229ec1fb392476",
+      "summaryPath": "tools/qa/operations-acceptance-20261007/local-verification/composer-ai-v1-20261104.tests.json",
+      "summarySha256": "13bfbe831b8631d0a1af2c31d88f3bd9cf293d31dbbcedb38803afa1e4cb5d69"
     }
   ],
   "currentSourceBindings": [

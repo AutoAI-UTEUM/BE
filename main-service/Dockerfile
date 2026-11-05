@@ -12,6 +12,9 @@ RUN ./gradlew bootJar --no-daemon \
     && test -n "$app_jar" \
     && cp "$app_jar" /workspace/app.jar
 
+RUN ./gradlew deletionLedgerBootJar --no-daemon \
+    && cp build/operator/deletion-ledger.jar /workspace/deletion-ledger.jar
+
 FROM eclipse-temurin:21-jre
 
 ENV SERVER_PORT=8080 \
@@ -29,6 +32,7 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY --from=builder --chown=edupilot:edupilot /workspace/app.jar ./app.jar
+COPY --from=builder --chown=edupilot:edupilot /workspace/deletion-ledger.jar ./deletion-ledger.jar
 
 USER edupilot:edupilot
 

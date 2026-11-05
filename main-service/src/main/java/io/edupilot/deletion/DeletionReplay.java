@@ -5,7 +5,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import io.edupilot.auth.RefreshTokenService;
+import io.edupilot.auth.TokenRevoker;
 import io.edupilot.material.LearningMaterialRepository;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserWithdrawalHook;
@@ -16,10 +16,10 @@ public class DeletionReplay {
 	private final UserRepository users;
 	private final LearningMaterialRepository materials;
 	private final List<UserWithdrawalHook> hooks;
-	private final RefreshTokenService tokens;
+	private final TokenRevoker tokens;
 	private final DeletionJournal journal;
 	public DeletionReplay(DeletionIntentRepository intents,UserRepository users,LearningMaterialRepository materials,
-		List<UserWithdrawalHook> hooks,RefreshTokenService tokens,DeletionJournal journal) {
+		List<UserWithdrawalHook> hooks,TokenRevoker tokens,DeletionJournal journal) {
 		this.intents=intents;this.users=users;this.materials=materials;this.hooks=hooks;this.tokens=tokens;
 		this.journal=journal;
 	}

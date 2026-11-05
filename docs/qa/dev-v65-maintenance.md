@@ -43,7 +43,7 @@ plan은 기존 schemaVersion 1의 `approvedSha`, `preflightReceiptSha256`, `chec
 
 `sessionId`, `mainStoppedReceiptSha256`, `checkedAtUtc`, `activeRequests:0`, `activeAiJobs:0`, `independentWriters:0`, `writerInventoryReceiptSha256`, `drainEvidenceSha256`.
 
-이 검토는 Main-stop event 이후 시각이어야 한다. 도구가 AI provider 작업/독립 writer를 자동 계측한다는 뜻이 아니다. 검증 수단과 실제 0건 근거가 없으면 중단한다. QUIESCED의 반환 `atUtc`, `receiptSha256`을 install manifest의 `v65.writeQuiescence.startedAtUtc`, `receiptSha256`에 그대로 연결한다. 실제 백업은 그 이후에 생성하고 격리 복구/files/최신 신뢰 원장을 검증해야 한다. 도구는 dump/복구/원장 반출을 실행하거나 운영 어댑터를 제공하지 않는다.
+이 검토는 Main-stop event 이후 시각이어야 한다. 도구가 AI provider 작업/독립 writer를 자동 계측한다는 뜻이 아니다. 검증 수단과 실제 0건 근거가 없으면 중단한다. QUIESCED의 반환 `atUtc`, `receiptSha256`을 install manifest의 `v65.writeQuiescence.startedAtUtc`, `receiptSha256`에 그대로 연결한다. 실제 백업은 그 이후에 생성하고 격리 복구/files/최신 신뢰 원장을 검증해야 한다. 유지보수 CLI 자체는 dump/복구/원장 반출을 실행하지 않는다. 별도 [삭제 원장 operator](deletion-ledger-operator.md)는 실제 활성 QUIESCED journal과 같은 잠금을 사용하며 원장 export·격리 DB의 V65 migration/논리 replay만 제공한다. 백업 생성·SQL 복원·files 복구는 여전히 별도 검토와 실행이 필요하다.
 
 `install` evidence는 [기존 전체 V65 manifest](dev-v65-main-only-deployment.md)다. baseline 서비스/설정/CI/예산, fromVersion/MySQL 증거가 begin과 같아야 한다. 쓰기 중지·백업·preflight 및 건강한 begin baseline은 교체 직전 30분 이내여야 한다. 이미지 pull 중 만료되거나 변경되면 Main을 시작하지 않는다. 시각을 새로 적어 과거 snapshot을 재사용하지 않는다.
 
@@ -73,5 +73,7 @@ SIGTERM/SIGHUP/일반 KeyboardInterrupt는 중단 처리한다. reopen 뒤 오�
 V65 DDL 가능성 이후 old image 재실행, Flyway repair/down-migration, live DEV DB 위의 복구를 자동 수행하지 않는다. 유지보수 차단 상태에서 호환 가능한 forward fix 또는 검증된 격리 DB/files/최신 ledger 복구 계획을 별도 검토한다.
 
 ## 검증 한계
+
+중단 전에 Main 이미지를 준비하는 경로는 [build-only image preparation](dev-image-preparation.md)다. source/CI 검토와 이미지 게시만 분리하며 runtime manifest·백업·예산·호스트 검증을 대체하지 않는다. 별도 원장 job/격리 DB의 자원과 비용은 현재 계획에서 따로 대사해야 하며, 과거 Main 재생성 7회 예산을 자동으로 확장하거나 초기화하지 않는다.
 
 `test_dev_maintenance.py`는 모든 subprocess/DB/HTTP를 가로채는 합성 검증이다. 실제 Docker stop/start·Compose·MySQL·signals·private/public health·인증·백업·격리 복구는 실행하지 않는다. 기존 접근 거절을 우회하지 않는다. 합성 통과는 실제 DEV 준비 완료나 운영 receipt 생성의 증거가 아니다.

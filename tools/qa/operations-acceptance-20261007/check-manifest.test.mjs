@@ -282,8 +282,8 @@ test('composer local source proof is separate from historical and CI proof and g
   assert.equal(binding.scope, SCOPE);
   assert.equal(binding.kind, 'LOCAL_WORKTREE_TESTS');
   // Immutable output of the actually executed local full build, not a CI URL.
-  assert.equal(binding.receiptSha256, '9ea9aaebd2125bf8c359c448717e9e8840217cf18a02469d64229ec1fb392476');
-  assert.equal(binding.summarySha256, '13bfbe831b8631d0a1af2c31d88f3bd9cf293d31dbbcedb38803afa1e4cb5d69');
+  assert.equal(binding.receiptSha256, '9e0b36e7fe769e3cda7153caa9ee4ae9bab59ec825e37ef4adc53a0fd0a12fa1');
+  assert.equal(binding.summarySha256, 'f57525b0139dbfc05ecdbfedc72243f3fbd3caa74329c4c62a93b8885e4dbedd');
   const historical = EVIDENCE.bundles.flatMap(b => b.sources).find(x => x.path === FEATURE);
   assert.equal(historical.sha256, '9daa987ec4b9596505b90fb3e8c6e2d75f43d5cff9d75e659a70c6a3abac84d8');
   assert.deepEqual(verifyLocalBinding(root, binding, historical), []);
@@ -303,16 +303,32 @@ test('CI and local bindings are unique and tampered local receipt hashes fail', 
 });
 
 test('the earlier local snapshot remains immutable historical proof and cannot verify changed source', () => {
-  assert.equal(EVIDENCE.historicalLocalSourceBindings.length, 1);
-  const [binding] = EVIDENCE.historicalLocalSourceBindings;
-  assert.equal(createHash('sha256').update(JSON.stringify(binding)).digest('hex'),
-    'bf6c152c063d85eb0088258893012098059aaa57e826ed230200c0a79fada596');
-  for (const [path, digest] of [[binding.receiptPath, binding.receiptSha256], [binding.summaryPath, binding.summarySha256]]) {
-    const canonical = readFileSync(join(root, path), 'utf8').replaceAll('\r\n', '\n');
-    assert.equal(createHash('sha256').update(canonical).digest('hex'), digest);
+  assert.equal(EVIDENCE.historicalLocalSourceBindings.length, 2);
+  const hashes = ['bf6c152c063d85eb0088258893012098059aaa57e826ed230200c0a79fada596',
+    '4d78329dc44312aa052084d367f00b7014505843152959d8fe80c36dfb238615'];
+  for (const [index, binding] of EVIDENCE.historicalLocalSourceBindings.entries()) {
+    assert.equal(createHash('sha256').update(JSON.stringify(binding)).digest('hex'), hashes[index]);
+    for (const [path, digest] of [[binding.receiptPath, binding.receiptSha256], [binding.summaryPath, binding.summarySha256]]) {
+      const canonical = readFileSync(join(root, path), 'utf8').replaceAll('\r\n', '\n');
+      assert.equal(createHash('sha256').update(canonical).digest('hex'), digest);
+    }
+    const historical = EVIDENCE.bundles.flatMap(b => b.sources).find(x => x.path === binding.path);
+    assert.ok(verifyLocalBinding(root, binding, historical).includes('INPUT_TREE'));
   }
-  const historical = EVIDENCE.bundles.flatMap(b => b.sources).find(x => x.path === binding.path);
-  assert.ok(verifyLocalBinding(root, binding, historical).includes('INPUT_TREE'));
+});
+
+test('current full-build evidence includes every operator suite with no failed or skipped cases', () => {
+  const [binding] = EVIDENCE.localSourceBindings;
+  const summary = JSON.parse(readFileSync(join(root, binding.summaryPath), 'utf8'));
+  for (const [name, tests] of [['DeletionLedgerCliTest', 4], ['LedgerCodecTest', 5], ['LedgerContextTest', 2]]) {
+    const suite = summary.suites.find(x => x.name === `io.edupilotops.deletion.${name}`);
+    assert.ok(suite, name);
+    assert.equal(suite.tests, tests);
+    assert.equal(suite.passed, tests);
+    assert.equal(suite.failures + suite.errors + suite.skipped, 0);
+  }
+  const context = summary.suites.find(x => x.name === 'io.edupilotops.deletion.LedgerContextTest');
+  assert.ok(context.cases.some(x => x.name === 'exportDoesNotRequireNewPriorConsentColumnsOnTheReadOnlySource()' && x.status === 'PASSED'));
 });
 
 test('checker has no network, subprocess, credential, SQL execution or write API', () => {

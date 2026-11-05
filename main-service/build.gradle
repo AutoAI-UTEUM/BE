@@ -54,6 +54,18 @@ tasks.named('test') {
 	systemProperty 'it.ai', System.getProperty('it.ai', 'false')
 }
 
+// Operator entry point is outside the normal application component scan and has no web/scheduler bootstrap.
+springBoot { mainClass = 'io.edupilot.MainServiceApplication' }
+tasks.register('deletionLedgerBootJar', org.springframework.boot.gradle.tasks.bundling.BootJar) {
+	dependsOn classes
+	mainClass = 'io.edupilotops.deletion.DeletionLedgerCli'
+	targetJavaVersion = JavaVersion.VERSION_21
+	archiveFileName = 'deletion-ledger.jar'
+	destinationDirectory = layout.buildDirectory.dir('operator')
+	classpath = sourceSets.main.runtimeClasspath
+}
+tasks.named('assemble') { dependsOn 'deletionLedgerBootJar' }
+
 // Resolve/compile while online; the actual integration JVM runs offline on an internal Docker network.
 tasks.register('guardianMysqlPrepare') {
 	dependsOn testClasses

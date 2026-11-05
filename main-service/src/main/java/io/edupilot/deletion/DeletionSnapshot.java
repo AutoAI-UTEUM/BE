@@ -5,7 +5,7 @@ import java.time.Instant;
 /** Trusted operator export/import boundary, never an HTTP request or user supplied proof. */
 public record DeletionSnapshot(DeletionKind kind, String resourceKey, String sourceMaterialKey,
 	Long sourceUserId, Instant accountCreatedAt, String originalEmailHash, Instant requestedAt, Instant retainUntil) {
-	void validate() {
+	public void validate() {
 		if (kind == null || requestedAt == null || !validKey(resourceKey)) { throw invalid(); }
 		if (retainUntil != null && retainUntil.isBefore(requestedAt)) { throw invalid(); }
 		if (kind == DeletionKind.ACCOUNT) {

@@ -24,7 +24,7 @@ import com.github.benmanes.caffeine.cache.Ticker;
 import io.edupilot.user.User;
 
 @Service
-public class RefreshTokenService {
+public class RefreshTokenService implements TokenRevoker {
 
 	private static final int TOKEN_BYTES = 32;
 	private static final Duration ACTIVITY_WRITE_THROTTLE = Duration.ofMinutes(5);
@@ -304,8 +304,7 @@ public class RefreshTokenService {
 	}
 
 	private void revokeAll(Long userId, Instant now) {
-		authSessionRepository.revokeAllActiveByUserId(userId, now);
-		refreshTokenRepository.revokeAllActiveByUserId(userId, now);
+		TokenRevocations.revoke(authSessionRepository, refreshTokenRepository, userId, now);
 	}
 
 	private String generateToken() {
