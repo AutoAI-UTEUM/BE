@@ -61,6 +61,10 @@ jobs:
         working-directory: main-service
         run: ./gradlew build --no-daemon
 
+      - name: Verify packaged deletion operator defaults to no action
+        if: steps.changes.outputs.service == 'true'
+        run: python3 -I -S -B scripts/deploy/check_deletion_ledger_jar.py
+
       - name: Set up Node for offline QA guards
         uses: actions/setup-node@v6
         with:
@@ -88,6 +92,12 @@ jobs:
 
       - name: Validate explicit DEV maintenance lifecycle without operations
         run: python3 -I -S -B scripts/deploy/test_dev_maintenance.py
+
+      - name: Validate source-only Main image preparation without publishing
+        run: python3 -I -S -B scripts/deploy/test_dev_image_source.py
+
+      - name: Validate isolated deletion ledger boundary without operations
+        run: python3 -I -S -B scripts/deploy/test_deletion_ledger.py
 
       - name: Validate isolated SES trial guards without sending
         if: steps.changes.outputs.service == 'true'

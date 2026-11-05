@@ -331,12 +331,7 @@ public class GuardianTeamService {
 
 	@Transactional(propagation = Propagation.MANDATORY)
 	public void cancelOnWithdrawal(Long userId) {
-		var row = requests.findByUserForUpdate(userId).orElse(null);
-		if (row == null) { return; }
-		row.end(GuardianTeamRequest.State.WITHDRAWN, GuardianTeamRequest.Reason.ACCOUNT_WITHDRAWN, now());
-		row.user().clearGuardianTeamApproval(false); eraseLocalCopies(row);
-		events.setGenerationDeadline(row.id(), row.generation(), now()); events.eraseDue(row.id(), now());
-		operations.eraseForRequest(row.id());
+		GuardianTeamWithdrawalCleanup.cancel(requests, events, operations, mailCleanup, clock, userId);
 	}
 
 	@Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
@@ -424,7 +419,7 @@ public class GuardianTeamService {
 		}
 	}
 	private void eraseLocalCopies(GuardianTeamRequest row) {
-		mailCleanup.purgeForRequest(row.id()); operations.eraseForRequest(row.id());
+		GuardianTeamWithdrawalCleanup.eraseCopies(row, operations, mailCleanup);
 	}
 	private boolean replay(GuardianTeamRequest row, String key, String digest) {
 		var prior = operations.findByRequestIdAndOperationKey(row.id(), key).orElse(null);

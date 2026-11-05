@@ -330,8 +330,11 @@ class V65Tests(unittest.TestCase):
         self.assertIn("default: v64", text)
         self.assertIn("- v65-prior-consent", text)
         self.assertIn('--release-contract "$RELEASE_CONTRACT"', text)
-        self.assertLess(text.index("id: reviewed"), text.index("docker/build-push-action"))
-        self.assertIn("com.uteum.flyway-catalog-sha256=${{ steps.reviewed.outputs.catalog_sha256 }}", text)
+        deploy_job = text.split("\n  deploy:\n", 1)[1]
+        self.assertIn("inputs.operation == 'deploy'", deploy_job)
+        self.assertLess(deploy_job.index("id: reviewed"), deploy_job.index("docker/build-push-action"))
+        self.assertLess(deploy_job.index("--prepare"), deploy_job.index("dev_ssh_ed25519.py"))
+        self.assertIn("com.uteum.flyway-catalog-sha256=${{ steps.reviewed.outputs.catalog_sha256 }}", deploy_job)
         self.assertNotIn("\n  push:", text)
         self.assertIn("inputs.approved_sha == github.sha", text)
         ci = (ROOT / ".github/workflows/main-service-ci.yml").read_text(encoding="utf-8")
