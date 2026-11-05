@@ -9,9 +9,16 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import jakarta.persistence.LockModeType;
 
 public interface EmailDeliveryRepository extends JpaRepository<EmailDelivery, Long> {
+
+	// Audit inserts commit independently and can be newer than the caller's REPEATABLE READ snapshot.
+	@Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
+	@Query("select delivery.type from EmailDelivery delivery where delivery.id = :id")
+	Optional<EmailDeliveryType> findCommittedTypeById(@Param("id") Long id);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select delivery from EmailDelivery delivery where delivery.id = :id")

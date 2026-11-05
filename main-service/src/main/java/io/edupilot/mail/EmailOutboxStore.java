@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityNotFoundException;
 
 @Service
 public class EmailOutboxStore {
@@ -37,11 +38,13 @@ public class EmailOutboxStore {
 	/** Joins the caller transaction, so rolled-back token/account changes cannot leave sendable mail. */
 	@Transactional
 	public void enqueue(Long id, EmailMessage message, Instant expiry) {
-		EmailDelivery delivery = deliveries.getReferenceById(id);
-		if (delivery.getType() == EmailDeliveryType.GUARDIAN_TEAM_NOTICE
+		EmailDeliveryType type = deliveries.findCommittedTypeById(id)
+			.orElseThrow(() -> new EntityNotFoundException("Mail delivery does not exist"));
+		if (type == EmailDeliveryType.GUARDIAN_TEAM_NOTICE
 			|| (message != null && message.type() == EmailDeliveryType.GUARDIAN_TEAM_NOTICE)) {
 			throw new IllegalArgumentException("보호자 팀 확인 메일은 일반 outbox에 저장할 수 없습니다.");
 		}
+		EmailDelivery delivery = deliveries.getReferenceById(id);
 		// The delivery ID is assigned before insertion. Persist this new row explicitly,
 		// rather than having repository.save merge a shared-primary-key association.
 		entities.persist(EmailOutbox.queued(delivery,
