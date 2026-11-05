@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { BASELINE, BUNDLES, EVIDENCE, HISTORY, checkManifest, runCli } from './check-manifest.mjs';
+import { FEATURE, SCOPE, verifyLocalBinding } from './local-source-proof.mjs';
 
 const template = JSON.parse(readFileSync(new URL('./metadata-manifest.example.json', import.meta.url), 'utf8'));
 const clone = () => structuredClone(template);
@@ -256,16 +257,62 @@ test('the prior synthetic fixture proof remains immutable and distinct from curr
   });
 });
 
-test('all 46 evidence references and 63 migrations match historical or reviewed current source SHA-256', () => {
+test('all source references match historical, CI-reviewed, or explicitly local-verified SHA-256', () => {
   const sources = [...EVIDENCE.bundles.flatMap((b) => b.sources), ...EVIDENCE.migrations];
   assert.equal(sources.length, 109);
   for (const x of sources) {
     const canonical = readFileSync(join(root, x.path), 'utf8').replaceAll('\r\n', '\n');
     const observed = createHash('sha256').update(canonical).digest('hex');
     const current = EVIDENCE.currentSourceBindings.find((binding) => binding.path === x.path);
+    const local = (EVIDENCE.localSourceBindings ?? []).find((binding) => binding.path === x.path);
+    assert.ok(!(current && local), 'CI and local source proof cannot be conflated');
     if (current) assert.equal(current.baselineSha256, x.sha256, 'historical binding must remain intact');
-    assert.equal(observed, current?.sha256 ?? x.sha256, x.path);
+    if (local) {
+      assert.equal(local.baselineSha256, x.sha256, 'historical binding must remain intact');
+      assert.deepEqual(verifyLocalBinding(root, local, x), [], 'local proof must match source and real test metadata');
+    }
+    assert.equal(observed, current?.sha256 ?? local?.sha256 ?? x.sha256, x.path);
   }
+});
+
+test('composer local source proof is separate from historical and CI proof and grants no acceptance', () => {
+  assert.equal(EVIDENCE.localSourceBindings.length, 1);
+  const [binding] = EVIDENCE.localSourceBindings;
+  assert.equal(binding.path, FEATURE);
+  assert.equal(binding.scope, SCOPE);
+  assert.equal(binding.kind, 'LOCAL_WORKTREE_TESTS');
+  // Immutable output of the actually executed local full build, not a CI URL.
+  assert.equal(binding.receiptSha256, '9ea9aaebd2125bf8c359c448717e9e8840217cf18a02469d64229ec1fb392476');
+  assert.equal(binding.summarySha256, '13bfbe831b8631d0a1af2c31d88f3bd9cf293d31dbbcedb38803afa1e4cb5d69');
+  const historical = EVIDENCE.bundles.flatMap(b => b.sources).find(x => x.path === FEATURE);
+  assert.equal(historical.sha256, '9daa987ec4b9596505b90fb3e8c6e2d75f43d5cff9d75e659a70c6a3abac84d8');
+  assert.deepEqual(verifyLocalBinding(root, binding, historical), []);
+  const m = synthetic(); m.provenance = 'OPERATOR_REPORTED';
+  m.acceptance.access_answers = { status: 'LOCAL_WORKTREE_TESTS', observedAtUtc: at, receiptSha256: binding.receiptSha256 };
+  const result = checkManifest(m);
+  assert.equal(result.operatorReportedAcceptanceComplete, false);
+  assert.equal(result.executionAuthorized, false);
+});
+
+test('CI and local bindings are unique and tampered local receipt hashes fail', () => {
+  const bindings = [...EVIDENCE.currentSourceBindings, ...EVIDENCE.localSourceBindings];
+  assert.equal(new Set(bindings.map(x => x.path)).size, bindings.length);
+  const [binding] = EVIDENCE.localSourceBindings;
+  const historical = EVIDENCE.bundles.flatMap(b => b.sources).find(x => x.path === binding.path);
+  assert.ok(verifyLocalBinding(root, { ...binding, receiptSha256: '0'.repeat(64) }, historical).includes('RECEIPT_DIGEST'));
+});
+
+test('the earlier local snapshot remains immutable historical proof and cannot verify changed source', () => {
+  assert.equal(EVIDENCE.historicalLocalSourceBindings.length, 1);
+  const [binding] = EVIDENCE.historicalLocalSourceBindings;
+  assert.equal(createHash('sha256').update(JSON.stringify(binding)).digest('hex'),
+    'bf6c152c063d85eb0088258893012098059aaa57e826ed230200c0a79fada596');
+  for (const [path, digest] of [[binding.receiptPath, binding.receiptSha256], [binding.summaryPath, binding.summarySha256]]) {
+    const canonical = readFileSync(join(root, path), 'utf8').replaceAll('\r\n', '\n');
+    assert.equal(createHash('sha256').update(canonical).digest('hex'), digest);
+  }
+  const historical = EVIDENCE.bundles.flatMap(b => b.sources).find(x => x.path === binding.path);
+  assert.ok(verifyLocalBinding(root, binding, historical).includes('INPUT_TREE'));
 });
 
 test('checker has no network, subprocess, credential, SQL execution or write API', () => {

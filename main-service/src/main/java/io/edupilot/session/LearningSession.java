@@ -224,6 +224,10 @@ public class LearningSession {
 		return id;
 	}
 
+	public long getVersion() {
+		return version;
+	}
+
 	public Long getUserId() {
 		return user.getId();
 	}

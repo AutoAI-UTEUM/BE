@@ -1,5 +1,7 @@
 # 화면-API 매핑 문서
 
+> Composer Spring integration remains local and default OFF. Shared prediction fields follow AI v1; browser selection/SSE projection and unconfirmed operational limits are documented in the [FE handoff](composer-prediction-fe-handoff.md) and [implementation](composer-spring-integration.md). Existing turn APIs are unchanged.
+
 > 다음 질문 초안(2026-11-03, 연동 대기): AI 내부 `/internal/ai/composer-prediction`만
 > 추가하며 Spring 외부 경로는 TBD입니다. FE는 FastAPI를 직접 호출하지 않습니다.
 > 완료된 설명·QA 후 빈 입력창에만 표시하고 수락은 초안 반영까지이며 자동 전송하지 않습니다.

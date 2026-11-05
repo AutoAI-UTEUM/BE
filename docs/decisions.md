@@ -1,5 +1,7 @@
 # 결정 대기 목록
 
+> Composer Spring integration remains local and default OFF. Shared prediction fields follow AI v1; browser selection/SSE projection and unconfirmed operational limits are documented in the [FE handoff](composer-prediction-fe-handoff.md) and [implementation](composer-spring-integration.md). Existing turn APIs are unchanged.
+
 ## Composer Predictions 초기 구현·운영 TBD (2026-11-03)
 
 사용자 요청에 따라 기존 xAI 브리지로 독립적인 다음 질문 초안 엔드포인트를 구현합니다.

@@ -13,6 +13,26 @@ import jakarta.persistence.LockModeType;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
 
+	// Only public explanation/QA and questions explicitly linked to QA. In particular,
+	// generic USER/TEXT can contain assessment answers and must not be forwarded.
+	@Query("""
+		select message from ChatMessage message
+		where message.session.id = :sessionId
+		  and message.pageNumber = :page
+		  and message.status = io.edupilot.session.ChatMessageStatus.COMPLETED
+		  and (:resetAt is null or message.createdAt > :resetAt)
+		  and (
+		    (message.senderType = io.edupilot.session.SenderType.AI
+		      and message.messageType in (io.edupilot.session.MessageType.EXPLANATION,
+		        io.edupilot.session.MessageType.QA))
+		    or (message.senderType = io.edupilot.session.SenderType.USER
+		      and exists (select qa.id from QaMessage qa where qa.chatMessage = message))
+		  )
+		order by message.createdAt desc, message.id desc
+		""")
+	List<ChatMessage> findComposerMessages(@Param("sessionId") Long sessionId,
+		@Param("page") int page, @Param("resetAt") Instant resetAt, Pageable pageable);
+
 	Optional<ChatMessage> findBySession_IdAndRequestId(
 		Long sessionId,
 		String requestId

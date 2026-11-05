@@ -1,5 +1,7 @@
 # ai-integration-contract v0.6 — Spring ↔ AI Service 통합 계약
 
+> Composer Spring integration remains local and default OFF. Shared prediction fields follow AI v1; browser selection/SSE projection and unconfirmed operational limits are documented in the [FE handoff](composer-prediction-fe-handoff.md) and [implementation](composer-spring-integration.md). Existing turn APIs are unchanged.
+
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | v0.6 확정 — #133 승인 반영, AI Service 구현·배포 검증 대기 |

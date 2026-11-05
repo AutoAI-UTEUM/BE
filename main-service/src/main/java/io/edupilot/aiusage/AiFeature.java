@@ -6,6 +6,7 @@ package io.edupilot.aiusage;
  */
 public enum AiFeature {
 	TURN,
+	COMPOSER_PREDICTION,
 	DOC_CHAT,
 	GRADE,
 	QUIZ_ASSESSMENT,

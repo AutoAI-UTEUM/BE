@@ -134,6 +134,15 @@ edupilot:
     summary-read-timeout: ${EDUPILOT_AI_SUMMARY_READ_TIMEOUT:45s}
     exam-draft-read-timeout: ${EDUPILOT_AI_EXAM_DRAFT_READ_TIMEOUT:120s}
     health-path: /health
+  composer:
+    enabled: ${EDUPILOT_COMPOSER_ENABLED:false}
+    policy-confirmed: ${EDUPILOT_COMPOSER_POLICY_CONFIRMED:false}
+    daily-calls: ${EDUPILOT_COMPOSER_DAILY_CALLS:0}
+    calls-per-minute: ${EDUPILOT_COMPOSER_CALLS_PER_MINUTE:0}
+    concurrent-per-user: ${EDUPILOT_COMPOSER_CONCURRENT_PER_USER:0}
+    daily-budget-usd-ticks: ${EDUPILOT_COMPOSER_DAILY_BUDGET_USD_TICKS:0}
+    reservation-usd-ticks: ${EDUPILOT_COMPOSER_RESERVATION_USD_TICKS:0}
+    timeout: ${EDUPILOT_COMPOSER_TIMEOUT:10s}
   quiz:
     pass-ratio: ${EDUPILOT_QUIZ_PASS_RATIO:0.6}
     proposal-min-page-text-length: ${EDUPILOT_QUIZ_PROPOSAL_MIN_PAGE_TEXT_LENGTH:200}

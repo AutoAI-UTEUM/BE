@@ -1,5 +1,7 @@
 # 교육형 LMS 에이전트 시스템 상세 명세
 
+> Composer Spring integration remains local and default OFF. Shared prediction fields follow AI v1; browser selection/SSE projection and unconfirmed operational limits are documented in the [FE handoff](composer-prediction-fe-handoff.md) and [implementation](composer-spring-integration.md). Existing turn APIs are unchanged.
+
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | 다른 팀원 구현을 위한 참고·계약 초안 |

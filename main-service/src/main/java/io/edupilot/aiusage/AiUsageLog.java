@@ -125,6 +125,19 @@ public class AiUsageLog {
 		return id;
 	}
 
+	/** Completes a durable composer reservation; unknown usage stays null. */
+	public void finishComposer(AiUsage usage, boolean succeeded) {
+		if (feature != AiFeature.COMPOSER_PREDICTION) {
+			throw new IllegalStateException("Not a composer reservation");
+		}
+		this.model = usage == null ? null : usage.model();
+		this.inputTokens = usage == null ? null : usage.inputTokens();
+		this.outputTokens = usage == null ? null : usage.outputTokens();
+		this.reasoningTokens = usage == null ? null : usage.reasoningTokens();
+		this.costUsdTicks = usage == null ? null : usage.costUsdTicks();
+		this.success = succeeded;
+	}
+
 	public Long getUserId() {
 		return userId;
 	}
