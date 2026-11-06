@@ -7,6 +7,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -237,8 +238,10 @@ class Simulation:
         with self.intercepted():
             return self.controller.perform(action, evidence)
 
-    def quiesce(self):
+    def quiesce(self, after_begin=None):
         self.perform("begin")
+        if after_begin is not None:
+            after_begin()
         event = self.controller.journal.read()[-1]
         review = {
             "sessionId": self.plan["maintenance"]["sessionId"],
@@ -288,6 +291,33 @@ class Simulation:
 
 
 class MaintenanceTests(unittest.TestCase):
+    @unittest.skipUnless(
+        sys.platform.startswith("linux"),
+        "Linux CI checks Bash syntax; do not retry the Windows Bash path",
+    )
+    def test_readonly_memory_preflight_bash_syntax_on_linux(self):
+        document = (HERE.parents[1] / "docs/qa/dev-v65-maintenance.md").read_text(
+            encoding="utf-8"
+        )
+        section = document.split("### 서비스 중단 전 메모리 관측", 1)[1]
+        script = section.split("```sh\n", 1)[1].split("```", 1)[0]
+        env = dict(os.environ)
+        for name in ("BASH_ENV", "ENV"):
+            env.pop(name, None)
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-n"],
+            input=script,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+            env=env,
+            timeout=15,
+        )
+        self.assertEqual(
+            result.returncode, 0, "Bash rejected the reviewed read-only snippet"
+        )
+
     def test_exact_confirmed_host_uses_only_os_hostname_and_keeps_ssh_as_separate_trust(
         self,
     ):
@@ -740,6 +770,118 @@ class MaintenanceTests(unittest.TestCase):
             s.controller.perform("install", manifest)
         self.assertFalse(any("up" in c for c, _, _ in s.calls))
         self.assertFalse(s.states["nginx"]["running"])
+
+    def check_install_after_elapsed_validation(self, stage, age, baseline=64):
+        with tempfile.TemporaryDirectory(dir=HERE) as tmp:
+            s = Simulation(Path(tmp).resolve(), baseline=baseline)
+            started = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=1)
+            clock = [started]
+            elapsed = [False]
+            backup_checks = [0]
+            fresh = m.base.fresh
+            verify_backup = m.base.V65Deployment.verify_extra_readonly
+            docker = s.docker
+
+            def advance():
+                clock[0] = started + age
+                elapsed[0] = True
+
+            def delayed_pull(*args, **kwargs):
+                result = docker(*args, **kwargs)
+                if stage == "pull" and "pull" in args:
+                    advance()
+                return result
+
+            def delayed_backup(controller, *args, **kwargs):
+                result = verify_backup(controller, *args, **kwargs)
+                backup_checks[0] += 1
+                if stage == "backup" and backup_checks[0] == 2:
+                    # Time passes after the final metadata freshness check,
+                    # while backup hashing/gzip verification completes.
+                    advance()
+                return result
+
+            with (
+                mock.patch.object(m, "utc", side_effect=lambda: clock[0].isoformat()),
+                mock.patch.object(
+                    m.base,
+                    "fresh",
+                    side_effect=lambda value, now=None: fresh(
+                        value, now=clock[0] if now is None else now
+                    ),
+                ),
+            ):
+                s.quiesce(
+                    after_begin=lambda: clock.__setitem__(
+                        0, started + dt.timedelta(minutes=20)
+                    )
+                )
+                manifest = s.backup_manifest()
+                calls_before_install = len(s.calls)
+                with (
+                    s.intercepted(),
+                    mock.patch.object(
+                        m.base.Deployment, "docker", side_effect=delayed_pull
+                    ),
+                    mock.patch.object(
+                        m.base.V65Deployment,
+                        "verify_extra_readonly",
+                        autospec=True,
+                        side_effect=delayed_backup,
+                    ),
+                ):
+                    if age > dt.timedelta(minutes=30):
+                        with self.assertRaisesRegex(ValueError, "30_MINUTES"):
+                            s.controller.perform("install", manifest)
+                        self.assertEqual(
+                            s.controller.journal.read()[-1]["phase"],
+                            "INSTALL_VALIDATION_STARTED",
+                        )
+                        self.assertFalse(s.states["main-service"]["running"])
+                        self.assertFalse(
+                            s.controller.result("fixture")["workersMayHaveRun"]
+                        )
+                    else:
+                        result = s.controller.perform("install", manifest)
+                        self.assertEqual(result["phase"], "VERIFIED_HELD")
+
+                self.assertTrue(elapsed[0])
+                # Only BASELINE expires: current backup, quiescence and review
+                # timestamps still pass the real freshness validator.
+                for value in (
+                    manifest["checkedAtUtc"],
+                    manifest["v65"]["backup"]["createdAtUtc"],
+                    manifest["v65"]["writeQuiescence"]["startedAtUtc"],
+                ):
+                    fresh(value, now=clock[0])
+                commands = [c for c, _, _ in s.calls[calls_before_install:]]
+                self.assertEqual(
+                    sum("up" in c for c in commands),
+                    0 if age > dt.timedelta(minutes=30) else 1,
+                )
+                self.assertFalse(any(c[0] == "start" for c in commands))
+                self.assertFalse(s.states["nginx"]["running"])
+
+    def test_baseline_expiry_during_pull_blocks_main_with_fresh_backup(self):
+        for baseline in (64, 65):
+            with self.subTest(baseline=baseline):
+                self.check_install_after_elapsed_validation(
+                    "pull", dt.timedelta(minutes=30, microseconds=1), baseline
+                )
+
+    def test_baseline_expiry_during_final_backup_check_blocks_main(self):
+        for baseline in (64, 65):
+            with self.subTest(baseline=baseline):
+                self.check_install_after_elapsed_validation(
+                    "backup", dt.timedelta(minutes=30, microseconds=1), baseline
+                )
+
+    def test_baseline_exactly_thirty_minutes_old_remains_accepted(self):
+        for stage in ("pull", "backup"):
+            with self.subTest(stage=stage):
+                self.check_install_after_elapsed_validation(
+                    stage, dt.timedelta(minutes=30)
+                )
 
     def test_failure_to_reblock_is_reported_as_uncertain_and_not_retried(self):
         s = self.sim
