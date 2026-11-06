@@ -593,6 +593,10 @@ class Maintenance:
                 (current, current_env, current_marker) == (before, env, marker),
                 "PREFLIGHT_CHANGED_BEFORE_MAIN_REPLACEMENT",
             )
+            # Pull, backup integrity checks and readonly SQL may outlive the
+            # original baseline. Recheck before recording worker-start intent.
+            base.validate_v65_manifest(manifest, self.plan["approvedSha"])
+            base.fresh(events[0]["atUtc"])
             # New JVM startup releases worker quiescence. Ingress remains stopped until a separate reviewed reopen.
             request = self.journal.append(
                 "MAIN_START_REQUESTED",

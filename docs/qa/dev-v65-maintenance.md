@@ -47,6 +47,8 @@ plan은 기존 schemaVersion 1의 `approvedSha`, `preflightReceiptSha256`, `chec
 
 `install` evidence는 [기존 전체 V65 manifest](dev-v65-main-only-deployment.md)다. baseline 서비스/설정/CI/예산, fromVersion/MySQL 증거가 begin과 같아야 한다. 쓰기 중지·백업·preflight 및 건강한 begin baseline은 교체 직전 30분 이내여야 한다. 이미지 pull 중 만료되거나 변경되면 Main을 시작하지 않는다. 시각을 새로 적어 과거 snapshot을 재사용하지 않는다.
 
+`install`은 진입 때와 이미지 pull·백업 hash/gzip·읽기 전용 DB 검사 완료 후 `MAIN_START_REQUESTED`를 기록하기 직전에 원래 BASELINE 시각과 전체 manifest의 유효성을 확인한다. 마지막 검사에서 만료되면 `INSTALL_VALIDATION_STARTED`에 머무르며 Main 교체나 Nginx 재개를 요청하지 않는다. 원본 baseline 시각을 갱신하지 않고 기존 세션을 보존해 수동 대사한다.
+
 `reopen` evidence의 정확한 필드:
 
 `sessionId`, `verifiedReceiptSha256`, `checkedAtUtc`, `allowIngress:true`, `workersMayHaveRunAcknowledged:true`, `budget`, `evidenceSha256`.
@@ -73,6 +75,36 @@ SIGTERM/SIGHUP/일반 KeyboardInterrupt는 중단 처리한다. reopen 뒤 오�
 V65 DDL 가능성 이후 old image 재실행, Flyway repair/down-migration, live DEV DB 위의 복구를 자동 수행하지 않는다. 유지보수 차단 상태에서 호환 가능한 forward fix 또는 검증된 격리 DB/files/최신 ledger 복구 계획을 별도 검토한다.
 
 ## 검증 한계
+
+### 서비스 중단 전 메모리 관측
+
+컨테이너 cap은 허용 상한이고 실제 사용량이나 최소 필요량을 뜻하지 않는다. 합성 검증의 MySQL 512 MiB·Java 1,024 MiB cap과 Java `-Xmx512m`은 그 검증의 설정이다. 운영 operator wrapper는 JVM heap 인자를 추가하지 않으므로 동일한 메모리 profile의 실측 근거로 표시하지 않는다. 보고된 host `MemAvailable` 약 653 MiB도 해당 조회 시점의 추정 가용량이며, cap 합계와 단순 비교해 실제 최소 요구량이나 실행 가능 여부를 확정하지 않는다.
+
+기존에 인증·호스트 검증을 마친 DEV SSH 세션에서 최신 readonly receipt의 Main/AI/MySQL/Nginx 전체 ID를 아래 변수에 넣은 뒤 읽기만 수행할 수 있다. 빈 ID나 축약 ID는 거부한다. 아래 명령은 컨테이너 생성·중단·파일 쓰기·DB 조회·환경변수 dump를 수행하지 않는다. 이 문서 작업에서는 실행하지 않았다.
+
+```sh
+(
+  set -eu
+  : "${DEV_MAIN_ID:?FULL_ID_FROM_CURRENT_RECEIPT_REQUIRED}"
+  : "${DEV_AI_ID:?FULL_ID_FROM_CURRENT_RECEIPT_REQUIRED}"
+  : "${DEV_MYSQL_ID:?FULL_ID_FROM_CURRENT_RECEIPT_REQUIRED}"
+  : "${DEV_NGINX_ID:?FULL_ID_FROM_CURRENT_RECEIPT_REQUIRED}"
+  for dev_mem_id in "$DEV_MAIN_ID" "$DEV_AI_ID" "$DEV_MYSQL_ID" "$DEV_NGINX_ID"; do
+    case "$dev_mem_id" in *[!0-9a-f]*) exit 2;; esac
+    [ "${#dev_mem_id}" -eq 64 ] || exit 2
+  done
+  date -u '+%Y-%m-%dT%H:%M:%SZ'
+  awk '$1 == "MemTotal:" || $1 == "MemAvailable:" || $1 == "SwapFree:" { print }' /proc/meminfo
+  docker inspect --type container --format 'id={{.Id}} capBytes={{.HostConfig.Memory}} running={{.State.Running}} startedAt={{.State.StartedAt}}' "$DEV_MAIN_ID" "$DEV_AI_ID" "$DEV_MYSQL_ID" "$DEV_NGINX_ID"
+  docker stats --no-stream --no-trunc --format 'id={{.ID}} name={{.Name}} usageAndLimit={{.MemUsage}} memoryPercent={{.MemPerc}}' "$DEV_MAIN_ID" "$DEV_AI_ID" "$DEV_MYSQL_ID" "$DEV_NGINX_ID"
+  docker inspect --type container --format 'id={{.Id}} capBytes={{.HostConfig.Memory}} running={{.State.Running}} startedAt={{.State.StartedAt}}' "$DEV_MAIN_ID" "$DEV_AI_ID" "$DEV_MYSQL_ID" "$DEV_NGINX_ID"
+  date -u '+%Y-%m-%dT%H:%M:%SZ'
+)
+```
+
+전후 ID/running/StartedAt이 다르거나 running이 true가 아니거나 읽기가 실패하면 해당 측정을 HOLD한다. cap 0은 명시적 [컨테이너 메모리 상한](https://docs.docker.com/engine/containers/resource_constraints/)을 지정하지 않은 설정이다. `usageAndLimit`의 사용량 부분과 상한 부분을 분리해 기록한다. Linux의 [Docker stats 사용량](https://docs.docker.com/reference/cli/docker/container/stats/)은 일부 cache를 차감한 표시값이므로 RSS나 Main 중단 후 회수될 RAM으로 그대로 합산하지 않는다. 정상 부하에서 시각을 붙인 여러 관측도 미래 peak의 보장이 아니며, 기존에 승인된 범위의 관측만 사용한다.
+
+복구 용량 판단에는 host 가용량, 기존 서비스 실측, 운영과 같은 복구/JVM profile의 peak 근거, DB/files 크기·디스크 여유와 OS 여유를 함께 검토한다. 미측정 항목은 미확인으로 남긴다. Main 중단을 메모리 확보 실험으로 사용하거나, 검증 없이 cap을 낮추거나, 서버를 증설하지 않는다. 승인된 작업 창에서 실제 중단 후에도 자원을 다시 확인하고 부족하면 복구 job을 시작하지 않는다. 서비스 재개는 별도 최신 승인과 검토한 절차를 따른다.
 
 중단 전에 Main 이미지를 준비하는 경로는 [build-only image preparation](dev-image-preparation.md)다. source/CI 검토와 이미지 게시만 분리하며 runtime manifest·백업·예산·호스트 검증을 대체하지 않는다. 별도 원장 job/격리 DB의 자원과 비용은 현재 계획에서 따로 대사해야 하며, 과거 Main 재생성 7회 예산을 자동으로 확장하거나 초기화하지 않는다.
 
