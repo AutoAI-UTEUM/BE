@@ -1,0 +1,46 @@
+name: Synthetic deletion ledger MySQL 8.0.46
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - '.github/workflows/deletion-ledger-mysql-ci.yml'
+      - 'scripts/qa/deletion-ledger-mysql/**'
+      - 'main-service/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: synthetic-deletion-ledger-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  synthetic-ledger-mysql:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Package existing database-only operator
+        working-directory: main-service
+        run: ./gradlew deletionLedgerBootJar --no-daemon --max-workers=2
+      - name: Validate fixture guards without Docker
+        run: python3 -I -S -B scripts/qa/deletion-ledger-mysql/test_run.py
+      - name: Execute synthetic V64 to V65 recovery on owned tmpfs databases
+        run: python3 -I -S -B scripts/qa/deletion-ledger-mysql/run.py --execute
+      - name: Upload synthetic counters only
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: synthetic-ledger-mysql-${{ github.run_id }}
+          path: main-service/build/ledger-synthetic-result.json
+          if-no-files-found: warn
+          retention-days: 7
