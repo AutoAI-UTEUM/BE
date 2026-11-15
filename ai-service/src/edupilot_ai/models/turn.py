@@ -41,6 +41,7 @@ class EventPayload(ContractModel):
     message: str | None = Field(default=None, min_length=1)
     include_current_page: bool | None = None
     quiz_type: QuizType | None = None
+    difficulty: Literal["EASY", "MEDIUM", "HARD"] | None = None
     diagnosis_id: int | None = Field(default=None, gt=0)
     answer: str | None = Field(default=None, min_length=1)
 
@@ -51,7 +52,7 @@ _PAYLOAD_RULES: dict[EventType, tuple[frozenset[str], frozenset[str]]] = {
         frozenset({"message"}),
         frozenset({"include_current_page"}),
     ),
-    EventType.QUIZ_TYPE_SELECTED: (frozenset({"quiz_type"}), frozenset()),
+    EventType.QUIZ_TYPE_SELECTED: (frozenset({"quiz_type"}), frozenset({"difficulty"})),
     EventType.DIAGNOSIS_ANSWER_SUBMITTED: (
         frozenset({"diagnosis_id", "answer"}),
         frozenset(),
@@ -70,6 +71,8 @@ class TurnEvent(ContractModel):
         supplied = self.payload.model_fields_set
         if not required <= supplied or not supplied <= required | optional:
             raise ValueError("payload fields do not match eventType")
+        if "difficulty" in supplied and self.payload.difficulty is None:
+            raise ValueError("difficulty must be EASY, MEDIUM or HARD when supplied")
         return self
 
 

@@ -891,3 +891,7 @@ error
 ### File deletion retry (#477)
 
 Spring durably queues discarded/material-deleted provider file cleanup. DELETE /internal/ai/files/{fileId} keeps its request contract: the AI endpoint translates provider 404 into idempotent 204. An internal endpoint 404 is not proof of deletion and remains a tracked failure in Spring. No new paid AI request or timeout-budget change is introduced. Physical cleanup is disabled pending approved retention policy. Existing AI provider fileId logging requires separate coordination with #469. [Deletion journal](deletion-journal.md).
+
+### 학습 퀴즈 난이도 선택
+
+FE는 `QUIZ_TYPE_SELECTED`의 `payload.difficulty`에 선택적으로 `EASY`, `MEDIUM`, `HARD`를 전달합니다. 생략 시 기존 개인화 난이도이며 명시 선택은 이번 퀴즈에만 우선 적용합니다. Spring은 enum을 검증하여 AI에 전달하고 QuizAgent는 출제 범위·문항 수를 유지하면서 난이도를 반영합니다. 학습자 장기 메모리는 변경하지 않습니다. 기존 FE 요청은 수정하지 않아도 됩니다. 실제 FE UI·실제 LLM 품질 검증 및 배포는 별도입니다.

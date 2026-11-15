@@ -27,6 +27,7 @@ import io.edupilot.material.dto.MaterialSummaryResponse;
 import io.edupilot.material.storage.FileStorage;
 import io.edupilot.material.storage.StorageException;
 import io.edupilot.notification.NotificationTriggerService;
+import io.edupilot.session.LearningProgressService;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
@@ -49,6 +50,7 @@ public class MaterialService {
 	private final ClassroomWeekService weekService;
 	private final NotificationTriggerService notificationTriggerService;
 	private final DeletionJournal deletionJournal;
+	private final LearningProgressService progressService;
 
 	public MaterialService(
 		LearningMaterialRepository materialRepository,
@@ -61,7 +63,8 @@ public class MaterialService {
 		MaterialAccessService accessService,
 		ClassroomWeekService weekService,
 		NotificationTriggerService notificationTriggerService,
-		DeletionJournal deletionJournal
+		DeletionJournal deletionJournal,
+		LearningProgressService progressService
 	) {
 		this.materialRepository = materialRepository;
 		this.pageRepository = pageRepository;
@@ -74,6 +77,7 @@ public class MaterialService {
 		this.weekService = weekService;
 		this.notificationTriggerService = notificationTriggerService;
 		this.deletionJournal = deletionJournal;
+		this.progressService = progressService;
 	}
 
 	@Transactional
@@ -156,10 +160,11 @@ public class MaterialService {
 
 	@Transactional(readOnly = true)
 	public MaterialDetailResponse detail(Long ownerId, Long materialId) {
-		return MaterialDetailResponse.from(accessService.requireAccessible(
-			ownerId,
-			materialId
-		));
+		LearningMaterial material = accessService.requireAccessible(ownerId, materialId);
+		return MaterialDetailResponse.from(
+			material,
+			progressService.calculateMaterialProgressRate(ownerId, materialId)
+		);
 	}
 
 	@Transactional
@@ -178,7 +183,10 @@ public class MaterialService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
 		material.rename(normalizedTitle);
 		materialRepository.flush();
-		return MaterialDetailResponse.from(material);
+		return MaterialDetailResponse.from(
+			material,
+			progressService.calculateMaterialProgressRate(ownerId, materialId)
+		);
 	}
 
 	@Transactional(readOnly = true)

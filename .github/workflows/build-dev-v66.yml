@@ -1,0 +1,131 @@
+# Builds DEV-tagged artifacts, never performs a server deployment.
+name: Build DEV V66 images
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: Reviewed exact develop commit
+        required: true
+        type: string
+      mysql_test_run:
+        description: Reviewed successful Isolated Guardian MySQL PR run for this catalog
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: github.repository == 'AutoAI-UTEUM/BE' && github.ref == 'refs/heads/develop' && inputs.approved_sha == github.sha
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pull-requests: read
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check exact catalog, tests and reviewed CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MYSQL_TEST_RUN: ${{ inputs.mysql_test_run }}
+        run: |
+          set -euo pipefail
+          python3 -I -S -B scripts/deploy/dev_v66_source_preflight.py
+          python3 -B scripts/deploy/test_dev_v66_source_preflight.py
+          [[ "$MYSQL_TEST_RUN" =~ ^[1-9][0-9]*$ ]]
+          check_test_step() {
+            local workflow="$1" job="$2" step="$3" run
+            run="$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs" -f head_sha="$GITHUB_SHA" -f branch=develop -f event=push -f status=success --jq '.workflow_runs[0].id // empty')"
+            [[ "$run" =~ ^[1-9][0-9]*$ ]]
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs" |
+              jq -e --arg job "$job" --arg step "$step" 'any(.jobs[]; .name == $job and .conclusion == "success" and any(.steps[]; .name == $step and .conclusion == "success"))' >/dev/null
+          }
+          check_test_step main-service-ci.yml main-service-build 'Build and test main-service'
+          check_test_step ai-service-ci.yml ai-service-build 'Test ai-service'
+          # Require the tested PR head and reviewed develop commit to have
+          # identical trees; if base drift changed them, refresh the PR CI.
+          metadata="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$MYSQL_TEST_RUN" --jq '[.path,.event,.conclusion,.head_repository.full_name,.pull_requests[0].number,.head_sha] | @tsv')"
+          IFS=$'\t' read -r path event result repo pr head <<< "$metadata"
+          test "$path" = '.github/workflows/guardian-mysql-ci.yml'
+          test "$event" = pull_request
+          test "$result" = success
+          test "$repo" = "$GITHUB_REPOSITORY"
+          [[ "$pr" =~ ^[1-9][0-9]*$ && "$head" =~ ^[a-f0-9]{40}$ ]]
+          pr_meta="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq '[.base.ref,.merged,.merge_commit_sha,.head.sha] | @tsv')"
+          test "$pr_meta" = "$(printf 'develop\ttrue\t%s\t%s' "$GITHUB_SHA" "$head")"
+          pr_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$head" --jq '.tree.sha')"
+          deploy_tree="$(git rev-parse 'HEAD^{tree}')"
+          test "$pr_tree" = "$deploy_tree"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$MYSQL_TEST_RUN/jobs" --jq '[.jobs[] | select(.name=="guardian-mysql" and .conclusion=="success")] | length')" -eq 1
+    # Pull metadata is read in the review job only.
+    # No deployment secrets are available in this job.
+
+  publish:
+    needs: review
+    if: github.repository == 'AutoAI-UTEUM/BE' && github.ref == 'refs/heads/develop' && inputs.approved_sha == github.sha
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Publish DEV AI candidate
+        id: ai_image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./ai-service
+          file: ./ai-service/Dockerfile
+          push: true
+          tags: ghcr.io/autoai-uteum/ai-service:dev-v66-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            com.uteum.dev-release-contract=v66-learning-quiz-drafts
+      - name: Publish DEV Spring candidate
+        id: main_image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./main-service
+          file: ./main-service/Dockerfile
+          push: true
+          tags: ghcr.io/autoai-uteum/main-service:dev-v66-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            com.uteum.dev-release-contract=v66-learning-quiz-drafts
+            com.uteum.flyway-catalog-sha256=da019c98b93a1516d2357c72e86ec2ed753f3c71934de375a6cf8e144d674ce1
+            com.uteum.deletion-ledger-format=1
+      - name: Record immutable artifacts, not deployment authorization
+        env:
+          MAIN_DIGEST: ${{ steps.main_image.outputs.digest }}
+          AI_DIGEST: ${{ steps.ai_image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          for digest in "$MAIN_DIGEST" "$AI_DIGEST"; do
+            [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          done
+          {
+            echo 'BUILD_ONLY_NOT_DEPLOYMENT_AUTHORIZATION'
+            echo "Commit: $GITHUB_SHA"
+            echo "Spring: ghcr.io/autoai-uteum/main-service@$MAIN_DIGEST"
+            echo "AI: ghcr.io/autoai-uteum/ai-service@$AI_DIGEST"
+          } >> "$GITHUB_STEP_SUMMARY"

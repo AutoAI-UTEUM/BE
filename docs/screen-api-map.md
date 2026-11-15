@@ -90,7 +90,7 @@
 | 계정 설정 | 탈퇴 확인 → LOCAL 비밀번호 / Google ID 토큰 재인증 | `DELETE /api/users/me` | password·googleIdToken 중 해당 provider 증명 하나만 제출, 성공 후 토큰 정리·로그인 이동 | 누락/중복 증명, provider·sub 불일치, Google 만료/검증 실패 (DEC-028); 파일 보존·강사 강의실 정책은 #477 별도 |
 | 자료 목록 | 화면 진입/페이지 이동 | `GET /api/materials` | 자료 카드 목록. FAILED는 `failureReason`별 안내, null이면 일반 실패 문구, `traceId`가 있으면 문의 정보로 표시 | 권한, 네트워크 |
 | 자료 업로드 | 파일 제출 | `POST /api/materials` | 처리 상태 표시 후 목록 반영 | 파일 형식/크기/처리 실패 |
-| 자료 상세 | 화면 진입 | `GET /api/materials/{materialId}` | 제목, 페이지 수, 학습 시작 가능 여부. FAILED는 사유 코드와 업로드 traceId 표시 | 자료 없음/권한 |
+| 자료 상세 | 화면 진입·설명 완료 후 진도 갱신 | `GET /api/materials/{materialId}` | 제목, 페이지 수, 학습 시작 가능 여부와 본인 `progressRate`(0~100) 게이지. FAILED는 사유 코드와 업로드 traceId 표시 | 자료 없음/권한 |
 | 자료 개요 탭 | 탭 진입·상태 갱신 | `GET /api/materials/{materialId}/overview` | 추출 완료 후 비동기 생성. 행이 없거나 PENDING이면 준비 중, READY면 개요, FAILED면 실패 상태 표시 | 자료 없음/권한, 개요 준비·실패 |
 | 관리자 자료 개요 수동 복구 | 운영자가 재생성 요청·상태 확인 | `POST /api/admin/materials/{id}/overview/regenerate`, `GET /api/materials/{id}/overview` | 202는 큐 접수이며 생성 완료가 아님. 자료별 분당 1회, 실패 카운터 초기화 후 비동기 재생성 | 비ADMIN 403, 미준비·없는 자료 404, 1분 제한 429, 큐 실패 503 |
 | PDF 뷰어 문서 질문 | 질문 전송·대화 이어가기 | `POST /api/materials/{materialId}/doc-chat` | 최근 대화 최대 50개를 보내고 응답 `answer`와 `warnings` 표시. 서버는 최근 10개만 AI에 전달 | 자료 없음/권한, 자료 처리 중·실패, AI 오류·429 |
@@ -175,7 +175,7 @@ FE가 낙관적으로 페이지를 먼저 움직이더라도 실패 시 Spring �
 | --- | --- | --- |
 | 현재 페이지 설명 | `EXPLAIN_CURRENT_PAGE` | `detailLevel` 선택 — 생략 시 사용자 `aiAnswerStyle` 적용 |
 | 새 질문/후속 질문 | `USER_QUESTION` | `message` |
-| 퀴즈 유형 선택 | `QUIZ_TYPE_SELECTED` | `quizType` |
+| 퀴즈 유형 선택 | `QUIZ_TYPE_SELECTED` | `quizType`, 선택 `difficulty` |
 | 진단 답변 | `DIAGNOSIS_ANSWER_SUBMITTED` | `diagnosisId`, `answer` |
 | 교정 내용 추가 질문 | `USER_QUESTION` 재사용 | `message` — 교정 문맥은 Spring이 서버 측에서 연결하므로 FE는 별도 표시가 필요 없음 |
 
@@ -244,3 +244,15 @@ TEAM_REVIEW는 기본 OFF이며 실제 관계 확인 기준·동의문/수집항
 From a pending account, read `GET /api/admin/guardian-requests/prior-consent/options`. Only offer review when available and after the administrator checks the actual retained record. Submit `POST /api/admin/guardian-requests/users/{userId}/prior-consent/approval` with an opaque evidence reference, actual receipt, validity end, covered notice/scopes and performed checks. A missing case uses null ID and zero generation/revision; an existing case uses its current snapshot. No checks are preselected. Refresh and re-review on 409; disable entry on 503. FE code is not part of this BE change. See [FE handoff and API details](guardian-prior-consent.md).
 
 For the user-described face-to-face record, show `IN_PERSON`, the actual consent confirmation date and a separate server review date. Keep all required checks unselected and retain only an opaque record reference; no original document upload is required.
+
+### 학습 퀴즈 난이도 선택
+
+FE는 `QUIZ_TYPE_SELECTED`의 `payload.difficulty`에 선택적으로 `EASY`, `MEDIUM`, `HARD`를 전달합니다. 생략 시 기존 개인화 난이도이며 명시 선택은 이번 퀴즈에만 우선 적용합니다. Spring은 enum을 검증하여 AI에 전달하고 QuizAgent는 출제 범위·문항 수를 유지하면서 난이도를 반영합니다. 학습자 장기 메모리는 변경하지 않습니다. 기존 FE 요청은 수정하지 않아도 됩니다. 실제 FE UI·실제 LLM 품질 검증 및 배포는 별도입니다.
+
+### 학습 퀴즈 서버 임시저장 (선택 연동)
+
+- 풀이 진입: `GET /api/quizzes/{quizId}/draft`; 204이면 브라우저 답안 폴백. 다른 기기에서도 같은 계정으로 복원합니다.
+- 답안 변경: `PUT /api/quizzes/{quizId}/draft`에 전체 `answers`와 마지막 `version` 전송. 마지막 `savedAt`·미저장·오프라인 상태를 구분합니다.
+- 409 `DRAFT_VERSION_CONFLICT`: `latestDraft`와 로컬 답안을 비교한 뒤 선택한 내용/최신 버전으로 저장합니다. 자동 재시도로 서버 답안을 덮어쓰지 않습니다.
+- 최종 제출: 기존 `/submit` 본문에 답안을 보내며 성공 시 서버 초안은 원자적으로 소비됩니다. 시험 draft API와 혼용하지 않습니다.
+- 현재 CORS는 허용 origin의 PUT preflight를 지원합니다. 서버 배포/FE 연동/실제 기기 간 수동 검증은 별도입니다.

@@ -17,9 +17,11 @@ public record MaterialDetailResponse(
 	MaterialFailureReason failureReason,
 	@Schema(nullable = true, maxLength = 64)
 	String traceId,
-	Instant createdAt
+	Instant createdAt,
+	@Schema(description = "인증된 사용자 본인의 자료 설명 완료 진도율", minimum = "0", maximum = "100")
+	int progressRate
 ) {
-	public static MaterialDetailResponse from(LearningMaterial material) {
+	public static MaterialDetailResponse from(LearningMaterial material, int progressRate) {
 		return new MaterialDetailResponse(
 			material.getId(),
 			material.getTitle(),
@@ -32,7 +34,8 @@ public record MaterialDetailResponse(
 			material.getProcessingStatus() == MaterialProcessingStatus.FAILED
 				? material.getFailureTraceId()
 				: null,
-			material.getCreatedAt()
+			material.getCreatedAt(),
+			progressRate
 		);
 	}
 }

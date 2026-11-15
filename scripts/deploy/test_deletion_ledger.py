@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -25,6 +26,19 @@ class BoundaryTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(dir=parent)
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
+        self.current_source = p.SOURCE
+        reviewed = self.root / "reviewed-source"
+        migrations = "main-service/src/main/resources/db/migration"
+        target = reviewed / migrations
+        target.mkdir(parents=True)
+        for version in range(1, 66):
+            sources = list((self.current_source / migrations).glob(f"V{version}__*.sql"))
+            self.assertEqual(len(sources), 1)
+            shutil.copyfile(sources[0], target / sources[0].name)
+        self.assertEqual(p.base.sha_json(p.base.source_catalog_v65(reviewed)), p.base.V65_CATALOG_SHA256)
+        source_patch = patch.object(p, "SOURCE", reviewed)
+        source_patch.start()
+        self.addCleanup(source_patch.stop)
         self.deploy = self.root / "deploy"; self.deploy.mkdir(mode=0o700)
         self.patch = patch.object(p, "DEPLOY_ROOT", self.deploy); self.patch.start(); self.addCleanup(self.patch.stop)
         now = dt.datetime.now(dt.timezone.utc)
@@ -137,6 +151,12 @@ class BoundaryTests(unittest.TestCase):
         self.assertIsNone(children[1][1]["input"])
         self.assertEqual(children[2][1]["input"], self.ledger.read_bytes())
         self.assertFalse(self.journal.root.joinpath("action.lock").exists())
+
+    def test_current_v66_source_is_rejected_before_operator_commands(self):
+        with patch.object(p, "SOURCE", self.current_source):
+            with self.assertRaisesRegex(ValueError, "EXACT_REVIEWED_V65"):
+                self.operator.verify()
+        self.assertEqual(self.calls, [])
 
     def test_default_plan_validation_runs_no_commands(self):
         path = self.root / "plan.json"; p.write_new(path, json.dumps(self.p).encode())

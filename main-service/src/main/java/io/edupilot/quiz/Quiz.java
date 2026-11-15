@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -64,6 +65,32 @@ public class Quiz {
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
+
+	@JdbcTypeCode(SqlTypes.JSON)
+	@Column(name = "draft_answers", columnDefinition = "json")
+	private String draftAnswersJson;
+
+	@ColumnDefault("0")
+	@Column(name = "draft_version", nullable = false)
+	private int draftVersion;
+
+	@Column(name = "draft_saved_at")
+	private Instant draftSavedAt;
+
+	String draftAnswersJson() { return draftAnswersJson; }
+	int draftVersion() { return draftVersion; }
+	Instant draftSavedAt() { return draftSavedAt; }
+
+	void saveDraft(String answersJson, Instant now) {
+		this.draftAnswersJson = answersJson;
+		this.draftVersion = Math.incrementExact(draftVersion);
+		this.draftSavedAt = now;
+	}
+
+	void clearDraft() {
+		this.draftAnswersJson = null;
+		this.draftSavedAt = null;
+	}
 
 	protected Quiz() {
 	}

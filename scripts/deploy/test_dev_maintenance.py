@@ -722,6 +722,7 @@ class MaintenanceTests(unittest.TestCase):
                 m.base.urllib.request, "urlopen", side_effect=AssertionError("NO_HTTP")
             ) as http,
             mock.patch.object(m.sys, "stdout", output),
+            mock.patch.object(m, "SOURCE", s.root),
         ):
             self.assertEqual(m.run(), 0)
         process.assert_not_called()
@@ -729,6 +730,20 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(
             json.loads(output.getvalue())["status"], "LOCAL_PLAN_VALIDATED_NO_ACTION"
         )
+        self.assertFalse(s.controller.journal.root.exists())
+
+    def test_current_v66_source_is_rejected_before_any_maintenance_process(self):
+        s = self.sim
+        plan = s.root / "plan.json"
+        m.private_write(plan, s.plan)
+        with (
+            mock.patch.object(m.sys, "argv", ["maintenance", "--action", "begin", "--plan", str(plan),
+                                             "--approved-sha", "a" * 40]),
+            mock.patch.object(m.base.subprocess, "run", side_effect=AssertionError("NO_PROCESS")) as process,
+            self.assertRaisesRegex(ValueError, "EXACT_REVIEWED_V65"),
+        ):
+            m.run()
+        process.assert_not_called()
         self.assertFalse(s.controller.journal.root.exists())
 
     def test_status_does_not_attest_live_quiescence_or_run_docker(self):
@@ -965,6 +980,7 @@ class MaintenanceTests(unittest.TestCase):
         with (
             mock.patch.object(m.sys, "argv", argv),
             mock.patch.object(m.sys, "platform", "linux"),
+            mock.patch.object(m, "SOURCE", s.root),
             mock.patch.object(
                 m.base.subprocess, "run", side_effect=responses
             ) as process,

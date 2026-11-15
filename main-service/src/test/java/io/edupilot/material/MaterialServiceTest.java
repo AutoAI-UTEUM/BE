@@ -35,6 +35,7 @@ import io.edupilot.global.error.ErrorCode;
 import io.edupilot.classroom.ClassroomWeekService;
 import io.edupilot.material.storage.FileStorage;
 import io.edupilot.notification.NotificationTriggerService;
+import io.edupilot.session.LearningProgressService;
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
 import io.edupilot.user.UserRole;
@@ -68,6 +69,9 @@ class MaterialServiceTest {
 	@Mock
 	private io.edupilot.deletion.DeletionJournal deletionJournal;
 
+	@Mock
+	private LearningProgressService progressService;
+
 	private MaterialService materialService;
 	private User owner;
 
@@ -84,7 +88,8 @@ class MaterialServiceTest {
 			accessService,
 			weekService,
 			notificationTriggerService,
-			deletionJournal
+			deletionJournal,
+			progressService
 		);
 		owner = User.create("owner@example.com", "hash", "소유자");
 		ReflectionTestUtils.setField(owner, "id", 1L);
@@ -212,6 +217,33 @@ class MaterialServiceTest {
 	}
 
 	@Test
+	void detailReturnsRequestingMembersProgressNotMaterialOwnersProgress() {
+		LearningMaterial material = LearningMaterial.create(owner, "shared PDF", "materials/shared.pdf");
+		ReflectionTestUtils.setField(material, "id", 10L);
+		when(accessService.requireAccessible(2L, 10L)).thenReturn(material);
+		when(progressService.calculateMaterialProgressRate(2L, 10L)).thenReturn(40);
+
+		var response = materialService.detail(2L, 10L);
+
+		assertThat(response.progressRate()).isEqualTo(40);
+		InOrder order = inOrder(accessService, progressService);
+		order.verify(accessService).requireAccessible(2L, 10L);
+		order.verify(progressService).calculateMaterialProgressRate(2L, 10L);
+		verify(progressService, never()).calculateMaterialProgressRate(1L, 10L);
+	}
+
+	@Test
+	void detailDoesNotCalculateProgressWhenAccessWasRevoked() {
+		when(accessService.requireAccessible(2L, 10L))
+			.thenThrow(new BusinessException(ErrorCode.MATERIAL_NOT_FOUND));
+
+		assertThatThrownBy(() -> materialService.detail(2L, 10L))
+			.isInstanceOfSatisfying(BusinessException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ErrorCode.MATERIAL_NOT_FOUND));
+		verifyNoInteractions(progressService);
+	}
+
+	@Test
 	void renameUpdatesOnlyOwnedActiveMaterialTitle() {
 		LearningMaterial material = LearningMaterial.create(
 			owner,
@@ -225,7 +257,11 @@ class MaterialServiceTest {
 			MaterialStatus.ACTIVE
 		)).thenReturn(Optional.of(material));
 
+		when(progressService.calculateMaterialProgressRate(1L, 10L)).thenReturn(25);
+
 		var response = materialService.rename(1L, 10L, "  새 제목  ");
+
+		assertThat(response.progressRate()).isEqualTo(25);
 
 		assertThat(material.getTitle()).isEqualTo("새 제목");
 		assertThat(response.title()).isEqualTo("새 제목");

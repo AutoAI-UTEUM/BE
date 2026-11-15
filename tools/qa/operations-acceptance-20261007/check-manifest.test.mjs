@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { BASELINE, BUNDLES, EVIDENCE, HISTORY, checkManifest, runCli } from './check-manifest.mjs';
-import { FEATURE, SCOPE, verifyLocalBinding } from './local-source-proof.mjs';
+import { FEATURE, SCOPE, verifyLocalBinding, sourceSnapshot } from './local-source-proof.mjs';
 
 const template = JSON.parse(readFileSync(new URL('./metadata-manifest.example.json', import.meta.url), 'utf8'));
 const clone = () => structuredClone(template);
@@ -265,19 +265,21 @@ test('all source references match historical, CI-reviewed, or explicitly local-v
     const observed = createHash('sha256').update(canonical).digest('hex');
     const current = EVIDENCE.currentSourceBindings.find((binding) => binding.path === x.path);
     const local = (EVIDENCE.localSourceBindings ?? []).find((binding) => binding.path === x.path);
+    const step = EVIDENCE.ciBuildStepSourceBindings.find((binding) => binding.path === x.path);
+    if (step) assert.equal(step.baselineSha256, x.sha256, 'historical source remains immutable');
     assert.ok(!(current && local), 'CI and local source proof cannot be conflated');
     if (current) assert.equal(current.baselineSha256, x.sha256, 'historical binding must remain intact');
     if (local) {
       assert.equal(local.baselineSha256, x.sha256, 'historical binding must remain intact');
       assert.deepEqual(verifyLocalBinding(root, local, x), [], 'local proof must match source and real test metadata');
     }
-    assert.equal(observed, current?.sha256 ?? local?.sha256 ?? x.sha256, x.path);
+    assert.equal(observed, step?.sha256 ?? current?.sha256 ?? local?.sha256 ?? x.sha256, x.path);
   }
 });
 
-test('composer local source proof is separate from historical and CI proof and grants no acceptance', () => {
-  assert.equal(EVIDENCE.localSourceBindings.length, 1);
-  const [binding] = EVIDENCE.localSourceBindings;
+test('superseded composer local proof remains historical and grants no current acceptance', () => {
+  assert.equal(EVIDENCE.localSourceBindings.length, 0);
+  const binding = EVIDENCE.historicalLocalSourceBindings.at(-1);
   assert.equal(binding.path, FEATURE);
   assert.equal(binding.scope, SCOPE);
   assert.equal(binding.kind, 'LOCAL_WORKTREE_TESTS');
@@ -286,7 +288,7 @@ test('composer local source proof is separate from historical and CI proof and g
   assert.equal(binding.summarySha256, 'f57525b0139dbfc05ecdbfedc72243f3fbd3caa74329c4c62a93b8885e4dbedd');
   const historical = EVIDENCE.bundles.flatMap(b => b.sources).find(x => x.path === FEATURE);
   assert.equal(historical.sha256, '9daa987ec4b9596505b90fb3e8c6e2d75f43d5cff9d75e659a70c6a3abac84d8');
-  assert.deepEqual(verifyLocalBinding(root, binding, historical), []);
+  assert.ok(verifyLocalBinding(root, binding, historical).includes('INPUT_TREE'));
   const m = synthetic(); m.provenance = 'OPERATOR_REPORTED';
   m.acceptance.access_answers = { status: 'LOCAL_WORKTREE_TESTS', observedAtUtc: at, receiptSha256: binding.receiptSha256 };
   const result = checkManifest(m);
@@ -297,15 +299,16 @@ test('composer local source proof is separate from historical and CI proof and g
 test('CI and local bindings are unique and tampered local receipt hashes fail', () => {
   const bindings = [...EVIDENCE.currentSourceBindings, ...EVIDENCE.localSourceBindings];
   assert.equal(new Set(bindings.map(x => x.path)).size, bindings.length);
-  const [binding] = EVIDENCE.localSourceBindings;
+  const binding = EVIDENCE.historicalLocalSourceBindings.at(-1);
   const historical = EVIDENCE.bundles.flatMap(b => b.sources).find(x => x.path === binding.path);
   assert.ok(verifyLocalBinding(root, { ...binding, receiptSha256: '0'.repeat(64) }, historical).includes('RECEIPT_DIGEST'));
 });
 
 test('the earlier local snapshot remains immutable historical proof and cannot verify changed source', () => {
-  assert.equal(EVIDENCE.historicalLocalSourceBindings.length, 2);
+  assert.equal(EVIDENCE.historicalLocalSourceBindings.length, 3);
   const hashes = ['bf6c152c063d85eb0088258893012098059aaa57e826ed230200c0a79fada596',
-    '4d78329dc44312aa052084d367f00b7014505843152959d8fe80c36dfb238615'];
+    '4d78329dc44312aa052084d367f00b7014505843152959d8fe80c36dfb238615',
+    'd975136e9fd88cc17725592fd3a452149f6a0dcadb548e2a547286aecd928fa4'];
   for (const [index, binding] of EVIDENCE.historicalLocalSourceBindings.entries()) {
     assert.equal(createHash('sha256').update(JSON.stringify(binding)).digest('hex'), hashes[index]);
     for (const [path, digest] of [[binding.receiptPath, binding.receiptSha256], [binding.summaryPath, binding.summarySha256]]) {
@@ -317,8 +320,8 @@ test('the earlier local snapshot remains immutable historical proof and cannot v
   }
 });
 
-test('current full-build evidence includes every operator suite with no failed or skipped cases', () => {
-  const [binding] = EVIDENCE.localSourceBindings;
+test('historical full-build evidence retains every operator suite with no failed or skipped cases', () => {
+  const binding = EVIDENCE.historicalLocalSourceBindings.at(-1);
   const summary = JSON.parse(readFileSync(join(root, binding.summaryPath), 'utf8'));
   for (const [name, tests] of [['DeletionLedgerCliTest', 4], ['LedgerCodecTest', 5], ['LedgerContextTest', 2]]) {
     const suite = summary.suites.find(x => x.name === `io.edupilotops.deletion.${name}`);
@@ -329,6 +332,56 @@ test('current full-build evidence includes every operator suite with no failed o
   }
   const context = summary.suites.find(x => x.name === 'io.edupilotops.deletion.LedgerContextTest');
   assert.ok(context.cases.some(x => x.name === 'exportDoesNotRequireNewPriorConsentColumnsOnTheReadOnlySource()' && x.status === 'PASSED'));
+});
+
+test('V66 evidence is only the verified successful build step, never an overall CI pass or deployment permission', () => {
+  const proof = EVIDENCE.ciBuildStepVerification;
+  assert.deepEqual(proof, {
+  "kind": "CI_BUILD_STEP_ONLY",
+  "scope": "spring-synthetic-build;not-job-success;not-live-acceptance",
+  "sourceSha": "461952d2dfdbcf18191fa6fdab9e1cd67868431a",
+  "integrationSha": "fc49ea98322a7e12414ab0a1c062476413575301",
+  "ciJobUrl": "https://github.com/AutoAI-UTEUM/BE/actions/runs/43726645539/job/132849921225",
+  "stepName": "Build and test main-service",
+  "stepConclusion": "success",
+  "jobConclusion": "failure",
+  "jobFailureStep": "Validate operations acceptance metadata without operations",
+  "inputTreeSha256": "cad4244fdf98ca84d553d7916ba599153e4cec22cd3614f0d4fceb0dd5c373ad",
+  "inputFileCount": 1243,
+  "executionAuthorized": false,
+  "operatorAcceptance": false,
+  "realMysql": false,
+  "realProvider": false,
+  "deployedServices": false
+});
+  const snapshot = sourceSnapshot(root);
+  assert.equal(snapshot.sha256, proof.inputTreeSha256, 'changed source must obtain new actual build evidence');
+  assert.equal(snapshot.count, proof.inputFileCount);
+  assert.deepEqual(EVIDENCE.ciBuildStepSourceBindings, [
+  {
+    "path": "main-service/src/test/java/io/edupilot/quiz/QuizApiContractTest.java",
+    "baselineSha256": "fd602ff271d9dedc03fa71d8176a6de6c609cde4560f0d86372c9e90345f5756",
+    "sha256": "6f200ae89696a1a7b9047a7b53acbcb4ee3f5f021bb0526809c9c7a19c90cd01"
+  },
+  {
+    "path": "main-service/src/test/java/io/edupilot/guardian/team/GuardianTeamFullMigrationTest.java",
+    "baselineSha256": "f852e0a51adc241346f12d4a32178f01361e4294ffd74932652a69c375546170",
+    "sha256": "bffc6e62c0aa3b2dc76a3beba5399c1c55637173052848b358c0d8dca48d9ebf"
+  },
+  {
+    "path": "main-service/src/main/java/io/edupilot/aiusage/AiFeature.java",
+    "baselineSha256": "9daa987ec4b9596505b90fb3e8c6e2d75f43d5cff9d75e659a70c6a3abac84d8",
+    "sha256": "0e6e5ac9428e2cb1a8f263c208de9f2cbddcc83299dde910a2c9f2f8f2d3bc63"
+  }
+]);
+  for (const binding of EVIDENCE.ciBuildStepSourceBindings) {
+    assert.equal(snapshot.files.find(file => file.path === binding.path)?.sha256, binding.sha256);
+  }
+  const m = synthetic(); m.provenance = 'OPERATOR_REPORTED';
+  m.acceptance.access_answers = { status: 'CI_BUILD_STEP_ONLY', observedAtUtc: at };
+  const result = checkManifest(m);
+  assert.equal(result.operatorReportedAcceptanceComplete, false);
+  assert.equal(result.executionAuthorized, false);
 });
 
 test('checker has no network, subprocess, credential, SQL execution or write API', () => {

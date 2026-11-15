@@ -65,7 +65,7 @@ public class SessionTurnService {
 		TurnEventType.USER_QUESTION,
 		Set.of("message", "includeCurrentPage"),
 		TurnEventType.QUIZ_TYPE_SELECTED,
-		Set.of("quizType"),
+		Set.of("quizType", "difficulty"),
 		TurnEventType.DIAGNOSIS_ANSWER_SUBMITTED,
 		Set.of("diagnosisId", "answer"),
 		TurnEventType.NOTE_REQUESTED,
@@ -854,12 +854,22 @@ public class SessionTurnService {
 						ErrorCode.VALIDATION_FAILED
 					);
 				}
-					yield new ValidatedPayload(
-						"퀴즈 유형 선택: " + quizType,
-						null,
-						true,
-						Map.of("quizType", quizType)
-					);
+				String difficulty = optionalText(payload, "difficulty");
+				if (difficulty != null
+					&& !Set.of("EASY", "MEDIUM", "HARD").contains(difficulty)) {
+					throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+				}
+				Map<String, Object> aiPayload = new LinkedHashMap<>();
+				aiPayload.put("quizType", quizType);
+				if (difficulty != null) {
+					aiPayload.put("difficulty", difficulty);
+				}
+				yield new ValidatedPayload(
+					"퀴즈 유형 선택: " + quizType,
+					null,
+					true,
+					aiPayload
+				);
 			}
 			case DIAGNOSIS_ANSWER_SUBMITTED -> {
 				JsonNode diagnosisId = payload.get("diagnosisId");

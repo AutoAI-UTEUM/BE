@@ -138,6 +138,7 @@ public class QuizSubmissionPersistenceService {
 				passed
 			)
 		);
+		quiz.clearDraft();
 		boolean currentPageQuiz = quiz.getPageNumber()
 			== session.getCurrentPage();
 		List<UiAction> uiActions = currentPageQuiz

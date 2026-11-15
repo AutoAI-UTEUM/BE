@@ -193,7 +193,7 @@ async def test_quiz_prompt_scopes_generation_to_current_page(
     payload = deepcopy(turn_payload)
     payload["event"] = {
         "eventType": "QUIZ_TYPE_SELECTED",
-        "payload": {"quizType": "MCQ"},
+        "payload": {"quizType": "MCQ", "difficulty": "EASY"},
     }
     context_payload = payload["context"]
     assert isinstance(context_payload, dict)
@@ -210,6 +210,7 @@ async def test_quiz_prompt_scopes_generation_to_current_page(
     response = await post_turn(client, auth_headers, payload)
 
     assert response.status_code == 200
+    assert "difficulty=EASY" in fake_llm.calls[0][0][0]["content"]
     quiz_user_message = fake_llm.calls[0][0][1]["content"]
     assert "아직 배우지 않은 다음 페이지 원문" not in quiz_user_message
     prompt_payload = json.loads(quiz_user_message)

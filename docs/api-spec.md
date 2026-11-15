@@ -103,6 +103,8 @@
 | GET | `/api/sessions/{sessionId}/messages` | 메시지 조회 | Y | 세션 소유자 |
 | GET | `/api/sessions/{sessionId}/quizzes` | 퀴즈 기록 조회 | Y | 세션 소유자 |
 | GET | `/api/quizzes/{quizId}` | 퀴즈 공개 문항 조회 | Y | 세션 소유자 |
+| GET | `/api/quizzes/{quizId}/draft` | 본인 학습 퀴즈 임시 답안 조회 (없으면 204) | Y | 세션 소유자 + 현재 자료 접근권 |
+| PUT | `/api/quizzes/{quizId}/draft` | 학습 퀴즈 임시 답안 전체 저장 | Y | ACTIVE 세션의 현재 미제출 퀴즈 소유자 |
 | GET | `/api/quizzes/{quizId}/submission` | 내 퀴즈 제출 결과 조회 | Y | 제출한 세션 소유자 + 현재 자료 접근권 |
 | POST | `/api/quizzes/{quizId}/submit` | 퀴즈 제출 | Y | 세션 소유자 + 현재 자료 접근권 |
 | POST | `/api/classrooms/{classroomId}/exams` | 별도 시험 DRAFT 생성 | Y | 소유 INSTRUCTOR |
@@ -601,6 +603,8 @@ Query: `page`, `size`, 선택 검색/정렬 필드는 TBD.
 
 자료 제목, 페이지 수, 처리 상태, 학습 가능 여부와 실패 시 `failureReason`·`traceId`를 반환합니다. 실패 필드의 nullable·enum 규칙은 위 목록 응답과 같습니다. 소유자 또는 자료가 연결된 강의실의 승인 멤버에게 주차 상태와 관계없이 허용합니다. 강의실 자료는 전역 `GET /api/materials` 목록에는 포함하지 않고 강의실 주차 API에서 발견합니다.
 
+`progressRate`는 인증된 사용자 본인의 자료 진도율(0~100 정수)입니다. ACTIVE·COMPLETED 세션의 고유 설명 완료 페이지 수를 전체 페이지 수로 나누어 반올림하며, 이력이나 유효한 페이지 수가 없으면 0입니다. 현재 페이지 위치·정답률·강의실 평균이 아니며 같은 자료를 보는 사용자마다 다릅니다. FE는 화면 진입과 설명 완료 후 이 API를 재조회해 게이지를 갱신합니다. 제목 수정 응답에도 같은 본인 진도율을 포함합니다. 기존 응답 필드와 접근권 검증은 유지합니다.
+
 ### GET `/api/materials/{materialId}/overview`
 
 자료 소유자 또는 자료가 연결된 강의실의 승인 멤버가 저장된 자료 개요를 조회합니다. 비접근·삭제·미존재 자료는 `MATERIAL_NOT_FOUND`(404)로 은닉합니다. `material_overviews` 행이 아직 없으면 404 대신 `PENDING` 합성 응답을 반환하며 `content`와 `updatedAt`은 `null`입니다. 행이 있으면 저장된 `status`와 `updatedAt`을 반환하되 `content`는 `READY`일 때만 반환하고 `PENDING | FAILED`에서는 `null`입니다. 조회 요청 자체는 AI를 호출하지 않습니다. 개요는 자료 추출 완료 후 비동기로 생성하며, 기존 READY 자료 중 개요 행이 없는 자료는 오래된 순으로 분당 최대 3건씩 백필합니다. 자동 생성·재생성의 모든 실패는 자료별 24시간 후 재시도하고 누적 3회 실패 시 자동 백필에서 제외합니다. 기존 READY 개요의 재생성 실패는 이용 가능한 본문을 유지합니다. 자료 처리 상태는 변경하지 않습니다.
@@ -923,7 +927,7 @@ QA에서 나온 제안도 같은 엔드포인트를 사용하며, 실제 제안�
 | --- | --- |
 | `EXPLAIN_CURRENT_PAGE` | `{ "detailLevel": "NORMAL" }` |
 | `USER_QUESTION` | `{ "message": "...", "includeCurrentPage": true\|false }` — `includeCurrentPage` 선택, 생략 시 `true` |
-| `QUIZ_TYPE_SELECTED` | `{ "quizType": "MCQ" }` |
+| `QUIZ_TYPE_SELECTED` | `{ "quizType": "MCQ", "difficulty": "EASY\|MEDIUM\|HARD" }` — `difficulty` 선택; 생략 시 기존 개인화 유지 |
 | `DIAGNOSIS_ANSWER_SUBMITTED` | `{ "diagnosisId": 30, "answer": "..." }` |
 | `NOTE_REQUESTED` | `{}` — 필드가 없는 빈 객체만 허용 |
 
@@ -974,6 +978,8 @@ AI 호출 중 멤버십·자료 연결이 회수되거나 계정이 정지·역�
 ```
 
 `noteDraft`는 선택 필드입니다. 존재할 때 `title`은 공백이 아닌 60자 이하 문자열이고 `content`는 공백이 아닌 문자열입니다. `noteDraft`가 없는 기존 턴 응답에서는 필드가 생략됩니다. 초안 내용은 메시지·대화 요약·QA thread digest·서버 로그에 포함하지 않습니다.
+
+`difficulty`는 이번 퀴즈에만 적용되며 학습자 메모리를 변경하지 않습니다. 명시 선택은 난이도 개인화보다 우선하지만 자료 범위·문항 수·유형은 바꾸지 않습니다. null·공백·소문자·알 수 없는 값은 `VALIDATION_FAILED`로 거부합니다. JSON 및 스트리밍 경로에 동일하게 적용됩니다. 새 FE 옵션은 Spring·AI가 모두 이 선택 필드를 지원하는 버전에 반영된 뒤 활성화합니다.
 
 퀴즈 생성 턴(`QUIZ_TYPE_SELECTED`)의 응답에는 문항 본문을 싣지 않습니다. 대신 `state.activeQuizId`에 생성된 퀴즈의 `quizId`를 포함하고, FE는 `GET /api/quizzes/{quizId}`로 공개 문항을 조회해 풀이 UI를 엽니다. 저득점 진단에서 `uiActions`에 `diagnosisId`를 싣는 방식과 같은 참조 전달 원칙입니다.
 
@@ -1265,6 +1271,18 @@ Query:
 퀴즈 문항 정본에서 조립합니다. `explanation`은 정본에 해설이 있는 MCQ/OX만
 문자열이고 SHORT/ESSAY는 `null`입니다. `verdict`는
 `CORRECT | PARTIAL | WRONG` 중 하나입니다.
+
+#### GET / PUT `/api/quizzes/{quizId}/draft`
+
+학습 중 AI 퀴즈의 본인 답안을 서버에 저장합니다. 별도 시험 `/api/exams/.../attempts/draft`와 독립된 API입니다. 기존 FE는 이 API를 호출하지 않고 브라우저 임시저장을 유지할 수 있습니다.
+
+PUT 요청은 `{"version":0,"answers":[{"questionId":"q1","answer":null}]}`입니다. 최초 `version`은 생략/null/0, 이후에는 마지막 GET/PUT의 버전을 사용합니다. PUT은 전체 답안을 교체하며 빈 배열은 답안 비우기입니다. 미응답/미완성 답안을 허용하되 중복·존재하지 않는 문항 ID는 `INVALID_QUIZ_ANSWER`(400)입니다. 최종 제출 검증을 완화하지 않습니다. JSON 요청은 256 KiB 이하(`DRAFT_TOO_LARGE`, 400), 단일 서버 인스턴스에서 사용자·퀴즈당 분당 30회 이하(`RATE_LIMIT_EXCEEDED`, 429)입니다.
+
+GET/PUT 성공 응답 `data`는 `{"version":1,"answers":[...],"savedAt":"2026-11-15T00:00:00Z"}`이며 정답·해설은 포함하지 않습니다. GET은 초안이 없으면 204입니다. 버전 불일치는 409 `DRAFT_VERSION_CONFLICT`이며 오류 봉투 최상위 `latestDraft`에 현재 버전·본인 답안·저장 시각을 반환합니다. FE가 로컬/서버 답안을 비교해 선택한 뒤 최신 버전으로 다시 저장하며 자동 덮어쓰기는 하지 않습니다.
+
+GET/PUT 모두 본인 퀴즈와 현재 자료 접근권이 필요합니다. 타인·삭제 세션은 `QUIZ_NOT_FOUND`(404), 자료 권한 회수는 `MATERIAL_NOT_FOUND`(404)입니다. PUT은 ACTIVE 세션의 현재 활성 퀴즈에만 허용합니다. 완료 세션은 `QUIZ_NOT_SUBMITTABLE`(409), 다른 활성 퀴즈는 `SESSION_STATE_CONFLICT`(409), 이미 제출한 퀴즈는 `QUIZ_ALREADY_SUBMITTED`(409)입니다. GET은 접근권이 유지된 기존 초안을 조회할 수 있습니다.
+
+저장과 제출은 동일한 세션→자료 접근권 잠금 순서로 직렬화합니다. 성공한 최종 제출의 같은 트랜잭션에서 초안을 비우며 제출 본문만 채점합니다. 검증/채점/저장 실패는 초안을 보존합니다. 제출 이후 PUT으로 초안을 되살릴 수 없습니다. 기기 B는 같은 계정으로 GET해 복원합니다. 답안 변경 시 디바운스 저장, 저장 완료 시각 표시, 오프라인 미저장 표시, 409 선택 UI는 FE가 구현해야 하며 서버 변경만으로 UI가 자동 연결되지 않습니다.
 
 #### POST `/api/quizzes/{quizId}/submit`
 

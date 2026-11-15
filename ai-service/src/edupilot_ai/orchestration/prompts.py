@@ -30,6 +30,18 @@ _EVIDENCE_QUALIFICATION_INSTRUCTION = (
 
 
 def _quiz_confidence_instruction(context: AgentContext) -> str:
+    difficulty = context.event_payload.difficulty
+    if difficulty is not None:
+        level_instruction = {
+            "EASY": "기초 개념 확인과 직접적인 한 단계 적용 위주로 출제하라.",
+            "MEDIUM": "기초 이해와 일반적인 응용을 균형 있게 출제하라.",
+            "HARD": "자료 범위 안에서 다단계 추론과 개념 연결·응용 위주로 출제하라.",
+        }[difficulty]
+        return (
+            f"학생이 이번 퀴즈의 difficulty={difficulty}를 명시적으로 선택했다. "
+            "난이도는 learnerLevel·learnerConfidence·메모리의 난이도보다 이 선택을 우선한다. "
+            f"{level_instruction} 출제 범위·문항 수·유형·정답 검증 규칙은 그대로 유지하라."
+        )
     if context.learner_confidence == "LOW":
         return "learnerConfidence=LOW이므로 기초 개념 점검 문항 비중을 높여라."
     if context.learner_confidence == "MEDIUM":
@@ -337,6 +349,8 @@ def quiz_messages(
         "learnerMemoryDigest": context.learner_memory_digest,
         "qaThreadDigest": context.qa_thread_digest,
     }
+    if context.event_payload.difficulty is not None:
+        payload["difficulty"] = context.event_payload.difficulty
     confidence_instruction = _quiz_confidence_instruction(context)
     if quiz_context is not None and quiz_context.learning_focus is not None:
         payload["learningFocus"] = quiz_context.learning_focus

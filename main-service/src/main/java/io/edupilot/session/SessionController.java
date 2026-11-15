@@ -186,6 +186,8 @@ public class SessionController {
 		summary = "학습 turn AI 처리",
 		description = """
 			사용자 메시지를 먼저 저장하고 FastAPI /internal/ai/turn을 호출합니다.
+			QUIZ_TYPE_SELECTED payload는 quizType과 선택 difficulty(EASY/MEDIUM/HARD)를 받습니다.
+			difficulty 생략 시 기존 개인화를 유지하며 null·잘못된 값은 거절합니다.
 			응답의 메시지·UI action·statePatch를 검증한 뒤 원자적으로 저장하며,
 			퀴즈 생성·진단 교정·학습자 메모리 승격을 기존 도메인 서비스와 연결합니다.
 			"""

@@ -89,6 +89,7 @@ class QuizSubmissionAccessJpaTest {
 	@Autowired private LearningSessionRepository sessions;
 	@Autowired private QuizRepository quizzes;
 	@Autowired private QuizService quizService;
+	@Autowired private QuizDraftService drafts;
 	@Autowired private QuizSubmissionRepository submissions;
 	@Autowired private QuizSubmissionService service;
 	@Autowired private QuizSubmissionPreparationService preparation;
@@ -376,6 +377,108 @@ class QuizSubmissionAccessJpaTest {
 			return new GradeResponse("1.0", f.quiz(), "SHORT", BigDecimal.TEN, BigDecimal.TEN,
 				List.of(new GradeResponse.Item("q1", BigDecimal.TEN, BigDecimal.TEN, "CORRECT", "private feedback")), null);
 		});
+	}
+
+	@Test
+	void draftRoundTripVersionConflictAndSubmissionConsumesAtomically() {
+		Fixture f = fixture(QuizType.OX, true);
+		assertThat(drafts.get(f.learner(), f.quiz())).isNull();
+		var saved = drafts.save(f.learner(), f.quiz(), draft(0));
+		assertThat(saved.version()).isEqualTo(1);
+		assertThat(drafts.get(f.learner(), f.quiz()).answers()).isEqualTo(request().answers());
+		assertThatThrownBy(() -> drafts.save(f.learner(), f.quiz(), draft(0)))
+			.isInstanceOfSatisfying(QuizDraftVersionConflictException.class,
+				error -> assertThat(error.latestDraft().version()).isEqualTo(1));
+		assertThat(drafts.save(f.learner(), f.quiz(), draft(1)).version()).isEqualTo(2);
+		service.submit(f.learner(), f.quiz(), request());
+		assertThat(drafts.get(f.learner(), f.quiz())).isNull();
+		assertThatThrownBy(() -> drafts.save(f.learner(), f.quiz(), draft(2)))
+			.isInstanceOfSatisfying(BusinessException.class,
+				error -> assertThat(error.errorCode()).isEqualTo(ErrorCode.QUIZ_ALREADY_SUBMITTED));
+	}
+
+	@Test
+	void draftsValidateOwnerAndCurrentMaterialAccess() {
+		Fixture f = fixture(QuizType.OX, false);
+		drafts.save(f.learner(), f.quiz(), draft(0));
+		assertThatThrownBy(() -> drafts.get(f.instructor(), f.quiz()))
+			.isInstanceOfSatisfying(BusinessException.class,
+				error -> assertThat(error.errorCode()).isEqualTo(ErrorCode.QUIZ_NOT_FOUND));
+		revoke(f);
+		assertDenied(() -> drafts.get(f.learner(), f.quiz()));
+		assertDenied(() -> drafts.save(f.learner(), f.quiz(), draft(1)));
+	}
+
+	@Test
+	void incompleteDraftSurvivesRejectedFinalSubmission() {
+		Fixture f = fixture(QuizType.OX, true);
+		var answers = List.of(new QuizSubmitRequest.Answer("q1", null));
+		drafts.save(f.learner(), f.quiz(), new io.edupilot.quiz.dto.SaveQuizDraftRequest(null, answers));
+		assertThatThrownBy(() -> service.submit(f.learner(), f.quiz(), new QuizSubmitRequest("incomplete", answers)))
+			.isInstanceOf(BusinessException.class);
+		assertThat(drafts.get(f.learner(), f.quiz()).answers()).isEqualTo(answers);
+	}
+
+	@Test
+	void draftsRejectUnknownDuplicateAndOversizedAnswers() {
+		Fixture f = fixture(QuizType.OX, true);
+		for (var answers : List.of(
+			List.of(new QuizSubmitRequest.Answer("other", null)),
+			List.of(new QuizSubmitRequest.Answer("q1", null), new QuizSubmitRequest.Answer("q1", null)))) {
+			assertThatThrownBy(() -> drafts.save(f.learner(), f.quiz(),
+				new io.edupilot.quiz.dto.SaveQuizDraftRequest(0, answers)))
+				.isInstanceOfSatisfying(BusinessException.class,
+					error -> assertThat(error.errorCode()).isEqualTo(ErrorCode.INVALID_QUIZ_ANSWER));
+		}
+		assertThatThrownBy(() -> drafts.save(f.learner(), f.quiz(),
+			new io.edupilot.quiz.dto.SaveQuizDraftRequest(0, List.of(
+				new QuizSubmitRequest.Answer("q1", StringNode.valueOf("x".repeat(256 * 1024)))))))
+			.isInstanceOfSatisfying(BusinessException.class,
+				error -> assertThat(error.errorCode()).isEqualTo(ErrorCode.DRAFT_TOO_LARGE));
+		assertThat(drafts.get(f.learner(), f.quiz())).isNull();
+	}
+
+	@Test
+	void concurrentFirstDraftWritesHaveOneWinner() throws Exception {
+		Fixture f = fixture(QuizType.OX, true);
+		CountDownLatch start = new CountDownLatch(1);
+		try (var executor = Executors.newFixedThreadPool(2)) {
+			java.util.concurrent.Callable<Boolean> write = () -> {
+				await(start);
+				try { drafts.save(f.learner(), f.quiz(), draft(0)); return true; }
+				catch (QuizDraftVersionConflictException expected) { return false; }
+			};
+			var first = executor.submit(write);
+			var second = executor.submit(write);
+			start.countDown();
+			assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)))
+				.containsExactlyInAnyOrder(true, false);
+		}
+		assertThat(drafts.get(f.learner(), f.quiz()).version()).isEqualTo(1);
+	}
+
+	@Test
+	void submissionAndDraftRaceNeverLeavesDraftAfterSubmission() throws Exception {
+		Fixture f = fixture(QuizType.OX, true);
+		drafts.save(f.learner(), f.quiz(), draft(0));
+		CountDownLatch start = new CountDownLatch(1);
+		try (var executor = Executors.newFixedThreadPool(2)) {
+			var saving = executor.submit(() -> {
+				await(start);
+				try { drafts.save(f.learner(), f.quiz(), draft(1)); }
+				catch (BusinessException error) { assertThat(error.errorCode()).isEqualTo(ErrorCode.QUIZ_ALREADY_SUBMITTED); }
+			});
+			var submitting = executor.submit(() -> { await(start); service.submit(f.learner(), f.quiz(), request()); });
+			start.countDown();
+			saving.get(10, TimeUnit.SECONDS);
+			submitting.get(10, TimeUnit.SECONDS);
+		}
+		assertThat(drafts.get(f.learner(), f.quiz())).isNull();
+		assertThat(submissionCount(f)).isEqualTo(1);
+	}
+
+	private io.edupilot.quiz.dto.SaveQuizDraftRequest draft(int version) {
+		return new io.edupilot.quiz.dto.SaveQuizDraftRequest(version, request().answers());
 	}
 
 	private Fixture fixture(QuizType type, boolean materialOwner) {
