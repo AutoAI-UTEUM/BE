@@ -113,6 +113,22 @@ class SourceReviewTests(unittest.TestCase):
             with self.assertRaises(Exception): p.image_record(review, digest, self.env)
         with self.assertRaises(Exception): p.image_record(review, "sha256:" + "c" * 64, self.env | {"GITHUB_SHA": "f" * 40})
 
+    def test_main_ci_builds_deployment_source_and_workflow_changes(self):
+        workflow = (p.ROOT / ".github/workflows/main-service-ci.yml").read_text(encoding="utf-8")
+        detection = workflow.split("      - name: Detect main-service changes\n", 1)[1].split("      - name:", 1)[0]
+        pathspecs = detection.split('git diff --quiet "$BASE_SHA" "$HEAD_SHA" --', 1)[1].split("; then", 1)[0]
+        paths = pathspecs.replace(chr(92), " ").split()
+        self.assertEqual(set(paths), {"main-service", "scripts/qa/mail-trial", "scripts/deploy",
+                                     ".github/workflows/main-service-ci.yml", ".github/workflows/deploy-dev.yml"})
+        # These paths require real Spring verification, not merely the unconditional offline guards.
+        for changed in ("scripts/deploy/dev_maintenance.py", "scripts/deploy/check_deletion_ledger_jar.py",
+                        ".github/workflows/deploy-dev.yml", ".github/workflows/main-service-ci.yml"):
+            self.assertTrue(any(changed == path or changed.startswith(path + "/") for path in paths))
+        for step in ("Build and test main-service", "Verify packaged deletion operator defaults to no action"):
+            block = workflow.split("      - name: " + step + "\n", 1)[1].split("      - name:", 1)[0]
+            self.assertIn("if: steps.changes.outputs.service == 'true'", block)
+        self.assertIn("run: ./gradlew build --no-daemon", workflow)
+
     def test_workflow_separates_publisher_from_all_server_secrets_and_preserves_prepare(self):
         workflow = (p.ROOT / ".github/workflows/deploy-dev.yml").read_text(encoding="utf-8")
         image = workflow.split("  build-only:\n", 1)[1].split("\n  deploy:\n", 1)[0]

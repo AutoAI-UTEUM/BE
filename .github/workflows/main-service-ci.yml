@@ -36,7 +36,8 @@ jobs:
           if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
             echo "service=true" >> "$GITHUB_OUTPUT"
           elif git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- \
-            main-service scripts/qa/mail-trial .github/workflows/main-service-ci.yml; then
+            main-service scripts/qa/mail-trial scripts/deploy \
+            .github/workflows/main-service-ci.yml .github/workflows/deploy-dev.yml; then
             echo "service=false" >> "$GITHUB_OUTPUT"
           else
             echo "service=true" >> "$GITHUB_OUTPUT"
