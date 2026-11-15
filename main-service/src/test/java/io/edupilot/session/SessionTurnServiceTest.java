@@ -806,6 +806,101 @@ class SessionTurnServiceTest {
 			);
 	}
 
+	@ParameterizedTest
+	@ValueSource(strings = {"EASY", "MEDIUM", "HARD"})
+	void quizDifficultyIsForwardedWithoutChangingDiagnosis(String difficulty) throws Exception {
+		when(preparationService.prepare(
+			1L,
+			100L,
+			"quiz-request",
+			"퀴즈 유형 선택: MCQ",
+			null
+		)).thenReturn(new PreparedTurn(501L));
+		when(preparationService.prepare(
+			1L,
+			100L,
+			"diagnosis-request",
+			"answer",
+			30L
+		)).thenReturn(new PreparedTurn(501L));
+		TurnSnapshot snapshot = new TurnSnapshot(
+			Map.of("sessionId", 100L, "currentPage", 2),
+			Map.of("currentPageText", "현재"),
+			10L,
+			false
+		);
+		when(snapshotService.build(1L, 100L, 501L, true))
+			.thenReturn(snapshot);
+		when(snapshotService.buildQuiz(1L, 100L, 501L))
+			.thenReturn(snapshot);
+		when(streamService.beginTurn(
+			eq(1L),
+			eq(100L),
+			anyString(),
+			any(AiStreamCancellation.class)
+		)).thenReturn(Optional.empty());
+		when(aiClient.executeTurn(any())).thenAnswer(invocation -> {
+			io.edupilot.ai.dto.TurnRequest aiRequest =
+				invocation.getArgument(0);
+			return aiResponse(aiRequest.turnId());
+		});
+		when(persistenceService.persist(
+			any(),
+			any(),
+			anyLong(),
+			any(),
+			anyString(),
+			any(),
+			any(),
+			any(),
+			anyBoolean(),
+			any()
+		)).thenReturn(persisted(publicResponse()));
+
+		service().execute(
+			1L,
+			100L,
+			new TurnRequest(
+				"quiz-request",
+				"QUIZ_TYPE_SELECTED",
+				objectMapper.readTree("{\"quizType\":\"MCQ\",\"difficulty\":\"" + difficulty + "\"}")
+			)
+		);
+		service().execute(
+			1L,
+			100L,
+			new TurnRequest(
+				"diagnosis-request",
+				"DIAGNOSIS_ANSWER_SUBMITTED",
+				objectMapper.readTree(
+					"{\"diagnosisId\":30,\"answer\":\" answer \"}"
+				)
+			)
+		);
+
+		ArgumentCaptor<io.edupilot.ai.dto.TurnRequest> requests =
+			ArgumentCaptor.forClass(io.edupilot.ai.dto.TurnRequest.class);
+		verify(aiClient, org.mockito.Mockito.times(2))
+			.executeTurn(requests.capture());
+		assertThat(requests.getAllValues())
+			.extracting(request -> request.event().get("payload"))
+			.containsExactly(
+				Map.of("quizType", "MCQ", "difficulty", difficulty),
+				Map.of("diagnosisId", 30L, "answer", "answer")
+			);
+	}
+
+
+	@ParameterizedTest
+	@ValueSource(strings = {"null", "1", "true", "\"\"", "\"easy\"", "\"HARD \"", "{}"})
+	void rejectsInvalidQuizDifficultyBeforePreparingTurn(String difficulty) throws Exception {
+		assertThatThrownBy(() -> service().execute(1L, 100L,
+			new TurnRequest("bad-difficulty", "QUIZ_TYPE_SELECTED",
+				objectMapper.readTree("{\"quizType\":\"MCQ\",\"difficulty\":" + difficulty + "}"))))
+			.isInstanceOf(BusinessException.class);
+		verify(preparationService, never()).prepare(any(), any(), any(), any(), any());
+	}
+
 	@Test
 	void streamsIntermediateEventsThenPersistsSnapshotBeforeCompleted()
 		throws Exception {
@@ -1116,6 +1211,8 @@ class SessionTurnServiceTest {
 		when(aiClient.executeTurnStream(any(), any(), any(), any())).thenAnswer(invocation -> {
 			io.edupilot.ai.dto.TurnRequest request = invocation.getArgument(0);
 			assertThat(request.streamsQuizQuestions()).isEqualTo(enabled);
+			assertThat(request.event().get("payload"))
+				.isEqualTo(Map.of("quizType", "MCQ", "difficulty", "HARD"));
 			assertThat(objectMapper.writeValueAsString(request).contains("capabilities")).isEqualTo(enabled);
 			Consumer<TurnStreamEvent> listener = invocation.getArgument(1);
 			if (enabled) {
@@ -1136,7 +1233,9 @@ class SessionTurnServiceTest {
 		appender.start();
 		logger.addAppender(appender);
 		try {
-			TurnResponse response = service(clock::get).execute(1L, 100L, quizRequest());
+			TurnResponse response = service(clock::get).execute(1L, 100L, new TurnRequest("request-quiz",
+				"QUIZ_TYPE_SELECTED", objectMapper.readTree(
+					"{\"quizType\":\"MCQ\",\"difficulty\":\"HARD\"}")));
 			assertThat(response.state().activeQuizId()).isEqualTo(50L);
 			var order = inOrder(streamConnection, responseValidator, persistenceService, streamService);
 			if (enabled) {

@@ -21,7 +21,21 @@ spec.loader.exec_module(deploy)
 TARGET = "ghcr.io/autoai-uteum/main-service@sha256:" + "f" * 64
 
 
+def reviewed_source(root):
+    """Copy unchanged reviewed bytes, not future migrations, into a synthetic V65 checkout."""
+    migrations = "main-service/src/main/resources/db/migration"
+    target = root / migrations
+    target.mkdir(parents=True, exist_ok=True)
+    for version in range(1, 66):
+        sources = list((ROOT / migrations).glob(f"V{version}__*.sql"))
+        assert len(sources) == 1, f"Expected exactly one reviewed V{version} migration"
+        shutil.copyfile(sources[0], target / sources[0].name)
+    # The production validator verifies all original checksums, not merely the version range.
+    deploy.source_catalog_v65(root)
+
+
 def fixture(root, baseline=64):
+    reviewed_source(root)
     for name in deploy.FILES:
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -33,7 +47,7 @@ def fixture(root, baseline=64):
     backup.parent.mkdir()
     backup.write_bytes(gzip.compress(b"SYNTHETIC DUMP; NO PERSONAL DATA\n"))
     backup.chmod(0o600)
-    catalog = deploy.source_catalog_v65(ROOT)
+    catalog = deploy.source_catalog_v65(root)
     services = {}
     for i, name in enumerate(deploy.SERVICES, 1):
         repo = "ghcr.io/autoai-uteum/" + name if name.endswith("-service") else name
@@ -68,13 +82,26 @@ def fixture(root, baseline=64):
 
 
 class V65Tests(unittest.TestCase):
+    def test_current_v66_checkout_is_rejected_without_payload_or_process(self):
+        with tempfile.TemporaryDirectory(dir=HERE) as tmp:
+            root = Path(tmp)
+            manifest, catalog, *_ = fixture(root)
+            self.assertEqual(set(catalog), {str(version) for version in range(1, 66)})
+            self.assertEqual(deploy.sha_json(catalog), deploy.V65_CATALOG_SHA256)
+            output = root / "unreviewed.sh"
+            with mock.patch.object(deploy.subprocess, "run", side_effect=AssertionError("NO_PROCESS")) as process:
+                with self.assertRaisesRegex(ValueError, "EXACT_REVIEWED_V65"):
+                    deploy.prepare(ROOT, output, manifest, "a" * 40, "SHA256:" + "a" * 43, deploy.V65_CONTRACT)
+            process.assert_not_called()
+            self.assertFalse(output.exists())
+
     def test_catalog_rejects_v66_missing_duplicate_and_changed_old_or_new_migration(self):
         migrations = "main-service/src/main/resources/db/migration"
         for fault in ("v66", "missing", "duplicate", "v64_changed", "v65_changed", "v1_changed"):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory(dir=HERE) as tmp:
                 root = Path(tmp)
                 target = root / migrations
-                shutil.copytree(ROOT / migrations, target)
+                reviewed_source(root)
                 if fault == "v66":
                     (target / "V66__unreviewed.sql").write_text("SELECT 1;")
                 elif fault == "duplicate":
@@ -125,11 +152,11 @@ class V65Tests(unittest.TestCase):
             manifest, *_ = fixture(root)
             for contract in ("v64", "v66", ""):
                 with self.assertRaises(ValueError):
-                    deploy.prepare(ROOT, root / "blocked.sh", manifest, "a" * 40, "SHA256:" + "a" * 43, contract)
+                    deploy.prepare(root, root / "blocked.sh", manifest, "a" * 40, "SHA256:" + "a" * 43, contract)
                 self.assertFalse((root / "blocked.sh").exists())
             output = root / "reviewed.sh"
             with mock.patch.object(deploy.subprocess, "run", side_effect=AssertionError("NO_PROCESS")) as process:
-                value = deploy.prepare(ROOT, output, manifest, "a" * 40, "SHA256:" + "a" * 43, deploy.V65_CONTRACT)
+                value = deploy.prepare(root, output, manifest, "a" * 40, "SHA256:" + "a" * 43, deploy.V65_CONTRACT)
             process.assert_not_called()
             self.assertEqual(value, deploy.V65_CATALOG_SHA256)
             script = output.read_text(encoding="utf-8")
@@ -157,7 +184,7 @@ class V65Tests(unittest.TestCase):
                    "VERIFIED_HOST_FINGERPRINT": "SHA256:" + "a" * 43, "GITHUB_OUTPUT": str(job_output)}
             console = io.StringIO()
             with mock.patch.dict(os.environ, env, clear=True), \
-                 mock.patch.object(deploy.Path, "cwd", return_value=ROOT), \
+                 mock.patch.object(deploy.Path, "cwd", return_value=root), \
                  mock.patch.object(deploy.sys, "argv", ["deploy", "--prepare", "--release-contract", deploy.V65_CONTRACT, "--output", str(output)]), \
                  mock.patch.object(deploy.subprocess, "run", side_effect=AssertionError("NO_PROCESS")) as process, \
                  mock.patch.object(deploy.sys, "stdout", console):

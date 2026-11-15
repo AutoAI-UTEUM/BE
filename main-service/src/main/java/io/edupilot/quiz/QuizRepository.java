@@ -14,6 +14,9 @@ import io.edupilot.session.SessionStatus;
 
 public interface QuizRepository extends JpaRepository<Quiz, Long> {
 
+	@Query("select q.session.id from Quiz q where q.id = :quizId and q.session.user.id = :userId")
+	Optional<Long> findOwnedSessionId(@Param("quizId") Long quizId, @Param("userId") Long userId);
+
 	@Query("""
 		select quiz
 		from Quiz quiz

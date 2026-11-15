@@ -89,7 +89,7 @@ class GuardianTeamFullMigrationTest {
 				+ "(1,'legacy-migration@example.invalid','synthetic','Synthetic legacy','LEARNER','ACTIVE','2012-12-31','LEGACY_EXEMPT','MANUAL_PENDING','UNKNOWN',null),"
 				+ "(2,'child-migration@example.invalid','synthetic','Synthetic child','LEARNER','ACTIVE','2012-01-01','NEW_SIGNUP','UNKNOWN','VERIFIED','2026-10-06 00:00:00')");
 		}
-		Flyway after = Flyway.configure().dataSource(url, IsolatedMysql.USER, IsolatedMysql.PASSWORD).locations("classpath:db/migration").load();
+		Flyway after = Flyway.configure().dataSource(url, IsolatedMysql.USER, IsolatedMysql.PASSWORD).locations("classpath:db/migration").target("65").load();
 		after.migrate();
 		assertThat(after.validateWithResult().validationSuccessful).isTrue();
 		assertThat(after.info().current().getVersion().getVersion()).isEqualTo("65");
@@ -105,6 +105,41 @@ class GuardianTeamFullMigrationTest {
 			try (var rows = sql.executeQuery("select count(*) from guardian_team_requests")) {
 				assertThat(rows.next()).isTrue(); assertThat(rows.getLong(1)).isZero();
 			}
+		}
+		assertV66QuizUpgrade(url, schema);
+	}
+
+	private void assertV66QuizUpgrade(String url, String schema) throws Exception {
+		try (Connection connection = IsolatedMysql.open(schema); Statement sql = connection.createStatement()) {
+			sql.execute("insert into learning_materials(id,owner_id,title,storage_key,page_count,processing_status) "
+				+ "values(1,1,'Synthetic material','synthetic.pdf',1,'READY')");
+			sql.execute("insert into learning_sessions(id,user_id,material_id) values(1,1,1)");
+			sql.execute("insert into quizzes(id,session_id,page_number,title,coverage_start_page,coverage_end_page,"
+				+ "quiz_type,public_question_json,private_answer_json,schema_version) values"
+				+ "(1,1,1,'Preserved quiz',1,1,'OX',json_object('schemaVersion','1.0'),"
+				+ "json_object('correctAnswer',true),'1.0')");
+		}
+		Flyway v66 = Flyway.configure().dataSource(url, IsolatedMysql.USER, IsolatedMysql.PASSWORD)
+			.locations("classpath:db/migration").target("66").load();
+		assertThat(v66.migrate().migrationsExecuted).isEqualTo(1);
+		assertThat(v66.validateWithResult().validationSuccessful).isTrue();
+		assertThat(v66.info().current().getVersion().getVersion()).isEqualTo("66");
+		try (Connection connection = IsolatedMysql.open(schema); Statement sql = connection.createStatement()) {
+			try (var rows = sql.executeQuery("select title,json_unquote(json_extract(public_question_json,'$.schemaVersion')),"
+				+ "json_unquote(json_extract(private_answer_json,'$.correctAnswer')),draft_version,draft_answers,draft_saved_at"
+				+ " from quizzes where id=1")) {
+				assertThat(rows.next()).isTrue();
+				assertThat(rows.getString(1)).isEqualTo("Preserved quiz");
+				assertThat(rows.getString(2)).isEqualTo("1.0");
+				assertThat(rows.getString(3)).isEqualTo("true");
+				assertThat(rows.getInt(4)).isZero();
+				assertThat(rows.getString(5)).isNull();
+				assertThat(rows.getTimestamp(6)).isNull();
+				assertThat(rows.next()).isFalse();
+			}
+			assertThat(sql.executeUpdate("update quizzes set draft_answers=json_array(json_object('questionId','q1','answer',true)),"
+				+ "draft_version=1,draft_saved_at=utc_timestamp(6) where id=1 and draft_version=0")).isOne();
+			assertThat(sql.executeUpdate("update quizzes set draft_version=2 where id=1 and draft_version=0")).isZero();
 		}
 	}
 

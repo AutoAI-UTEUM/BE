@@ -11,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.jdbc.Sql;
 
 import io.edupilot.user.User;
 import io.edupilot.user.UserRepository;
@@ -32,6 +33,7 @@ import io.edupilot.user.UserRepository;
 	}
 )
 @ActiveProfiles("jpa-context")
+@Sql("/session-page-record-test-schema.sql")
 class MaterialRenameJpaTest {
 
 	@Autowired private UserRepository userRepository;
@@ -75,6 +77,7 @@ class MaterialRenameJpaTest {
 			material.getId()
 		).toInstant();
 		assertThat(response.title()).isEqualTo("수정된 제목");
+		assertThat(response.progressRate()).isZero();
 		assertThat(renamed.getTitle()).isEqualTo("수정된 제목");
 		assertThat(renamed.getStorageKey()).isEqualTo("materials/rename.pdf");
 		assertThat(renamed.getPageCount()).isEqualTo(3);

@@ -251,3 +251,5 @@ FE는 `message` 문자열을 파싱하지 않고 `code`로 분기합니다.
 
 
 Retained prior-consent review reuses existing codes: `GUARDIAN_TEAM_UNAVAILABLE` (503: prior path OFF or policy unready), `VALIDATION_FAILED` (400: missing/unchecked evidence facts, unaccepted method, invalid receipt/validity), `GUARDIAN_STATE_CONFLICT` (409: stale case, competing approval, terminal or later generation), `GUARDIAN_NOTICE_CHANGED` / `GUARDIAN_TEAM_CONFIGURATION_CHANGED` (409: obsolete notice/policy), and existing authentication/DB reviewer checks. Verified email and optional external AI errors keep their existing precedence after guardian approval. [Prior-record API and FE behavior](guardian-prior-consent.md).
+
+학습 퀴즈 `/api/quizzes/{quizId}/draft`도 `DRAFT_VERSION_CONFLICT`(409, `latestDraft`), `DRAFT_TOO_LARGE`(400), `RATE_LIMIT_EXCEEDED`(429)를 사용합니다. 문항 ID/버전/답안 배열 오류는 `INVALID_QUIZ_ANSWER`(400)이며 저장된 초안은 변경하지 않습니다. `QUIZ_ALREADY_SUBMITTED`, `QUIZ_NOT_SUBMITTABLE`, `SESSION_STATE_CONFLICT`, `QUIZ_NOT_FOUND`, `MATERIAL_NOT_FOUND`는 기존 퀴즈·자료 접근 경계를 따릅니다.

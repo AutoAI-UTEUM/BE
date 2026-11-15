@@ -339,3 +339,7 @@ V61은 사용자당 현재 guardian_team_requests와 세대별 guardian_team_eve
 `V65__guardian_prior_consent_evidence.sql` adds nullable `prior_consent_method VARCHAR(24)`, `evidence_reviewed_at DATETIME(6)` and `prior_consent_valid_until DATETIME(6)` to `guardian_team_requests`, with an all-or-none provenance CHECK and receipt/review/validity ordering. Existing rows keep null additions; no user grants or evidence backfills occur. Actual receipt uses `explicit_response_at`; `confirmation_method=PRIOR_RECORD` distinguishes the new path. Existing purge/revocation/expiry clear the added fields. Older readers that cannot deserialize this enum must not replace a reader after new values exist. See [migration and recovery boundary](guardian-prior-consent.md).
 
 The unpublished V65 CHECK also accepts `IN_PERSON` while preserving nullable additions and the existing source values. Actual consent time remains separate from review time; no account grant/backfill is introduced.
+
+### V66 학습 퀴즈 임시 답안
+
+`V66__learning_quiz_drafts.sql`은 `quizzes`에 nullable `draft_answers JSON`, `draft_saved_at DATETIME(6)`, `draft_version INT NOT NULL DEFAULT 0`을 추가합니다. 기존 행은 초안 없음/버전 0입니다. 별도 FK가 없으므로 기존 계정·자료·강의실 삭제의 퀴즈 삭제 단계에서 함께 제거됩니다. 기존 제출/정답 데이터는 변경하지 않습니다. 세션 행 잠금으로 최초 동시 저장 및 제출과의 경합을 직렬화하고 버전 비교로 다른 기기의 덮어쓰기를 방지합니다. 배포 전 백업과 V66을 허용하는 배포 경로 검토가 필요하며 이 코드 변경은 실제 DB 적용을 뜻하지 않습니다.

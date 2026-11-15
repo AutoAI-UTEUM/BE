@@ -52,6 +52,7 @@ async def test_one_provider_stream_five_public_previews_and_final_private_result
 ) -> None:
     caplog.set_level(logging.INFO)
     payload = stream_payload(turn_payload, quiz_type)
+    payload["event"]["payload"]["difficulty"] = "HARD"
     payload["context"]["xaiFileId"] = "file-quiz-stream"
     fake_llm.queue_text_stream(*quiz_chunks(quiz_type), usage=LlmUsage("test-model", 11, 22, 3, 77))
     response = await client.post(
@@ -82,6 +83,7 @@ async def test_one_provider_stream_five_public_previews_and_final_private_result
     assert result["usage"]["cost_usd_ticks"] == 77
     assert result["messages"] == []
     assert fake_llm.calls == [] and len(fake_llm.stream_calls) == 1
+    assert "difficulty=HARD" in fake_llm.stream_calls[0][0][0]["content"]
     assert fake_llm.stream_file_attachments[0][0].file_id == "file-quiz-stream"
     assert "1번 문제" not in caplog.text and "기준 답안" not in caplog.text
     assert any(r.getMessage() == "turn stream completed" for r in caplog.records)

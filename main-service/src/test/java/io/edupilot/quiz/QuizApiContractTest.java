@@ -69,6 +69,9 @@ class QuizApiContractTest {
 	private QuizService quizService;
 
 	@MockitoBean
+	private QuizDraftService draftService;
+
+	@MockitoBean
 	private QuizSubmissionService submissionService;
 
 	@MockitoBean
@@ -113,6 +116,43 @@ class QuizApiContractTest {
 		User user = User.create("user@example.com", "hash", "학습자");
 		ReflectionTestUtils.setField(user, "id", 1L);
 		accessToken = jwtTokenProvider.createAccessToken(user);
+	}
+
+	@Test
+	void draftApiRequiresAuthenticationAndSupportsEmptyAndConflictResponses() throws Exception {
+		mockMvc.perform(get("/api/quizzes/50/draft")).andExpect(status().isUnauthorized());
+		mockMvc.perform(get("/api/quizzes/50/draft").header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+			.andExpect(status().isNoContent());
+		var latest = new io.edupilot.quiz.dto.QuizDraftResponse(2, List.of(), NOW);
+		when(draftService.save(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq(50L),
+			org.mockito.ArgumentMatchers.any())).thenThrow(new QuizDraftVersionConflictException(latest));
+		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/quizzes/50/draft")
+			.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+			.contentType(MediaType.APPLICATION_JSON).content("{\"version\":1,\"answers\":[]}"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("error.code").value("DRAFT_VERSION_CONFLICT"))
+			.andExpect(jsonPath("latestDraft.version").value(2))
+			.andExpect(jsonPath("latestDraft.answers").isArray())
+			.andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+				.string("Cache-Control", containsString("no-store")));
+	}
+
+	@Test
+	void draftApiReturnsOnlySavedAnswersAndPermitsConfiguredPutPreflight() throws Exception {
+		when(draftService.get(1L, 50L)).thenReturn(new io.edupilot.quiz.dto.QuizDraftResponse(1, List.of(), NOW));
+		mockMvc.perform(get("/api/quizzes/50/draft").header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+			.andExpect(status().isOk()).andExpect(jsonPath("data.version").value(1))
+			.andExpect(jsonPath("data.savedAt").exists()).andExpect(jsonPath("data.answers").isArray())
+			.andExpect(jsonPath("data.privateAnswerData").doesNotExist())
+			.andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+				.string("Cache-Control", containsString("no-store")));
+		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options("/api/quizzes/50/draft")
+			.header("Origin", "http://localhost:5173")
+			.header("Access-Control-Request-Method", "PUT")
+			.header("Access-Control-Request-Headers", "Authorization,Content-Type"))
+			.andExpect(status().isOk())
+			.andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+				.string("Access-Control-Allow-Methods", containsString("PUT")));
 	}
 
 	@Test

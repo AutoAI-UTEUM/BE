@@ -144,7 +144,7 @@ AI 구버전은 새 필드를 거부할 수 있으므로 DEC-041 합의 및 AI �
 | --- | --- | --- |
 | `EXPLAIN_CURRENT_PAGE` | `{ "detailLevel": "NORMAL\|DETAILED" }` | PDF 첨부 시 Orchestrator가 `EXPLAIN_PAGE`와 선택적 퀴즈 제안을 같은 Plan에 구성하고, ExplainerAgent가 현재 페이지를 설명 |
 | `USER_QUESTION` | `{ "message": "...", "includeCurrentPage": true\|false }` (`includeCurrentPage` 선택, 생략 시 `true`) | Orchestrator가 Plan에서 START_NEW/FOLLOW_UP을 결정하고, QaAgent는 전달받아 수행. latestRepair 있으면 교정 문맥 승계 |
-| `QUIZ_TYPE_SELECTED` | `{ "quizType": "MCQ\|OX\|SHORT\|ESSAY" }` | QuizAgent (GENERATE_QUIZ_* 도구) |
+| `QUIZ_TYPE_SELECTED` | `{ "quizType": "MCQ\|OX\|SHORT\|ESSAY", "difficulty": "EASY\|MEDIUM\|HARD" }` | QuizAgent (GENERATE_QUIZ_* 도구) |
 | `DIAGNOSIS_ANSWER_SUBMITTED` | `{ "diagnosisId": 30, "answer": "..." }` | RepairAgent — 진단 답변 기반 짧은 교정 |
 | `NOTE_REQUESTED` | `{}` | NoteAgent — 현재 학습 문맥을 노트 초안으로 작성 |
 
@@ -886,3 +886,7 @@ AI Service의 `models/exam_draft.py`와 `docs/contracts/exam-draft.schema.json`�
 - 평가 리포트 PDF 출력 — MVP 이후. 재개 시 책임 분리안: 리포트 내용 JSON은 AI 서비스, PDF 렌더링은 Spring/FE (AI 서비스에 PDF 생성 책임 없음). 별도 이슈 + DEC 신규 항목으로 등록.
 
 **타 문서 반영 대기 목록**: api-spec §9(SSE 세부), Epic5 ⓐ·Epic7 ⓐ 이슈 본문에 v0.4 확정값 기입. v0.5의 api-spec §5 payload 규칙은 이 문서 개정과 함께 동기화한다.
+
+### 선택 퀴즈 난이도
+
+`QUIZ_TYPE_SELECTED.payload.difficulty`는 선택 enum입니다. 생략은 기존 개인화 동작을 보존하고 명시 null 및 enum 외 값은 SCHEMA로 거절합니다. 요청된 난이도는 해당 QuizAgent 호출에서 learnerLevel·learnerConfidence보다 우선하며 장기 메모리는 변경하지 않습니다. JSON/NDJSON 모두 동일합니다. Spring과 AI를 함께 호환 버전으로 배포한 후 FE 옵션을 활성화합니다.

@@ -211,7 +211,8 @@ class MaterialApiContractTest {
 				true,
 				null,
 				null,
-				Instant.parse("2026-07-25T00:00:00Z")
+				Instant.parse("2026-07-25T00:00:00Z"),
+				50
 			)
 		);
 
@@ -233,6 +234,7 @@ class MaterialApiContractTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.processingStatus").value("READY"))
+			.andExpect(jsonPath("$.data.progressRate").value(50))
 			.andExpect(jsonPath("$.data.learningAvailable").value(true))
 			.andExpect(jsonPath("$.data.failureReason").value(
 				org.hamcrest.Matchers.nullValue()
@@ -389,7 +391,8 @@ class MaterialApiContractTest {
 				true,
 				null,
 				null,
-				Instant.parse("2026-07-25T00:00:00Z")
+				Instant.parse("2026-07-25T00:00:00Z"),
+				50
 			)
 		);
 
@@ -401,6 +404,7 @@ class MaterialApiContractTest {
 			.andExpect(jsonPath("$.data.materialId").value(10))
 			.andExpect(jsonPath("$.data.title").value("수정된 제목"))
 			.andExpect(jsonPath("$.data.processingStatus").value("READY"))
+			.andExpect(jsonPath("$.data.progressRate").value(50))
 			.andExpect(jsonPath("$.data.learningAvailable").value(true));
 	}
 
@@ -428,7 +432,8 @@ class MaterialApiContractTest {
 				false,
 				MaterialFailureReason.EXTRACTION_FAILED,
 				"upload-trace-10",
-				Instant.parse("2026-07-25T00:00:00Z")
+				Instant.parse("2026-07-25T00:00:00Z"),
+				0
 			)
 		);
 		when(materialService.detail(1L, 11L)).thenReturn(
@@ -440,7 +445,8 @@ class MaterialApiContractTest {
 				false,
 				null,
 				null,
-				Instant.parse("2026-07-24T00:00:00Z")
+				Instant.parse("2026-07-24T00:00:00Z"),
+				0
 			)
 		);
 
